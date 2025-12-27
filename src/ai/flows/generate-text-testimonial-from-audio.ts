@@ -1,4 +1,4 @@
-// 'use server'; // Disabled for static export
+'use server';
 /**
  * @fileOverview A flow to generate text testimonials from audio content.
  *
