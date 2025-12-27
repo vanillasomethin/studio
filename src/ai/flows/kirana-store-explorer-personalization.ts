@@ -1,4 +1,4 @@
-'use server';
+// 'use server'; // Disabled for static export
 /**
  * @fileOverview A Kirana Store Impact Explorer AI agent.
  *
