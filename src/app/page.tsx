@@ -23,7 +23,7 @@ function AnimatedSection({ children }: { children: React.ReactNode }) {
     offset: ['start end', 'end center'],
   });
 
-  const opacity = useTransform(scrollYProgress, [0.3, 0.7], [0.4, 1]);
+  const opacity = useTransform(scrollYProgress, [0.3, 0.7], [0.85, 1]);
 
   return (
     <motion.div ref={ref} style={{ opacity }}>
