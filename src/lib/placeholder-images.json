@@ -111,13 +111,13 @@
     {
       "id": "alive-ad-in-store",
       "description": "A close-up of a digital screen on a shelf in an Indian Kirana store displaying a colorful ad.",
-      "imageUrl": "https://storage.googleapis.com/stabl-in/b7430588-1293-4712-9c3a-e9a038fdf1b8.jpg",
+      "imageUrl": "/alive_after.png",
       "imageHint": "digital ad store"
     },
     {
       "id": "alive-tv-bg",
       "description": "Background image of a kirana store for the Alive TV component",
-      "imageUrl": "https://images.unsplash.com/photo-1629437196141-80f08969b4b0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxpbmRpYW4lMjBraXJhbmElMjBzdG9yZXxlbnwwfHx8fDE3NTk1ODQxODd8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageUrl": "/alive_before.png",
       "imageHint": "indian kirana store"
     },
     {
