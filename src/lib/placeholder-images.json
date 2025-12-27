@@ -3,25 +3,25 @@
     {
       "id": "hero-kirana-store",
       "description": "A bustling and vibrant Kirana store with customers, conveying a sense of activity",
-      "imageUrl": "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+      "imageUrl": "/Kirana_Shop.jpg",
       "imageHint": "indian kirana store"
     },
     {
       "id": "how-it-works-brands",
       "description": "A bustling kirana store in India, showing products on shelves.",
-      "imageUrl": "https://images.unsplash.com/photo-1583947215259-38e31be8751f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+      "imageUrl": "/Best-Practice-for-Kirana-Shops-.jpg",
       "imageHint": "indian store owner"
     },
     {
       "id": "how-it-works-stores",
       "description": "A happy Indian Kirana store owner standing proudly in his shop.",
-      "imageUrl": "https://images.unsplash.com/photo-1556742044-3c52d6e88c62?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+      "imageUrl": "/Kirana_Shop.jpg",
       "imageHint": "indian store owner"
     },
     {
       "id": "how-it-works-consumers",
       "description": "A customer in a Kirana store, smiling as they look at products.",
-      "imageUrl": "https://images.unsplash.com/photo-1631819539802-720166c2651f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxpbmRpYW4lMjBraXJhbmF8ZW58MHx8fHwxNzU4ODEwMDk5fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageUrl": "/1733742351200.png",
       "imageHint": "indian kirana"
     },
     {
