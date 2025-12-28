@@ -33,19 +33,19 @@
     {
       "id": "story-1",
       "description": "Illustration of a brand manager struggling",
-      "imageUrl": "https://images.unsplash.com/photo-1606857521015-7f9fcf423740?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxvZmZpY2UlMjB3b3JrZXJ8ZW58MHx8fHwxNzU4NzgzNzI1fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageUrl": "/pexels-kevin-malik-9016541.jpg",
       "imageHint": "office worker"
     },
     {
       "id": "story-2",
       "description": "Illustration of a Kirana with unused space",
-      "imageUrl": "https://images.unsplash.com/photo-1531540823824-7d09de6461c8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw3fHxzdG9yZSUyMG93bmVyfGVufDB8fHx8fDE3NTg4MDY1NTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageUrl": "/Best-Practice-for-Kirana-Shops-.jpg",
       "imageHint": "store owner"
     },
     {
       "id": "story-3",
       "description": "Illustration of an unaware consumer",
-      "imageUrl": "https://images.unsplash.com/photo-1708138831412-9a2eda734f3f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw4fHxzaG9wcGVyJTIwcHJvZmlsZXxlbnwwfHx8fDE3NTg4MDY1NTR8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageUrl": "/pexels-pexels-user-1476227307-26861411.jpg",
       "imageHint": "shopper profile"
     },
     {
@@ -75,7 +75,7 @@
     {
       "id": "kirana-explorer-bg-2",
       "description": "An interior shot of a brightly lit, well-stocked Indian Kirana store, creating a welcoming atmosphere.",
-      "imageUrl": "https://storage.googleapis.com/stabl-in/b7430588-1293-4712-9c3a-e9a038fdf1b8.jpg",
+      "imageUrl": "/Kirana_Shop.jpg",
       "imageHint": "indian store shop"
     },
     {
