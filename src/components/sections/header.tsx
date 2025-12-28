@@ -1,13 +1,20 @@
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Package, Store, Users, ShoppingBag, BarChart, Info } from 'lucide-react';
+import { Menu, Package, Store, Users, ShoppingBag, BarChart, Info, Briefcase, Newspaper, UsersRound } from 'lucide-react';
 import { Logo } from '../icons/logo';
+import Link from 'next/link';
 
 const navLinks = [
-  { href: '#how-it-works', label: 'How It Works', icon: Info },
-  { href: '#features', label: 'Features', icon: Package },
-  { href: '#market-proof', label: 'Market Proof', icon: BarChart },
-  { href: '#testimonials', label: 'Testimonials', icon: Users },
+  { href: '#how-it-works', label: 'How It Works', icon: Info, isHash: true },
+  { href: '#features', label: 'Features', icon: Package, isHash: true },
+  { href: '#market-proof', label: 'Market Proof', icon: BarChart, isHash: true },
+  { href: '#testimonials', label: 'Testimonials', icon: Users, isHash: true },
+];
+
+const pageLinks = [
+  { href: '/team', label: 'Team', icon: UsersRound },
+  { href: '/careers', label: 'Careers', icon: Briefcase },
+  { href: '/blog', label: 'Blog', icon: Newspaper },
 ];
 
 type HeaderProps = {
@@ -23,7 +30,7 @@ export default function Header({ onGetStartedClick }: HeaderProps) {
           <Logo />
         </a>
 
-        <nav className="hidden items-center gap-8 md:flex">
+        <nav className="hidden items-center gap-6 md:flex">
           {navLinks.map((link) => (
             <a
               key={link.label}
@@ -32,6 +39,15 @@ export default function Header({ onGetStartedClick }: HeaderProps) {
             >
               {link.label}
             </a>
+          ))}
+          {pageLinks.map((link) => (
+            <Link
+              key={link.label}
+              href={link.href}
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {link.label}
+            </Link>
           ))}
         </nav>
 
@@ -61,6 +77,16 @@ export default function Header({ onGetStartedClick }: HeaderProps) {
                       <link.icon className="h-5 w-5" />
                       {link.label}
                     </a>
+                  ))}
+                  {pageLinks.map((link) => (
+                    <Link
+                      key={link.label}
+                      href={link.href}
+                      className="flex items-center gap-3 rounded-md p-2 text-lg font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <link.icon className="h-5 w-5" />
+                      {link.label}
+                    </Link>
                   ))}
                 </nav>
                  <Button variant="default" onClick={onGetStartedClick}>
