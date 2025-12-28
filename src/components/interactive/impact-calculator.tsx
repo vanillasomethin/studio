@@ -9,7 +9,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
-import { DollarSign, Store, Eye, Users } from "lucide-react";
+import { Store, Eye, Users, TrendingUp } from "lucide-react";
 import { useCountUp } from "@/hooks/use-count-up";
 import { Label } from "../ui/label";
 
@@ -33,7 +33,7 @@ const ImpactCalculator = () => {
       <Card className="w-full overflow-hidden">
         <CardHeader className="text-center">
           <CardTitle className="font-headline text-2xl flex items-center justify-center gap-2">
-            <DollarSign /> Brand Impact Calculator
+            <TrendingUp /> Brand Impact Calculator
           </CardTitle>
           <CardDescription className="text-muted-foreground">
             Slide to adjust your monthly budget and see your potential reach.
@@ -61,23 +61,23 @@ const ImpactCalculator = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-            <ImpactMetric 
-                icon={Store} 
-                label="Partner Shops" 
-                value={calculatedImpact.shops} 
-                color="text-green-500" 
+            <ImpactMetric
+                icon={Store}
+                label="Partner Shops"
+                value={calculatedImpact.shops}
+                color="text-primary"
             />
-            <ImpactMetric 
-                icon={Eye} 
-                label="Monthly Impressions" 
+            <ImpactMetric
+                icon={Eye}
+                label="Monthly Impressions"
                 value={calculatedImpact.impressions}
-                color="text-blue-500"
+                color="text-primary"
             />
-            <ImpactMetric 
-                icon={Users} 
-                label="Potential New Customers" 
+            <ImpactMetric
+                icon={Users}
+                label="Potential New Customers"
                 value={calculatedImpact.customers}
-                color="text-yellow-500"
+                color="text-primary"
             />
           </div>
         </CardContent>
