@@ -21,15 +21,15 @@ export default function AliveBeforeAfter() {
 
   return (
     <div className="text-center">
-      <h3 className="font-headline text-2xl font-bold mb-2">
-        Alive in Action
+      <h3 className="font-headline text-4xl font-bold mb-4 bg-gradient-to-r from-primary to-red-600 bg-clip-text text-transparent">
+        ✨ The Alive Effect
       </h3>
-      <p className="mx-auto mt-2 max-w-xl text-muted-foreground mb-8">
-        Slide to see the transformation - before and after Alive
+      <p className="mx-auto mt-2 max-w-2xl text-lg text-muted-foreground mb-10">
+        <span className="font-semibold text-foreground">Experience the transformation:</span> Drag the slider to see how Alive brings stores to life with dynamic digital advertising
       </p>
 
       <div
-        className="relative mx-auto aspect-video max-w-4xl overflow-hidden rounded-xl shadow-2xl cursor-col-resize select-none"
+        className="relative mx-auto aspect-video max-w-5xl overflow-hidden rounded-2xl shadow-2xl border-4 border-primary/20 cursor-col-resize select-none transition-all hover:border-primary/40 hover:shadow-[0_0_30px_rgba(239,68,68,0.3)]"
         onMouseDown={() => setIsDragging(true)}
         onMouseUp={() => setIsDragging(false)}
         onMouseLeave={() => setIsDragging(false)}
@@ -49,8 +49,8 @@ export default function AliveBeforeAfter() {
               className="object-cover"
               priority
             />
-            <div className="absolute top-4 left-4 bg-background/90 text-foreground px-4 py-2 rounded-md font-semibold">
-              BEFORE
+            <div className="absolute top-6 left-6 bg-gray-900/90 text-white px-5 py-3 rounded-lg font-bold text-lg shadow-lg backdrop-blur-sm">
+              ⛔ BEFORE
             </div>
           </div>
         )}
@@ -68,28 +68,28 @@ export default function AliveBeforeAfter() {
               className="object-cover"
               priority
             />
-            <div className="absolute top-4 right-4 bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-semibold">
-              AFTER
+            <div className="absolute top-6 right-6 bg-primary/95 text-white px-5 py-3 rounded-lg font-bold text-lg shadow-lg backdrop-blur-sm animate-pulse">
+              ✨ AFTER - WITH ALIVE
             </div>
           </div>
         )}
 
         {/* Slider Handle */}
         <div
-          className="absolute top-0 bottom-0 w-1 bg-white cursor-col-resize"
+          className="absolute top-0 bottom-0 w-1 bg-primary shadow-lg cursor-col-resize"
           style={{ left: `${sliderPosition}%` }}
         >
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center">
-            <div className="flex gap-1">
-              <div className="w-0.5 h-4 bg-gray-600"></div>
-              <div className="w-0.5 h-4 bg-gray-600"></div>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 bg-primary rounded-full shadow-2xl flex items-center justify-center border-4 border-white hover:scale-110 transition-transform">
+            <div className="flex gap-1.5">
+              <div className="w-1 h-6 bg-white rounded-full"></div>
+              <div className="w-1 h-6 bg-white rounded-full"></div>
             </div>
           </div>
         </div>
 
         {/* Instructions */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 text-foreground px-4 py-2 rounded-md text-sm font-medium">
-          👆 Drag or tap to compare
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-primary/95 text-white px-6 py-3 rounded-full text-base font-bold shadow-xl backdrop-blur-sm border-2 border-white/20">
+          ← Drag to See the Magic →
         </div>
       </div>
     </div>
