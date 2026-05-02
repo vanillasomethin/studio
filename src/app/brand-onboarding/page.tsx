@@ -1,26 +1,16 @@
 'use client';
 
-import { useState, type ComponentType } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { format } from 'date-fns';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-  ArrowRight,
-  ArrowLeft,
-  Check,
-  CheckCircle2,
-  Loader2,
-  AlertCircle,
-  TrendingUp,
-  Eye,
-  Monitor,
-  Mail,
-  FileVideo,
-  FileImage,
-  Clock,
+  ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
+  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -34,7 +24,6 @@ type OnboardingFormData = {
   months: number;
   startDate: string;
   agreementSigned: boolean;
-  signatureName: string;
 };
 
 type RazorpayResponse = {
@@ -46,27 +35,25 @@ type RazorpayResponse = {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const SCREEN_TIERS = [
-  { screens: 1,  pricePerScreen: 799, total: 799,   playsPerDay: 144,  monthlyViews: 4320  },
-  { screens: 3,  pricePerScreen: 699, total: 2097,  playsPerDay: 432,  monthlyViews: 12960, popular: true },
-  { screens: 10, pricePerScreen: 599, total: 5990,  playsPerDay: 1440, monthlyViews: 43200 },
-  { screens: 20, pricePerScreen: 549, total: 10980, playsPerDay: 2880, monthlyViews: 86400 },
+  { screens: 1,  pricePerScreen: 799,  playsPerDay: 144,  monthlyViews: 4320  },
+  { screens: 3,  pricePerScreen: 699,  playsPerDay: 432,  monthlyViews: 12960, popular: true },
+  { screens: 10, pricePerScreen: 599,  playsPerDay: 1440, monthlyViews: 43200 },
+  { screens: 20, pricePerScreen: 549,  playsPerDay: 2880, monthlyViews: 86400 },
 ] as const;
 
 const DURATION_OPTIONS = [
-  { months: 1, label: '1 month'  },
-  { months: 2, label: '2 months' },
-  { months: 3, label: '3 months' },
-  { months: 6, label: '6 months' },
+  { months: 1, label: '1 mo'  },
+  { months: 2, label: '2 mo'  },
+  { months: 3, label: '3 mo'  },
+  { months: 6, label: '6 mo'  },
 ];
 
-// Steps 1–4 of the wizard (step 1 = welcome, steps 2–5 = numbered, step 6 = done)
 const STEPS = ['Details', 'Campaign', 'Agreement', 'Payment'];
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
-/** Price per screen based on volume bracket */
 function getScreenPrice(n: number): number {
   if (n >= 20) return 549;
   if (n >= 10) return 599;
@@ -74,18 +61,16 @@ function getScreenPrice(n: number): number {
   return 799;
 }
 
-/** Estimated plays/day and monthly views scale linearly with screen count */
-const playsPerScreen    = 144;
-const viewsPerScreenMo  = 4320;
+const playsPerScreen   = 144;
+const viewsPerScreenMo = 4320;
 
 function loadRazorpayScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof (window as Window & { Razorpay?: unknown }).Razorpay !== 'undefined') {
-      resolve();
-      return;
+      resolve(); return;
     }
     const s = document.createElement('script');
-    s.src   = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
     s.async = true;
     s.onload  = () => resolve();
     s.onerror = () => reject(new Error('Razorpay failed to load'));
@@ -93,10 +78,115 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
+// ─── Animation variants ────────────────────────────────────────────────────────
+
+const stepVariants = {
+  enter:  { opacity: 0,  y: 28,  scale: 0.984 },
+  center: { opacity: 1,  y: 0,   scale: 1,    transition: { duration: 0.38, ease: [0.22, 1, 0.36, 1] } },
+  exit:   { opacity: 0,  y: -18, scale: 0.984, transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } },
+};
+
+const stagger = {
+  hidden: {},
+  show:   { transition: { staggerChildren: 0.07, delayChildren: 0.05 } },
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 18 },
+  show:   { opacity: 1, y: 0,  transition: { duration: 0.38, ease: [0.22, 1, 0.36, 1] } },
+};
+
+// ─── Floating Label Input ──────────────────────────────────────────────────────
+
+function FloatingInput({
+  id, label, type = 'text', value, onChange, autoComplete,
+}: {
+  id: string; label: string; type?: string;
+  value: string; onChange: (v: string) => void; autoComplete?: string;
+}) {
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete ?? 'off'}
+        placeholder=" "
+        className="peer w-full h-14 rounded-xl border border-border bg-card px-4 pb-1.5 pt-5 text-sm text-foreground transition-all duration-200 placeholder-transparent focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+      />
+      <label
+        htmlFor={id}
+        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground transition-all duration-200
+          peer-focus:-translate-y-[1.2rem] peer-focus:text-[10px] peer-focus:font-bold peer-focus:uppercase peer-focus:tracking-widest peer-focus:text-primary
+          peer-[:not(:placeholder-shown)]:-translate-y-[1.2rem] peer-[:not(:placeholder-shown)]:text-[10px] peer-[:not(:placeholder-shown)]:font-bold peer-[:not(:placeholder-shown)]:uppercase peer-[:not(:placeholder-shown)]:tracking-widest peer-[:not(:placeholder-shown)]:text-muted-foreground"
+      >
+        {label}
+      </label>
+    </div>
+  );
+}
+
+// ─── Date Picker ───────────────────────────────────────────────────────────────
+
+function DatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = value ? new Date(value + 'T00:00:00') : undefined;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`relative w-full h-14 rounded-xl border bg-card px-4 pb-1.5 pt-5 text-left transition-all duration-200 ${
+            open
+              ? 'border-primary ring-2 ring-primary/20'
+              : 'border-border hover:border-primary/40'
+          }`}
+        >
+          <span className="absolute left-4 top-[0.55rem] text-[10px] font-bold uppercase tracking-widest text-primary">
+            Campaign start date
+          </span>
+          <span className={`text-sm ${selected ? 'text-foreground' : 'text-muted-foreground'}`}>
+            {selected ? format(selected, 'd MMMM yyyy') : 'Pick a date'}
+          </span>
+          <CalendarDays className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0 border-border" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          onSelect={(date) => {
+            if (date) { onChange(format(date, 'yyyy-MM-dd')); setOpen(false); }
+          }}
+          disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ─── Razorpay Logo ─────────────────────────────────────────────────────────────
+
+function RazorpayMark() {
+  return (
+    <span className="flex items-center gap-1.5">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M9 1L2 5v8l7 4 7-4V5L9 1z" fill="#3395FF" />
+        <path d="M8.2 5.4h3.1l-1.4 3h2.6L7.8 13.2l1.6-4H6.9l1.3-3.8z" fill="white" />
+      </svg>
+      <span className="text-xs font-black tracking-tight" style={{ color: '#3395FF' }}>
+        razorpay
+      </span>
+    </span>
+  );
+}
+
 // ─── Step Indicator ────────────────────────────────────────────────────────────
 
 function StepIndicator({ current }: { current: number }) {
-  // current = 1–4 mapping to STEPS
   return (
     <div className="flex items-center">
       {STEPS.map((label, i) => {
@@ -106,13 +196,17 @@ function StepIndicator({ current }: { current: number }) {
         return (
           <div key={label} className="flex items-center">
             <div className="flex flex-col items-center gap-1.5">
-              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all duration-300 ${
-                done   ? 'bg-primary text-primary-foreground' :
-                active ? 'bg-primary text-primary-foreground ring-[3px] ring-primary/25' :
-                         'bg-muted text-muted-foreground'
-              }`}>
+              <motion.div
+                animate={done ? { scale: 1 } : active ? { scale: 1.1 } : { scale: 1 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
+                  done   ? 'bg-primary text-primary-foreground' :
+                  active ? 'bg-primary text-primary-foreground ring-[3px] ring-primary/25' :
+                           'bg-muted text-muted-foreground'
+                }`}
+              >
                 {done ? <Check className="h-3.5 w-3.5" /> : n}
-              </div>
+              </motion.div>
               <span className={`hidden sm:block text-[10px] font-semibold uppercase tracking-wider transition-colors ${
                 active ? 'text-foreground' : 'text-muted-foreground/50'
               }`}>
@@ -120,9 +214,11 @@ function StepIndicator({ current }: { current: number }) {
               </span>
             </div>
             {i < STEPS.length - 1 && (
-              <div className={`h-px mx-2 sm:mx-3 mb-5 w-8 sm:w-12 transition-colors duration-300 ${
-                done ? 'bg-primary' : 'bg-border'
-              }`} />
+              <motion.div
+                animate={{ backgroundColor: done ? 'hsl(var(--primary))' : 'hsl(var(--border))' }}
+                transition={{ duration: 0.4 }}
+                className="h-px mx-2 sm:mx-3 mb-5 w-8 sm:w-12"
+              />
             )}
           </div>
         );
@@ -131,70 +227,63 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
-// ─── Razorpay Logo ─────────────────────────────────────────────────────────────
-
-function RazorpayMark() {
-  return (
-    <span className="flex items-center gap-1.5">
-      {/* Razorpay badge mark */}
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M9 1L2 5v8l7 4 7-4V5L9 1z" fill="#3395FF" />
-        <path
-          d="M8.2 5.4h3.1l-1.4 3h2.6L7.8 13.2l1.6-4H6.9l1.3-3.8z"
-          fill="white"
-        />
-      </svg>
-      <span className="text-xs font-black tracking-tight" style={{ color: '#3395FF' }}>
-        razorpay
-      </span>
-    </span>
-  );
-}
-
 // ─── Steps ─────────────────────────────────────────────────────────────────────
 
 function StepWelcome({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-col items-center text-center gap-12 py-10">
-      <div className="space-y-6 max-w-xl">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6 max-w-xl">
+        <motion.p variants={fadeUp} className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
           Brand Onboarding
-        </p>
-        <h1 className="text-[42px] sm:text-[56px] font-bold tracking-tight leading-[1.08] text-foreground">
+        </motion.p>
+        <motion.h1 variants={fadeUp} className="text-[42px] sm:text-[56px] font-bold tracking-tight leading-[1.08] text-foreground">
           Your brand.<br />
           <span className="text-primary">Every kirana. Every day.</span>
-        </h1>
-        <p className="text-base text-muted-foreground leading-relaxed">
+        </motion.h1>
+        <motion.p variants={fadeUp} className="text-base text-muted-foreground leading-relaxed">
           Alive places your ads on digital screens inside kirana stores across
           the city — reaching millions of daily shoppers at the exact moment
           they make purchase decisions.
-        </p>
-      </div>
+        </motion.p>
+      </motion.div>
 
-      <div className="grid grid-cols-3 gap-3 w-full max-w-lg">
+      <motion.div
+        variants={stagger} initial="hidden" animate="show"
+        className="grid grid-cols-3 gap-3 w-full max-w-lg"
+      >
         {[
-          { n: '01', title: 'Configure',   sub: 'Screens & duration'     },
-          { n: '02', title: 'Sign',         sub: 'Digital agreement'       },
-          { n: '03', title: 'Launch',       sub: 'Pay & go live'           },
+          { n: '01', title: 'Configure',  sub: 'Screens & duration'  },
+          { n: '02', title: 'Sign',        sub: 'Digital agreement'   },
+          { n: '03', title: 'Launch',      sub: 'Pay & go live'       },
         ].map(({ n, title, sub }) => (
-          <div key={n} className="rounded-xl border border-border bg-card p-5 text-left space-y-3">
+          <motion.div key={n} variants={fadeUp} className="rounded-xl border border-border bg-card p-5 text-left space-y-3">
             <span className="text-[10px] font-black tracking-[0.2em] text-primary/60 uppercase">{n}</span>
             <div>
               <p className="text-sm font-bold text-foreground">{title}</p>
               <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      <div className="flex flex-col items-center gap-4">
-        <Button size="lg" onClick={onNext} className="gap-2 px-10 h-12 text-sm font-bold tracking-wide">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        className="flex flex-col items-center gap-4"
+      >
+        <motion.button
+          type="button"
+          onClick={onNext}
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          className="flex items-center gap-2.5 rounded-xl bg-primary px-10 py-3.5 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary/90"
+        >
           Begin onboarding <ArrowRight className="h-4 w-4" />
-        </Button>
-        <p className="text-xs text-muted-foreground/50 tracking-wide">
+        </motion.button>
+        <p className="text-xs text-muted-foreground/40 tracking-wide">
           Takes less than 5 minutes · 2025 · Alive Media Pvt. Ltd.
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -209,44 +298,51 @@ function StepDetails({
 }) {
   const valid = data.brandName && data.contactName && data.email;
 
+  const fields = [
+    { id: 'brandName',   label: 'Brand name',       type: 'text',  ac: 'organization' },
+    { id: 'contactName', label: 'Your full name',    type: 'text',  ac: 'name'         },
+    { id: 'email',       label: 'Work email',        type: 'email', ac: 'email'        },
+    { id: 'phone',       label: 'Phone / WhatsApp',  type: 'tel',   ac: 'tel'          },
+  ];
+
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Brand details</h2>
-        <p className="text-sm text-muted-foreground">Basic information to set up your advertiser account.</p>
-      </div>
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
+        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
+          Brand details
+        </motion.h2>
+        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
+          Basic information to set up your advertiser account.
+        </motion.p>
+      </motion.div>
 
-      <div className="grid gap-5 sm:grid-cols-2">
-        {[
-          { id: 'brandName',    label: 'Brand name',       placeholder: 'e.g. Amul, Parle, Haldirams', req: true  },
-          { id: 'contactName',  label: 'Your name',        placeholder: 'Full name',                   req: true  },
-          { id: 'email',        label: 'Work email',       placeholder: 'you@brand.com', type: 'email',req: true  },
-          { id: 'phone',        label: 'Phone / WhatsApp', placeholder: '+91 98765 43210', type: 'tel',req: false },
-        ].map(({ id, label, placeholder, type, req }) => (
-          <div key={id} className="space-y-1.5">
-            <Label htmlFor={id} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              {label}{req && <span className="text-primary ml-0.5">*</span>}
-            </Label>
-            <Input
+      <motion.div variants={stagger} initial="hidden" animate="show" className="grid gap-4 sm:grid-cols-2">
+        {fields.map(({ id, label, type, ac }) => (
+          <motion.div key={id} variants={fadeUp}>
+            <FloatingInput
               id={id}
-              type={type ?? 'text'}
-              placeholder={placeholder}
+              label={label}
+              type={type}
               value={(data as Record<string, string>)[id]}
-              onChange={(e) => onChange(id as keyof OnboardingFormData, e.target.value)}
-              className="h-11"
+              onChange={(v) => onChange(id as keyof OnboardingFormData, v)}
+              autoComplete={ac}
             />
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      <div className="flex gap-3 pt-2">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.35, duration: 0.3 }}
+        className="flex gap-3 pt-2"
+      >
         <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
         <Button onClick={onNext} disabled={!valid} className="gap-1.5 h-11 px-7">
           Continue <ArrowRight className="h-4 w-4" />
         </Button>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -264,49 +360,53 @@ function StepCampaign({
   const valid          = data.screens > 0 && data.months > 0 && data.startDate;
 
   const adjustScreens = (delta: number) => {
-    const next = Math.max(1, data.screens + delta);
-    onChange('screens', next);
+    onChange('screens', Math.max(1, data.screens + delta));
   };
 
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Campaign setup</h2>
-        <p className="text-sm text-muted-foreground">Choose your screen count, start date, and duration.</p>
-      </div>
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
+        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
+          Campaign setup
+        </motion.h2>
+        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
+          Choose your screen count, start date, and duration.
+        </motion.p>
+      </motion.div>
 
-      {/* Screen count */}
-      <div className="space-y-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Number of screens
-        </p>
-
-        {/* Quick-select presets */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Screen tiers */}
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-4">
+        <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Screen plan
+        </motion.p>
+        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {SCREEN_TIERS.map((t) => {
             const active = data.screens === t.screens;
             return (
-              <button
+              <motion.button
                 key={t.screens}
                 type="button"
                 onClick={() => onChange('screens', t.screens)}
-                className={`relative rounded-xl border p-4 text-left transition-all duration-200 ${
-                  active
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                    : 'border-border bg-card hover:border-primary/40'
-                }`}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                className="relative rounded-xl border border-border bg-card p-4 text-left overflow-hidden"
               >
                 {'popular' in t && t.popular && (
                   <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap">
                     Best value
                   </span>
                 )}
-                <div className="space-y-3">
+                {active && (
+                  <motion.div
+                    layoutId="tier-ring"
+                    className="absolute inset-0 rounded-xl border-2 border-primary bg-primary/5"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <div className="relative space-y-3">
                   <div>
                     <p className="text-2xl font-black text-foreground leading-none">{t.screens}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {t.screens === 1 ? 'screen' : 'screens'}
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t.screens === 1 ? 'screen' : 'screens'}</p>
                   </div>
                   <div className="border-t border-border pt-3 space-y-0.5">
                     <p className="text-sm font-bold text-foreground">{fmt(t.pricePerScreen)}</p>
@@ -324,17 +424,18 @@ function StepCampaign({
                   </div>
                 </div>
                 {active && (
-                  <div className="absolute right-3 top-3">
-                    <Check className="h-4 w-4 text-primary" />
-                  </div>
+                  <Check className="absolute right-3 top-3 h-4 w-4 text-primary" />
                 )}
-              </button>
+              </motion.button>
             );
           })}
-        </div>
+        </motion.div>
 
-        {/* Custom count stepper */}
-        <div className="flex items-center justify-between rounded-xl border border-border bg-card px-5 py-3.5">
+        {/* Custom stepper */}
+        <motion.div
+          variants={fadeUp}
+          className="flex items-center justify-between rounded-xl border border-border bg-card px-5 py-3.5"
+        >
           <div>
             <p className="text-sm font-semibold text-foreground">Custom count</p>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -342,14 +443,15 @@ function StepCampaign({
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
+            <motion.button
               type="button"
               onClick={() => adjustScreens(-1)}
               disabled={data.screens <= 1}
+              whileTap={{ scale: 0.9 }}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-lg font-bold text-foreground transition-colors hover:border-primary/50 hover:bg-primary/10 disabled:opacity-30"
             >
               −
-            </button>
+            </motion.button>
             <input
               type="number"
               min={1}
@@ -358,94 +460,115 @@ function StepCampaign({
                 const v = parseInt(e.target.value, 10);
                 if (!isNaN(v) && v >= 1) onChange('screens', v);
               }}
-              className="h-9 w-16 rounded-lg border border-border bg-background text-center text-base font-black text-foreground focus:border-primary focus:outline-none"
+              className="h-9 w-16 rounded-lg border border-border bg-background text-center text-base font-black text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
             />
-            <button
+            <motion.button
               type="button"
               onClick={() => adjustScreens(1)}
+              whileTap={{ scale: 0.9 }}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-lg font-bold text-foreground transition-colors hover:border-primary/50 hover:bg-primary/10"
             >
               +
-            </button>
+            </motion.button>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
-      {/* Duration + Start date */}
-      <div className="grid gap-5 sm:grid-cols-2">
-        <div className="space-y-3">
+      {/* Duration + Date */}
+      <motion.div variants={stagger} initial="hidden" animate="show" className="grid gap-5 sm:grid-cols-2">
+        <motion.div variants={fadeUp} className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Duration</p>
           <div className="grid grid-cols-4 gap-2">
             {DURATION_OPTIONS.map(({ months, label }) => (
-              <button
+              <motion.button
                 key={months}
                 type="button"
                 onClick={() => onChange('months', months)}
-                className={`rounded-lg border py-2.5 text-sm font-semibold transition-all ${
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                className={`relative rounded-lg border py-2.5 text-sm font-semibold overflow-hidden transition-colors ${
                   data.months === months
-                    ? 'border-primary bg-primary text-primary-foreground'
+                    ? 'border-primary text-primary-foreground'
                     : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
                 }`}
               >
-                {label}
-              </button>
+                {data.months === months && (
+                  <motion.div
+                    layoutId="duration-fill"
+                    className="absolute inset-0 bg-primary"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <span className="relative">{label}</span>
+              </motion.button>
             ))}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="startDate" className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Start date <span className="text-primary">*</span>
-          </Label>
-          <Input
-            id="startDate"
-            type="date"
-            value={data.startDate}
-            onChange={(e) => onChange('startDate', e.target.value)}
-            className="h-11"
-          />
-        </div>
-      </div>
+        <motion.div variants={fadeUp}>
+          <DatePicker value={data.startDate} onChange={(v) => onChange('startDate', v)} />
+        </motion.div>
+      </motion.div>
 
       {/* Live total */}
-      {data.screens > 0 && data.months > 0 && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Campaign total</p>
-              <p className="text-sm text-muted-foreground">
-                {fmt(pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-3xl font-black text-foreground tracking-tight">{fmt(total)}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">GST invoice issued on payment</p>
-            </div>
-          </div>
-          <div className="mt-4 pt-4 border-t border-border grid grid-cols-3 gap-4 text-center">
-            {[
-              { Icon: Monitor,    label: 'Screens',     value: data.screens.toString()                                                     },
-              { Icon: TrendingUp, label: 'Daily plays', value: `~${(playsPerScreen * data.screens).toLocaleString('en-IN')}`               },
-              { Icon: Eye,        label: 'Total views', value: `~${(viewsPerScreenMo * data.screens * data.months).toLocaleString('en-IN')}` },
-            ].map(({ Icon, label, value }) => (
-              <div key={label}>
-                <Icon className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
-                <p className="text-sm font-bold text-foreground">{value}</p>
-                <p className="text-[10px] text-muted-foreground">{label}</p>
+      <AnimatePresence>
+        {data.screens > 0 && data.months > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="rounded-xl border border-border bg-card p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Campaign total</p>
+                <p className="text-sm text-muted-foreground">
+                  {fmt(pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div className="text-right">
+                <motion.p
+                  key={total}
+                  initial={{ scale: 0.85, opacity: 0 }}
+                  animate={{ scale: 1,    opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                  className="text-3xl font-black text-foreground tracking-tight"
+                >
+                  {fmt(total)}
+                </motion.p>
+                <p className="text-xs text-muted-foreground mt-0.5">GST invoice on payment</p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-border grid grid-cols-3 gap-4 text-center">
+              {[
+                { Icon: Monitor,    label: 'Screens',     value: data.screens.toString() },
+                { Icon: TrendingUp, label: 'Daily plays', value: `~${(playsPerScreen * data.screens).toLocaleString('en-IN')}` },
+                { Icon: Eye,        label: 'Total views', value: `~${(viewsPerScreenMo * data.screens * data.months).toLocaleString('en-IN')}` },
+              ].map(({ Icon, label, value }) => (
+                <div key={label}>
+                  <Icon className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
+                  <p className="text-sm font-bold text-foreground">{value}</p>
+                  <p className="text-[10px] text-muted-foreground">{label}</p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="flex gap-3 pt-2">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, duration: 0.3 }}
+        className="flex gap-3 pt-2"
+      >
         <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
         <Button onClick={onNext} disabled={!valid} className="gap-1.5 h-11 px-7">
           Continue <ArrowRight className="h-4 w-4" />
         </Button>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -454,100 +577,217 @@ function StepAgreement({
   data, onChange, onNext, onBack,
 }: {
   data: OnboardingFormData;
-  onChange: (k: keyof OnboardingFormData, v: string | boolean) => void;
+  onChange: (k: keyof OnboardingFormData, v: boolean) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
-  const valid = data.agreementSigned && data.signatureName.trim().length > 2;
+  const today           = new Date();
+  const pricePerScreen  = getScreenPrice(data.screens);
+  const monthlyFee      = fmt(pricePerScreen * data.screens);
+  const todayStr        = format(today, 'd MMMM yyyy');
+  const day             = format(today, 'do');
+  const month           = format(today, 'MMMM');
+  const year            = format(today, 'yyyy');
+
+  const blank = <span className="text-muted-foreground/50 italic">_____</span>;
 
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Advertiser agreement</h2>
-        <p className="text-sm text-muted-foreground">Please review and sign before proceeding to payment.</p>
-      </div>
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
+        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
+          Service Agreement
+        </motion.h2>
+        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
+          Please read the agreement and tick to confirm acceptance.
+        </motion.p>
+      </motion.div>
 
-      <div className="rounded-xl border border-border bg-muted/20 h-64 overflow-y-auto p-6 space-y-4 text-sm text-muted-foreground leading-relaxed">
-        <p className="text-foreground font-bold text-[13px] uppercase tracking-wider">
-          Alive Advertiser Agreement · 2025
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+        className="rounded-xl border border-border bg-muted/10 h-[380px] overflow-y-auto p-6 space-y-5 text-sm text-muted-foreground leading-relaxed scroll-smooth"
+      >
+        {/* Header */}
+        <div className="space-y-2">
+          <p className="text-foreground font-black text-base uppercase tracking-wider text-center">
+            Service Agreement
+          </p>
+          <p className="text-center text-xs text-muted-foreground">
+            Made on the {day} day of {month}, {year}
+          </p>
+        </div>
+
+        {/* Parties */}
+        <div className="space-y-3 pt-1">
+          <p>This Agreement is made and entered into between:</p>
+          <p>
+            <strong className="text-foreground">1. Alive Advertising Solutions Pvt. Ltd.</strong>, having its registered office at {blank}{' '}
+            (hereinafter referred to as <em>'Alive Advertising Solutions'</em>, which expression shall, unless repugnant to the context or meaning thereof, include its successors and assigns);
+          </p>
+          <p className="text-center font-semibold text-foreground">AND</p>
+          <p>
+            <strong className="text-foreground">2. {data.brandName || '[Brand Name]'}</strong>, having its registered office at {blank}{' '}
+            (hereinafter referred to as <em>'Brand'</em>, which expression shall, unless repugnant to the context or meaning thereof, include its successors and assigns).
+          </p>
+        </div>
+
+        {/* Whereas */}
+        <div className="space-y-2 pt-2">
+          <p className="font-bold text-foreground text-xs uppercase tracking-wider">Whereas:</p>
+          <ul className="list-disc pl-5 space-y-1.5">
+            <li>Alive Advertising Solutions is engaged in providing advertising solutions through digital display screens installed in various retail outlets and commercial spaces ('Shops').</li>
+            <li>The Brand wishes to utilize the services of Alive Advertising Solutions for displaying advertisements through its digital Screens.</li>
+          </ul>
+        </div>
+
+        <p className="text-center font-semibold text-foreground text-xs uppercase tracking-widest pt-1">
+          Now, Therefore, It Is Agreed As Follows:
         </p>
-        <p>
-          This Agreement is entered into between{' '}
-          <strong className="text-foreground">{data.brandName || '[Brand Name]'}</strong>{' '}
-          ("Advertiser") and Alive Media Pvt. Ltd. ("Alive"), effective as of the campaign start date
-          provided during onboarding.
-        </p>
+
+        {/* Clauses */}
         {[
-          ['1 · Services',
-           'Alive agrees to display the Advertiser\'s creative on its network of digital screens inside kirana retail stores for the campaign duration and screen count selected during onboarding.'],
-          ['2 · Creative content',
-           'Advertiser warrants ownership of all rights to the submitted creative, including trademarks, imagery, and music. Advertiser indemnifies Alive against any third-party claims arising from the content.'],
-          ['3 · Content standards',
-           'All creatives must comply with applicable advertising standards. Alive reserves the right to reject or remove content that is misleading, offensive, or illegal, without refund.'],
-          ['4 · Payment',
-           'Campaign fees are due in advance. Alive will issue a GST invoice within 2 business days of payment confirmation. Campaigns go live only after payment is received.'],
-          ['5 · Creative delivery',
-           'Following payment, the Advertiser shall email ad creatives (MP4 or JPEG/PNG, 1920×1080 px) and logo (PNG, transparent background) to their assigned Account Manager within 3 business days. Alive will confirm receipt within 1 business day.'],
-          ['6 · Reporting',
-           'Alive will provide a mid-campaign and end-of-campaign performance report covering estimated impressions, screen uptime, and store-level breakdowns.'],
-          ['7 · Cancellations',
-           'Cancellations made more than 5 business days before campaign start are eligible for a full refund. Cancellations within 5 days of campaign start are non-refundable.'],
-          ['8 · Liability',
-           'Alive\'s total liability shall not exceed the fees paid for the relevant campaign. Alive is not liable for indirect or consequential losses.'],
-          ['9 · Governing law',
-           'This Agreement is governed by the laws of India. Disputes shall be resolved by arbitration in Mumbai under the Arbitration and Conciliation Act, 1996.'],
-        ].map(([heading, body]) => (
-          <div key={heading as string}>
-            <p className="font-semibold text-foreground text-xs uppercase tracking-wider mb-1">{heading}</p>
-            <p>{body}</p>
+          {
+            title: '1. Scope of Services',
+            body: [
+              'Alive Advertising Solutions agrees to display the Brand\'s advertisements on digital Screens installed in selected Shops as mutually agreed upon.',
+              'The Brand agrees to provide all required advertisement content in the formats specified by Alive Advertising Solutions.',
+              'Alive Advertising Solutions reserves the right to approve or reject any content that violates applicable laws or ethical standards.',
+            ],
+          },
+          {
+            title: '2. Term of the Agreement',
+            body: [
+              <>This Agreement shall commence on the Effective Date and remain in force for a period of <strong className="text-foreground">{data.months} {data.months === 1 ? 'month' : 'months'}</strong>.</>,
+              'The Agreement may be renewed upon mutual agreement, subject to revised terms as agreed in writing by both parties.',
+            ],
+          },
+          {
+            title: '3. Payment Terms',
+            body: [
+              <>The Brand agrees to pay Alive Advertising Solutions a service fee of <strong className="text-foreground">{monthlyFee} per month</strong> plus applicable taxes.</>,
+              'All payments shall be made within 30 days from the date of invoice issued by Alive Advertising Solutions.',
+              'Late payments shall attract an interest of 2% per month until full settlement.',
+            ],
+          },
+          {
+            title: '4. Responsibilities of Alive Advertising Solutions',
+            body: [
+              'Ensure the proper functioning and visibility of Screens displaying the Brand\'s advertisements during the agreed campaign period.',
+              'Provide regular updates and reports on the campaign\'s performance, including Screen uptime and location-wise details.',
+              'Resolve any technical issues affecting the display of the Brand\'s advertisements within a reasonable time frame.',
+            ],
+          },
+          {
+            title: '5. Responsibilities of the Brand',
+            body: [
+              'Provide accurate, lawful, and ethical advertisement content that complies with regulatory requirements.',
+              'Ensure timely submission of advertisement materials and adhere to the specifications provided by Alive Advertising Solutions.',
+              'Promptly communicate any required changes or updates to the advertisement content during the campaign.',
+            ],
+          },
+          {
+            title: '6. Content Approval and Modification',
+            body: [
+              'Alive Advertising Solutions reserves the right to reject or request modifications to advertisement content that is deemed inappropriate or non-compliant with applicable laws or company policies.',
+              'Any modifications requested by the Brand during an ongoing campaign may incur additional charges as agreed upon.',
+            ],
+          },
+          {
+            title: '7. Indemnity and Liability',
+            body: [
+              'The Brand shall indemnify and hold harmless Alive Advertising Solutions from any claims, damages, or legal actions arising from the content provided by the Brand.',
+              'Alive Advertising Solutions shall not be held liable for any indirect, incidental, or consequential damages arising from the use of its services, except in cases of gross negligence or willful misconduct.',
+            ],
+          },
+          {
+            title: '8. Termination',
+            body: [
+              'Either party may terminate this Agreement with 30 days\' prior written notice.',
+              'Alive Advertising Solutions may terminate this Agreement immediately if the Brand breaches any material term of this Agreement, including failure to pay dues or submission of unlawful content.',
+              'Upon termination, any outstanding dues shall be settled within 30 days, and all campaign operations shall cease.',
+            ],
+          },
+          {
+            title: '9. Governing Law and Dispute Resolution',
+            body: [
+              'This Agreement shall be governed by and construed in accordance with the laws of India, specifically under the jurisdiction of the courts in Karnataka.',
+              'Any disputes arising out of or in connection with this Agreement shall first be resolved through mutual discussions. If unresolved within 30 days, disputes shall be referred to arbitration under the Arbitration and Conciliation Act, 1996, conducted in Bangalore, Karnataka, in English.',
+            ],
+          },
+          {
+            title: '10. Miscellaneous',
+            body: [
+              'Amendments: Any modifications to this Agreement must be made in writing and signed by both parties.',
+              'Entire Agreement: This Agreement constitutes the entire understanding between the parties and supersedes any prior agreements.',
+              'Notices: Any notices under this Agreement shall be sent to the parties\' respective addresses as stated above.',
+            ],
+          },
+        ].map(({ title, body }) => (
+          <div key={title} className="space-y-1.5">
+            <p className="font-bold text-foreground text-xs uppercase tracking-wider">{title}</p>
+            <ul className="list-disc pl-5 space-y-1">
+              {body.map((item, i) => (
+                <li key={i}>{item}</li>
+              ))}
+            </ul>
           </div>
         ))}
-      </div>
 
-      <div className="space-y-5">
-        <div className="flex items-start gap-3">
-          <Checkbox
-            id="agree"
-            checked={data.agreementSigned}
-            onCheckedChange={(v) => onChange('agreementSigned', !!v)}
-            className="mt-0.5"
-          />
-          <Label htmlFor="agree" className="text-sm leading-relaxed cursor-pointer text-muted-foreground">
-            I have read and agree to the Alive Advertiser Agreement. I confirm I am authorised to
-            sign on behalf of{' '}
-            <strong className="text-foreground">{data.brandName || 'my brand'}</strong>.
-          </Label>
+        {/* Execution block */}
+        <div className="pt-4 space-y-4 border-t border-border">
+          <p className="text-xs text-center text-muted-foreground">
+            In witness whereof, the parties hereto have executed this Agreement as of the date first above written.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-6 text-xs">
+            <div className="space-y-2">
+              <p className="font-bold text-foreground uppercase tracking-wider">For Alive Advertising Solutions Pvt. Ltd.</p>
+              {['Authorized Signatory', 'Name', 'Designation'].map(l => (
+                <div key={l} className="flex gap-2"><span className="text-muted-foreground w-36 shrink-0">{l}:</span><span className="border-b border-border/50 flex-1" /></div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <p className="font-bold text-foreground uppercase tracking-wider">For {data.brandName || '[Brand Name]'}</p>
+              {['Authorized Signatory', 'Name', 'Designation'].map(l => (
+                <div key={l} className="flex gap-2"><span className="text-muted-foreground w-36 shrink-0">{l}:</span><span className="border-b border-border/50 flex-1" /></div>
+              ))}
+            </div>
+          </div>
         </div>
+      </motion.div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="sig" className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Full name — digital signature <span className="text-primary">*</span>
-          </Label>
-          <Input
-            id="sig"
-            placeholder="Type your full name to sign"
-            value={data.signatureName}
-            onChange={(e) => onChange('signatureName', e.target.value)}
-            className="h-11"
-            style={data.signatureName.length > 2 ? { fontStyle: 'italic', fontSize: '1.05rem' } : {}}
-          />
-          {data.signatureName.length > 2 && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Check className="h-3 w-3 text-green-500" />
-              Signed as <span className="font-semibold text-foreground">{data.signatureName}</span>
-            </p>
-          )}
-        </div>
-      </div>
+      {/* Checkbox only */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        className="flex items-start gap-3 rounded-xl border border-border bg-card p-4"
+      >
+        <Checkbox
+          id="agree"
+          checked={data.agreementSigned}
+          onCheckedChange={(v) => onChange('agreementSigned', !!v)}
+          className="mt-0.5 shrink-0"
+        />
+        <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
+          I have read and agree to the Alive Advertising Solutions Service Agreement. I confirm I am
+          authorised to enter into this Agreement on behalf of{' '}
+          <strong className="text-foreground">{data.brandName || 'my brand'}</strong>.
+        </label>
+      </motion.div>
 
-      <div className="flex gap-3 pt-2">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, duration: 0.3 }}
+        className="flex gap-3"
+      >
         <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        <Button onClick={onNext} disabled={!valid} className="gap-1.5 h-11 px-7">
+        <Button onClick={onNext} disabled={!data.agreementSigned} className="gap-1.5 h-11 px-7">
           Proceed to payment <ArrowRight className="h-4 w-4" />
         </Button>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -568,10 +808,8 @@ function StepPayment({
   const handlePay = async () => {
     setLoading(true);
     setError(null);
-
     try {
       await loadRazorpayScript();
-
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -581,130 +819,121 @@ function StepPayment({
           notes:   { brand: data.brandName, email: data.email, screens: data.screens, months: data.months },
         }),
       });
-
       const body = await res.json() as { id?: string; amount?: number; error?: string };
       if (!res.ok) throw new Error(body.error ?? 'Could not create payment order');
 
-      type RzpInstance = {
-        open: () => void;
-        on: (e: string, cb: (r: { error: { description: string } }) => void) => void;
-      };
-      type RzpCtor = new (o: Record<string, unknown>) => RzpInstance;
+      type RzpI = { open: () => void; on: (e: string, cb: (r: { error: { description: string } }) => void) => void };
+      type RzpC = new (o: Record<string, unknown>) => RzpI;
 
       const options = {
-        key:         process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount:      body.amount,
-        currency:    'INR',
-        name:        'Alive Media',
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: body.amount, currency: 'INR', name: 'Alive Media',
         description: `${data.screens} screen${data.screens > 1 ? 's' : ''} · ${data.months} month${data.months > 1 ? 's' : ''}`,
-        order_id:    body.id,
+        order_id: body.id,
         handler: async (response: RazorpayResponse) => {
           const verify = await fetch('/api/razorpay/verify-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(response),
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
           });
           const result = await verify.json() as { success: boolean };
-          if (result.success) {
-            onSuccess(response.razorpay_payment_id);
-          } else {
-            setError('Payment verification failed. Please contact hello@alive.agency.');
-            setLoading(false);
-          }
+          if (result.success) { onSuccess(response.razorpay_payment_id); }
+          else { setError('Payment verification failed. Please contact hello@alive.agency.'); setLoading(false); }
         },
         prefill: { name: data.contactName, email: data.email, contact: data.phone },
-        theme:   { color: '#dc2626' },
-        modal:   { ondismiss: () => setLoading(false) },
+        theme: { color: '#dc2626' },
+        modal: { ondismiss: () => setLoading(false) },
       };
-
-      const rzp = new ((window as Window & { Razorpay: RzpCtor }).Razorpay)(options as Record<string, unknown>);
-      rzp.on('payment.failed', (r) => {
-        setError(r.error.description ?? 'Payment failed. Please try again.');
-        setLoading(false);
-      });
+      const rzp = new ((window as Window & { Razorpay: RzpC }).Razorpay)(options as Record<string, unknown>);
+      rzp.on('payment.failed', (r) => { setError(r.error.description ?? 'Payment failed.'); setLoading(false); });
       rzp.open();
     } catch (e) {
-      setError((e as Error).message ?? 'Something went wrong. Please try again.');
-      setLoading(false);
+      setError((e as Error).message ?? 'Something went wrong.'); setLoading(false);
     }
   };
 
+  const rows: [string, string][] = [
+    ['Brand',                    data.brandName],
+    ['Screens',                  `${data.screens} screen${data.screens > 1 ? 's' : ''}`],
+    ['Duration',                 `${data.months} month${data.months > 1 ? 's' : ''}`],
+    ['Price per screen / month', fmt(pricePerScreen)],
+    ['Start date',               data.startDate ? format(new Date(data.startDate + 'T00:00:00'), 'd MMMM yyyy') : '—'],
+    ['Daily plays (est.)',        `~${(playsPerScreen * data.screens).toLocaleString('en-IN')}`],
+    ['Total views (est.)',        `~${(viewsPerScreenMo * data.screens * data.months).toLocaleString('en-IN')}`],
+  ];
+
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Payment</h2>
-        <p className="text-sm text-muted-foreground">Review your order and pay securely via Razorpay.</p>
-      </div>
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
+        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">Payment</motion.h2>
+        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">Review your order and pay securely via Razorpay.</motion.p>
+      </motion.div>
 
-      {/* Order summary */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <motion.div
+        variants={stagger} initial="hidden" animate="show"
+        className="rounded-xl border border-border bg-card overflow-hidden"
+      >
         <div className="px-6 py-4 border-b border-border">
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order summary</p>
         </div>
         <div className="px-6 py-5 space-y-3 text-sm">
-          {([
-            ['Brand',                    data.brandName],
-            ['Screens',                  `${data.screens} screen${data.screens > 1 ? 's' : ''}`],
-            ['Duration',                 `${data.months} month${data.months > 1 ? 's' : ''}`],
-            ['Price per screen / month', fmt(pricePerScreen)],
-            ['Start date',               data.startDate ? new Date(data.startDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'],
-            ['Daily plays (est.)',        `~${(playsPerScreen * data.screens).toLocaleString('en-IN')}`],
-            ['Total views (est.)',        `~${(viewsPerScreenMo * data.screens * data.months).toLocaleString('en-IN')}`],
-          ] as [string, string][]).map(([label, value]) => (
-            <div key={label} className="flex items-center justify-between">
+          {rows.map(([label, value], i) => (
+            <motion.div key={label} variants={fadeUp} custom={i} className="flex items-center justify-between">
               <span className="text-muted-foreground">{label}</span>
               <span className="font-semibold text-foreground">{value}</span>
-            </div>
+            </motion.div>
           ))}
         </div>
-        <div className="px-6 py-4 border-t border-border bg-muted/20 flex items-center justify-between">
+        <motion.div variants={fadeUp} className="px-6 py-4 border-t border-border bg-muted/20 flex items-center justify-between">
           <span className="text-sm font-bold text-foreground uppercase tracking-wide">Total due</span>
           <span className="text-2xl font-black text-foreground">{fmt(total)}</span>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
-      {error && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          {error}
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive overflow-hidden"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="space-y-3">
-        {/* Animated Razorpay pay button */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+        className="space-y-3"
+      >
         <button
           type="button"
           onClick={handlePay}
           disabled={loading}
-          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
         >
-          {/* Shimmer sweep */}
           {!loading && (
             <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
           )}
-
           <span className="relative flex items-center justify-between">
             <span className="flex items-center gap-2.5 text-sm">
               {loading
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)}</>
-              }
+                : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)}</>}
             </span>
             {!loading && (
               <span className="flex items-center gap-2 border-l border-white/20 pl-4">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/60">
-                  powered by
-                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/60">powered by</span>
                 <RazorpayMark />
               </span>
             )}
           </span>
         </button>
-
         <p className="text-center text-xs text-muted-foreground/50">
           Secured by Razorpay · 256-bit SSL · PCI DSS compliant
         </p>
-      </div>
+      </motion.div>
 
       <Button variant="ghost" onClick={onBack} className="gap-1.5 w-full">
         <ArrowLeft className="h-4 w-4" /> Back to agreement
@@ -716,101 +945,111 @@ function StepPayment({
 function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: string }) {
   const total = getScreenPrice(data.screens) * data.screens * data.months;
 
-  return (
-    <div className="flex flex-col items-center text-center gap-10 py-8">
-      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/10 ring-8 ring-green-500/5">
-        <CheckCircle2 className="h-10 w-10 text-green-500" />
-      </div>
+  const checklist = [
+    { label: 'Payment confirmed',   value: paymentId,                              done: true  },
+    { label: 'Screens booked',       value: `${data.screens} screen${data.screens > 1 ? 's' : ''}`, done: true },
+    { label: 'Duration',             value: `${data.months} month${data.months > 1 ? 's' : ''}`,    done: true },
+    { label: 'Creatives',            value: 'Email to your AM',                     done: false },
+    { label: 'Campaign goes live',   value: data.startDate ? format(new Date(data.startDate + 'T00:00:00'), 'd MMM') : 'Per schedule', done: false },
+    { label: 'Campaign report',      value: 'Mid + end of campaign',                done: false },
+  ];
 
-      <div className="space-y-3">
+  return (
+    <motion.div
+      variants={stagger} initial="hidden" animate="show"
+      className="flex flex-col items-center text-center gap-10 py-8"
+    >
+      <motion.div
+        variants={fadeUp}
+        className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/10 ring-8 ring-green-500/5"
+      >
+        <motion.div
+          initial={{ scale: 0, rotate: -20 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ delay: 0.15, type: 'spring', stiffness: 260, damping: 20 }}
+        >
+          <CheckCircle2 className="h-10 w-10 text-green-500" />
+        </motion.div>
+      </motion.div>
+
+      <motion.div variants={fadeUp} className="space-y-3">
         <h2 className="text-3xl font-black tracking-tight text-foreground">Campaign confirmed.</h2>
         <p className="max-w-md mx-auto text-muted-foreground leading-relaxed">
           Welcome to Alive, <strong className="text-foreground">{data.brandName}</strong>. Your
-          payment of <strong className="text-foreground">{fmt(total)}</strong> is confirmed.
-          A GST invoice will be sent to <strong className="text-foreground">{data.email}</strong>{' '}
-          within 2 business days.
+          payment of <strong className="text-foreground">{fmt(total)}</strong> is confirmed. A GST
+          invoice will be sent to <strong className="text-foreground">{data.email}</strong> within 2
+          business days.
         </p>
-      </div>
+      </motion.div>
 
-      {/* One clear next action */}
-      <div className="w-full max-w-md rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-4">
+      <motion.div variants={fadeUp} className="w-full max-w-md rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-4">
         <div className="flex items-center gap-2">
           <Mail className="h-5 w-5 text-primary shrink-0" />
           <p className="font-bold text-foreground">One thing left — send us your creatives</p>
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Email your ad file and logo to your Account Manager. That's it — we
-          handle everything from there.
+          Email your ad file and logo to your Account Manager and we handle the rest.
         </p>
         <div className="rounded-lg border border-border bg-card p-4 space-y-3 text-sm">
-          <div className="flex items-start gap-3">
-            <FileVideo className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <div>
-              <p className="font-semibold text-foreground">Ad creative</p>
-              <p className="text-xs text-muted-foreground mt-0.5">MP4 (video) or JPEG / PNG (image) · 1920 × 1080 px · Max 100 MB</p>
+          {[
+            { Icon: FileVideo, title: 'Ad creative', spec: 'MP4 or JPEG/PNG · 1920 × 1080 px · Max 100 MB' },
+            { Icon: FileImage, title: 'Brand logo',  spec: 'PNG transparent background · Min 500 px wide' },
+          ].map(({ Icon, title, spec }) => (
+            <div key={title} className="flex items-start gap-3">
+              <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold text-foreground">{title}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{spec}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <FileImage className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <div>
-              <p className="font-semibold text-foreground">Brand logo</p>
-              <p className="text-xs text-muted-foreground mt-0.5">PNG with transparent background · Min 500 px wide</p>
-            </div>
-          </div>
+          ))}
         </div>
         <a
-          href="mailto:hello@alive.agency?subject=Campaign%20creatives%20—%20[Your%20Brand]"
+          href={`mailto:hello@alive.agency?subject=Campaign%20creatives%20—%20${encodeURIComponent(data.brandName)}`}
           className="flex items-center justify-center gap-2 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <Mail className="h-4 w-4" /> Email creatives to your AM
         </a>
-      </div>
+      </motion.div>
 
-      {/* Booking summary */}
-      <div className="w-full max-w-md space-y-2 text-left">
+      <motion.div variants={stagger} className="w-full max-w-md space-y-2 text-left">
         <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Booking summary</p>
-        {[
-          { label: 'Payment ID',  value: paymentId,                                                                         done: true  },
-          { label: 'Screens',     value: `${data.screens} screen${data.screens > 1 ? 's' : ''}`,                           done: true  },
-          { label: 'Duration',    value: `${data.months} month${data.months > 1 ? 's' : ''}`,                              done: true  },
-          { label: 'Creatives',   value: 'Email to your AM',                                                                done: false },
-          { label: 'Goes live',   value: data.startDate ? new Date(data.startDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Per schedule', done: false },
-          { label: 'Report',      value: 'Mid + end of campaign',                                                           done: false },
-        ].map(({ label, value, done }) => (
-          <div key={label} className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-sm">
+        {checklist.map(({ label, value, done }, i) => (
+          <motion.div
+            key={label}
+            variants={fadeUp}
+            custom={i}
+            className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-sm"
+          >
             <div className="flex items-center gap-2.5">
               <div className={`flex h-5 w-5 items-center justify-center rounded-full ${done ? 'bg-green-500/15' : 'bg-muted'}`}>
                 {done
                   ? <Check className="h-3 w-3 text-green-500" />
-                  : <Clock className="h-3 w-3 text-muted-foreground/50" />
-                }
+                  : <Clock className="h-3 w-3 text-muted-foreground/50" />}
               </div>
               <span className="text-muted-foreground">{label}</span>
             </div>
-            <span className="font-semibold text-foreground font-mono text-xs">{value}</span>
-          </div>
+            <span className="font-semibold text-foreground font-mono text-xs truncate max-w-[140px]">{value}</span>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      <a href="/" className="text-xs text-muted-foreground/40 hover:text-muted-foreground underline underline-offset-2 transition-colors">
+      <motion.a
+        variants={fadeUp}
+        href="/"
+        className="text-xs text-muted-foreground/40 hover:text-muted-foreground underline underline-offset-2 transition-colors"
+      >
         Return to alive.agency
-      </a>
-    </div>
+      </motion.a>
+    </motion.div>
   );
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 const INITIAL: OnboardingFormData = {
-  brandName: '',
-  contactName: '',
-  email: '',
-  phone: '',
-  screens: 3,
-  months: 1,
-  startDate: '',
-  agreementSigned: false,
-  signatureName: '',
+  brandName: '', contactName: '', email: '', phone: '',
+  screens: 3, months: 1, startDate: '', agreementSigned: false,
 };
 
 export default function BrandOnboardingPage() {
@@ -823,15 +1062,13 @@ export default function BrandOnboardingPage() {
 
   const next = () => setStep((s) => s + 1);
   const back = () => setStep((s) => s - 1);
-
-  // step 1 = welcome, 2–5 = wizard steps (indicator shows 1–4), 6 = done
   const showIndicator = step >= 2 && step <= 5;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="sticky top-0 z-50 border-b border-border/30 bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
-          <a href="/" className="opacity-80 hover:opacity-100 transition-opacity">
+          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity">
             <Logo />
           </a>
           {showIndicator && <StepIndicator current={step - 1} />}
@@ -845,42 +1082,23 @@ export default function BrandOnboardingPage() {
         <AnimatePresence mode="wait">
           <motion.div
             key={step}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            variants={stepVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
           >
             {step === 1 && <StepWelcome onNext={next} />}
             {step === 2 && (
-              <StepDetails
-                data={form}
-                onChange={(k, v) => update(k, v as string)}
-                onNext={next}
-                onBack={back}
-              />
+              <StepDetails data={form} onChange={(k, v) => update(k, v as string)} onNext={next} onBack={back} />
             )}
             {step === 3 && (
-              <StepCampaign
-                data={form}
-                onChange={(k, v) => update(k, v as number | string)}
-                onNext={next}
-                onBack={back}
-              />
+              <StepCampaign data={form} onChange={(k, v) => update(k, v as number | string)} onNext={next} onBack={back} />
             )}
             {step === 4 && (
-              <StepAgreement
-                data={form}
-                onChange={(k, v) => update(k, v)}
-                onNext={next}
-                onBack={back}
-              />
+              <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
             )}
             {step === 5 && (
-              <StepPayment
-                data={form}
-                onSuccess={(pid) => { setPaymentId(pid); next(); }}
-                onBack={back}
-              />
+              <StepPayment data={form} onSuccess={(pid) => { setPaymentId(pid); next(); }} onBack={back} />
             )}
             {step === 6 && <StepDone data={form} paymentId={paymentId} />}
           </motion.div>
@@ -889,7 +1107,7 @@ export default function BrandOnboardingPage() {
 
       <footer className="border-t border-border/30 py-5 text-center">
         <p className="text-xs text-muted-foreground/40 tracking-wide">
-          © 2025 Alive Media Pvt. Ltd. ·{' '}
+          © 2025 Alive Advertising Solutions Pvt. Ltd. ·{' '}
           <a href="mailto:hello@alive.agency" className="hover:text-muted-foreground transition-colors">
             hello@alive.agency
           </a>
