@@ -379,9 +379,10 @@ function StepCampaign({
         <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Screen plan
         </motion.p>
-        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-3">
           {SCREEN_TIERS.map((t) => {
-            const active = data.screens === t.screens;
+            const active   = data.screens === t.screens;
+            const popular  = 'popular' in t && t.popular;
             return (
               <motion.button
                 key={t.screens}
@@ -389,10 +390,10 @@ function StepCampaign({
                 onClick={() => onChange('screens', t.screens)}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                className="relative rounded-xl border border-border bg-card p-4 text-left overflow-hidden"
+                className={`relative rounded-xl border border-border bg-card text-left ${popular ? 'pt-7 pb-4 px-4' : 'p-4'}`}
               >
-                {'popular' in t && t.popular && (
-                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap">
+                {popular && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap">
                     Best value
                   </span>
                 )}
@@ -581,13 +582,14 @@ function StepAgreement({
   onNext: () => void;
   onBack: () => void;
 }) {
-  const today           = new Date();
-  const pricePerScreen  = getScreenPrice(data.screens);
-  const monthlyFee      = fmt(pricePerScreen * data.screens);
-  const todayStr        = format(today, 'd MMMM yyyy');
-  const day             = format(today, 'do');
-  const month           = format(today, 'MMMM');
-  const year            = format(today, 'yyyy');
+  const today          = new Date();
+  const pricePerScreen = getScreenPrice(data.screens);
+  const monthlyFee     = fmt(pricePerScreen * data.screens);
+  const d              = today.getDate();
+  const ordinal        = d === 1 || d === 21 || d === 31 ? 'st' : d === 2 || d === 22 ? 'nd' : d === 3 || d === 23 ? 'rd' : 'th';
+  const day            = `${d}${ordinal}`;
+  const month          = format(today, 'MMMM');
+  const year           = format(today, 'yyyy');
 
   const blank = <span className="text-muted-foreground/50 italic">_____</span>;
 
