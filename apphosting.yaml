@@ -8,7 +8,7 @@ env:
   # Public Razorpay key — safe to expose to the browser (prefixed NEXT_PUBLIC_)
   # Replace with your actual key from https://dashboard.razorpay.com/app/keys
   - variable: NEXT_PUBLIC_RAZORPAY_KEY_ID
-    value: rzp_live_REPLACE_ME
+    value: rzp_live_SkRFX8iRYu9BYq
     availability:
       - BUILD
       - RUNTIME
