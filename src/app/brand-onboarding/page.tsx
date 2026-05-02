@@ -37,7 +37,7 @@ type UploadedFile = {
   url: string;
 };
 
-type FormData = {
+type OnboardingFormData = {
   brandName: string;
   contactName: string;
   email: string;
@@ -77,7 +77,7 @@ function DropZone({
   file,
   onFile,
   onClear,
-  icon: Icon,
+  Icon,
 }: {
   label: string;
   accept: string;
@@ -85,7 +85,7 @@ function DropZone({
   file: UploadedFile | null;
   onFile: (f: UploadedFile) => void;
   onClear: () => void;
-  icon: ComponentType<{ className?: string }>;
+  Icon: ComponentType<{ className?: string }>;
 }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -247,8 +247,8 @@ function StepDetails({
   onNext,
   onBack,
 }: {
-  data: FormData;
-  onChange: (k: keyof FormData, v: string) => void;
+  data: OnboardingFormData;
+  onChange: (k: keyof OnboardingFormData, v: string) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -320,8 +320,8 @@ function StepCreatives({
   onNext,
   onBack,
 }: {
-  data: FormData;
-  onChange: (k: keyof FormData, v: UploadedFile | null) => void;
+  data: OnboardingFormData;
+  onChange: (k: keyof OnboardingFormData, v: UploadedFile | null) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -342,7 +342,7 @@ function StepCreatives({
           file={data.adCreative}
           onFile={(f) => onChange('adCreative', f)}
           onClear={() => onChange('adCreative', null)}
-          icon={data.adCreative?.type.startsWith('video') ? FileVideo : FileImage}
+          Icon={data.adCreative?.type.startsWith('video') ? FileVideo : FileImage}
         />
 
         <DropZone
@@ -352,7 +352,7 @@ function StepCreatives({
           file={data.logo}
           onFile={(f) => onChange('logo', f)}
           onClear={() => onChange('logo', null)}
-          icon={FileImage}
+          Icon={FileImage}
         />
       </div>
 
@@ -415,8 +415,8 @@ function StepCampaign({
   onNext,
   onBack,
 }: {
-  data: FormData;
-  onChange: (k: keyof FormData, v: string) => void;
+  data: OnboardingFormData;
+  onChange: (k: keyof OnboardingFormData, v: string) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -530,8 +530,8 @@ function StepAgreement({
   onNext,
   onBack,
 }: {
-  data: FormData;
-  onChange: (k: keyof FormData, v: string | boolean) => void;
+  data: OnboardingFormData;
+  onChange: (k: keyof OnboardingFormData, v: string | boolean) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -656,8 +656,8 @@ function StepPayment({
   onNext,
   onBack,
 }: {
-  data: FormData;
-  onChange: (k: keyof FormData, v: string) => void;
+  data: OnboardingFormData;
+  onChange: (k: keyof OnboardingFormData, v: string) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -788,7 +788,7 @@ function StepPayment({
   );
 }
 
-function StepDone({ data }: { data: FormData }) {
+function StepDone({ data }: { data: OnboardingFormData }) {
   return (
     <div className="flex flex-col items-center text-center gap-8 py-6">
       <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/10 ring-8 ring-green-500/10">
@@ -811,16 +811,19 @@ function StepDone({ data }: { data: FormData }) {
           { icon: Check, label: 'Payment confirmed', done: true },
           { icon: Calendar, label: 'Ad live by ' + (data.startDate ? new Date(data.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Day 3'), done: false },
           { icon: FileText, label: 'Report after campaign ends', done: false },
-        ].map((item, i) => (
+        ].map((item, i) => {
+          const ItemIcon = item.icon;
+          return (
           <div key={i} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-3 text-sm">
             <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${item.done ? 'bg-green-500/15 text-green-500' : 'bg-muted text-muted-foreground'}`}>
-              <item.icon className="h-3.5 w-3.5" />
+              <ItemIcon className="h-3.5 w-3.5" />
             </div>
             <span className={item.done ? 'text-foreground font-medium' : 'text-muted-foreground'}>
               {item.label}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="space-y-2 text-sm text-muted-foreground">
@@ -846,7 +849,7 @@ function StepDone({ data }: { data: FormData }) {
 
 export default function BrandOnboardingPage() {
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState<FormData>({
+  const [form, setForm] = useState<OnboardingFormData>({
     brandName: '',
     contactName: '',
     email: '',
@@ -865,7 +868,7 @@ export default function BrandOnboardingPage() {
     billingName: '',
   });
 
-  const updateField = (key: keyof FormData, value: string | boolean | UploadedFile | null) => {
+  const updateField = (key: keyof OnboardingFormData, value: string | boolean | UploadedFile | null) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
