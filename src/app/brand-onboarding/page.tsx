@@ -20,6 +20,7 @@ type OnboardingFormData = {
   contactName: string;
   email: string;
   phone: string;
+  gstin: string;
   screens: number;
   months: number;
   startDate: string;
@@ -299,10 +300,11 @@ function StepDetails({
   const valid = data.brandName && data.contactName && data.email;
 
   const fields = [
-    { id: 'brandName',   label: 'Brand name',       type: 'text',  ac: 'organization' },
-    { id: 'contactName', label: 'Your full name',    type: 'text',  ac: 'name'         },
-    { id: 'email',       label: 'Work email',        type: 'email', ac: 'email'        },
-    { id: 'phone',       label: 'Phone / WhatsApp',  type: 'tel',   ac: 'tel'          },
+    { id: 'brandName',   label: 'Brand / company name', type: 'text',  ac: 'organization' },
+    { id: 'contactName', label: 'Your full name',        type: 'text',  ac: 'name'         },
+    { id: 'email',       label: 'Work email',            type: 'email', ac: 'email'        },
+    { id: 'phone',       label: 'Phone / WhatsApp',      type: 'tel',   ac: 'tel'          },
+    { id: 'gstin',       label: 'GSTIN (optional)',      type: 'text',  ac: 'off'          },
   ];
 
   return (
@@ -318,7 +320,7 @@ function StepDetails({
 
       <motion.div variants={stagger} initial="hidden" animate="show" className="grid gap-4 sm:grid-cols-2">
         {fields.map(({ id, label, type, ac }) => (
-          <motion.div key={id} variants={fadeUp}>
+          <motion.div key={id} variants={fadeUp} className={id === 'gstin' ? 'sm:col-span-2' : ''}>
             <FloatingInput
               id={id}
               label={label}
@@ -582,25 +584,18 @@ function StepAgreement({
   onNext: () => void;
   onBack: () => void;
 }) {
-  const today          = new Date();
   const pricePerScreen = getScreenPrice(data.screens);
   const monthlyFee     = fmt(pricePerScreen * data.screens);
-  const d              = today.getDate();
-  const ordinal        = d === 1 || d === 21 || d === 31 ? 'st' : d === 2 || d === 22 ? 'nd' : d === 3 || d === 23 ? 'rd' : 'th';
-  const day            = `${d}${ordinal}`;
-  const month          = format(today, 'MMMM');
-  const year           = format(today, 'yyyy');
-
-  const blank = <span className="text-muted-foreground/50 italic">_____</span>;
+  const effectiveDate  = format(new Date(), 'd MMMM yyyy');
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
         <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
-          Service Agreement
+          Terms of Service
         </motion.h2>
         <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
-          Please read the agreement and tick to confirm acceptance.
+          Read the terms below and accept to continue.
         </motion.p>
       </motion.div>
 
@@ -608,157 +603,147 @@ function StepAgreement({
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-        className="rounded-xl border border-border bg-muted/10 h-[380px] overflow-y-auto p-6 space-y-5 text-sm text-muted-foreground leading-relaxed scroll-smooth"
+        className="rounded-xl border border-border bg-card h-[420px] overflow-y-auto scroll-smooth"
       >
-        {/* Header */}
-        <div className="space-y-2">
-          <p className="text-foreground font-black text-base uppercase tracking-wider text-center">
-            Service Agreement
-          </p>
-          <p className="text-center text-xs text-muted-foreground">
-            Made on the {day} day of {month}, {year}
-          </p>
+        {/* Sticky header inside scroll box */}
+        <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm px-6 py-4">
+          <p className="text-base font-bold text-foreground">Alive Advertising — Terms of Service</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
         </div>
 
-        {/* Parties */}
-        <div className="space-y-3 pt-1">
-          <p>This Agreement is made and entered into between:</p>
+        <div className="px-6 py-6 space-y-7 text-sm text-muted-foreground leading-relaxed">
+
+          {/* Intro */}
           <p>
-            <strong className="text-foreground">1. Alive Advertising Solutions Pvt. Ltd.</strong>, having its registered office at {blank}{' '}
-            (hereinafter referred to as <em>'Alive Advertising Solutions'</em>, which expression shall, unless repugnant to the context or meaning thereof, include its successors and assigns);
+            These Terms of Service ("Terms") govern your use of Alive Advertising Solutions'
+            digital out-of-home advertising platform. By accepting these Terms, you
+            ({data.brandName ? <strong className="text-foreground">{data.brandName}</strong> : 'you, the Brand'})
+            {' '}agree to a binding contract with <strong className="text-foreground">VS Collective</strong>,
+            trading as <strong className="text-foreground">Alive Advertising Solutions</strong>.
           </p>
-          <p className="text-center font-semibold text-foreground">AND</p>
-          <p>
-            <strong className="text-foreground">2. {data.brandName || '[Brand Name]'}</strong>, having its registered office at {blank}{' '}
-            (hereinafter referred to as <em>'Brand'</em>, which expression shall, unless repugnant to the context or meaning thereof, include its successors and assigns).
-          </p>
-        </div>
 
-        {/* Whereas */}
-        <div className="space-y-2 pt-2">
-          <p className="font-bold text-foreground text-xs uppercase tracking-wider">Whereas:</p>
-          <ul className="list-disc pl-5 space-y-1.5">
-            <li>Alive Advertising Solutions is engaged in providing advertising solutions through digital display screens installed in various retail outlets and commercial spaces ('Shops').</li>
-            <li>The Brand wishes to utilize the services of Alive Advertising Solutions for displaying advertisements through its digital Screens.</li>
-          </ul>
-        </div>
-
-        <p className="text-center font-semibold text-foreground text-xs uppercase tracking-widest pt-1">
-          Now, Therefore, It Is Agreed As Follows:
-        </p>
-
-        {/* Clauses */}
-        {[
-          {
-            title: '1. Scope of Services',
-            body: [
-              'Alive Advertising Solutions agrees to display the Brand\'s advertisements on digital Screens installed in selected Shops as mutually agreed upon.',
-              'The Brand agrees to provide all required advertisement content in the formats specified by Alive Advertising Solutions.',
-              'Alive Advertising Solutions reserves the right to approve or reject any content that violates applicable laws or ethical standards.',
-            ],
-          },
-          {
-            title: '2. Term of the Agreement',
-            body: [
-              <>This Agreement shall commence on the Effective Date and remain in force for a period of <strong className="text-foreground">{data.months} {data.months === 1 ? 'month' : 'months'}</strong>.</>,
-              'The Agreement may be renewed upon mutual agreement, subject to revised terms as agreed in writing by both parties.',
-            ],
-          },
-          {
-            title: '3. Payment Terms',
-            body: [
-              <>The Brand agrees to pay Alive Advertising Solutions a service fee of <strong className="text-foreground">{monthlyFee} per month</strong> plus applicable taxes.</>,
-              'All payments shall be made within 30 days from the date of invoice issued by Alive Advertising Solutions.',
-              'Late payments shall attract an interest of 2% per month until full settlement.',
-            ],
-          },
-          {
-            title: '4. Responsibilities of Alive Advertising Solutions',
-            body: [
-              'Ensure the proper functioning and visibility of Screens displaying the Brand\'s advertisements during the agreed campaign period.',
-              'Provide regular updates and reports on the campaign\'s performance, including Screen uptime and location-wise details.',
-              'Resolve any technical issues affecting the display of the Brand\'s advertisements within a reasonable time frame.',
-            ],
-          },
-          {
-            title: '5. Responsibilities of the Brand',
-            body: [
-              'Provide accurate, lawful, and ethical advertisement content that complies with regulatory requirements.',
-              'Ensure timely submission of advertisement materials and adhere to the specifications provided by Alive Advertising Solutions.',
-              'Promptly communicate any required changes or updates to the advertisement content during the campaign.',
-            ],
-          },
-          {
-            title: '6. Content Approval and Modification',
-            body: [
-              'Alive Advertising Solutions reserves the right to reject or request modifications to advertisement content that is deemed inappropriate or non-compliant with applicable laws or company policies.',
-              'Any modifications requested by the Brand during an ongoing campaign may incur additional charges as agreed upon.',
-            ],
-          },
-          {
-            title: '7. Indemnity and Liability',
-            body: [
-              'The Brand shall indemnify and hold harmless Alive Advertising Solutions from any claims, damages, or legal actions arising from the content provided by the Brand.',
-              'Alive Advertising Solutions shall not be held liable for any indirect, incidental, or consequential damages arising from the use of its services, except in cases of gross negligence or willful misconduct.',
-            ],
-          },
-          {
-            title: '8. Termination',
-            body: [
-              'Either party may terminate this Agreement with 30 days\' prior written notice.',
-              'Alive Advertising Solutions may terminate this Agreement immediately if the Brand breaches any material term of this Agreement, including failure to pay dues or submission of unlawful content.',
-              'Upon termination, any outstanding dues shall be settled within 30 days, and all campaign operations shall cease.',
-            ],
-          },
-          {
-            title: '9. Governing Law and Dispute Resolution',
-            body: [
-              'This Agreement shall be governed by and construed in accordance with the laws of India, specifically under the jurisdiction of the courts in Karnataka.',
-              'Any disputes arising out of or in connection with this Agreement shall first be resolved through mutual discussions. If unresolved within 30 days, disputes shall be referred to arbitration under the Arbitration and Conciliation Act, 1996, conducted in Bangalore, Karnataka, in English.',
-            ],
-          },
-          {
-            title: '10. Miscellaneous',
-            body: [
-              'Amendments: Any modifications to this Agreement must be made in writing and signed by both parties.',
-              'Entire Agreement: This Agreement constitutes the entire understanding between the parties and supersedes any prior agreements.',
-              'Notices: Any notices under this Agreement shall be sent to the parties\' respective addresses as stated above.',
-            ],
-          },
-        ].map(({ title, body }) => (
-          <div key={title} className="space-y-1.5">
-            <p className="font-bold text-foreground text-xs uppercase tracking-wider">{title}</p>
-            <ul className="list-disc pl-5 space-y-1">
-              {body.map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
-
-        {/* Execution block */}
-        <div className="pt-4 space-y-4 border-t border-border">
-          <p className="text-xs text-center text-muted-foreground">
-            In witness whereof, the parties hereto have executed this Agreement as of the date first above written.
-          </p>
-          <div className="grid sm:grid-cols-2 gap-6 text-xs">
-            <div className="space-y-2">
-              <p className="font-bold text-foreground uppercase tracking-wider">For Alive Advertising Solutions Pvt. Ltd.</p>
-              {['Authorized Signatory', 'Name', 'Designation'].map(l => (
-                <div key={l} className="flex gap-2"><span className="text-muted-foreground w-36 shrink-0">{l}:</span><span className="border-b border-border/50 flex-1" /></div>
-              ))}
+          {/* Sections */}
+          {[
+            {
+              n: '1', title: 'What we provide',
+              items: [
+                'We display your advertisements on digital screens installed inside kirana stores and retail outlets across your selected locations.',
+                'You get a dedicated Account Manager who handles scheduling, creative formatting, and campaign reporting.',
+                'We provide screen uptime reports and campaign performance summaries.',
+              ],
+            },
+            {
+              n: '2', title: 'Your campaign',
+              items: [
+                <>This campaign runs for <strong className="text-foreground">{data.months} {data.months === 1 ? 'month' : 'months'}</strong> across <strong className="text-foreground">{data.screens} {data.screens === 1 ? 'screen' : 'screens'}</strong>.</>,
+                <>The monthly fee is <strong className="text-foreground">{monthlyFee}</strong> plus applicable GST.</>,
+                'Campaign dates are confirmed after payment and creative submission.',
+              ],
+            },
+            {
+              n: '3', title: 'Payment',
+              items: [
+                'Payment is collected upfront via Razorpay before your campaign is activated.',
+                'A GST invoice will be sent to your registered email within 2 business days of payment.',
+                'Fees for completed campaign months are non-refundable. If we cancel your campaign for reasons within our control, we will issue a prorated refund.',
+                'Late or disputed payments attract interest of 2% per month.',
+              ],
+            },
+            {
+              n: '4', title: 'Your content',
+              items: [
+                'You are solely responsible for ensuring your ad content is accurate, lawful, and complies with applicable advertising regulations.',
+                'We may reject or remove content that violates any law, is misleading, or conflicts with our content policies — without liability to you.',
+                'Send your ad creative and logo to your Account Manager after payment. Specifications: MP4 or JPEG/PNG, 1920 × 1080 px, max 100 MB.',
+              ],
+            },
+            {
+              n: '5', title: 'Intellectual property',
+              items: [
+                'You retain full ownership of your ad content and brand assets.',
+                'You grant us a non-exclusive licence to display your content on our screens for the campaign duration.',
+                'We retain ownership of our platform, scheduling software, and reporting tools.',
+              ],
+            },
+            {
+              n: '6', title: 'Limitation of liability',
+              items: [
+                'Our total liability to you for any claim arising from these Terms is limited to the fees you paid for the affected campaign period.',
+                'We are not liable for indirect, incidental, or consequential losses, including lost revenue or reputational damage.',
+                'We are not liable for screen downtime caused by third-party store closures, power outages, or force majeure events. We will notify you and extend your campaign where reasonably possible.',
+              ],
+            },
+            {
+              n: '7', title: 'Ending this agreement',
+              items: [
+                'Either party may end this agreement with 30 days written notice.',
+                'We may suspend or terminate immediately if you breach a material term, including non-payment or submission of unlawful content.',
+                'On termination, outstanding fees become immediately due.',
+              ],
+            },
+            {
+              n: '8', title: 'Privacy',
+              items: [
+                'We collect your business details (name, email, phone, GSTIN) to manage your campaign and issue invoices.',
+                'We do not sell your information to third parties.',
+                'Payment processing is handled by Razorpay, subject to their privacy policy.',
+              ],
+            },
+            {
+              n: '9', title: 'Governing law',
+              items: [
+                'These Terms are governed by the laws of India.',
+                'Any disputes will first be addressed through good-faith discussions. If unresolved within 30 days, disputes will be referred to arbitration in Mangaluru, Karnataka, under the Arbitration and Conciliation Act, 1996.',
+                'Courts in Mangaluru, Karnataka have exclusive jurisdiction for any proceedings.',
+              ],
+            },
+            {
+              n: '10', title: 'Changes to these terms',
+              items: [
+                'We may update these Terms from time to time. We will notify you of material changes by email.',
+                'Continued use of our services after changes take effect means you accept the revised Terms.',
+              ],
+            },
+          ].map(({ n, title, items }) => (
+            <div key={n} className="space-y-2.5">
+              <p className="font-semibold text-foreground text-[13px]">
+                <span className="text-primary mr-1.5">{n}.</span>{title}
+              </p>
+              <ul className="space-y-1.5 pl-4">
+                {items.map((item, i) => (
+                  <li key={i} className="flex gap-2.5">
+                    <span className="mt-[7px] h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <div className="space-y-2">
-              <p className="font-bold text-foreground uppercase tracking-wider">For {data.brandName || '[Brand Name]'}</p>
-              {['Authorized Signatory', 'Name', 'Designation'].map(l => (
-                <div key={l} className="flex gap-2"><span className="text-muted-foreground w-36 shrink-0">{l}:</span><span className="border-b border-border/50 flex-1" /></div>
-              ))}
+          ))}
+
+          {/* Company info footer */}
+          <div className="pt-4 border-t border-border space-y-3 text-xs text-muted-foreground/70">
+            <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
+            <div className="space-y-0.5">
+              <p className="font-semibold text-foreground">VS Collective</p>
+              <p>Trading as Alive Advertising Solutions</p>
+              <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor,</p>
+              <p>Mother Teresa Road, Unity College of Nursing, Kankanady,</p>
+              <p>Mangaluru, Dakshina Kannada, Karnataka — 575002</p>
+              <p className="pt-1">GSTIN: <span className="font-mono">29AAXFV2589C1ZE</span></p>
+              <p>Email: <a href="mailto:hello@alive.agency" className="text-primary hover:underline">hello@alive.agency</a></p>
             </div>
+            {data.gstin && (
+              <div className="pt-2 space-y-0.5">
+                <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
+                <p className="font-semibold text-foreground">{data.brandName}</p>
+                <p>GSTIN: <span className="font-mono">{data.gstin}</span></p>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>
 
-      {/* Checkbox only */}
+      {/* Checkbox */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -772,9 +757,9 @@ function StepAgreement({
           className="mt-0.5 shrink-0"
         />
         <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
-          I have read and agree to the Alive Advertising Solutions Service Agreement. I confirm I am
-          authorised to enter into this Agreement on behalf of{' '}
-          <strong className="text-foreground">{data.brandName || 'my brand'}</strong>.
+          I have read and agree to the Alive Advertising Terms of Service. I confirm I am
+          authorised to enter into this agreement on behalf of{' '}
+          <strong className="text-foreground">{data.brandName || 'my organisation'}</strong>.
         </label>
       </motion.div>
 
@@ -1050,7 +1035,7 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 const INITIAL: OnboardingFormData = {
-  brandName: '', contactName: '', email: '', phone: '',
+  brandName: '', contactName: '', email: '', phone: '', gstin: '',
   screens: 3, months: 1, startDate: '', agreementSigned: false,
 };
 
