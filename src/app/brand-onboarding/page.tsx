@@ -66,6 +66,18 @@ const STEPS = ['Details', 'Campaign', 'Agreement', 'Payment'];
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
+/** Price per screen based on volume bracket */
+function getScreenPrice(n: number): number {
+  if (n >= 20) return 549;
+  if (n >= 10) return 599;
+  if (n >= 3)  return 699;
+  return 799;
+}
+
+/** Estimated plays/day and monthly views scale linearly with screen count */
+const playsPerScreen    = 144;
+const viewsPerScreenMo  = 4320;
+
 function loadRazorpayScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof (window as Window & { Razorpay?: unknown }).Razorpay !== 'undefined') {
@@ -116,6 +128,26 @@ function StepIndicator({ current }: { current: number }) {
         );
       })}
     </div>
+  );
+}
+
+// ─── Razorpay Logo ─────────────────────────────────────────────────────────────
+
+function RazorpayMark() {
+  return (
+    <span className="flex items-center gap-1.5">
+      {/* Razorpay badge mark */}
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 1L2 5v8l7 4 7-4V5L9 1z" fill="#3395FF" />
+        <path
+          d="M8.2 5.4h3.1l-1.4 3h2.6L7.8 13.2l1.6-4H6.9l1.3-3.8z"
+          fill="white"
+        />
+      </svg>
+      <span className="text-xs font-black tracking-tight" style={{ color: '#3395FF' }}>
+        razorpay
+      </span>
+    </span>
   );
 }
 
@@ -227,30 +259,39 @@ function StepCampaign({
   onNext: () => void;
   onBack: () => void;
 }) {
-  const tier  = SCREEN_TIERS.find((t) => t.screens === data.screens) ?? SCREEN_TIERS[1];
-  const total = tier.total * data.months;
-  const valid = data.screens > 0 && data.months > 0 && data.startDate;
+  const pricePerScreen = getScreenPrice(data.screens);
+  const total          = pricePerScreen * data.screens * data.months;
+  const valid          = data.screens > 0 && data.months > 0 && data.startDate;
+
+  const adjustScreens = (delta: number) => {
+    const next = Math.max(1, data.screens + delta);
+    onChange('screens', next);
+  };
 
   return (
     <div className="space-y-8">
       <div className="space-y-1">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">Campaign setup</h2>
-        <p className="text-sm text-muted-foreground">Choose your screen plan, start date, and duration.</p>
+        <p className="text-sm text-muted-foreground">Choose your screen count, start date, and duration.</p>
       </div>
 
-      {/* Screen tiers */}
-      <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Screen plan</p>
+      {/* Screen count */}
+      <div className="space-y-4">
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Number of screens
+        </p>
+
+        {/* Quick-select presets */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {SCREEN_TIERS.map((t) => {
-            const selected = data.screens === t.screens;
+            const active = data.screens === t.screens;
             return (
               <button
                 key={t.screens}
                 type="button"
                 onClick={() => onChange('screens', t.screens)}
                 className={`relative rounded-xl border p-4 text-left transition-all duration-200 ${
-                  selected
+                  active
                     ? 'border-primary bg-primary/5 ring-1 ring-primary'
                     : 'border-border bg-card hover:border-primary/40'
                 }`}
@@ -263,7 +304,9 @@ function StepCampaign({
                 <div className="space-y-3">
                   <div>
                     <p className="text-2xl font-black text-foreground leading-none">{t.screens}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{t.screens === 1 ? 'screen' : 'screens'}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {t.screens === 1 ? 'screen' : 'screens'}
+                    </p>
                   </div>
                   <div className="border-t border-border pt-3 space-y-0.5">
                     <p className="text-sm font-bold text-foreground">{fmt(t.pricePerScreen)}</p>
@@ -272,15 +315,15 @@ function StepCampaign({
                   <div className="space-y-1 pt-1">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <TrendingUp className="h-3 w-3 shrink-0" />
-                      ~{t.playsPerDay.toLocaleString('en-IN')}/day
+                      ~{(playsPerScreen * t.screens).toLocaleString('en-IN')}/day
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Eye className="h-3 w-3 shrink-0" />
-                      {t.monthlyViews.toLocaleString('en-IN')}/mo
+                      {(viewsPerScreenMo * t.screens).toLocaleString('en-IN')}/mo
                     </div>
                   </div>
                 </div>
-                {selected && (
+                {active && (
                   <div className="absolute right-3 top-3">
                     <Check className="h-4 w-4 text-primary" />
                   </div>
@@ -288,6 +331,43 @@ function StepCampaign({
               </button>
             );
           })}
+        </div>
+
+        {/* Custom count stepper */}
+        <div className="flex items-center justify-between rounded-xl border border-border bg-card px-5 py-3.5">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Custom count</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {fmt(pricePerScreen)} per screen · {fmt(pricePerScreen * data.screens)}/month
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => adjustScreens(-1)}
+              disabled={data.screens <= 1}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-lg font-bold text-foreground transition-colors hover:border-primary/50 hover:bg-primary/10 disabled:opacity-30"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={1}
+              value={data.screens}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!isNaN(v) && v >= 1) onChange('screens', v);
+              }}
+              className="h-9 w-16 rounded-lg border border-border bg-background text-center text-base font-black text-foreground focus:border-primary focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => adjustScreens(1)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-lg font-bold text-foreground transition-colors hover:border-primary/50 hover:bg-primary/10"
+            >
+              +
+            </button>
+          </div>
         </div>
       </div>
 
@@ -334,7 +414,7 @@ function StepCampaign({
             <div className="space-y-0.5">
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Campaign total</p>
               <p className="text-sm text-muted-foreground">
-                {fmt(tier.pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
+                {fmt(pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
               </p>
             </div>
             <div className="text-right">
@@ -344,9 +424,9 @@ function StepCampaign({
           </div>
           <div className="mt-4 pt-4 border-t border-border grid grid-cols-3 gap-4 text-center">
             {[
-              { Icon: Monitor,    label: 'Screens',      value: data.screens.toString()                                    },
-              { Icon: TrendingUp, label: 'Daily plays',  value: `~${tier.playsPerDay.toLocaleString('en-IN')}`            },
-              { Icon: Eye,        label: 'Total views',  value: `~${(tier.monthlyViews * data.months).toLocaleString('en-IN')}` },
+              { Icon: Monitor,    label: 'Screens',     value: data.screens.toString()                                                     },
+              { Icon: TrendingUp, label: 'Daily plays', value: `~${(playsPerScreen * data.screens).toLocaleString('en-IN')}`               },
+              { Icon: Eye,        label: 'Total views', value: `~${(viewsPerScreenMo * data.screens * data.months).toLocaleString('en-IN')}` },
             ].map(({ Icon, label, value }) => (
               <div key={label}>
                 <Icon className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
@@ -482,8 +562,8 @@ function StepPayment({
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  const tier  = SCREEN_TIERS.find((t) => t.screens === data.screens) ?? SCREEN_TIERS[1];
-  const total = tier.total * data.months;
+  const pricePerScreen = getScreenPrice(data.screens);
+  const total          = pricePerScreen * data.screens * data.months;
 
   const handlePay = async () => {
     setLoading(true);
@@ -492,36 +572,39 @@ function StepPayment({
     try {
       await loadRazorpayScript();
 
-      const res = await fetch('/api/razorpay/create-order', {
+      const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: total,
+          amount:  total,
           receipt: `alive_${Date.now()}`,
-          notes: { brand: data.brandName, email: data.email, screens: data.screens, months: data.months },
+          notes:   { brand: data.brandName, email: data.email, screens: data.screens, months: data.months },
         }),
       });
 
-      if (!res.ok) throw new Error('Could not create payment order');
-      const order = await res.json();
+      const body = await res.json() as { id?: string; amount?: number; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Could not create payment order');
 
-      type RzpInstance = { open: () => void; on: (e: string, cb: (r: { error: { description: string } }) => void) => void };
+      type RzpInstance = {
+        open: () => void;
+        on: (e: string, cb: (r: { error: { description: string } }) => void) => void;
+      };
       type RzpCtor = new (o: Record<string, unknown>) => RzpInstance;
 
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: order.amount,
-        currency: 'INR',
-        name: 'Alive Media',
+        key:         process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount:      body.amount,
+        currency:    'INR',
+        name:        'Alive Media',
         description: `${data.screens} screen${data.screens > 1 ? 's' : ''} · ${data.months} month${data.months > 1 ? 's' : ''}`,
-        order_id: order.id,
+        order_id:    body.id,
         handler: async (response: RazorpayResponse) => {
           const verify = await fetch('/api/razorpay/verify-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(response),
           });
-          const result = await verify.json();
+          const result = await verify.json() as { success: boolean };
           if (result.success) {
             onSuccess(response.razorpay_payment_id);
           } else {
@@ -530,8 +613,8 @@ function StepPayment({
           }
         },
         prefill: { name: data.contactName, email: data.email, contact: data.phone },
-        theme: { color: '#dc2626' },
-        modal: { ondismiss: () => setLoading(false) },
+        theme:   { color: '#dc2626' },
+        modal:   { ondismiss: () => setLoading(false) },
       };
 
       const rzp = new ((window as Window & { Razorpay: RzpCtor }).Razorpay)(options as Record<string, unknown>);
@@ -559,15 +642,15 @@ function StepPayment({
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order summary</p>
         </div>
         <div className="px-6 py-5 space-y-3 text-sm">
-          {[
+          {([
             ['Brand',                    data.brandName],
             ['Screens',                  `${data.screens} screen${data.screens > 1 ? 's' : ''}`],
             ['Duration',                 `${data.months} month${data.months > 1 ? 's' : ''}`],
-            ['Price per screen / month', fmt(tier.pricePerScreen)],
+            ['Price per screen / month', fmt(pricePerScreen)],
             ['Start date',               data.startDate ? new Date(data.startDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'],
-            ['Daily plays (est.)',        `~${tier.playsPerDay.toLocaleString('en-IN')}`],
-            ['Total views (est.)',        `~${(tier.monthlyViews * data.months).toLocaleString('en-IN')}`],
-          ].map(([label, value]) => (
+            ['Daily plays (est.)',        `~${(playsPerScreen * data.screens).toLocaleString('en-IN')}`],
+            ['Total views (est.)',        `~${(viewsPerScreenMo * data.screens * data.months).toLocaleString('en-IN')}`],
+          ] as [string, string][]).map(([label, value]) => (
             <div key={label} className="flex items-center justify-between">
               <span className="text-muted-foreground">{label}</span>
               <span className="font-semibold text-foreground">{value}</span>
@@ -588,14 +671,37 @@ function StepPayment({
       )}
 
       <div className="space-y-3">
-        <Button onClick={handlePay} disabled={loading} size="lg" className="w-full h-12 text-sm font-bold gap-2">
-          {loading ? (
-            <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-          ) : (
-            <>Pay {fmt(total)} with Razorpay <ArrowRight className="h-4 w-4" /></>
+        {/* Animated Razorpay pay button */}
+        <button
+          type="button"
+          onClick={handlePay}
+          disabled={loading}
+          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {/* Shimmer sweep */}
+          {!loading && (
+            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
           )}
-        </Button>
-        <p className="text-center text-xs text-muted-foreground/60">
+
+          <span className="relative flex items-center justify-between">
+            <span className="flex items-center gap-2.5 text-sm">
+              {loading
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+                : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)}</>
+              }
+            </span>
+            {!loading && (
+              <span className="flex items-center gap-2 border-l border-white/20 pl-4">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/60">
+                  powered by
+                </span>
+                <RazorpayMark />
+              </span>
+            )}
+          </span>
+        </button>
+
+        <p className="text-center text-xs text-muted-foreground/50">
           Secured by Razorpay · 256-bit SSL · PCI DSS compliant
         </p>
       </div>
@@ -608,8 +714,7 @@ function StepPayment({
 }
 
 function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: string }) {
-  const tier  = SCREEN_TIERS.find((t) => t.screens === data.screens) ?? SCREEN_TIERS[1];
-  const total = tier.total * data.months;
+  const total = getScreenPrice(data.screens) * data.screens * data.months;
 
   return (
     <div className="flex flex-col items-center text-center gap-10 py-8">
