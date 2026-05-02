@@ -2,6 +2,23 @@
 # https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
   maxInstances: 1
+
+env:
+  # Public Razorpay key — safe to expose to the browser (prefixed NEXT_PUBLIC_)
+  # Replace with your actual key from https://dashboard.razorpay.com/app/keys
+  - variable: NEXT_PUBLIC_RAZORPAY_KEY_ID
+    value: rzp_live_REPLACE_ME
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # Server-only Razorpay credentials — stored as Firebase secrets, never in code
+  # Run these two commands to create the secrets, then redeploy:
+  #   firebase apphosting:secrets:set RAZORPAY_KEY_ID
+  #   firebase apphosting:secrets:set RAZORPAY_KEY_SECRET
+  - variable: RAZORPAY_KEY_ID
+    secret: RAZORPAY_KEY_ID
+
+  - variable: RAZORPAY_KEY_SECRET
+    secret: RAZORPAY_KEY_SECRET
