@@ -611,7 +611,7 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   }, [isLoaded, isSignedIn, onNext]);
 
   const handleGoogle = async () => {
-    if (!signInLoaded) return;
+    if (!isReady) return;
     setBusy(true);
     try {
       await signIn!.authenticateWithRedirect({
@@ -626,7 +626,7 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   };
 
   const handleSendOtp = async () => {
-    if (!signInLoaded || !signUpLoaded) return;
+    if (!isReady) return;
     const digits = phone.replace(/\D/g, '');
     if (digits.length !== 10) { setError('Enter a valid 10-digit number.'); return; }
     setBusy(true); setError(null);
@@ -647,7 +647,7 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   };
 
   const handleVerifyOtp = async (code: string) => {
-    if (!signInLoaded || !signUpLoaded) return;
+    if (!isReady) return;
     setBusy(true); setError(null);
     try {
       if (flow === 'signIn') {
@@ -684,7 +684,7 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     if (text.length === 6) handleVerifyOtp(text);
   };
 
-  if (!isLoaded) return null;
+  const isReady = isLoaded && signInLoaded && signUpLoaded;
 
   return (
     <div className="space-y-8">
@@ -709,7 +709,7 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
             <motion.button
               type="button"
               onClick={handleGoogle}
-              disabled={busy}
+              disabled={busy || !isReady}
               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
               className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 disabled:opacity-40"
             >
@@ -755,7 +755,7 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 
             <Button
               onClick={handleSendOtp}
-              disabled={busy || phone.replace(/\D/g, '').length !== 10}
+              disabled={busy || !isReady || phone.replace(/\D/g, '').length !== 10}
               className="w-full gap-2 h-11"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
