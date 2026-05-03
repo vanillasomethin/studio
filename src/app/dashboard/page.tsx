@@ -265,7 +265,12 @@ export default function DashboardPage() {
     if (!user) { router.replace('/login'); return; }
 
     fetch('/api/campaigns/list')
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok || !r.headers.get('content-type')?.includes('application/json')) {
+          return { campaigns: [] };
+        }
+        return r.json();
+      })
       .then((d: { campaigns?: Campaign[] }) => setCampaigns(d.campaigns ?? []))
       .catch(() => {})
       .finally(() => setFetching(false));

@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { auth, currentUser } from '@clerk/nextjs/server';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+
+const kv = new Redis({
+  url:   process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 import type { Campaign } from '../save/route';
 
 export async function GET() {
@@ -9,6 +14,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  if (!process.env.UPSTASH_REDIS_REST_URL) {
+    return NextResponse.json({ campaigns: [] });
+  }
   try {
     const user  = await currentUser();
     const phone = user?.phoneNumbers?.[0]?.phoneNumber?.replace(/\D/g, '');
