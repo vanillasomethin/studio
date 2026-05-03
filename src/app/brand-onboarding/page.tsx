@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
+import { useAuth } from '@clerk/nextjs';
+import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -49,7 +51,7 @@ const DURATION_OPTIONS = [
   { months: 6, label: '6 mo'  },
 ];
 
-const STEPS = ['Details', 'Campaign', 'Agreement', 'Payment'];
+const STEPS = ['Details', 'Campaign', 'Account', 'Agreement', 'Payment'];
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -325,7 +327,7 @@ function StepDetails({
               id={id}
               label={label}
               type={type}
-              value={(data as Record<string, string>)[id]}
+              value={(data as unknown as Record<string, string>)[id]}
               onChange={(v) => onChange(id as keyof OnboardingFormData, v)}
               autoComplete={ac}
             />
@@ -572,6 +574,248 @@ function StepCampaign({
           Continue <ArrowRight className="h-4 w-4" />
         </Button>
       </motion.div>
+    </div>
+  );
+}
+
+// ─── Google icon ──────────────────────────────────────────────────────────────
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/>
+      <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/>
+      <path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332Z" fill="#FBBC05"/>
+      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335"/>
+    </svg>
+  );
+}
+
+// ─── Step Auth ─────────────────────────────────────────────────────────────────
+
+function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const { isSignedIn, isLoaded } = useAuth();
+  const { signIn, isLoaded: signInLoaded } = useSignIn();
+  const { signUp, isLoaded: signUpLoaded } = useSignUp();
+
+  const [phase,   setPhase]   = useState<'options' | 'otp'>('options');
+  const [phone,   setPhone]   = useState('');
+  const [otp,     setOtp]     = useState<string[]>(Array(6).fill(''));
+  const [flow,    setFlow]    = useState<'signIn' | 'signUp'>('signIn');
+  const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>(Array(6).fill(null));
+
+  useEffect(() => {
+    if (isLoaded && isSignedIn) onNext();
+  }, [isLoaded, isSignedIn, onNext]);
+
+  const handleGoogle = async () => {
+    if (!signInLoaded) return;
+    setBusy(true);
+    try {
+      await signIn!.authenticateWithRedirect({
+        strategy:            'oauth_google',
+        redirectUrl:         '/sso-callback',
+        redirectUrlComplete: '/brand-onboarding',
+      });
+    } catch {
+      setError('Could not start Google sign-in. Try phone instead.');
+      setBusy(false);
+    }
+  };
+
+  const handleSendOtp = async () => {
+    if (!signInLoaded || !signUpLoaded) return;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length !== 10) { setError('Enter a valid 10-digit number.'); return; }
+    setBusy(true); setError(null);
+    const fullPhone = '+91' + digits;
+    try {
+      await signIn!.create({ strategy: 'phone_code', identifier: fullPhone });
+      setFlow('signIn'); setPhase('otp');
+    } catch (e: unknown) {
+      const ce = e as { errors?: Array<{ code: string }> };
+      if (ce?.errors?.[0]?.code === 'form_identifier_not_found') {
+        try {
+          await signUp!.create({ phoneNumber: fullPhone });
+          await signUp!.preparePhoneNumberVerification({ strategy: 'phone_code' });
+          setFlow('signUp'); setPhase('otp');
+        } catch (err) { setError((err as Error).message ?? 'Could not send OTP.'); }
+      } else { setError((e as Error).message ?? 'Could not send OTP.'); }
+    } finally { setBusy(false); }
+  };
+
+  const handleVerifyOtp = async (code: string) => {
+    if (!signInLoaded || !signUpLoaded) return;
+    setBusy(true); setError(null);
+    try {
+      if (flow === 'signIn') {
+        const r = await signIn!.attemptFirstFactor({ strategy: 'phone_code', code });
+        if (r.status === 'complete') onNext();
+      } else {
+        const r = await signUp!.attemptPhoneNumberVerification({ code });
+        if (r.status === 'complete') onNext();
+      }
+    } catch {
+      setError('Incorrect code. Please try again.');
+      setOtp(Array(6).fill('')); inputRefs.current[0]?.focus();
+    } finally { setBusy(false); }
+  };
+
+  const handleOtpChange = (i: number, value: string) => {
+    const char = value.replace(/\D/g, '').slice(-1);
+    const next = [...otp]; next[i] = char; setOtp(next);
+    if (char && i < 5) inputRefs.current[i + 1]?.focus();
+    const code = next.join('');
+    if (code.length === 6) handleVerifyOtp(code);
+  };
+
+  const handleOtpKeyDown = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otp[i] && i > 0) inputRefs.current[i - 1]?.focus();
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!text) return; e.preventDefault();
+    const next = Array(6).fill('');
+    text.split('').forEach((c, i) => { next[i] = c; });
+    setOtp(next); inputRefs.current[Math.min(text.length - 1, 5)]?.focus();
+    if (text.length === 6) handleVerifyOtp(text);
+  };
+
+  if (!isLoaded) return null;
+
+  return (
+    <div className="space-y-8">
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
+        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
+          Create your account
+        </motion.h2>
+        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
+          Sign in to save your campaign and access your dashboard after payment.
+        </motion.p>
+      </motion.div>
+
+      <AnimatePresence mode="wait">
+        {phase === 'options' ? (
+          <motion.div
+            key="options"
+            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className="space-y-4"
+          >
+            {/* Google */}
+            <motion.button
+              type="button"
+              onClick={handleGoogle}
+              disabled={busy}
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 disabled:opacity-40"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
+              Continue with Google
+            </motion.button>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground/50 font-medium">or</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            {/* Phone */}
+            <div className="flex gap-2">
+              <div className="flex h-14 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm text-muted-foreground shrink-0">
+                <span>🇮🇳</span>
+                <span className="font-semibold text-foreground">+91</span>
+              </div>
+              <div className="relative flex-1">
+                <input
+                  type="tel" inputMode="numeric" maxLength={10}
+                  value={phone}
+                  onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setError(null); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendOtp(); }}
+                  placeholder=" "
+                  className="peer w-full h-14 rounded-xl border border-border bg-card px-4 pb-1.5 pt-5 text-sm text-foreground placeholder-transparent transition-all duration-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <label className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground transition-all duration-200 peer-focus:-translate-y-[1.2rem] peer-focus:text-[10px] peer-focus:font-bold peer-focus:uppercase peer-focus:tracking-widest peer-focus:text-primary peer-[:not(:placeholder-shown)]:-translate-y-[1.2rem] peer-[:not(:placeholder-shown)]:text-[10px] peer-[:not(:placeholder-shown)]:font-bold peer-[:not(:placeholder-shown)]:uppercase peer-[:not(:placeholder-shown)]:tracking-widest peer-[:not(:placeholder-shown)]:text-muted-foreground">
+                  Phone number
+                </label>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {error && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                  className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive overflow-hidden">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <Button
+              onClick={handleSendOtp}
+              disabled={busy || phone.replace(/\D/g, '').length !== 10}
+              className="w-full gap-2 h-11"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
+              {busy ? 'Sending…' : 'Send OTP'}
+              {!busy && <ArrowRight className="h-4 w-4" />}
+            </Button>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="otp"
+            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className="space-y-5"
+          >
+            <p className="text-sm text-muted-foreground">
+              Code sent to <span className="font-semibold text-foreground">+91 {phone}</span>
+            </p>
+
+            <div className="flex gap-2 justify-between" onPaste={handleOtpPaste}>
+              {otp.map((digit, i) => (
+                <input
+                  key={i}
+                  ref={(el) => { inputRefs.current[i] = el; }}
+                  type="text" inputMode="numeric" maxLength={1}
+                  value={digit} autoFocus={i === 0} disabled={busy}
+                  onChange={(e) => handleOtpChange(i, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(i, e)}
+                  className="h-14 w-full rounded-xl border border-border bg-card text-center text-xl font-black text-foreground transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
+                />
+              ))}
+            </div>
+
+            <AnimatePresence>
+              {error && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                  className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive overflow-hidden">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {busy && (
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Verifying…
+              </div>
+            )}
+
+            <button type="button" onClick={() => { setPhase('options'); setOtp(Array(6).fill('')); setError(null); }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3.5 w-3.5" /> Wrong number?
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex gap-3 pt-2">
+        <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+      </div>
     </div>
   );
 }
@@ -827,7 +1071,7 @@ function StepPayment({
         theme: { color: '#dc2626' },
         modal: { ondismiss: () => setLoading(false) },
       };
-      const rzp = new ((window as Window & { Razorpay: RzpC }).Razorpay)(options as Record<string, unknown>);
+      const rzp = new ((window as unknown as { Razorpay: RzpC }).Razorpay)(options as Record<string, unknown>);
       rzp.on('payment.failed', (r) => { setError(r.error.description ?? 'Payment failed.'); setLoading(false); });
       rzp.open();
     } catch (e) {
@@ -1074,7 +1318,7 @@ export default function BrandOnboardingPage() {
 
   const next = () => setStep((s) => s + 1);
   const back = () => setStep((s) => s - 1);
-  const showIndicator = step >= 2 && step <= 5;
+  const showIndicator = step >= 2 && step <= 6;
 
   const handlePaymentSuccess = async (pid: string, oid: string) => {
     setPaymentId(pid);
@@ -1133,13 +1377,14 @@ export default function BrandOnboardingPage() {
             {step === 3 && (
               <StepCampaign data={form} onChange={(k, v) => update(k, v as number | string)} onNext={next} onBack={back} />
             )}
-            {step === 4 && (
+            {step === 4 && <StepAuth onNext={next} onBack={back} />}
+            {step === 5 && (
               <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
             )}
-            {step === 5 && (
+            {step === 6 && (
               <StepPayment data={form} onSuccess={handlePaymentSuccess} onBack={back} />
             )}
-            {step === 6 && <StepDone data={form} paymentId={paymentId} />}
+            {step === 7 && <StepDone data={form} paymentId={paymentId} />}
           </motion.div>
         </AnimatePresence>
       </main>
