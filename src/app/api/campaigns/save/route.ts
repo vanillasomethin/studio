@@ -20,6 +20,9 @@ export type Campaign = {
 };
 
 export async function POST(req: NextRequest) {
+  if (!process.env.KV_REST_API_URL) {
+    return NextResponse.json({ success: true, id: 'demo', note: 'KV not configured' });
+  }
   try {
     const body = await req.json() as Omit<Campaign, 'id' | 'createdAt'>;
 

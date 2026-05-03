@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Package, Store, Users, ShoppingBag, BarChart, Info } from 'lucide-react';
+import { Menu, Package, Users, BarChart, Info, LayoutDashboard } from 'lucide-react';
 import { Logo } from '../icons/logo';
 
 const navLinks = [
@@ -35,7 +35,13 @@ export default function Header({ onGetStartedClick }: HeaderProps) {
           ))}
         </nav>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <a
+            href="/login"
+            className="hidden md:flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" /> Brand Login
+          </a>
           <Button className="hidden md:flex" onClick={onGetStartedClick}>
             Get Started
           </Button>
@@ -49,7 +55,7 @@ export default function Header({ onGetStartedClick }: HeaderProps) {
             <SheetContent side="right">
               <div className="flex flex-col gap-6 p-6">
                 <a href="#" className="flex items-center gap-2">
-                    <Logo />
+                  <Logo />
                 </a>
                 <nav className="flex flex-col gap-4">
                   {navLinks.map((link) => (
@@ -62,9 +68,15 @@ export default function Header({ onGetStartedClick }: HeaderProps) {
                       {link.label}
                     </a>
                   ))}
+                  <a
+                    href="/login"
+                    className="flex items-center gap-3 rounded-md p-2 text-lg font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <LayoutDashboard className="h-5 w-5" /> Brand Login
+                  </a>
                 </nav>
-                 <Button variant="default" onClick={onGetStartedClick}>
-                    Get Started
+                <Button variant="default" onClick={onGetStartedClick}>
+                  Get Started
                 </Button>
               </div>
             </SheetContent>

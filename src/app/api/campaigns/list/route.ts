@@ -9,6 +9,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  if (!process.env.KV_REST_API_URL) {
+    return NextResponse.json({ campaigns: [] });
+  }
   try {
     const user  = await currentUser();
     const phone = user?.phoneNumbers?.[0]?.phoneNumber?.replace(/\D/g, '');

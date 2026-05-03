@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { Logo } from '@/components/icons/logo';
@@ -588,42 +588,7 @@ function StepAgreement({
   const monthlyFee     = fmt(pricePerScreen * data.screens);
   const effectiveDate  = format(new Date(), 'd MMMM yyyy');
 
-  return (
-    <div className="space-y-6">
-      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
-        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
-          Terms of Service
-        </motion.h2>
-        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
-          Read the terms below and accept to continue.
-        </motion.p>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-        className="rounded-xl border border-border bg-card h-[420px] overflow-y-auto scroll-smooth"
-      >
-        {/* Sticky header inside scroll box */}
-        <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm px-6 py-4">
-          <p className="text-base font-bold text-foreground">Alive Advertising — Terms of Service</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
-        </div>
-
-        <div className="px-6 py-6 space-y-7 text-sm text-muted-foreground leading-relaxed">
-
-          {/* Intro */}
-          <p>
-            These Terms of Service ("Terms") govern your use of Alive Advertising Solutions'
-            digital out-of-home advertising platform. By accepting these Terms, you
-            ({data.brandName ? <strong className="text-foreground">{data.brandName}</strong> : 'you, the Brand'})
-            {' '}agree to a binding contract with <strong className="text-foreground">VS Collective</strong>,
-            trading as <strong className="text-foreground">Alive Advertising Solutions</strong>.
-          </p>
-
-          {/* Sections */}
-          {[
+  const clauses = useMemo(() => [
             {
               n: '1', title: 'What we provide',
               items: [
@@ -704,7 +669,41 @@ function StepAgreement({
                 'Continued use of our services after changes take effect means you accept the revised Terms.',
               ],
             },
-          ].map(({ n, title, items }) => (
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [data.months, data.screens, monthlyFee]);
+
+  return (
+    <div className="space-y-6">
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
+        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
+          Terms of Service
+        </motion.h2>
+        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
+          Read the terms below and accept to continue.
+        </motion.p>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+        className="rounded-xl border border-border bg-card h-[420px] overflow-y-auto scroll-smooth"
+      >
+        <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm px-6 py-4">
+          <p className="text-base font-bold text-foreground">Alive Advertising — Terms of Service</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
+        </div>
+
+        <div className="px-6 py-6 space-y-7 text-sm text-muted-foreground leading-relaxed">
+          <p>
+            These Terms of Service ("Terms") govern your use of Alive Advertising Solutions'
+            digital out-of-home advertising platform. By accepting these Terms, you
+            ({data.brandName ? <strong className="text-foreground">{data.brandName}</strong> : 'you, the Brand'})
+            {' '}agree to a binding contract with <strong className="text-foreground">VS Collective</strong>,
+            trading as <strong className="text-foreground">Alive Advertising Solutions</strong>.
+          </p>
+
+          {clauses.map(({ n, title, items }) => (
             <div key={n} className="space-y-2.5">
               <p className="font-semibold text-foreground text-[13px]">
                 <span className="text-primary mr-1.5">{n}.</span>{title}
@@ -720,7 +719,6 @@ function StepAgreement({
             </div>
           ))}
 
-          {/* Company info footer */}
           <div className="pt-4 border-t border-border space-y-3 text-xs text-muted-foreground/70">
             <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
             <div className="space-y-0.5">
@@ -920,6 +918,17 @@ function StepPayment({
         <p className="text-center text-xs text-muted-foreground/50">
           Secured by Razorpay · 256-bit SSL · PCI DSS compliant
         </p>
+
+        {/* Demo mode — remove before launch */}
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            type="button"
+            onClick={() => onSuccess(`demo_${Date.now()}`, `order_demo_${Date.now()}`)}
+            className="w-full rounded-xl border border-dashed border-border py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
+          >
+            ⚡ Demo — skip payment (dev only)
+          </button>
+        )}
       </motion.div>
 
       <Button variant="ghost" onClick={onBack} className="gap-1.5 w-full">
