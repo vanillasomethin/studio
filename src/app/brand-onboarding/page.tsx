@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
+import { collection, addDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,7 +12,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
-  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays,
+  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays, Phone,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -29,8 +31,8 @@ type OnboardingFormData = {
 
 type RazorpayResponse = {
   razorpay_payment_id: string;
-  razorpay_order_id: string;
-  razorpay_signature: string;
+  razorpay_order_id:   string;
+  razorpay_signature:  string;
 };
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -783,7 +785,7 @@ function StepPayment({
   data, onSuccess, onBack,
 }: {
   data: OnboardingFormData;
-  onSuccess: (paymentId: string) => void;
+  onSuccess: (paymentId: string, orderId: string) => void;
   onBack: () => void;
 }) {
   const [loading, setLoading] = useState(false);
@@ -822,7 +824,7 @@ function StepPayment({
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
           });
           const result = await verify.json() as { success: boolean };
-          if (result.success) { onSuccess(response.razorpay_payment_id); }
+          if (result.success) { onSuccess(response.razorpay_payment_id, response.razorpay_order_id); }
           else { setError('Payment verification failed. Please contact hello@alive.agency.'); setLoading(false); }
         },
         prefill: { name: data.contactName, email: data.email, contact: data.phone },
@@ -1021,6 +1023,21 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
         ))}
       </motion.div>
 
+      {/* Login CTA */}
+      <motion.div variants={fadeUp} className="w-full max-w-md rounded-xl border border-primary/20 bg-primary/5 p-6 space-y-3 text-left">
+        <p className="text-xs font-bold uppercase tracking-widest text-primary">Track your campaign</p>
+        <p className="text-sm font-bold text-foreground">View your dashboard</p>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Log in with your phone to see live campaign stats, payment history, and ad performance.
+        </p>
+        <a
+          href="/login?return=dashboard"
+          className="flex items-center justify-center gap-2 w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <Phone className="h-4 w-4" /> Sign in with phone
+        </a>
+      </motion.div>
+
       <motion.a
         variants={fadeUp}
         href="/"
@@ -1043,6 +1060,7 @@ export default function BrandOnboardingPage() {
   const [step,      setStep]      = useState(1);
   const [form,      setForm]      = useState<OnboardingFormData>(INITIAL);
   const [paymentId, setPaymentId] = useState('');
+  const [orderId,   setOrderId]   = useState('');
 
   const update = (key: keyof OnboardingFormData, value: OnboardingFormData[keyof OnboardingFormData]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1050,6 +1068,43 @@ export default function BrandOnboardingPage() {
   const next = () => setStep((s) => s + 1);
   const back = () => setStep((s) => s - 1);
   const showIndicator = step >= 2 && step <= 5;
+
+  const handlePaymentSuccess = async (pid: string, oid: string) => {
+    setPaymentId(pid);
+    setOrderId(oid);
+    const pricePerScreen = getScreenPrice(form.screens);
+    try {
+      await addDoc(collection(db, 'campaigns'), {
+        uid:            auth.currentUser?.uid ?? null,
+        brandName:      form.brandName,
+        contactName:    form.contactName,
+        email:          form.email,
+        phone:          form.phone,
+        gstin:          form.gstin,
+        screens:        form.screens,
+        months:         form.months,
+        startDate:      form.startDate,
+        pricePerScreen,
+        totalAmount:    pricePerScreen * form.screens * form.months,
+        paymentId:      pid,
+        orderId:        oid,
+        status:         'upcoming',
+        createdAt:      serverTimestamp(),
+      });
+      if (auth.currentUser) {
+        await setDoc(doc(db, 'users', auth.currentUser.uid), {
+          brandName:   form.brandName,
+          contactName: form.contactName,
+          email:       form.email,
+          phone:       form.phone,
+          gstin:       form.gstin,
+        }, { merge: true });
+      }
+    } catch {
+      // Campaign save failure is non-blocking — payment is already confirmed
+    }
+    next();
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -1085,7 +1140,7 @@ export default function BrandOnboardingPage() {
               <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
             )}
             {step === 5 && (
-              <StepPayment data={form} onSuccess={(pid) => { setPaymentId(pid); next(); }} onBack={back} />
+              <StepPayment data={form} onSuccess={handlePaymentSuccess} onBack={back} />
             )}
             {step === 6 && <StepDone data={form} paymentId={paymentId} />}
           </motion.div>
