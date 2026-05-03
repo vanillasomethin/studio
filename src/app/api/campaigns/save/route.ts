@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+
+const kv = new Redis({
+  url:   process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
 export type Campaign = {
   id:             string;
@@ -20,7 +25,7 @@ export type Campaign = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!process.env.KV_REST_API_URL) {
+  if (!process.env.UPSTASH_REDIS_REST_URL) {
     return NextResponse.json({ success: true, id: 'demo', note: 'KV not configured' });
   }
   try {
