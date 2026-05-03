@@ -1,26 +1,23 @@
-import type { NextFetchEvent, NextRequest } from 'next/server';
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
 const hasClerkCredentials =
   Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) &&
   Boolean(process.env.CLERK_SECRET_KEY);
 
-export default async function middleware(req: NextRequest, evt: NextFetchEvent) {
-  if (!hasClerkCredentials) {
-    return NextResponse.next();
-  }
+const hasClerkCredentials =
+  Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) &&
+  Boolean(process.env.CLERK_SECRET_KEY);
 
-  const { clerkMiddleware, createRouteMatcher } = await import('@clerk/nextjs/server');
-  const isProtected = createRouteMatcher(['/dashboard(.*)']);
+const middleware = hasClerkCredentials
+  ? clerkMiddleware(async (auth, req) => {
+      if (isProtected(req)) {
+        await auth.protect();
+      }
+    })
+  : () => NextResponse.next();
 
-  const handler = clerkMiddleware(async (auth, request) => {
-    if (isProtected(request)) {
-      await auth.protect();
-    }
-  });
-
-  return handler(req, evt);
-}
+export default middleware;
 
 export const config = {
   matcher: [
