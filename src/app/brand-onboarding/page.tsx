@@ -972,7 +972,7 @@ function StepAgreement({
               <p>Mother Teresa Road, Unity College of Nursing, Kankanady,</p>
               <p>Mangaluru, Dakshina Kannada, Karnataka — 575002</p>
               <p className="pt-1">GSTIN: <span className="font-mono">29AAXFV2589C1ZE</span></p>
-              <p>Email: <a href="mailto:hello@alive.agency" className="text-primary hover:underline">hello@alive.agency</a></p>
+              <p>Email: <a href="mailto:legal@wearealive.in" className="text-primary hover:underline">legal@wearealive.in</a></p>
             </div>
             {data.gstin && (
               <div className="pt-2 space-y-0.5">
