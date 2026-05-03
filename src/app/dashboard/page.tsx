@@ -2,53 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useUser, useClerk } from '@clerk/nextjs';
 import { motion } from 'framer-motion';
-import { format, addMonths, eachDayOfInterval, parseISO } from 'date-fns';
-import {
-  collection, query, where, getDocs, doc, getDoc, orderBy, type Timestamp,
-} from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { useAuth } from '@/hooks/use-auth';
-import { Logo } from '@/components/icons/logo';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Skeleton } from '@/components/ui/skeleton';
+import { format, addMonths, parseISO, eachDayOfInterval } from 'date-fns';
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Logo } from '@/components/icons/logo';
 import {
   Monitor, TrendingUp, Eye, DollarSign, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
 } from 'lucide-react';
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-type Campaign = {
-  id:             string;
-  brandName:      string;
-  contactName:    string;
-  email:          string;
-  phone:          string;
-  gstin:          string;
-  screens:        number;
-  months:         number;
-  startDate:      string;
-  pricePerScreen: number;
-  totalAmount:    number;
-  paymentId:      string;
-  orderId:        string;
-  status:         'upcoming' | 'active' | 'completed';
-  createdAt:      Timestamp | null;
-};
-
-type UserProfile = {
-  brandName:   string;
-  contactName: string;
-  email:       string;
-  phone:       string;
-  gstin:       string;
-};
+import type { Campaign } from '@/app/api/campaigns/save/route';
 
 // ─── Animations ────────────────────────────────────────────────────────────────
 
@@ -57,16 +25,13 @@ const fadeUp  = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, trans
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
-const fmt     = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-const PLAYS   = 144;
-const VIEWS   = 4320;
+const fmt   = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+const PLAYS = 144;
+const VIEWS = 4320;
 
 const CHART_COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
+  'hsl(var(--chart-1))', 'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))',
 ];
 
 const STATUS_STYLES: Record<Campaign['status'], string> = {
@@ -76,7 +41,7 @@ const STATUS_STYLES: Record<Campaign['status'], string> = {
 };
 
 const STATUS_ICONS: Record<Campaign['status'], React.ReactNode> = {
-  upcoming:  <Clock       className="h-3 w-3" />,
+  upcoming:  <Clock        className="h-3 w-3" />,
   active:    <CheckCircle2 className="h-3 w-3" />,
   completed: <AlertCircle  className="h-3 w-3" />,
 };
@@ -91,7 +56,7 @@ function deriveCampaignStatus(c: Campaign): Campaign['status'] {
   return 'active';
 }
 
-// ─── Loading Skeleton ──────────────────────────────────────────────────────────
+// ─── Skeleton ──────────────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
@@ -124,13 +89,9 @@ function SummaryCard({ icon, label, value, sub }: { icon: React.ReactNode; label
 // ─── Campaign Card ─────────────────────────────────────────────────────────────
 
 function CampaignCard({ c }: { c: Campaign }) {
-  const status = deriveCampaignStatus(c);
-  const startFormatted = c.startDate
-    ? format(parseISO(c.startDate), 'd MMM yyyy')
-    : '—';
-  const endFormatted = c.startDate
-    ? format(addMonths(parseISO(c.startDate), c.months), 'd MMM yyyy')
-    : '—';
+  const status         = deriveCampaignStatus(c);
+  const startFormatted = c.startDate ? format(parseISO(c.startDate), 'd MMM yyyy') : '—';
+  const endFormatted   = c.startDate ? format(addMonths(parseISO(c.startDate), c.months), 'd MMM yyyy') : '—';
 
   return (
     <motion.div variants={fadeUp} className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -146,9 +107,9 @@ function CampaignCard({ c }: { c: Campaign }) {
 
       <div className="grid grid-cols-3 gap-3 text-center">
         {[
-          { icon: <Monitor className="h-3.5 w-3.5" />,    label: 'Screens',    value: c.screens.toString() },
-          { icon: <TrendingUp className="h-3.5 w-3.5" />, label: 'Plays/day',  value: `~${(PLAYS * c.screens).toLocaleString('en-IN')}` },
-          { icon: <Eye className="h-3.5 w-3.5" />,        label: 'Views/mo',   value: `~${(VIEWS * c.screens).toLocaleString('en-IN')}` },
+          { icon: <Monitor    className="h-3.5 w-3.5" />, label: 'Screens',   value: c.screens.toString() },
+          { icon: <TrendingUp className="h-3.5 w-3.5" />, label: 'Plays/day', value: `~${(PLAYS * c.screens).toLocaleString('en-IN')}` },
+          { icon: <Eye        className="h-3.5 w-3.5" />, label: 'Views/mo',  value: `~${(VIEWS * c.screens).toLocaleString('en-IN')}` },
         ].map(({ icon, label, value }) => (
           <div key={label} className="rounded-lg bg-muted/30 p-2.5 space-y-1">
             <div className="flex justify-center text-muted-foreground">{icon}</div>
@@ -165,7 +126,7 @@ function CampaignCard({ c }: { c: Campaign }) {
         </div>
         <div className="text-right">
           <p className="text-muted-foreground">Payment ID</p>
-          <p className="font-mono text-[10px] text-foreground mt-0.5 truncate max-w-[120px]">{c.paymentId}</p>
+          <p className="font-mono text-[10px] text-foreground mt-0.5 truncate max-w-[130px]">{c.paymentId}</p>
         </div>
       </div>
     </motion.div>
@@ -177,46 +138,40 @@ function CampaignCard({ c }: { c: Campaign }) {
 function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
   if (campaigns.length === 0) return (
     <div className="rounded-xl border border-border bg-card p-10 text-center text-muted-foreground text-sm">
-      No campaign data to display.
+      No campaign data to display yet.
     </div>
   );
 
-  // Monthly views bar chart data
   const barData = campaigns.map((c) => ({
-    name:       c.brandName.length > 12 ? c.brandName.slice(0, 12) + '…' : c.brandName,
+    name:            c.brandName.slice(0, 14),
     'Monthly views': VIEWS * c.screens,
     'Daily plays':   PLAYS * c.screens,
   }));
 
-  // Daily plays area chart — build a timeline for each campaign
-  const allDates = new Set<string>();
+  const allDates      = new Set<string>();
   const campaignDayMap: Record<string, Record<string, number>> = {};
 
   campaigns.forEach((c) => {
     if (!c.startDate) return;
     const start = parseISO(c.startDate);
     const end   = addMonths(start, c.months);
-    const days  = eachDayOfInterval({ start, end });
-    const label = c.brandName.length > 12 ? c.brandName.slice(0, 12) + '…' : c.brandName;
+    const label = c.brandName.slice(0, 14);
     campaignDayMap[label] = {};
-    days.forEach((d) => {
+    eachDayOfInterval({ start, end }).slice(0, 60).forEach((d) => {
       const key = format(d, 'dd MMM');
       allDates.add(key);
       campaignDayMap[label][key] = PLAYS * c.screens;
     });
   });
 
-  const sortedDates = [...allDates].slice(0, 60); // cap at 60 days for readability
-  const areaData = sortedDates.map((date) => {
+  const areaData = [...allDates].map((date) => {
     const row: Record<string, string | number> = { date };
-    Object.entries(campaignDayMap).forEach(([label, days]) => {
-      row[label] = days[date] ?? 0;
-    });
+    Object.entries(campaignDayMap).forEach(([label, days]) => { row[label] = days[date] ?? 0; });
     return row;
   });
 
-  const campaignLabels = Object.keys(campaignDayMap);
-  const axisStyle = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' };
+  const labels     = Object.keys(campaignDayMap);
+  const axisStyle  = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' };
 
   return (
     <div className="space-y-6">
@@ -227,21 +182,10 @@ function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" tick={axisStyle} tickLine={false} interval="preserveStartEnd" />
             <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v) => v.toLocaleString('en-IN')} />
-            <Tooltip
-              contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: 'hsl(var(--foreground))' }}
-            />
+            <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: 'hsl(var(--foreground))' }} />
             <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-            {campaignLabels.map((label, i) => (
-              <Area
-                key={label}
-                type="monotone"
-                dataKey={label}
-                stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                fill={CHART_COLORS[i % CHART_COLORS.length]}
-                fillOpacity={0.15}
-                strokeWidth={2}
-              />
+            {labels.map((l, i) => (
+              <Area key={l} type="monotone" dataKey={l} stroke={CHART_COLORS[i % 5]} fill={CHART_COLORS[i % 5]} fillOpacity={0.15} strokeWidth={2} />
             ))}
           </AreaChart>
         </ResponsiveContainer>
@@ -254,10 +198,7 @@ function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="name" tick={axisStyle} tickLine={false} />
             <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v) => v.toLocaleString('en-IN')} />
-            <Tooltip
-              contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: 'hsl(var(--foreground))' }}
-            />
+            <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: 'hsl(var(--foreground))' }} />
             <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
             <Bar dataKey="Monthly views" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
             <Bar dataKey="Daily plays"   fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
@@ -270,13 +211,16 @@ function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
 
 // ─── Account Tab ──────────────────────────────────────────────────────────────
 
-function AccountTab({ phone, profile }: { phone: string | null; profile: UserProfile | null }) {
+function AccountTab({ campaigns }: { campaigns: Campaign[] }) {
+  const { user } = useUser();
+  const latest   = campaigns[0];
+
   const fields: [string, string][] = [
-    ['Brand / company',   profile?.brandName   || '—'],
-    ['Contact name',      profile?.contactName || '—'],
-    ['Email',             profile?.email       || '—'],
-    ['Phone',             phone                || '—'],
-    ['GSTIN',             profile?.gstin       || '—'],
+    ['Brand / company', latest?.brandName   || '—'],
+    ['Contact name',    latest?.contactName || '—'],
+    ['Email',           latest?.email       || user?.primaryEmailAddress?.emailAddress || '—'],
+    ['Phone',           user?.primaryPhoneNumber?.phoneNumber || '—'],
+    ['GSTIN',           latest?.gstin || '—'],
   ];
 
   return (
@@ -297,7 +241,7 @@ function AccountTab({ phone, profile }: { phone: string | null; profile: UserPro
 
       <motion.a
         variants={fadeUp}
-        href={`mailto:hello@alive.agency?subject=Campaign%20support%20—%20${encodeURIComponent(profile?.brandName || '')}`}
+        href={`mailto:hello@alive.agency?subject=Campaign%20support%20—%20${encodeURIComponent(latest?.brandName || '')}`}
         className="flex items-center justify-center gap-2.5 w-full rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-all"
       >
         <Mail className="h-4 w-4" /> Contact your Account Manager
@@ -306,47 +250,34 @@ function AccountTab({ phone, profile }: { phone: string | null; profile: UserPro
   );
 }
 
-// ─── Dashboard Content ────────────────────────────────────────────────────────
+// ─── Page ───────────────────────────────────────────────────────────────────────
 
-function DashboardContent({ uid, phone }: { uid: string; phone: string | null }) {
-  const router = useRouter();
+export default function DashboardPage() {
+  const router             = useRouter();
+  const { user, isLoaded } = useUser();
+  const { signOut }        = useClerk();
+
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [profile,   setProfile]   = useState<UserProfile | null>(null);
   const [fetching,  setFetching]  = useState(true);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const q = query(
-          collection(db, 'campaigns'),
-          where('uid', '==', uid),
-          orderBy('createdAt', 'desc'),
-        );
-        const snap = await getDocs(q);
-        setCampaigns(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Campaign)));
+    if (!isLoaded) return;
+    if (!user) { router.replace('/login'); return; }
 
-        const uSnap = await getDoc(doc(db, 'users', uid));
-        if (uSnap.exists()) setProfile(uSnap.data() as UserProfile);
-      } catch {
-        // Firestore index may not exist yet on first run — campaigns will be empty
-      } finally {
-        setFetching(false);
-      }
-    };
-    load();
-  }, [uid]);
+    fetch('/api/campaigns/list')
+      .then((r) => r.json())
+      .then((d: { campaigns?: Campaign[] }) => setCampaigns(d.campaigns ?? []))
+      .catch(() => {})
+      .finally(() => setFetching(false));
+  }, [user, isLoaded, router]);
 
-  const handleSignOut = async () => {
-    await signOut(auth);
-    router.replace('/login');
-  };
+  if (!isLoaded || (!user && fetching)) return <LoadingSkeleton />;
+  if (!user) return null;
 
-  // Summary stats
+  const brandName      = campaigns[0]?.brandName || user.fullName || 'Brand';
   const totalInvested  = campaigns.reduce((s, c) => s + c.totalAmount, 0);
   const activeScreens  = campaigns.filter((c) => deriveCampaignStatus(c) === 'active').reduce((s, c) => s + c.screens, 0);
   const estimatedViews = campaigns.reduce((s, c) => s + VIEWS * c.screens * c.months, 0);
-
-  const brandName = profile?.brandName || campaigns[0]?.brandName || 'Brand';
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -364,7 +295,7 @@ function DashboardContent({ uid, phone }: { uid: string; phone: string | null })
             </div>
           </div>
           <button
-            onClick={handleSignOut}
+            onClick={() => signOut(() => router.replace('/login'))}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
           >
             <LogOut className="h-3.5 w-3.5" /> Sign out
@@ -381,10 +312,10 @@ function DashboardContent({ uid, phone }: { uid: string; phone: string | null })
           </div>
         ) : (
           <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard icon={<CalendarDays className="h-4 w-4" />} label="Campaigns"     value={campaigns.length.toString()} sub={campaigns.length === 1 ? '1 campaign' : `${campaigns.length} total`} />
-            <SummaryCard icon={<Monitor      className="h-4 w-4" />} label="Active screens" value={activeScreens.toString()}    sub="Currently running" />
-            <SummaryCard icon={<DollarSign   className="h-4 w-4" />} label="Total invested" value={fmt(totalInvested)}           sub="All campaigns" />
-            <SummaryCard icon={<Eye          className="h-4 w-4" />} label="Est. total views" value={estimatedViews > 0 ? `~${estimatedViews.toLocaleString('en-IN')}` : '—'} sub="Across all campaigns" />
+            <SummaryCard icon={<CalendarDays className="h-4 w-4" />} label="Campaigns"       value={campaigns.length.toString()} />
+            <SummaryCard icon={<Monitor      className="h-4 w-4" />} label="Active screens"  value={activeScreens.toString()} sub="Currently live" />
+            <SummaryCard icon={<DollarSign   className="h-4 w-4" />} label="Total invested"  value={fmt(totalInvested)} />
+            <SummaryCard icon={<Eye          className="h-4 w-4" />} label="Est. total views" value={estimatedViews > 0 ? `~${estimatedViews.toLocaleString('en-IN')}` : '—'} />
           </motion.div>
         )}
 
@@ -399,7 +330,7 @@ function DashboardContent({ uid, phone }: { uid: string; phone: string | null })
           <TabsContent value="campaigns">
             {fetching ? (
               <div className="space-y-4">
-                {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+                {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-52 rounded-xl" />)}
               </div>
             ) : campaigns.length === 0 ? (
               <motion.div
@@ -433,7 +364,7 @@ function DashboardContent({ uid, phone }: { uid: string; phone: string | null })
           </TabsContent>
 
           <TabsContent value="account">
-            <AccountTab phone={phone} profile={profile} />
+            <AccountTab campaigns={campaigns} />
           </TabsContent>
         </Tabs>
       </main>
@@ -445,22 +376,4 @@ function DashboardContent({ uid, phone }: { uid: string; phone: string | null })
       </footer>
     </div>
   );
-}
-
-// ─── Page ───────────────────────────────────────────────────────────────────────
-
-export default function DashboardPage() {
-  const router         = useRouter();
-  const { user, loading } = useAuth();
-
-  useEffect(() => {
-    if (!loading && user === null) {
-      router.replace('/login');
-    }
-  }, [user, loading, router]);
-
-  if (loading || user === undefined) return <LoadingSkeleton />;
-  if (!user) return null;
-
-  return <DashboardContent uid={user.uid} phone={user.phoneNumber} />;
 }

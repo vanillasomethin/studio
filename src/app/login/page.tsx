@@ -1,18 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useSignIn, useSignUp, useAuth } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  type ConfirmationResult,
-} from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
-import { useAuth } from '@/hooks/use-auth';
-import { Logo } from '@/components/icons/logo';
 import { ArrowRight, ArrowLeft, Phone, Loader2, AlertCircle } from 'lucide-react';
+import { Logo } from '@/components/icons/logo';
 
 // ─── Animations ────────────────────────────────────────────────────────────────
 
@@ -28,70 +21,78 @@ const fadeUp  = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, trans
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 export default function LoginPage() {
-  const router       = useRouter();
-  const searchParams = useSearchParams();
-  const { user, loading } = useAuth();
+  const router              = useRouter();
+  const { isSignedIn }      = useAuth();
+  const { signIn, isLoaded: signInLoaded } = useSignIn();
+  const { signUp, isLoaded: signUpLoaded } = useSignUp();
 
   const [phase,   setPhase]   = useState<'phone' | 'otp'>('phone');
   const [phone,   setPhone]   = useState('');
   const [otp,     setOtp]     = useState<string[]>(Array(6).fill(''));
+  const [flow,    setFlow]    = useState<'signIn' | 'signUp'>('signIn');
   const [busy,    setBusy]    = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  const confirmationRef  = useRef<ConfirmationResult | null>(null);
-  const recaptchaRef     = useRef<RecaptchaVerifier | null>(null);
-  const inputRefs        = useRef<Array<HTMLInputElement | null>>(Array(6).fill(null));
+  const inputRefs = useRef<Array<HTMLInputElement | null>>(Array(6).fill(null));
 
-  // Redirect if already logged in
   useEffect(() => {
-    if (!loading && user) {
-      router.replace('/dashboard');
-    }
-  }, [user, loading, router]);
+    if (isSignedIn) router.replace('/dashboard');
+  }, [isSignedIn, router]);
 
-  // Clean up reCAPTCHA on unmount
-  useEffect(() => {
-    return () => { recaptchaRef.current?.clear(); };
-  }, []);
-
-  const getReturnPath = () => searchParams.get('return') === 'dashboard' ? '/dashboard' : '/dashboard';
+  const isLoaded = signInLoaded && signUpLoaded;
 
   // ─── Send OTP ──────────────────────────────────────────────────────────────
 
   const handleSendOtp = async () => {
+    if (!isLoaded) return;
     const digits = phone.replace(/\D/g, '');
     if (digits.length !== 10) { setError('Enter a valid 10-digit number.'); return; }
     setBusy(true);
     setError(null);
+    const fullPhone = '+91' + digits;
     try {
-      recaptchaRef.current?.clear();
-      recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {},
-      });
-      const result = await signInWithPhoneNumber(auth, '+91' + digits, recaptchaRef.current);
-      confirmationRef.current = result;
+      await signIn!.create({ strategy: 'phone_code', identifier: fullPhone });
+      setFlow('signIn');
       setPhase('otp');
-    } catch (e) {
-      setError((e as Error).message ?? 'Failed to send OTP. Try again.');
+    } catch (e: unknown) {
+      const clerkError = e as { errors?: Array<{ code: string }> };
+      if (clerkError?.errors?.[0]?.code === 'form_identifier_not_found') {
+        // New user — sign up
+        try {
+          await signUp!.create({ phoneNumber: fullPhone });
+          await signUp!.preparePhoneNumberVerification({ strategy: 'phone_code' });
+          setFlow('signUp');
+          setPhase('otp');
+        } catch (signUpErr) {
+          setError((signUpErr as Error).message ?? 'Could not send OTP. Try again.');
+        }
+      } else {
+        setError((e as Error).message ?? 'Could not send OTP. Try again.');
+      }
     } finally {
       setBusy(false);
     }
   };
 
-  // ─── Confirm OTP ───────────────────────────────────────────────────────────
+  // ─── Verify OTP ────────────────────────────────────────────────────────────
 
-  const handleConfirmOtp = async (code: string) => {
-    if (!confirmationRef.current) return;
+  const handleVerifyOtp = async (code: string) => {
+    if (!isLoaded) return;
     setBusy(true);
     setError(null);
     try {
-      const cred = await confirmationRef.current.confirm(code);
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        phone:     cred.user.phoneNumber,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      router.replace(getReturnPath());
+      if (flow === 'signIn') {
+        const result = await signIn!.attemptFirstFactor({ strategy: 'phone_code', code });
+        if (result.status === 'complete') {
+          await signIn!.reload();
+          router.replace('/dashboard');
+        }
+      } else {
+        const result = await signUp!.attemptPhoneNumberVerification({ code });
+        if (result.status === 'complete') {
+          router.replace('/dashboard');
+        }
+      }
     } catch {
       setError('Incorrect code. Please try again.');
       setOtp(Array(6).fill(''));
@@ -108,14 +109,12 @@ export default function LoginPage() {
     const next = [...otp];
     next[index] = char;
     setOtp(next);
-    if (char && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
+    if (char && index < 5) inputRefs.current[index + 1]?.focus();
     const code = next.join('');
-    if (code.length === 6) handleConfirmOtp(code);
+    if (code.length === 6) handleVerifyOtp(code);
   };
 
-  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
     if (e.key === 'Backspace' && !otp[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
@@ -128,19 +127,9 @@ export default function LoginPage() {
     const next = Array(6).fill('');
     text.split('').forEach((c, i) => { next[i] = c; });
     setOtp(next);
-    const lastIndex = Math.min(text.length - 1, 5);
-    inputRefs.current[lastIndex]?.focus();
-    if (text.length === 6) handleConfirmOtp(text);
+    inputRefs.current[Math.min(text.length - 1, 5)]?.focus();
+    if (text.length === 6) handleVerifyOtp(text);
   };
-
-  const resetToPhone = () => {
-    setPhase('phone');
-    setOtp(Array(6).fill(''));
-    setError(null);
-    confirmationRef.current = null;
-  };
-
-  if (loading || (user !== undefined && user !== null)) return null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -153,24 +142,17 @@ export default function LoginPage() {
       </header>
 
       <main className="flex-1 flex items-center justify-center px-4 py-12">
-        {/* reCAPTCHA anchor — must never unmount */}
-        <div id="recaptcha-container" />
-
         <div className="w-full max-w-sm">
           <AnimatePresence mode="wait">
             {phase === 'phone' ? (
-              <motion.div
-                key="phone"
-                variants={stepVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-              >
+              <motion.div key="phone" variants={stepVariants} initial="enter" animate="center" exit="exit">
                 <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-8">
                   <motion.div variants={fadeUp} className="space-y-2">
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Brand Login</p>
                     <h1 className="text-3xl font-bold tracking-tight text-foreground">Welcome back.</h1>
-                    <p className="text-sm text-muted-foreground">Enter your phone number to receive a one-time code.</p>
+                    <p className="text-sm text-muted-foreground">
+                      Enter your phone number to receive a one-time code.
+                    </p>
                   </motion.div>
 
                   <motion.div variants={fadeUp} className="space-y-4">
@@ -211,7 +193,7 @@ export default function LoginPage() {
                     <motion.button
                       type="button"
                       onClick={handleSendOtp}
-                      disabled={busy || phone.replace(/\D/g, '').length !== 10}
+                      disabled={busy || !isLoaded || phone.replace(/\D/g, '').length !== 10}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -231,13 +213,7 @@ export default function LoginPage() {
                 </motion.div>
               </motion.div>
             ) : (
-              <motion.div
-                key="otp"
-                variants={stepVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-              >
+              <motion.div key="otp" variants={stepVariants} initial="enter" animate="center" exit="exit">
                 <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-8">
                   <motion.div variants={fadeUp} className="space-y-2">
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Verify</p>
@@ -285,10 +261,10 @@ export default function LoginPage() {
                     )}
                   </motion.div>
 
-                  <motion.div variants={fadeUp} className="space-y-2 text-center">
+                  <motion.div variants={fadeUp} className="text-center">
                     <button
                       type="button"
-                      onClick={resetToPhone}
+                      onClick={() => { setPhase('phone'); setOtp(Array(6).fill('')); setError(null); }}
                       className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto"
                     >
                       <ArrowLeft className="h-3.5 w-3.5" /> Wrong number? Go back

@@ -3,8 +3,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
-import { collection, addDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -1073,9 +1071,11 @@ export default function BrandOnboardingPage() {
     setPaymentId(pid);
     setOrderId(oid);
     const pricePerScreen = getScreenPrice(form.screens);
-    try {
-      await addDoc(collection(db, 'campaigns'), {
-        uid:            auth.currentUser?.uid ?? null,
+    // Save campaign to Vercel KV via API route — non-blocking
+    fetch('/api/campaigns/save', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         brandName:      form.brandName,
         contactName:    form.contactName,
         email:          form.email,
@@ -1088,21 +1088,9 @@ export default function BrandOnboardingPage() {
         totalAmount:    pricePerScreen * form.screens * form.months,
         paymentId:      pid,
         orderId:        oid,
-        status:         'upcoming',
-        createdAt:      serverTimestamp(),
-      });
-      if (auth.currentUser) {
-        await setDoc(doc(db, 'users', auth.currentUser.uid), {
-          brandName:   form.brandName,
-          contactName: form.contactName,
-          email:       form.email,
-          phone:       form.phone,
-          gstin:       form.gstin,
-        }, { merge: true });
-      }
-    } catch {
-      // Campaign save failure is non-blocking — payment is already confirmed
-    }
+        status:         'upcoming' as const,
+      }),
+    }).catch(() => {}); // fire-and-forget — payment already confirmed
     next();
   };
 
