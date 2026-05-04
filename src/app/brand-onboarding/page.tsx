@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { useAuth } from '@clerk/nextjs';
-import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
+import { useSignIn } from '@clerk/nextjs/legacy';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -12,7 +12,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
-  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays, Phone,
+  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -596,19 +596,15 @@ function GoogleIcon() {
 function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const { isSignedIn, isLoaded } = useAuth();
   const { signIn, isLoaded: signInLoaded } = useSignIn();
-  const { signUp, isLoaded: signUpLoaded } = useSignUp();
 
-  const [phase,   setPhase]   = useState<'options' | 'otp'>('options');
-  const [phone,   setPhone]   = useState('');
-  const [otp,     setOtp]     = useState<string[]>(Array(6).fill(''));
-  const [flow,    setFlow]    = useState<'signIn' | 'signUp'>('signIn');
-  const [busy,    setBusy]    = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
-  const inputRefs = useRef<Array<HTMLInputElement | null>>(Array(6).fill(null));
+  const [busy,  setBusy]  = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isLoaded && isSignedIn) onNext();
   }, [isLoaded, isSignedIn, onNext]);
+
+  const isReady = isLoaded && signInLoaded;
 
   const handleGoogle = async () => {
     if (!isReady) return;
@@ -620,84 +616,10 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         redirectUrlComplete: '/brand-onboarding',
       });
     } catch {
-      setError('Could not start Google sign-in. Try phone instead.');
+      setError('Could not start Google sign-in. Please try again.');
       setBusy(false);
     }
   };
-
-  const handleSendOtp = async () => {
-    if (!isReady) return;
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length !== 10) { setError('Enter a valid 10-digit number.'); return; }
-    setBusy(true); setError(null);
-    const fullPhone = '+91' + digits;
-    try {
-      await signIn!.create({ strategy: 'phone_code', identifier: fullPhone });
-      setFlow('signIn'); setPhase('otp');
-    } catch (e: unknown) {
-      const ce = e as { errors?: Array<{ code: string }> };
-      const ec = ce?.errors?.[0]?.code ?? '';
-      if (ec === 'form_identifier_not_found') {
-        try {
-          await signUp!.create({ phoneNumber: fullPhone });
-          await signUp!.preparePhoneNumberVerification({ strategy: 'phone_code' });
-          setFlow('signUp'); setPhase('otp');
-        } catch (err: unknown) {
-          const se = err as { errors?: Array<{ code: string }> };
-          const sc = se?.errors?.[0]?.code ?? '';
-          if (sc === 'phone_number_not_allowed_country' || sc.includes('not_supported') || sc.includes('country')) {
-            setError('SMS to India isn\'t enabled yet — use Google sign-in above.');
-          } else {
-            setError((err as Error).message ?? 'Could not send OTP.');
-          }
-        }
-      } else if (ec === 'phone_number_not_allowed_country' || ec.includes('not_supported') || ec.includes('country')) {
-        setError('SMS to India isn\'t enabled yet — use Google sign-in above.');
-      } else {
-        setError((e as Error).message ?? 'Could not send OTP.');
-      }
-    } finally { setBusy(false); }
-  };
-
-  const handleVerifyOtp = async (code: string) => {
-    if (!isReady) return;
-    setBusy(true); setError(null);
-    try {
-      if (flow === 'signIn') {
-        const r = await signIn!.attemptFirstFactor({ strategy: 'phone_code', code });
-        if (r.status === 'complete') onNext();
-      } else {
-        const r = await signUp!.attemptPhoneNumberVerification({ code });
-        if (r.status === 'complete') onNext();
-      }
-    } catch {
-      setError('Incorrect code. Please try again.');
-      setOtp(Array(6).fill('')); inputRefs.current[0]?.focus();
-    } finally { setBusy(false); }
-  };
-
-  const handleOtpChange = (i: number, value: string) => {
-    const char = value.replace(/\D/g, '').slice(-1);
-    const next = [...otp]; next[i] = char; setOtp(next);
-    if (char && i < 5) inputRefs.current[i + 1]?.focus();
-    const code = next.join('');
-    if (code.length === 6) handleVerifyOtp(code);
-  };
-
-  const handleOtpKeyDown = (i: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !otp[i] && i > 0) inputRefs.current[i - 1]?.focus();
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent) => {
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!text) return; e.preventDefault();
-    const next = Array(6).fill('');
-    text.split('').forEach((c, i) => { next[i] = c; });
-    setOtp(next); inputRefs.current[Math.min(text.length - 1, 5)]?.focus();
-    if (text.length === 6) handleVerifyOtp(text);
-  };
-
-  const isReady = isLoaded && signInLoaded && signUpLoaded;
 
   return (
     <div className="space-y-8">
@@ -710,119 +632,24 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         </motion.p>
       </motion.div>
 
-      <AnimatePresence mode="wait">
-        {phase === 'options' ? (
-          <motion.div
-            key="options"
-            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className="space-y-4"
-          >
-            {/* Google */}
-            <motion.button
-              type="button"
-              onClick={handleGoogle}
-              disabled={busy || !isReady}
-              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-              className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 disabled:opacity-40"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
-              Continue with Google
-            </motion.button>
-
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs text-muted-foreground/50 font-medium">or</span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
-
-            {/* Phone */}
-            <div className="flex gap-2">
-              <div className="flex h-14 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm text-muted-foreground shrink-0">
-                <span>🇮🇳</span>
-                <span className="font-semibold text-foreground">+91</span>
-              </div>
-              <div className="relative flex-1">
-                <input
-                  type="tel" inputMode="numeric" maxLength={10}
-                  value={phone}
-                  onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setError(null); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendOtp(); }}
-                  placeholder=" "
-                  className="peer w-full h-14 rounded-xl border border-border bg-card px-4 pb-1.5 pt-5 text-sm text-foreground placeholder-transparent transition-all duration-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-                <label className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground transition-all duration-200 peer-focus:-translate-y-[1.2rem] peer-focus:text-[10px] peer-focus:font-bold peer-focus:uppercase peer-focus:tracking-widest peer-focus:text-primary peer-[:not(:placeholder-shown)]:-translate-y-[1.2rem] peer-[:not(:placeholder-shown)]:text-[10px] peer-[:not(:placeholder-shown)]:font-bold peer-[:not(:placeholder-shown)]:uppercase peer-[:not(:placeholder-shown)]:tracking-widest peer-[:not(:placeholder-shown)]:text-muted-foreground">
-                  Phone number
-                </label>
-              </div>
-            </div>
-
-            <AnimatePresence>
-              {error && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                  className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive overflow-hidden">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <Button
-              onClick={handleSendOtp}
-              disabled={busy || !isReady || phone.replace(/\D/g, '').length !== 10}
-              className="w-full gap-2 h-11"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
-              {busy ? 'Sending…' : 'Send OTP'}
-              {!busy && <ArrowRight className="h-4 w-4" />}
-            </Button>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="otp"
-            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className="space-y-5"
-          >
-            <p className="text-sm text-muted-foreground">
-              Code sent to <span className="font-semibold text-foreground">+91 {phone}</span>
-            </p>
-
-            <div className="flex gap-2 justify-between" onPaste={handleOtpPaste}>
-              {otp.map((digit, i) => (
-                <input
-                  key={i}
-                  ref={(el) => { inputRefs.current[i] = el; }}
-                  type="text" inputMode="numeric" maxLength={1}
-                  value={digit} autoFocus={i === 0} disabled={busy}
-                  onChange={(e) => handleOtpChange(i, e.target.value)}
-                  onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                  className="h-14 w-full rounded-xl border border-border bg-card text-center text-xl font-black text-foreground transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
-                />
-              ))}
-            </div>
-
-            <AnimatePresence>
-              {error && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                  className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive overflow-hidden">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {busy && (
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Verifying…
-              </div>
-            )}
-
-            <button type="button" onClick={() => { setPhase('options'); setOtp(Array(6).fill('')); setError(null); }}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Wrong number?
-            </button>
-          </motion.div>
+      <div className="space-y-4">
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+          </div>
         )}
-      </AnimatePresence>
+
+        <motion.button
+          type="button"
+          onClick={handleGoogle}
+          disabled={busy || !isReady}
+          whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+          className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 disabled:opacity-40"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
+          {busy ? 'Redirecting…' : 'Continue with Google'}
+        </motion.button>
+      </div>
 
       <div className="flex gap-3 pt-2">
         <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
@@ -1298,7 +1125,7 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
           href="/login?return=dashboard"
           className="flex items-center justify-center gap-2 w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
-          <Phone className="h-4 w-4" /> Sign in with phone
+          Sign in with Google
         </a>
       </motion.div>
 
