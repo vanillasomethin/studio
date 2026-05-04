@@ -132,42 +132,75 @@ function FloatingInput({
 
 // ─── Date Picker ───────────────────────────────────────────────────────────────
 
+const DATE_CHIPS = [
+  { label: 'Next week',  days: 7  },
+  { label: '2 weeks',    days: 14 },
+  { label: '1 month',    days: 30 },
+];
+
+function addDays(d: number) {
+  return format(new Date(Date.now() + d * 86400000), 'yyyy-MM-dd');
+}
+
 function DatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const selected = value ? new Date(value + 'T00:00:00') : undefined;
 
+  const activeChip = DATE_CHIPS.find((c) => addDays(c.days) === value);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={`relative w-full h-14 rounded-xl border bg-card px-4 pb-1.5 pt-5 text-left transition-all duration-200 ${
-            open
-              ? 'border-primary ring-2 ring-primary/20'
-              : 'border-border hover:border-primary/40'
-          }`}
-        >
-          <span className="absolute left-4 top-[0.55rem] text-[10px] font-bold uppercase tracking-widest text-primary">
-            Campaign start date
-          </span>
-          <span className={`text-sm ${selected ? 'text-foreground' : 'text-muted-foreground'}`}>
-            {selected ? format(selected, 'd MMMM yyyy') : 'Pick a date'}
-          </span>
-          <CalendarDays className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 border-border" align="start">
-        <Calendar
-          mode="single"
-          selected={selected}
-          onSelect={(date) => {
-            if (date) { onChange(format(date, 'yyyy-MM-dd')); setOpen(false); }
-          }}
-          disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-          initialFocus
-        />
-      </PopoverContent>
-    </Popover>
+    <div className="space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        Campaign start
+      </p>
+      <div className="flex gap-2">
+        {DATE_CHIPS.map((c) => (
+          <button
+            key={c.days}
+            type="button"
+            onClick={() => onChange(addDays(c.days))}
+            className={`flex-1 rounded-lg border py-2.5 text-xs font-semibold transition-colors ${
+              activeChip?.days === c.days
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg border py-2.5 text-xs font-semibold transition-colors ${
+                !activeChip && value
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
+              }`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              {!activeChip && selected ? format(selected, 'd MMM') : 'Custom'}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0 border-border" align="end">
+            <Calendar
+              mode="single"
+              selected={selected}
+              onSelect={(date) => {
+                if (date) { onChange(format(date, 'yyyy-MM-dd')); setOpen(false); }
+              }}
+              disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+      {selected && (
+        <p className="text-xs text-muted-foreground">
+          Goes live <span className="font-semibold text-foreground">{format(selected, 'EEEE, d MMMM yyyy')}</span>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -240,8 +273,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
           Brand Onboarding
         </motion.p>
         <motion.h1 variants={fadeUp} className="text-[42px] sm:text-[56px] font-bold tracking-tight leading-[1.08] text-foreground">
-          Your brand.<br />
-          <span className="text-primary">Every kirana. Every day.</span>
+          <span className="text-primary">Seen.</span> Remembered.<br />Bought.
         </motion.h1>
         <motion.p variants={fadeUp} className="text-base text-muted-foreground leading-relaxed">
           Alive places your ads on digital screens inside kirana stores across
@@ -479,40 +511,39 @@ function StepCampaign({
         </motion.div>
       </motion.div>
 
-      {/* Duration + Date */}
-      <motion.div variants={stagger} initial="hidden" animate="show" className="grid gap-5 sm:grid-cols-2">
-        <motion.div variants={fadeUp} className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Duration</p>
-          <div className="grid grid-cols-4 gap-2">
-            {DURATION_OPTIONS.map(({ months, label }) => (
-              <motion.button
-                key={months}
-                type="button"
-                onClick={() => onChange('months', months)}
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.96 }}
-                className={`relative rounded-lg border py-2.5 text-sm font-semibold overflow-hidden transition-colors ${
-                  data.months === months
-                    ? 'border-primary text-primary-foreground'
-                    : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                }`}
-              >
-                {data.months === months && (
-                  <motion.div
-                    layoutId="duration-fill"
-                    className="absolute inset-0 bg-primary"
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                  />
-                )}
-                <span className="relative">{label}</span>
-              </motion.button>
-            ))}
-          </div>
+      {/* Duration */}
+      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-3">
+        <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Duration</motion.p>
+        <motion.div variants={fadeUp} className="grid grid-cols-4 gap-2">
+          {DURATION_OPTIONS.map(({ months, label }) => (
+            <motion.button
+              key={months}
+              type="button"
+              onClick={() => onChange('months', months)}
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
+              className={`relative rounded-lg border py-2.5 text-sm font-semibold overflow-hidden transition-colors ${
+                data.months === months
+                  ? 'border-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
+              }`}
+            >
+              {data.months === months && (
+                <motion.div
+                  layoutId="duration-fill"
+                  className="absolute inset-0 bg-primary"
+                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                />
+              )}
+              <span className="relative">{label}</span>
+            </motion.button>
+          ))}
         </motion.div>
+      </motion.div>
 
-        <motion.div variants={fadeUp}>
-          <DatePicker value={data.startDate} onChange={(v) => onChange('startDate', v)} />
-        </motion.div>
+      {/* Start date */}
+      <motion.div variants={fadeUp}>
+        <DatePicker value={data.startDate} onChange={(v) => onChange('startDate', v)} />
       </motion.div>
 
       {/* Live total */}
@@ -1144,7 +1175,7 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
 
 const INITIAL: OnboardingFormData = {
   brandName: '', contactName: '', email: '', phone: '', gstin: '',
-  screens: 3, months: 1, startDate: '', agreementSigned: false,
+  screens: 3, months: 1, startDate: format(new Date(Date.now() + 7 * 86400000), 'yyyy-MM-dd'), agreementSigned: false,
 };
 
 export default function BrandOnboardingPage() {
