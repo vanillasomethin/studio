@@ -68,17 +68,26 @@ export default function LoginPage() {
       setFlow('signIn');
       setPhase('otp');
     } catch (e: unknown) {
-      const clerkError = e as { errors?: Array<{ code: string }> };
-      if (clerkError?.errors?.[0]?.code === 'form_identifier_not_found') {
+      const clerkError = e as { errors?: Array<{ code: string; message?: string }> };
+      const code = clerkError?.errors?.[0]?.code ?? '';
+      if (code === 'form_identifier_not_found') {
         // New user — sign up
         try {
           await signUp!.create({ phoneNumber: fullPhone });
           await signUp!.preparePhoneNumberVerification({ strategy: 'phone_code' });
           setFlow('signUp');
           setPhase('otp');
-        } catch (signUpErr) {
-          setError((signUpErr as Error).message ?? 'Could not send OTP. Try again.');
+        } catch (signUpErr: unknown) {
+          const se = signUpErr as { errors?: Array<{ code: string }> };
+          const sc = se?.errors?.[0]?.code ?? '';
+          if (sc === 'phone_number_not_allowed_country' || sc.includes('not_supported') || sc.includes('country')) {
+            setError('SMS to India isn\'t enabled yet. Use Google sign-in below.');
+          } else {
+            setError((signUpErr as Error).message ?? 'Could not send OTP. Try again.');
+          }
         }
+      } else if (code === 'phone_number_not_allowed_country' || code.includes('not_supported') || code.includes('country')) {
+        setError('SMS to India isn\'t enabled yet. Use Google sign-in below.');
       } else {
         setError((e as Error).message ?? 'Could not send OTP. Try again.');
       }

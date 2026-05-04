@@ -636,13 +636,26 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
       setFlow('signIn'); setPhase('otp');
     } catch (e: unknown) {
       const ce = e as { errors?: Array<{ code: string }> };
-      if (ce?.errors?.[0]?.code === 'form_identifier_not_found') {
+      const ec = ce?.errors?.[0]?.code ?? '';
+      if (ec === 'form_identifier_not_found') {
         try {
           await signUp!.create({ phoneNumber: fullPhone });
           await signUp!.preparePhoneNumberVerification({ strategy: 'phone_code' });
           setFlow('signUp'); setPhase('otp');
-        } catch (err) { setError((err as Error).message ?? 'Could not send OTP.'); }
-      } else { setError((e as Error).message ?? 'Could not send OTP.'); }
+        } catch (err: unknown) {
+          const se = err as { errors?: Array<{ code: string }> };
+          const sc = se?.errors?.[0]?.code ?? '';
+          if (sc === 'phone_number_not_allowed_country' || sc.includes('not_supported') || sc.includes('country')) {
+            setError('SMS to India isn\'t enabled yet — use Google sign-in above.');
+          } else {
+            setError((err as Error).message ?? 'Could not send OTP.');
+          }
+        }
+      } else if (ec === 'phone_number_not_allowed_country' || ec.includes('not_supported') || ec.includes('country')) {
+        setError('SMS to India isn\'t enabled yet — use Google sign-in above.');
+      } else {
+        setError((e as Error).message ?? 'Could not send OTP.');
+      }
     } finally { setBusy(false); }
   };
 
