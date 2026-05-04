@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { Redis } from '@upstash/redis';
 
 const kv = new Redis({
@@ -29,12 +30,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, id: 'demo', note: 'KV not configured' });
   }
   try {
+    const { userId } = await auth();
     const body = await req.json() as Omit<Campaign, 'id' | 'createdAt'>;
-
-    const phone = body.phone?.replace(/\D/g, '');
-    if (!phone) {
-      return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
-    }
 
     const campaign: Campaign = {
       ...body,
@@ -42,7 +39,8 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    const key      = `campaigns:${phone}`;
+    // Key by userId when authenticated, fall back to email so anonymous payments still persist
+    const key      = userId ? `campaigns:user:${userId}` : `campaigns:email:${body.email}`;
     const existing = (await kv.get<Campaign[]>(key)) ?? [];
     await kv.set(key, [campaign, ...existing]);
 

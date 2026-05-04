@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth, currentUser } from '@clerk/nextjs/server';
+import { auth } from '@clerk/nextjs/server';
 import { Redis } from '@upstash/redis';
 
 const kv = new Redis({
@@ -18,14 +18,7 @@ export async function GET() {
     return NextResponse.json({ campaigns: [] });
   }
   try {
-    const user  = await currentUser();
-    const phone = user?.phoneNumbers?.[0]?.phoneNumber?.replace(/\D/g, '');
-
-    if (!phone) {
-      return NextResponse.json({ campaigns: [] });
-    }
-
-    const campaigns = (await kv.get<Campaign[]>(`campaigns:${phone}`)) ?? [];
+    const campaigns = (await kv.get<Campaign[]>(`campaigns:user:${userId}`)) ?? [];
     return NextResponse.json({ campaigns });
   } catch (e) {
     return NextResponse.json(

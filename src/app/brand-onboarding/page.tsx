@@ -51,7 +51,7 @@ const DURATION_OPTIONS = [
   { months: 6, label: '6 mo'  },
 ];
 
-const STEPS = ['Details', 'Campaign', 'Account', 'Agreement', 'Payment'];
+const STEPS = ['Details', 'Campaign', 'Agreement', 'Login', 'Payment'];
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -715,8 +715,8 @@ function StepAgreement({
             {
               n: '2', title: 'Your campaign',
               items: [
-                <>This campaign runs for <strong className="text-foreground">{data.months} {data.months === 1 ? 'month' : 'months'}</strong> across <strong className="text-foreground">{data.screens} {data.screens === 1 ? 'screen' : 'screens'}</strong>.</>,
-                <>The monthly fee is <strong className="text-foreground">{monthlyFee}</strong> plus applicable GST.</>,
+                `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}.`,
+                `The monthly fee is ${monthlyFee} plus applicable GST.`,
                 'Campaign dates are confirmed after payment and creative submission.',
               ],
             },
@@ -802,7 +802,7 @@ function StepAgreement({
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-        className="rounded-xl border border-border bg-card h-[420px] overflow-y-auto scroll-smooth"
+        className="rounded-xl border border-border bg-card max-h-[50vh] min-h-[260px] overflow-y-auto scroll-smooth"
       >
         <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm px-6 py-4">
           <p className="text-base font-bold text-foreground">Alive Advertising — Terms of Service</p>
@@ -1248,10 +1248,10 @@ export default function BrandOnboardingPage() {
             {step === 3 && (
               <StepCampaign data={form} onChange={(k, v) => update(k, v as number | string)} onNext={next} onBack={back} />
             )}
-            {step === 4 && <StepAuth onNext={next} onBack={back} />}
-            {step === 5 && (
+            {step === 4 && (
               <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
             )}
+            {step === 5 && <StepAuth onNext={next} onBack={back} />}
             {step === 6 && (
               <StepPayment data={form} onSuccess={handlePaymentSuccess} onBack={back} />
             )}
