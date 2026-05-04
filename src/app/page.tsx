@@ -1,9 +1,12 @@
 'use client';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
+import { Skeleton } from 'boneyard-js/react';
 import Header from '@/components/sections/header';
 import Hero from '@/components/sections/hero';
 import HowItWorks from '@/components/sections/how-it-works';
+import BeforeAfter from '@/components/sections/before-after';
+import Pricing from '@/components/sections/pricing';
 import MarketProof from '@/components/sections/market-proof';
 import Benefits from '@/components/sections/benefits';
 import Features from '@/components/sections/features';
@@ -35,6 +38,9 @@ function AnimatedSection({ children }: { children: React.ReactNode }) {
 export default function Home() {
   const [isContactFormOpen, setIsContactFormOpen] = useState(false);
   const [contactFormTitle, setContactFormTitle] = useState('Contact Us');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const openContactForm = (title: string) => {
     setContactFormTitle(title);
@@ -45,31 +51,61 @@ export default function Home() {
     <div className="flex min-h-screen flex-col overflow-x-hidden">
       <Header onGetStartedClick={() => openContactForm('Get Started as a Brand')} />
       <main className="flex-1">
-        <Hero onGetStartedClick={openContactForm} />
-        <Brands />
+        <Skeleton name="hero" loading={!mounted} animate="shimmer">
+          <Hero onGetStartedClick={openContactForm} />
+        </Skeleton>
+        <Skeleton name="brands" loading={!mounted} animate="shimmer">
+          <Brands />
+        </Skeleton>
         <AnimatedSection>
-          <HowItWorks />
+          <Skeleton name="how-it-works" loading={!mounted} animate="shimmer">
+            <HowItWorks />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <Benefits />
+          <Skeleton name="before-after" loading={!mounted} animate="shimmer">
+            <BeforeAfter />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <MarketProof />
+          <Skeleton name="benefits" loading={!mounted} animate="shimmer">
+            <Benefits />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <Features />
+          <Skeleton name="market-proof" loading={!mounted} animate="shimmer">
+            <MarketProof />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <Testimonials />
+          <Skeleton name="features" loading={!mounted} animate="shimmer">
+            <Features />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <BusinessModel onGetStartedClick={() => openContactForm('Get Started')} />
+          <Skeleton name="testimonials" loading={!mounted} animate="shimmer">
+            <Testimonials />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <OurStory />
+          <Skeleton name="business-model" loading={!mounted} animate="shimmer">
+            <BusinessModel onGetStartedClick={() => openContactForm('Get Started')} />
+          </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <ClosingCta onCtaClick={openContactForm} />
+          <Skeleton name="pricing" loading={!mounted} animate="shimmer">
+            <Pricing onCta={() => openContactForm('Get Started')} />
+          </Skeleton>
+        </AnimatedSection>
+        <AnimatedSection>
+          <Skeleton name="our-story" loading={!mounted} animate="shimmer">
+            <OurStory />
+          </Skeleton>
+        </AnimatedSection>
+        <AnimatedSection>
+          <Skeleton name="closing-cta" loading={!mounted} animate="shimmer">
+            <ClosingCta onCtaClick={openContactForm} />
+          </Skeleton>
         </AnimatedSection>
       </main>
       <Footer />

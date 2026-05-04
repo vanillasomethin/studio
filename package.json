@@ -39,6 +39,7 @@
     "@radix-ui/react-toast": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.1.8",
     "@upstash/redis": "^1.37.0",
+    "boneyard-js": "^1.8.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",

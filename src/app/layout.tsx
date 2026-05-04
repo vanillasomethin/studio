@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import '../bones/registry';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
@@ -16,8 +17,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
-      <html lang="en" className="dark">
+    <ClerkProvider
+      signInUrl="/login"
+      signUpUrl="/login"
+      afterSignInUrl="/dashboard"
+      afterSignUpUrl="/brand-onboarding"
+    >
+      <html lang="en">
         <head>
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
