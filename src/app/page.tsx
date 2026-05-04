@@ -5,6 +5,8 @@ import { Skeleton } from 'boneyard-js/react';
 import Header from '@/components/sections/header';
 import Hero from '@/components/sections/hero';
 import HowItWorks from '@/components/sections/how-it-works';
+import BeforeAfter from '@/components/sections/before-after';
+import Pricing from '@/components/sections/pricing';
 import MarketProof from '@/components/sections/market-proof';
 import Benefits from '@/components/sections/benefits';
 import Features from '@/components/sections/features';
@@ -61,6 +63,11 @@ export default function Home() {
           </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
+          <Skeleton name="before-after" loading={!mounted} animate="shimmer">
+            <BeforeAfter />
+          </Skeleton>
+        </AnimatedSection>
+        <AnimatedSection>
           <Skeleton name="benefits" loading={!mounted} animate="shimmer">
             <Benefits />
           </Skeleton>
@@ -83,6 +90,11 @@ export default function Home() {
         <AnimatedSection>
           <Skeleton name="business-model" loading={!mounted} animate="shimmer">
             <BusinessModel onGetStartedClick={() => openContactForm('Get Started')} />
+          </Skeleton>
+        </AnimatedSection>
+        <AnimatedSection>
+          <Skeleton name="pricing" loading={!mounted} animate="shimmer">
+            <Pricing onCta={() => openContactForm('Get Started')} />
           </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
