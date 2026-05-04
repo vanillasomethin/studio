@@ -1,38 +1,33 @@
-
 const brands = [
-  'Parle',
-  'Britannia',
-  'Dutch Corner',
-  'Campco',
-  'Landtrades',
-  'Amul',
-  'ITC',
-  'Nestle',
-  'Hayyatibb',
-  'Tecfides',
-  'Marian Builders',
-  'Fern',
-  'Kerepedals',
-  'Kissa',
+  'Parle', 'Britannia', 'Amul', 'ITC', 'Nestlé',
+  'Dutch Corner', 'Campco', 'Landtrades', 'Hayyatibb',
+  'Tecfides', 'Marian Builders', 'Fern', 'Kerepedals', 'Kissa',
 ];
 
-export default function Brands() {
-  const extendedBrands = [...brands, ...brands]; // Duplicate for seamless scrolling
+const doubled = [...brands, ...brands];
 
+export default function Brands() {
   return (
-    <section id="brands" className="bg-background py-12 sm:py-16">
-      <div className="container mx-auto">
-        <h2 className="text-center font-headline text-xl font-semibold text-muted-foreground">
-          Trusted by India's most innovative brands
-        </h2>
-        <div className="brand-logos mt-12">
-          <div className="brand-logos-track">
-            {extendedBrands.map((brand, index) => (
-              <div key={index} className="flex justify-center items-center" style={{ width: 'auto', flexShrink: 0 }}>
-                <span className="font-headline text-xl font-bold text-muted-foreground transition-colors duration-300 hover:text-foreground whitespace-nowrap px-4">{brand}</span>
-              </div>
-            ))}
-          </div>
+    <section className="border-y border-border bg-white py-10">
+      <p className="text-center text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground/50 mb-8">
+        Trusted by India's most innovative brands
+      </p>
+      <div
+        className="flex overflow-hidden"
+        style={{
+          WebkitMaskImage: 'linear-gradient(to right, transparent, black 12%, black 88%, transparent)',
+          maskImage: 'linear-gradient(to right, transparent, black 12%, black 88%, transparent)',
+        }}
+      >
+        <div className="flex shrink-0" style={{ animation: 'scroll 32s linear infinite' }}>
+          {doubled.map((brand, i) => (
+            <span key={i} className="flex items-center gap-0">
+              <span className="whitespace-nowrap px-7 text-[13px] font-semibold tracking-widest text-foreground/40 uppercase transition-colors duration-300 hover:text-foreground/80">
+                {brand}
+              </span>
+              <span className="h-[3px] w-[3px] rounded-full bg-border/60 flex-shrink-0" />
+            </span>
+          ))}
         </div>
       </div>
     </section>

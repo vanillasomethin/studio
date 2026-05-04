@@ -6,17 +6,12 @@ import Header from '@/components/sections/header';
 import Hero from '@/components/sections/hero';
 import HowItWorks from '@/components/sections/how-it-works';
 import BeforeAfter from '@/components/sections/before-after';
-import Pricing from '@/components/sections/pricing';
 import MarketProof from '@/components/sections/market-proof';
-import Benefits from '@/components/sections/benefits';
-import Features from '@/components/sections/features';
 import Testimonials from '@/components/sections/testimonials';
-import BusinessModel from '@/components/sections/business-model';
-import OurStory from '@/components/sections/our-story';
+import Pricing from '@/components/sections/pricing';
 import ClosingCta from '@/components/sections/closing-cta';
 import Footer from '@/components/sections/footer';
 import Brands from '@/components/sections/brands';
-import Team from '@/components/sections/team';
 import ContactForm from '@/components/interactive/contact-form';
 
 function AnimatedSection({ children }: { children: React.ReactNode }) {
@@ -25,9 +20,7 @@ function AnimatedSection({ children }: { children: React.ReactNode }) {
     target: ref,
     offset: ['start end', 'end center'],
   });
-
   const opacity = useTransform(scrollYProgress, [0.3, 0.7], [0.85, 1]);
-
   return (
     <motion.div ref={ref} style={{ opacity }}>
       {children}
@@ -49,7 +42,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden">
-      <Header onGetStartedClick={() => openContactForm('Get Started as a Brand')} />
+      <Header onGetStartedClick={() => openContactForm('Start your campaign')} />
       <main className="flex-1">
         <Skeleton name="hero" loading={!mounted} animate="shimmer">
           <Hero onGetStartedClick={openContactForm} />
@@ -68,18 +61,8 @@ export default function Home() {
           </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <Skeleton name="benefits" loading={!mounted} animate="shimmer">
-            <Benefits />
-          </Skeleton>
-        </AnimatedSection>
-        <AnimatedSection>
           <Skeleton name="market-proof" loading={!mounted} animate="shimmer">
             <MarketProof />
-          </Skeleton>
-        </AnimatedSection>
-        <AnimatedSection>
-          <Skeleton name="features" loading={!mounted} animate="shimmer">
-            <Features />
           </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
@@ -88,18 +71,8 @@ export default function Home() {
           </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
-          <Skeleton name="business-model" loading={!mounted} animate="shimmer">
-            <BusinessModel onGetStartedClick={() => openContactForm('Get Started')} />
-          </Skeleton>
-        </AnimatedSection>
-        <AnimatedSection>
           <Skeleton name="pricing" loading={!mounted} animate="shimmer">
-            <Pricing onCta={() => openContactForm('Get Started')} />
-          </Skeleton>
-        </AnimatedSection>
-        <AnimatedSection>
-          <Skeleton name="our-story" loading={!mounted} animate="shimmer">
-            <OurStory />
+            <Pricing onCta={() => openContactForm('Start your campaign')} />
           </Skeleton>
         </AnimatedSection>
         <AnimatedSection>
