@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
-import { useAuth, useClerk } from '@clerk/nextjs';
+import { useAuth } from '@clerk/nextjs';
 import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
@@ -625,6 +625,33 @@ function GoogleIcon() {
 
 // ─── Step Auth ─────────────────────────────────────────────────────────────────
 
+function PwHint({ pw }: { pw: string }) {
+  const rules = [
+    { ok: pw.length >= 8,           label: '8+ characters' },
+    { ok: /[A-Z]/.test(pw),         label: '1 uppercase letter' },
+    { ok: /[0-9!@#$%^&*]/.test(pw), label: '1 number or symbol' },
+  ];
+  if (!pw) return null;
+  return (
+    <div className="flex gap-3 flex-wrap pt-0.5">
+      {rules.map(({ ok, label }) => (
+        <span key={label} className={`flex items-center gap-1 text-[11px] font-medium transition-colors ${ok ? 'text-green-600' : 'text-muted-foreground/60'}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AuthErrorBox({ msg }: { msg: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
+      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {msg}
+    </div>
+  );
+}
+
 function StepAuth({
   onNext, onBack, formData,
 }: {
@@ -632,10 +659,9 @@ function StepAuth({
   onBack: () => void;
   formData: OnboardingFormData;
 }) {
-  const { isSignedIn, isLoaded } = useAuth();
-  const { setActive }            = useClerk();
-  const { signIn, isLoaded: siLoaded } = useSignIn();
-  const { signUp, isLoaded: suLoaded } = useSignUp();
+  const { isSignedIn, isLoaded }         = useAuth();
+  const { signIn, isLoaded: siLoaded, setActive } = useSignIn();
+  const { signUp, isLoaded: suLoaded }   = useSignUp();
 
   type AuthPhase = 'form' | 'verify';
   const [phase,    setPhase]    = useState<AuthPhase>('form');
@@ -647,26 +673,22 @@ function StepAuth({
   const [busy,     setBusy]     = useState(false);
   const [error,    setError]    = useState<string | null>(null);
 
-  // If already signed in (e.g. restored after OAuth redirect), advance
+  // Advance if already signed in (restored after OAuth redirect via sessionStorage)
   useEffect(() => {
     if (isLoaded && isSignedIn) onNext();
   }, [isLoaded, isSignedIn, onNext]);
 
   const isReady = isLoaded && siLoaded && suLoaded;
 
-  // Save form state to sessionStorage before any redirect that leaves the page
-  const saveForRedirect = (nextStep: number) => {
-    sessionStorage.setItem('alive_onboarding', JSON.stringify({ form: formData, step: nextStep }));
-  };
-
   const handleGoogle = async () => {
     if (!isReady || !signIn) return;
     setBusy(true);
-    saveForRedirect(6); // step 6 = payment
+    // Save full form state so it survives the OAuth page redirect
+    sessionStorage.setItem('alive_onboarding', JSON.stringify({ form: formData, step: 6 }));
     try {
       await signIn.authenticateWithRedirect({
         strategy:            'oauth_google',
-        redirectUrl:         '/sso-callback',
+        redirectUrl:         '/sso-callback/onboarding', // dedicated callback → /brand-onboarding
         redirectUrlComplete: '/brand-onboarding',
       });
     } catch {
@@ -677,7 +699,7 @@ function StepAuth({
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isReady || !signIn) return;
+    if (!isReady || !signIn || !setActive) return;
     setBusy(true); setError(null);
     try {
       const result = await signIn.create({ identifier: email, password });
@@ -705,9 +727,14 @@ function StepAuth({
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPhase('verify');
     } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Sign-up failed.';
-      setError(msg);
+      const clerkErr = (e as { errors?: { code: string; message: string }[] })?.errors?.[0];
+      // Email already exists → switch to sign-in automatically
+      if (clerkErr?.code === 'form_identifier_exists' || clerkErr?.code?.includes('exists')) {
+        setAuthMode('signin');
+        setError('An account with this email already exists. Please sign in instead.');
+      } else {
+        setError(clerkErr?.message ?? (e as Error).message ?? 'Sign-up failed.');
+      }
     } finally {
       setBusy(false);
     }
@@ -715,20 +742,29 @@ function StepAuth({
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isReady || !signUp) return;
+    if (!isReady || !signUp || !setActive) return;
     setBusy(true); setError(null);
     try {
       const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === 'complete') {
+      if (result.status === 'complete' || result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
         onNext();
       } else {
         setError('Verification incomplete. Please try again.');
       }
     } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Invalid code.';
-      setError(msg);
+      const clerkErr = (e as { errors?: { code: string; message: string }[] })?.errors?.[0];
+      // Already verified → just sign in
+      if (clerkErr?.code?.includes('already_verified') || clerkErr?.code?.includes('verified')) {
+        try {
+          const res = await signIn!.create({ identifier: email, password });
+          if (res.status === 'complete') {
+            await setActive({ session: res.createdSessionId });
+            onNext(); return;
+          }
+        } catch { /* fall through to error */ }
+      }
+      setError(clerkErr?.message ?? (e as Error).message ?? 'Invalid code.');
     } finally {
       setBusy(false);
     }
@@ -786,14 +822,17 @@ function StepAuth({
                 placeholder="Email address"
                 className="w-full h-12 rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
             </div>
-            <div className="relative">
-              <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-              <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+            <div className="space-y-1.5">
+              <div className="relative">
+                <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {authMode === 'signup' && <PwHint pw={password} />}
             </div>
             <Button type="submit" disabled={busy || !isReady} className="w-full h-11">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{authMode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight className="h-4 w-4" /></>}
@@ -811,25 +850,24 @@ function StepAuth({
             <GoogleIcon /> Continue with Google
           </button>
 
-          <div className="flex gap-3 pt-1">
-            <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-11">
+          {/* Back + Skip row */}
+          <div className="flex items-center gap-3 pt-1">
+            <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-10 shrink-0">
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
-            <button type="button" onClick={onNext}
-              className="flex-1 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
-              Skip for now → pay as guest
-            </button>
+            <div className="flex-1 flex items-center justify-center gap-1.5">
+              <button type="button" onClick={onNext}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+                Skip for now
+              </button>
+              <span
+                title="You can register after payment using the same email you used during checkout. Your campaign will be linked to your account."
+                className="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground hover:bg-muted-foreground/20 cursor-help transition-colors"
+              >i</span>
+            </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function AuthErrorBox({ msg }: { msg: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
-      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {msg}
     </div>
   );
 }

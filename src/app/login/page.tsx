@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth, useClerk } from '@clerk/nextjs';
+import { useAuth } from '@clerk/nextjs';
 import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, AlertCircle, Eye, EyeOff, Mail, ArrowRight } from 'lucide-react';
@@ -33,11 +33,29 @@ function ErrorBox({ msg }: { msg: string }) {
   );
 }
 
+function PwHint({ pw }: { pw: string }) {
+  const rules = [
+    { ok: pw.length >= 8,           label: '8+ characters' },
+    { ok: /[A-Z]/.test(pw),         label: '1 uppercase' },
+    { ok: /[0-9!@#$%^&*]/.test(pw), label: '1 number or symbol' },
+  ];
+  if (!pw) return null;
+  return (
+    <div className="flex gap-3 flex-wrap">
+      {rules.map(({ ok, label }) => (
+        <span key={label} className={`flex items-center gap-1 text-[11px] font-medium transition-colors ${ok ? 'text-green-600' : 'text-muted-foreground/60'}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
-  const { setActive } = useClerk();
-  const { signIn, isLoaded: siLoaded } = useSignIn();
+  const { signIn, isLoaded: siLoaded, setActive } = useSignIn();
   const { signUp, isLoaded: suLoaded } = useSignUp();
 
   const [tab,      setTab]      = useState<Tab>('signin');
@@ -72,7 +90,7 @@ export default function LoginPage() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!siLoaded || !signIn) return;
+    if (!siLoaded || !signIn || !setActive) return;
     setBusy(true); setError(null);
     try {
       const result = await signIn.create({ identifier: email, password });
@@ -100,9 +118,13 @@ export default function LoginPage() {
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPhase('verify');
     } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Sign-up failed.';
-      setError(msg);
+      const clerkErr = (e as { errors?: { code: string; message: string }[] })?.errors?.[0];
+      if (clerkErr?.code === 'form_identifier_exists' || clerkErr?.code?.includes('exists')) {
+        switchTab('signin');
+        setError('An account with this email already exists. Please sign in instead.');
+      } else {
+        setError(clerkErr?.message ?? (e as Error).message ?? 'Sign-up failed.');
+      }
     } finally {
       setBusy(false);
     }
@@ -110,20 +132,29 @@ export default function LoginPage() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!suLoaded || !signUp) return;
+    if (!suLoaded || !signUp || !setActive) return;
     setBusy(true); setError(null);
     try {
       const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === 'complete') {
+      if (result.status === 'complete' || result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
         router.replace('/dashboard');
       } else {
         setError('Verification incomplete. Please try again.');
       }
     } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Invalid code.';
-      setError(msg);
+      const clerkErr = (e as { errors?: { code: string; message: string }[] })?.errors?.[0];
+      // Already verified → just sign in with the same credentials
+      if (clerkErr?.code?.includes('already_verified') || clerkErr?.code?.includes('verified')) {
+        try {
+          const res = await signIn!.create({ identifier: email, password });
+          if (res.status === 'complete') {
+            await setActive({ session: res.createdSessionId });
+            router.replace('/dashboard'); return;
+          }
+        } catch { /* fall through */ }
+      }
+      setError(clerkErr?.message ?? (e as Error).message ?? 'Invalid code.');
     } finally {
       setBusy(false);
     }
@@ -203,14 +234,17 @@ export default function LoginPage() {
                         placeholder="Email address"
                         className="w-full h-12 rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
-                    <div className="relative">
-                      <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Password"
-                        className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
-                        {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Password"
+                          className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                          {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      {tab === 'signup' && <PwHint pw={password} />}
                     </div>
                     <button type="submit" disabled={busy || !isLoaded}
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-5 py-3.5 text-sm font-bold text-white shadow-[0_6px_16px_-6px_rgba(220,38,38,0.5)] disabled:opacity-40">
