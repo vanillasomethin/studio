@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
-import { useAuth } from '@clerk/nextjs';
-import { useSignIn } from '@clerk/nextjs/legacy';
+import { useAuth, useClerk } from '@clerk/nextjs';
+import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
   TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays,
+  EyeOff,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -624,24 +625,46 @@ function GoogleIcon() {
 
 // ─── Step Auth ─────────────────────────────────────────────────────────────────
 
-function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+function StepAuth({
+  onNext, onBack, formData,
+}: {
+  onNext: () => void;
+  onBack: () => void;
+  formData: OnboardingFormData;
+}) {
   const { isSignedIn, isLoaded } = useAuth();
-  const { signIn, isLoaded: signInLoaded } = useSignIn();
+  const { setActive }            = useClerk();
+  const { signIn, isLoaded: siLoaded } = useSignIn();
+  const { signUp, isLoaded: suLoaded } = useSignUp();
 
-  const [busy,  setBusy]  = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  type AuthPhase = 'form' | 'verify';
+  const [phase,    setPhase]    = useState<AuthPhase>('form');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
+  const [code,     setCode]     = useState('');
+  const [showPw,   setShowPw]   = useState(false);
+  const [busy,     setBusy]     = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
 
+  // If already signed in (e.g. restored after OAuth redirect), advance
   useEffect(() => {
     if (isLoaded && isSignedIn) onNext();
   }, [isLoaded, isSignedIn, onNext]);
 
-  const isReady = isLoaded && signInLoaded;
+  const isReady = isLoaded && siLoaded && suLoaded;
+
+  // Save form state to sessionStorage before any redirect that leaves the page
+  const saveForRedirect = (nextStep: number) => {
+    sessionStorage.setItem('alive_onboarding', JSON.stringify({ form: formData, step: nextStep }));
+  };
 
   const handleGoogle = async () => {
-    if (!isReady) return;
+    if (!isReady || !signIn) return;
     setBusy(true);
+    saveForRedirect(6); // step 6 = payment
     try {
-      await signIn!.authenticateWithRedirect({
+      await signIn.authenticateWithRedirect({
         strategy:            'oauth_google',
         redirectUrl:         '/sso-callback',
         redirectUrlComplete: '/brand-onboarding',
@@ -652,41 +675,161 @@ function StepAuth({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     }
   };
 
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isReady || !signIn) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await signIn.create({ identifier: email, password });
+      if (result.status === 'complete') {
+        await setActive({ session: result.createdSessionId });
+        onNext();
+      } else {
+        setError('Sign-in incomplete. Please try again.');
+      }
+    } catch (e: unknown) {
+      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
+        ?? (e as Error).message ?? 'Sign-in failed.';
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleEmailSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isReady || !signUp) return;
+    setBusy(true); setError(null);
+    try {
+      await signUp.create({ emailAddress: email, password });
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      setPhase('verify');
+    } catch (e: unknown) {
+      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
+        ?? (e as Error).message ?? 'Sign-up failed.';
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isReady || !signUp) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await signUp.attemptEmailAddressVerification({ code });
+      if (result.status === 'complete') {
+        await setActive({ session: result.createdSessionId });
+        onNext();
+      } else {
+        setError('Verification incomplete. Please try again.');
+      }
+    } catch (e: unknown) {
+      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
+        ?? (e as Error).message ?? 'Invalid code.';
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="space-y-8">
-      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
-        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
-          Create your account
-        </motion.h2>
-        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
-          Sign in to save your campaign and access your dashboard after payment.
-        </motion.p>
-      </motion.div>
+    <div className="space-y-6">
+      <div className="space-y-1">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">
+          {phase === 'verify' ? 'Verify your email' : 'Create your account'}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {phase === 'verify'
+            ? `We sent a 6-digit code to ${email}`
+            : 'Save your campaign and track it from your dashboard.'}
+        </p>
+      </div>
 
-      <div className="space-y-4">
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+      {phase === 'verify' ? (
+        <form onSubmit={handleVerify} className="space-y-4">
+          {error && <AuthErrorBox msg={error} />}
+          <input
+            type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+            value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            placeholder="6-digit code" autoFocus
+            className="w-full h-14 rounded-xl border border-border bg-card px-4 text-center text-2xl font-bold tracking-widest text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <Button type="submit" disabled={busy || code.length < 6} className="w-full h-11">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Verify &amp; continue <ArrowRight className="h-4 w-4" /></>}
+          </Button>
+          <button type="button" onClick={() => { setPhase('form'); setCode(''); setError(null); }}
+            className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+            ← Back
+          </button>
+        </form>
+      ) : (
+        <div className="space-y-5">
+          {/* Mode toggle */}
+          <div className="flex rounded-xl border border-border bg-muted/30 p-1">
+            {(['signin', 'signup'] as const).map((m) => (
+              <button key={m} type="button"
+                onClick={() => { setAuthMode(m); setError(null); }}
+                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${authMode === m ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                {m === 'signin' ? 'Sign in' : 'Sign up'}
+              </button>
+            ))}
           </div>
-        )}
 
-        <motion.button
-          type="button"
-          onClick={handleGoogle}
-          disabled={busy || !isReady}
-          whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 disabled:opacity-40"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
-          {busy ? 'Redirecting…' : 'Continue with Google'}
-        </motion.button>
-      </div>
+          {error && <AuthErrorBox msg={error} />}
 
-      <div className="flex gap-3 pt-2">
-        <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-      </div>
+          <form onSubmit={authMode === 'signin' ? handleEmailSignIn : handleEmailSignUp} className="space-y-3">
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email address"
+                className="w-full h-12 rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            </div>
+            <div className="relative">
+              <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+              <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <Button type="submit" disabled={busy || !isReady} className="w-full h-11">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{authMode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight className="h-4 w-4" /></>}
+            </Button>
+          </form>
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground/50">or</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          <button type="button" onClick={handleGoogle} disabled={busy || !isReady}
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-border bg-card px-5 py-3 text-sm font-semibold text-foreground hover:bg-muted/50 disabled:opacity-40 transition-all">
+            <GoogleIcon /> Continue with Google
+          </button>
+
+          <div className="flex gap-3 pt-1">
+            <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-11">
+              <ArrowLeft className="h-4 w-4" /> Back
+            </Button>
+            <button type="button" onClick={onNext}
+              className="flex-1 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+              Skip for now → pay as guest
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuthErrorBox({ msg }: { msg: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
+      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {msg}
     </div>
   );
 }
@@ -915,7 +1058,7 @@ function StepPayment({
           });
           const result = await verify.json() as { success: boolean };
           if (result.success) { onSuccess(response.razorpay_payment_id, response.razorpay_order_id); }
-          else { setError('Payment verification failed. Please contact hello@alive.agency.'); setLoading(false); }
+          else { setError('Payment verification failed. Please contact hello@wearealive.in.'); setLoading(false); }
         },
         prefill: { name: data.contactName, email: data.email, contact: data.phone },
         theme: { color: '#dc2626' },
@@ -1095,7 +1238,7 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
           ))}
         </div>
         <a
-          href={`mailto:hello@alive.agency?subject=Campaign%20creatives%20—%20${encodeURIComponent(data.brandName)}`}
+          href={`mailto:hello@wearealive.in?subject=Campaign%20creatives%20—%20${encodeURIComponent(data.brandName)}`}
           className="flex items-center justify-center gap-2 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <Mail className="h-4 w-4" /> Email creatives to your AM
@@ -1144,7 +1287,7 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
         href="/"
         className="text-xs text-muted-foreground/40 hover:text-muted-foreground underline underline-offset-2 transition-colors"
       >
-        Return to alive.agency
+        Return to wearealive.in
       </motion.a>
     </motion.div>
   );
@@ -1168,6 +1311,19 @@ export default function BrandOnboardingPage() {
 
   const next = () => setStep((s) => s + 1);
   const back = () => setStep((s) => s - 1);
+
+  // Restore form state after OAuth redirect (step + form saved before leaving page)
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('alive_onboarding');
+      if (saved) {
+        const { form: savedForm, step: savedStep } = JSON.parse(saved) as { form: OnboardingFormData; step: number };
+        sessionStorage.removeItem('alive_onboarding');
+        setForm(savedForm);
+        setStep(savedStep);
+      }
+    } catch { /* ignore parse errors */ }
+  }, []);
   const showIndicator = step >= 2 && step <= 6;
 
   const handlePaymentSuccess = async (pid: string, oid: string) => {
@@ -1230,7 +1386,7 @@ export default function BrandOnboardingPage() {
             {step === 4 && (
               <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
             )}
-            {step === 5 && <StepAuth onNext={next} onBack={back} />}
+            {step === 5 && <StepAuth onNext={next} onBack={back} formData={form} />}
             {step === 6 && (
               <StepPayment data={form} onSuccess={handlePaymentSuccess} onBack={back} />
             )}
@@ -1242,8 +1398,8 @@ export default function BrandOnboardingPage() {
       <footer className="border-t border-border/30 py-5 text-center">
         <p className="text-xs text-muted-foreground/40 tracking-wide">
           © 2025 Alive Advertising Solutions Pvt. Ltd. ·{' '}
-          <a href="mailto:hello@alive.agency" className="hover:text-muted-foreground transition-colors">
-            hello@alive.agency
+          <a href="mailto:hello@wearealive.in" className="hover:text-muted-foreground transition-colors">
+            hello@wearealive.in
           </a>
         </p>
       </footer>
