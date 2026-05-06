@@ -136,20 +136,24 @@ export default function LoginPage() {
     setBusy(true); setError(null);
     try {
       const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === 'complete' || result.createdSessionId) {
+      if (result.status === 'complete' && result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
-        router.replace('/dashboard');
-      } else {
-        setError('Verification incomplete. Please try again.');
+        router.replace('/dashboard'); return;
       }
+      // Clerk dev mode may return 'missing_requirements' — fall back to direct sign-in
+      const si = await signIn!.create({ identifier: email, password });
+      if (si.status === 'complete') {
+        await setActive({ session: si.createdSessionId });
+        router.replace('/dashboard'); return;
+      }
+      setError('Verification incomplete. Please try again.');
     } catch (e: unknown) {
       const clerkErr = (e as { errors?: { code: string; message: string }[] })?.errors?.[0];
-      // Already verified → just sign in with the same credentials
-      if (clerkErr?.code?.includes('already_verified') || clerkErr?.code?.includes('verified')) {
+      if (clerkErr?.code?.includes('verified') || clerkErr?.code?.includes('exists')) {
         try {
-          const res = await signIn!.create({ identifier: email, password });
-          if (res.status === 'complete') {
-            await setActive({ session: res.createdSessionId });
+          const si = await signIn!.create({ identifier: email, password });
+          if (si.status === 'complete') {
+            await setActive({ session: si.createdSessionId });
             router.replace('/dashboard'); return;
           }
         } catch { /* fall through */ }

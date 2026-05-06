@@ -688,7 +688,7 @@ function StepAuth({
     try {
       await signIn.authenticateWithRedirect({
         strategy:            'oauth_google',
-        redirectUrl:         '/sso-callback/onboarding', // dedicated callback → /brand-onboarding
+        redirectUrl:         '/sso-callback',
         redirectUrlComplete: '/brand-onboarding',
       });
     } catch {
@@ -746,23 +746,29 @@ function StepAuth({
     setBusy(true); setError(null);
     try {
       const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === 'complete' || result.createdSessionId) {
+      if (result.status === 'complete' && result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
-        onNext();
-      } else {
-        setError('Verification incomplete. Please try again.');
+        onNext(); return;
       }
+      // Clerk dev mode often returns 'missing_requirements' even when email is verified.
+      // Fall back to direct sign-in which is reliable in all modes.
+      const si = await signIn!.create({ identifier: email, password });
+      if (si.status === 'complete') {
+        await setActive({ session: si.createdSessionId });
+        onNext(); return;
+      }
+      setError('Verification incomplete. Please try again.');
     } catch (e: unknown) {
       const clerkErr = (e as { errors?: { code: string; message: string }[] })?.errors?.[0];
-      // Already verified → just sign in
-      if (clerkErr?.code?.includes('already_verified') || clerkErr?.code?.includes('verified')) {
+      // Already verified — try signing in directly
+      if (clerkErr?.code?.includes('verified') || clerkErr?.code?.includes('exists')) {
         try {
-          const res = await signIn!.create({ identifier: email, password });
-          if (res.status === 'complete') {
-            await setActive({ session: res.createdSessionId });
+          const si = await signIn!.create({ identifier: email, password });
+          if (si.status === 'complete') {
+            await setActive({ session: si.createdSessionId });
             onNext(); return;
           }
-        } catch { /* fall through to error */ }
+        } catch { /* fall through */ }
       }
       setError(clerkErr?.message ?? (e as Error).message ?? 'Invalid code.');
     } finally {
