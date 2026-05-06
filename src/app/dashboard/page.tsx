@@ -14,9 +14,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Logo } from '@/components/icons/logo';
 import {
   Monitor, TrendingUp, Eye, DollarSign, LogOut, Mail,
-  CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
+  CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight, Users,
 } from 'lucide-react';
 import type { Campaign } from '@/app/api/campaigns/save/route';
+
+type Lead = {
+  id: string; name: string; email: string; phone: string;
+  message: string; subject: string; createdAt: string;
+};
 
 // ─── Animations ────────────────────────────────────────────────────────────────
 
@@ -250,6 +255,59 @@ function AccountTab({ campaigns }: { campaigns: Campaign[] }) {
   );
 }
 
+// ─── Leads Tab ────────────────────────────────────────────────────────────────
+
+function LeadsTab() {
+  const [leads,    setLeads]    = useState<Lead[]>([]);
+  const [fetching, setFetching] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/leads')
+      .then((r) => r.ok ? r.json() : { leads: [] })
+      .then((d: { leads?: Lead[] }) => setLeads(d.leads ?? []))
+      .catch(() => {})
+      .finally(() => setFetching(false));
+  }, []);
+
+  if (fetching) return <Skeleton className="h-64 rounded-xl" />;
+
+  if (leads.length === 0) return (
+    <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center space-y-2">
+      <Users className="h-10 w-10 text-muted-foreground/30 mx-auto" />
+      <p className="font-bold text-foreground">No leads yet</p>
+      <p className="text-sm text-muted-foreground">Contact form submissions from the main page will appear here.</p>
+    </div>
+  );
+
+  return (
+    <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-3">
+      {leads.map((lead) => (
+        <motion.div key={lead.id} variants={fadeUp}
+          className="rounded-xl border border-border bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-3">
+          <div className="flex-1 space-y-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-semibold text-foreground text-sm">{lead.name || '—'}</p>
+              <span className="rounded-full bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 uppercase tracking-wide">
+                {lead.subject || 'Contact'}
+              </span>
+            </div>
+            <div className="flex gap-4 text-xs text-muted-foreground flex-wrap">
+              <a href={`mailto:${lead.email}`} className="hover:text-primary transition-colors">{lead.email}</a>
+              {lead.phone && <span>{lead.phone}</span>}
+            </div>
+            {lead.message && (
+              <p className="text-xs text-muted-foreground/80 mt-1 line-clamp-2">{lead.message}</p>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground/50 shrink-0 whitespace-nowrap">
+            {new Date(lead.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </p>
+        </motion.div>
+      ))}
+    </motion.div>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -329,6 +387,7 @@ export default function DashboardPage() {
           <TabsList className="mb-6">
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
+            <TabsTrigger value="leads">Leads</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
@@ -366,6 +425,10 @@ export default function DashboardPage() {
               ? <Skeleton className="h-64 rounded-xl" />
               : <PerformanceCharts campaigns={campaigns} />
             }
+          </TabsContent>
+
+          <TabsContent value="leads">
+            <LeadsTab />
           </TabsContent>
 
           <TabsContent value="account">
