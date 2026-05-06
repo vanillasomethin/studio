@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { useAuth } from '@clerk/nextjs';
@@ -703,166 +703,149 @@ function StepAgreement({
   const monthlyFee     = fmt(pricePerScreen * data.screens);
   const effectiveDate  = format(new Date(), 'd MMMM yyyy');
 
-  const clauses = useMemo(() => [
-            {
-              n: '1', title: 'What we provide',
-              items: [
-                'We display your advertisements on digital screens installed inside kirana stores and retail outlets across your selected locations.',
-                'You get a dedicated Account Manager who handles scheduling, creative formatting, and campaign reporting.',
-                'We provide screen uptime reports and campaign performance summaries.',
-              ],
-            },
-            {
-              n: '2', title: 'Your campaign',
-              items: [
-                `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}.`,
-                `The monthly fee is ${monthlyFee} plus applicable GST.`,
-                'Campaign dates are confirmed after payment and creative submission.',
-              ],
-            },
-            {
-              n: '3', title: 'Payment',
-              items: [
-                'Payment is collected upfront via Razorpay before your campaign is activated.',
-                'A GST invoice will be sent to your registered email within 2 business days of payment.',
-                'Fees for completed campaign months are non-refundable. If we cancel your campaign for reasons within our control, we will issue a prorated refund.',
-                'Late or disputed payments attract interest of 2% per month.',
-              ],
-            },
-            {
-              n: '4', title: 'Your content',
-              items: [
-                'You are solely responsible for ensuring your ad content is accurate, lawful, and complies with applicable advertising regulations.',
-                'We may reject or remove content that violates any law, is misleading, or conflicts with our content policies — without liability to you.',
-                'Send your ad creative and logo to your Account Manager after payment. Specifications: MP4 or JPEG/PNG, 1920 × 1080 px, max 100 MB.',
-              ],
-            },
-            {
-              n: '5', title: 'Intellectual property',
-              items: [
-                'You retain full ownership of your ad content and brand assets.',
-                'You grant us a non-exclusive licence to display your content on our screens for the campaign duration.',
-                'We retain ownership of our platform, scheduling software, and reporting tools.',
-              ],
-            },
-            {
-              n: '6', title: 'Limitation of liability',
-              items: [
-                'Our total liability to you for any claim arising from these Terms is limited to the fees you paid for the affected campaign period.',
-                'We are not liable for indirect, incidental, or consequential losses, including lost revenue or reputational damage.',
-                'We are not liable for screen downtime caused by third-party store closures, power outages, or force majeure events. We will notify you and extend your campaign where reasonably possible.',
-              ],
-            },
-            {
-              n: '7', title: 'Ending this agreement',
-              items: [
-                'Either party may end this agreement with 30 days written notice.',
-                'We may suspend or terminate immediately if you breach a material term, including non-payment or submission of unlawful content.',
-                'On termination, outstanding fees become immediately due.',
-              ],
-            },
-            {
-              n: '8', title: 'Privacy',
-              items: [
-                'We collect your business details (name, email, phone, GSTIN) to manage your campaign and issue invoices.',
-                'We do not sell your information to third parties.',
-                'Payment processing is handled by Razorpay, subject to their privacy policy.',
-              ],
-            },
-            {
-              n: '9', title: 'Governing law',
-              items: [
-                'These Terms are governed by the laws of India.',
-                'Any disputes will first be addressed through good-faith discussions. If unresolved within 30 days, disputes will be referred to arbitration in Mangaluru, Karnataka, under the Arbitration and Conciliation Act, 1996.',
-                'Courts in Mangaluru, Karnataka have exclusive jurisdiction for any proceedings.',
-              ],
-            },
-            {
-              n: '10', title: 'Changes to these terms',
-              items: [
-                'We may update these Terms from time to time. We will notify you of material changes by email.',
-                'Continued use of our services after changes take effect means you accept the revised Terms.',
-              ],
-            },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [data.months, data.screens, monthlyFee]);
+  const clauses = [
+    {
+      n: '1', title: 'What we provide',
+      items: [
+        'We display your advertisements on digital screens installed inside kirana stores and retail outlets across your selected locations.',
+        'You get a dedicated Account Manager who handles scheduling, creative formatting, and campaign reporting.',
+        'We provide screen uptime reports and campaign performance summaries.',
+      ],
+    },
+    {
+      n: '2', title: 'Your campaign',
+      items: [
+        `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}.`,
+        `The monthly fee is ${monthlyFee} plus applicable GST.`,
+        'Campaign dates are confirmed after payment and creative submission.',
+      ],
+    },
+    {
+      n: '3', title: 'Payment',
+      items: [
+        'Payment is collected upfront via Razorpay before your campaign is activated.',
+        'A GST invoice will be sent to your registered email within 2 business days of payment.',
+        'Fees for completed campaign months are non-refundable. If we cancel your campaign for reasons within our control, we will issue a prorated refund.',
+        'Late or disputed payments attract interest of 2% per month.',
+      ],
+    },
+    {
+      n: '4', title: 'Your content',
+      items: [
+        'You are solely responsible for ensuring your ad content is accurate, lawful, and complies with applicable advertising regulations.',
+        'We may reject or remove content that violates any law, is misleading, or conflicts with our content policies — without liability to you.',
+        'Send your ad creative and logo to your Account Manager after payment. Specifications: MP4 or JPEG/PNG, 1920 × 1080 px, max 100 MB.',
+      ],
+    },
+    {
+      n: '5', title: 'Intellectual property',
+      items: [
+        'You retain full ownership of your ad content and brand assets.',
+        'You grant us a non-exclusive licence to display your content on our screens for the campaign duration.',
+        'We retain ownership of our platform, scheduling software, and reporting tools.',
+      ],
+    },
+    {
+      n: '6', title: 'Limitation of liability',
+      items: [
+        'Our total liability to you for any claim arising from these Terms is limited to the fees you paid for the affected campaign period.',
+        'We are not liable for indirect, incidental, or consequential losses, including lost revenue or reputational damage.',
+        'We are not liable for screen downtime caused by third-party store closures, power outages, or force majeure events. We will notify you and extend your campaign where reasonably possible.',
+      ],
+    },
+    {
+      n: '7', title: 'Ending this agreement',
+      items: [
+        'Either party may end this agreement with 30 days written notice.',
+        'We may suspend or terminate immediately if you breach a material term, including non-payment or submission of unlawful content.',
+        'On termination, outstanding fees become immediately due.',
+      ],
+    },
+    {
+      n: '8', title: 'Privacy',
+      items: [
+        'We collect your business details (name, email, phone, GSTIN) to manage your campaign and issue invoices.',
+        'We do not sell your information to third parties.',
+        'Payment processing is handled by Razorpay, subject to their privacy policy.',
+      ],
+    },
+    {
+      n: '9', title: 'Governing law',
+      items: [
+        'These Terms are governed by the laws of India.',
+        'Any disputes will first be addressed through good-faith discussions. If unresolved within 30 days, disputes will be referred to arbitration in Mangaluru, Karnataka, under the Arbitration and Conciliation Act, 1996.',
+        'Courts in Mangaluru, Karnataka have exclusive jurisdiction for any proceedings.',
+      ],
+    },
+    {
+      n: '10', title: 'Changes to these terms',
+      items: [
+        'We may update these Terms from time to time. We will notify you of material changes by email.',
+        'Continued use of our services after changes take effect means you accept the revised Terms.',
+      ],
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-1">
-        <motion.h2 variants={fadeUp} className="text-2xl font-bold tracking-tight text-foreground">
-          Terms of Service
-        </motion.h2>
-        <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
-          Read the terms below and accept to continue.
-        </motion.p>
-      </motion.div>
+      <div className="space-y-1">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">Terms of Service</h2>
+        <p className="text-sm text-muted-foreground">Read the terms below and accept to continue.</p>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-        className="rounded-xl border border-border bg-card max-h-[50vh] min-h-[260px] overflow-y-auto scroll-smooth"
-      >
-        <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm px-6 py-4">
-          <p className="text-base font-bold text-foreground">Alive Advertising — Terms of Service</p>
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="border-b border-border bg-card px-5 py-4">
+          <p className="text-sm font-bold text-foreground">Alive Advertising — Terms of Service</p>
           <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
         </div>
 
-        <div className="px-6 py-6 space-y-7 text-sm text-muted-foreground leading-relaxed">
-          <p>
-            These Terms of Service ("Terms") govern your use of Alive Advertising Solutions'
-            digital out-of-home advertising platform. By accepting these Terms, you
-            ({data.brandName ? <strong className="text-foreground">{data.brandName}</strong> : 'you, the Brand'})
-            {' '}agree to a binding contract with <strong className="text-foreground">VS Collective</strong>,
-            trading as <strong className="text-foreground">Alive Advertising Solutions</strong>.
-          </p>
+        <div
+          className="overflow-y-auto"
+          style={{ maxHeight: '45vh', minHeight: 220, WebkitOverflowScrolling: 'touch' }}
+        >
+          <div className="px-5 py-5 space-y-6 text-sm text-muted-foreground leading-relaxed">
+            <p>
+              These Terms of Service govern your use of Alive Advertising Solutions&apos; digital
+              out-of-home advertising platform. By accepting, {data.brandName || 'you'} agree to a
+              binding contract with VS Collective, trading as Alive Advertising Solutions.
+            </p>
 
-          {clauses.map(({ n, title, items }) => (
-            <div key={n} className="space-y-2.5">
-              <p className="font-semibold text-foreground text-[13px]">
-                <span className="text-primary mr-1.5">{n}.</span>{title}
-              </p>
-              <ul className="space-y-1.5 pl-4">
-                {items.map((item, i) => (
-                  <li key={i} className="flex gap-2.5">
-                    <span className="mt-[7px] h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+            {clauses.map(({ n, title, items }) => (
+              <div key={n} className="space-y-2">
+                <p className="font-semibold text-foreground text-[13px]">
+                  <span className="text-primary mr-1">{n}.</span>{title}
+                </p>
+                <ul className="space-y-1.5 pl-3">
+                  {items.map((item, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="mt-2 h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
 
-          <div className="pt-4 border-t border-border space-y-3 text-xs text-muted-foreground/70">
-            <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
-            <div className="space-y-0.5">
+            <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground/70">
+              <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
               <p className="font-semibold text-foreground">VS Collective</p>
               <p>Trading as Alive Advertising Solutions</p>
-              <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor,</p>
-              <p>Mother Teresa Road, Unity College of Nursing, Kankanady,</p>
-              <p>Mangaluru, Dakshina Kannada, Karnataka — 575002</p>
-              <p className="pt-1">GSTIN: <span className="font-mono">29AAXFV2589C1ZE</span></p>
-              <p>Email: <a href="mailto:legal@wearealive.in" className="text-primary hover:underline">legal@wearealive.in</a></p>
+              <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor, Kankanady, Mangaluru — 575002</p>
+              <p>GSTIN: 29AAXFV2589C1ZE · Email: legal@wearealive.in</p>
+              {data.gstin && (
+                <div className="pt-1 space-y-0.5">
+                  <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
+                  <p className="font-semibold text-foreground">{data.brandName}</p>
+                  <p>GSTIN: {data.gstin}</p>
+                </div>
+              )}
             </div>
-            {data.gstin && (
-              <div className="pt-2 space-y-0.5">
-                <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
-                <p className="font-semibold text-foreground">{data.brandName}</p>
-                <p>GSTIN: <span className="font-mono">{data.gstin}</span></p>
-              </div>
-            )}
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Checkbox */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-        className="flex items-start gap-3 rounded-xl border border-border bg-card p-4"
-      >
+      <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
         <Checkbox
           id="agree"
           checked={data.agreementSigned}
@@ -874,20 +857,16 @@ function StepAgreement({
           authorised to enter into this agreement on behalf of{' '}
           <strong className="text-foreground">{data.brandName || 'my organisation'}</strong>.
         </label>
-      </motion.div>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 0.3 }}
-        className="flex gap-3"
-      >
+      <div className="flex gap-3">
         <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
         <Button onClick={onNext} disabled={!data.agreementSigned} className="gap-1.5 h-11 px-7">
-          Proceed to payment <ArrowRight className="h-4 w-4" />
+          Continue <ArrowRight className="h-4 w-4" />
         </Button>
-      </motion.div>
+      </div>
     </div>
   );
 }
