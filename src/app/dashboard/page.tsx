@@ -241,7 +241,7 @@ function AccountTab({ campaigns }: { campaigns: Campaign[] }) {
 
       <motion.a
         variants={fadeUp}
-        href={`mailto:hello@alive.agency?subject=Campaign%20support%20—%20${encodeURIComponent(latest?.brandName || '')}`}
+        href={`mailto:hello@wearealive.in?subject=Campaign%20support%20—%20${encodeURIComponent(latest?.brandName || '')}`}
         className="flex items-center justify-center gap-2.5 w-full rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-all"
       >
         <Mail className="h-4 w-4" /> Contact your Account Manager
@@ -376,7 +376,7 @@ export default function DashboardPage() {
 
       <footer className="border-t border-border/30 py-5 text-center">
         <p className="text-xs text-muted-foreground/40">
-          © 2025 Alive Advertising Solutions Pvt. Ltd. · hello@alive.agency
+          © 2025 Alive Advertising Solutions Pvt. Ltd. · hello@wearealive.in
         </p>
       </footer>
     </div>
