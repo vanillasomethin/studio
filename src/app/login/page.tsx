@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useClerk } from '@clerk/nextjs';
-import { useSignIn, useSignUp } from '@clerk/nextjs';
+import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, AlertCircle, Eye, EyeOff, Mail, ArrowRight } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
