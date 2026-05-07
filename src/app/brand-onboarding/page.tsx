@@ -706,7 +706,16 @@ function StepAuth({
     if (!isReady || !signUp) return;
     setBusy(true); setError(null);
     try {
-      await signUp.create({ emailAddress: email, password });
+      // Split contactName into first/last so Clerk doesn't block on missing_requirements
+      const parts     = formData.contactName.trim().split(/\s+/);
+      const firstName = parts[0] ?? '';
+      const lastName  = parts.slice(1).join(' ') ?? '';
+      await signUp.create({
+        emailAddress: email,
+        password,
+        ...(firstName && { firstName }),
+        ...(lastName  && { lastName  }),
+      });
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPhase('verify');
     } catch (e: unknown) {
@@ -723,15 +732,26 @@ function StepAuth({
     if (!isReady || !signUp) return;
     setBusy(true); setError(null);
     try {
-      const result = await signUp.attemptEmailAddressVerification({ code });
+      let result = await signUp.attemptEmailAddressVerification({ code });
+
+      // If Clerk still reports missing fields (e.g. username), auto-fill and retry
+      if (result.status === 'missing_requirements') {
+        const missing: string[] = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
+        const patch: Record<string, string> = {};
+        if (missing.includes('username'))   patch.username  = `user_${Date.now()}`;
+        if (missing.includes('first_name')) patch.firstName = formData.contactName.split(' ')[0] || 'User';
+        if (missing.includes('last_name'))  patch.lastName  = formData.contactName.split(' ').slice(1).join(' ') || '.';
+        if (Object.keys(patch).length) {
+          result = await signUp.update(patch);
+        }
+      }
+
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         onNext();
-      } else if (result.status === 'missing_requirements') {
-        const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
-        setError(`Still missing: ${missing.length ? missing.join(', ') : 'unknown field'} — turn it off in Clerk Dashboard → User & Authentication.`);
       } else {
-        setError(`Unexpected status: ${result.status}. Please try again.`);
+        const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
+        setError(`Sign-up blocked by Clerk (${result.status}): ${missing.join(', ') || 'unknown'}. Check production instance settings.`);
       }
     } catch (e: unknown) {
       const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message

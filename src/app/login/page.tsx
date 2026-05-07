@@ -106,7 +106,12 @@ export default function LoginPage() {
     if (!suLoaded || !signUp) return;
     setBusy(true); setError(null);
     try {
-      await signUp.create({ emailAddress: email, password });
+      const emailPrefix = email.split('@')[0];
+      await signUp.create({
+        emailAddress: email,
+        password,
+        firstName: emailPrefix,
+      });
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPhase('verify');
     } catch (e: unknown) {
@@ -123,13 +128,23 @@ export default function LoginPage() {
     if (!suLoaded || !signUp) return;
     setBusy(true); setError(null);
     try {
-      const result = await signUp.attemptEmailAddressVerification({ code });
+      let result = await signUp.attemptEmailAddressVerification({ code });
+
+      if (result.status === 'missing_requirements') {
+        const missing: string[] = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
+        const patch: Record<string, string> = {};
+        if (missing.includes('username'))   patch.username  = `user_${Date.now()}`;
+        if (missing.includes('first_name')) patch.firstName = email.split('@')[0];
+        if (missing.includes('last_name'))  patch.lastName  = '.';
+        if (Object.keys(patch).length) result = await signUp.update(patch);
+      }
+
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         router.replace('/dashboard');
       } else if (result.status === 'missing_requirements') {
         const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
-        setError(`Still missing: ${missing.length ? missing.join(', ') : 'unknown field'} — turn it off in Clerk Dashboard → User & Authentication.`);
+        setError(`Still blocked: ${missing.join(', ')}. Check production Clerk settings.`);
       } else {
         setError(`Unexpected sign-up status: ${result.status}. Please try again.`);
       }
