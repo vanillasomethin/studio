@@ -1206,6 +1206,12 @@ function StepPayment({
 function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: string }) {
   const total = getScreenPrice(data.screens) * data.screens * data.months;
 
+  // Redirect to dashboard after showing the congratulations screen
+  useEffect(() => {
+    const t = setTimeout(() => { window.location.href = '/dashboard'; }, 4000);
+    return () => clearTimeout(t);
+  }, []);
+
   const checklist = [
     { label: 'Payment confirmed',   value: paymentId,                              done: true  },
     { label: 'Screens booked',       value: `${data.screens} screen${data.screens > 1 ? 's' : ''}`, done: true },
@@ -1295,18 +1301,15 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
         ))}
       </motion.div>
 
-      {/* Login CTA */}
-      <motion.div variants={fadeUp} className="w-full max-w-md rounded-xl border border-primary/20 bg-primary/5 p-6 space-y-3 text-left">
-        <p className="text-xs font-bold uppercase tracking-widest text-primary">Track your campaign</p>
-        <p className="text-sm font-bold text-foreground">View your dashboard</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Log in with your phone to see live campaign stats, payment history, and ad performance.
-        </p>
+      {/* Dashboard redirect */}
+      <motion.div variants={fadeUp} className="w-full max-w-md rounded-xl border border-primary/20 bg-primary/5 p-6 space-y-3 text-center">
+        <p className="text-xs font-bold uppercase tracking-widest text-primary">Taking you to your dashboard…</p>
+        <p className="text-sm text-muted-foreground">You&apos;ll be redirected in a moment to track your campaign live.</p>
         <a
-          href="/login?return=dashboard"
+          href="/dashboard"
           className="flex items-center justify-center gap-2 w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
-          Sign in with Google
+          Go to dashboard now →
         </a>
       </motion.div>
 
