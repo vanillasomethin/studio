@@ -58,14 +58,24 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     if (!siLoaded || !signIn) return;
     setBusy(true);
+    setError(null);
     try {
-      await signIn.authenticateWithRedirect({
+      // Popup keeps the login page in place; after close Clerk updates isSignedIn
+      // → existing useEffect redirects to /dashboard
+      await (signIn as unknown as {
+        authenticateWithPopup: (p: { strategy: string; redirectUrl: string; redirectUrlComplete: string }) => Promise<void>;
+      }).authenticateWithPopup({
         strategy:            'oauth_google',
-        redirectUrl:         '/sso-callback',
-        redirectUrlComplete: '/dashboard',
+        redirectUrl:         `${window.location.origin}/sso-callback`,
+        redirectUrlComplete: `${window.location.origin}/dashboard`,
       });
-    } catch (e) {
-      setError((e as Error).message ?? 'Google sign-in failed.');
+    } catch (e: unknown) {
+      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
+        ?? (e as Error)?.message ?? '';
+      if (msg && !msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('clos')) {
+        setError(msg || 'Google sign-in failed. Please try again.');
+      }
+    } finally {
       setBusy(false);
     }
   };
