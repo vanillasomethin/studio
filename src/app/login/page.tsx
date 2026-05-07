@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useClerk } from '@clerk/nextjs';
-import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
+import { useSignIn, useSignUp } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, AlertCircle, Eye, EyeOff, Mail, ArrowRight } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
@@ -128,7 +128,8 @@ export default function LoginPage() {
         await setActive({ session: result.createdSessionId });
         router.replace('/dashboard');
       } else if (result.status === 'missing_requirements') {
-        setError('Sign-up requires additional fields. Go to Clerk Dashboard → User & Authentication and turn off First name, Last name, and Username.');
+        const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
+        setError(`Still missing: ${missing.length ? missing.join(', ') : 'unknown field'} — turn it off in Clerk Dashboard → User & Authentication.`);
       } else {
         setError(`Unexpected sign-up status: ${result.status}. Please try again.`);
       }
