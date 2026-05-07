@@ -8,14 +8,12 @@ const hasClerkCredentials =
 const isProtected = createRouteMatcher(['/dashboard(.*)']);
 
 const middleware = hasClerkCredentials
-  ? clerkMiddleware(
-      async (auth, req) => {
-        if (isProtected(req)) {
-          await auth.protect();
-        }
-      },
-      { signInUrl: '/login', signUpUrl: '/brand-onboarding' }
-    )
+  ? clerkMiddleware(async (auth, req) => {
+      if (isProtected(req)) {
+        const origin = req.nextUrl.origin;
+        await auth.protect({ unauthenticatedUrl: `${origin}/login` });
+      }
+    })
   : () => NextResponse.next();
 
 export default middleware;

@@ -20,8 +20,6 @@ export default function RootLayout({
     <ClerkProvider
       signInUrl="/login"
       signUpUrl="/brand-onboarding"
-      afterSignInUrl="/dashboard"
-      afterSignUpUrl="/dashboard"
     >
       <html lang="en">
         <head>
