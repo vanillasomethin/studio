@@ -736,8 +736,8 @@ function StepAuth({
       }
 
       if (result.status === 'complete') {
+        // setActive triggers isSignedIn → useEffect calls onNext() — don't call it here too
         await setActive({ session: result.createdSessionId });
-        onNext();
       } else {
         const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
         setError(`Sign-up blocked by Clerk (${result.status}): ${missing.join(', ') || 'unknown'}. Check production instance settings.`);
@@ -1309,17 +1309,41 @@ const INITIAL: OnboardingFormData = {
   screens: 3, months: 1, startDate: format(new Date(Date.now() + 7 * 86400000), 'yyyy-MM-dd'), agreementSigned: false,
 };
 
+const PENDING_KEY = 'alive_pending_campaign';
+
 export default function BrandOnboardingPage() {
   const [step,      setStep]      = useState(1);
   const [form,      setForm]      = useState<OnboardingFormData>(INITIAL);
   const [paymentId, setPaymentId] = useState('');
   const [orderId,   setOrderId]   = useState('');
+  const { isSignedIn, isLoaded }  = useAuth();
+
+  // Restore a pending campaign if the user left during payment and came back signed in
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    try {
+      const saved = localStorage.getItem(PENDING_KEY);
+      if (saved) {
+        const { form: savedForm } = JSON.parse(saved) as { form: OnboardingFormData };
+        localStorage.removeItem(PENDING_KEY);
+        setForm(savedForm);
+        setStep(6); // drop straight back to payment
+      }
+    } catch { /* ignore */ }
+  }, [isLoaded, isSignedIn]);
 
   const update = (key: keyof OnboardingFormData, value: OnboardingFormData[keyof OnboardingFormData]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
   const next = () => setStep((s) => s + 1);
   const back = () => setStep((s) => s - 1);
+
+  // Save campaign data when the user reaches the payment step
+  useEffect(() => {
+    if (step === 6) {
+      try { localStorage.setItem(PENDING_KEY, JSON.stringify({ form })); } catch { /* ignore */ }
+    }
+  }, [step, form]);
 
   const showIndicator = step >= 2 && step <= 6;
 
@@ -1347,6 +1371,7 @@ export default function BrandOnboardingPage() {
         status:         'upcoming' as const,
       }),
     }).catch(() => {}); // fire-and-forget — payment already confirmed
+    try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
     next();
   };
 
