@@ -105,19 +105,24 @@ export default function LoginPage() {
     e.preventDefault();
     if (!suLoaded || !signUp) return;
     setBusy(true); setError(null);
+
+    const clerkMsg = (err: unknown) => {
+      const c = err as { errors?: { longMessage?: string; message?: string }[]; message?: string };
+      return c?.errors?.[0]?.longMessage ?? c?.errors?.[0]?.message ?? c?.message
+        ?? (err instanceof Error ? err.message : String(err)) ?? 'Sign-up failed.';
+    };
+
     try {
-      const emailPrefix = email.split('@')[0];
-      await signUp.create({
-        emailAddress: email,
-        password,
-        firstName: emailPrefix,
-      });
+      try {
+        await signUp.create({ emailAddress: email, password, firstName: email.split('@')[0] });
+      } catch {
+        // firstName may be disabled — retry without it
+        await signUp.create({ emailAddress: email, password });
+      }
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPhase('verify');
     } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Sign-up failed.';
-      setError(msg);
+      setError(clerkMsg(e));
     } finally {
       setBusy(false);
     }

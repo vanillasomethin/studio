@@ -705,23 +705,34 @@ function StepAuth({
     e.preventDefault();
     if (!isReady || !signUp) return;
     setBusy(true); setError(null);
+
+    const clerkMsg = (err: unknown) => {
+      const c = err as { errors?: { longMessage?: string; message?: string }[]; message?: string };
+      return c?.errors?.[0]?.longMessage ?? c?.errors?.[0]?.message ?? c?.message
+        ?? (err instanceof Error ? err.message : String(err)) ?? 'Sign-up failed.';
+    };
+
     try {
-      // Split contactName into first/last so Clerk doesn't block on missing_requirements
       const parts     = formData.contactName.trim().split(/\s+/);
       const firstName = parts[0] ?? '';
       const lastName  = parts.slice(1).join(' ') ?? '';
-      await signUp.create({
-        emailAddress: email,
-        password,
-        ...(firstName && { firstName }),
-        ...(lastName  && { lastName  }),
-      });
+
+      try {
+        // Try with name fields first (satisfies Clerk if they're required)
+        await signUp.create({
+          emailAddress: email, password,
+          ...(firstName && { firstName }),
+          ...(lastName  && { lastName  }),
+        });
+      } catch {
+        // Name fields may be disabled in Clerk — retry with email+password only
+        await signUp.create({ emailAddress: email, password });
+      }
+
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setPhase('verify');
     } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Sign-up failed.';
-      setError(msg);
+      setError(clerkMsg(e));
     } finally {
       setBusy(false);
     }
