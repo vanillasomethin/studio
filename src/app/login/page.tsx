@@ -127,8 +127,10 @@ export default function LoginPage() {
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         router.replace('/dashboard');
+      } else if (result.status === 'missing_requirements') {
+        setError('Sign-up requires additional fields. Go to Clerk Dashboard → User & Authentication and turn off First name, Last name, and Username.');
       } else {
-        setError('Verification incomplete. Please try again.');
+        setError(`Unexpected sign-up status: ${result.status}. Please try again.`);
       }
     } catch (e: unknown) {
       const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message

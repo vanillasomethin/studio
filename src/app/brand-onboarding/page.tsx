@@ -727,8 +727,10 @@ function StepAuth({
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         onNext();
+      } else if (result.status === 'missing_requirements') {
+        setError('Your Clerk app requires extra profile fields (first name / username). Disable them in Clerk Dashboard → User & Authentication.');
       } else {
-        setError('Verification incomplete. Please try again.');
+        setError(`Unexpected status: ${result.status}. Please try again.`);
       }
     } catch (e: unknown) {
       const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
