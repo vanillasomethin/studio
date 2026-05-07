@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useClerk } from '@clerk/nextjs';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths, parseISO, eachDayOfInterval } from 'date-fns';
 import {
   AreaChart, Area, BarChart, Bar,
@@ -15,6 +15,7 @@ import { Logo } from '@/components/icons/logo';
 import {
   Monitor, TrendingUp, Eye, DollarSign, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
+  CreditCard, X, Loader2,
 } from 'lucide-react';
 import type { Campaign } from '@/app/api/campaigns/save/route';
 
@@ -250,6 +251,152 @@ function AccountTab({ campaigns }: { campaigns: Campaign[] }) {
   );
 }
 
+// ─── Pending Payment ──────────────────────────────────────────────────────────
+
+const PENDING_KEY = 'alive_pending_campaign';
+
+type PendingForm = {
+  brandName: string; contactName: string; email: string; phone: string;
+  gstin: string; screens: number; months: number; startDate: string;
+};
+
+function getScreenPrice(n: number) {
+  if (n >= 20) return 549; if (n >= 10) return 599; if (n >= 3) return 699; return 799;
+}
+
+function loadRazorpay(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof (window as Window & { Razorpay?: unknown }).Razorpay !== 'undefined') { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve(); s.onerror = () => reject(new Error('Razorpay failed to load'));
+    document.head.appendChild(s);
+  });
+}
+
+function PendingPaymentCard({
+  pending, onDismiss, onPaid,
+}: {
+  pending: PendingForm;
+  onDismiss: () => void;
+  onPaid: (campaign: Campaign) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const pricePerScreen = getScreenPrice(pending.screens);
+  const total          = pricePerScreen * pending.screens * pending.months;
+  const fmt            = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+  const handlePay = async () => {
+    setLoading(true); setError(null);
+    try {
+      await loadRazorpay();
+      const res  = await fetch('/api/razorpay/create-order', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: total, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName } }),
+      });
+      const body = await res.json() as { id?: string; amount?: number; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Could not create order');
+
+      type RzpC = new (o: Record<string, unknown>) => { open: () => void; on: (e: string, cb: (r: { error: { description: string } }) => void) => void };
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: body.amount, currency: 'INR', name: 'Alive Media',
+        description: `${pending.screens} screen${pending.screens > 1 ? 's' : ''} · ${pending.months} month${pending.months > 1 ? 's' : ''}`,
+        order_id: body.id,
+        handler: async (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
+          const verify = await fetch('/api/razorpay/verify-payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
+          });
+          const result = await verify.json() as { success: boolean };
+          if (!result.success) { setError('Payment verification failed. Contact hello@wearealive.in.'); setLoading(false); return; }
+
+          const saveRes = await fetch('/api/campaigns/save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...pending, pricePerScreen, totalAmount: total,
+              paymentId: response.razorpay_payment_id,
+              orderId:   response.razorpay_order_id,
+              status:    'upcoming',
+            }),
+          });
+          const saved = await saveRes.json() as { id?: string };
+          localStorage.removeItem(PENDING_KEY);
+          const newCampaign: Campaign = {
+            id: saved.id ?? `campaign_${Date.now()}`, ...pending, pricePerScreen,
+            totalAmount: total, paymentId: response.razorpay_payment_id,
+            orderId: response.razorpay_order_id, status: 'upcoming',
+            createdAt: new Date().toISOString(),
+          };
+          onPaid(newCampaign);
+        },
+        prefill: { name: pending.contactName, email: pending.email, contact: pending.phone },
+        theme: { color: '#dc2626' },
+        modal: { ondismiss: () => setLoading(false) },
+      };
+      const rzp = new ((window as unknown as { Razorpay: RzpC }).Razorpay)(options as Record<string, unknown>);
+      rzp.on('payment.failed', (r) => { setError(r.error.description ?? 'Payment failed.'); setLoading(false); });
+      rzp.open();
+    } catch (e) {
+      setError((e as Error).message ?? 'Something went wrong.'); setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+      className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-4"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/15">
+            <CreditCard className="h-4 w-4 text-amber-500" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-foreground">Payment pending — {pending.brandName}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your campaign is configured and ready. Complete payment to go live.</p>
+          </div>
+        </div>
+        <button onClick={onDismiss} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors shrink-0">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-xs">
+        {[
+          ['Screens',  `${pending.screens}`],
+          ['Duration', `${pending.months} mo`],
+          ['Rate',     fmt(pricePerScreen) + '/screen'],
+          ['Start',    pending.startDate ? format(parseISO(pending.startDate), 'd MMM') : '—'],
+          ['Total',    fmt(total)],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-lg bg-card border border-border px-3 py-2 space-y-0.5">
+            <p className="text-muted-foreground text-[10px] uppercase tracking-wider">{label}</p>
+            <p className="font-bold text-foreground">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      <button
+        onClick={handlePay} disabled={loading}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-all"
+      >
+        {loading
+          ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+          : <><CreditCard className="h-4 w-4" /> Complete payment — {fmt(total)}</>
+        }
+      </button>
+    </motion.div>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -259,6 +406,15 @@ export default function DashboardPage() {
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [fetching,  setFetching]  = useState(true);
+  const [pending,   setPending]   = useState<PendingForm | null>(null);
+
+  // Load pending campaign from localStorage (saved if user left during payment)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PENDING_KEY);
+      if (saved) setPending((JSON.parse(saved) as { form: PendingForm }).form);
+    } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -333,11 +489,23 @@ export default function DashboardPage() {
           </TabsList>
 
           <TabsContent value="campaigns">
+            <AnimatePresence>
+              {pending && (
+                <div className="mb-4">
+                  <PendingPaymentCard
+                    pending={pending}
+                    onDismiss={() => { localStorage.removeItem(PENDING_KEY); setPending(null); }}
+                    onPaid={(newCampaign) => { setCampaigns((prev) => [newCampaign, ...prev]); setPending(null); }}
+                  />
+                </div>
+              )}
+            </AnimatePresence>
+
             {fetching ? (
               <div className="space-y-4">
                 {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-52 rounded-xl" />)}
               </div>
-            ) : campaigns.length === 0 ? (
+            ) : campaigns.length === 0 && !pending ? (
               <motion.div
                 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                 className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center space-y-4"
