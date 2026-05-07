@@ -654,23 +654,28 @@ function StepAuth({
 
   const isReady = isLoaded && siLoaded && suLoaded;
 
-  // Save form state to sessionStorage before any redirect that leaves the page
-  const saveForRedirect = (nextStep: number) => {
-    sessionStorage.setItem('alive_onboarding', JSON.stringify({ form: formData, step: nextStep }));
-  };
-
   const handleGoogle = async () => {
     if (!isReady || !signIn) return;
     setBusy(true);
-    saveForRedirect(6); // step 6 = payment
+    setError(null);
     try {
-      await signIn.authenticateWithRedirect({
+      // Use popup so the onboarding page never navigates away.
+      // After the popup closes, Clerk updates isSignedIn → useEffect below calls onNext().
+      await (signIn as unknown as {
+        authenticateWithPopup: (p: { strategy: string; redirectUrl: string; redirectUrlComplete: string }) => Promise<void>;
+      }).authenticateWithPopup({
         strategy:            'oauth_google',
-        redirectUrl:         '/sso-callback',
-        redirectUrlComplete: '/brand-onboarding',
+        redirectUrl:         `${window.location.origin}/sso-callback`,
+        redirectUrlComplete: `${window.location.origin}/brand-onboarding`,
       });
-    } catch {
-      setError('Could not start Google sign-in. Please try again.');
+    } catch (e: unknown) {
+      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
+        ?? (e as Error)?.message ?? '';
+      // Ignore intentional popup-close by user
+      if (msg && !msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('clos')) {
+        setError(msg || 'Google sign-in failed. Please try again.');
+      }
+    } finally {
       setBusy(false);
     }
   };
@@ -722,8 +727,10 @@ function StepAuth({
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         onNext();
+      } else if (result.status === 'missing_requirements') {
+        setError('Your Clerk app requires extra profile fields (first name / username). Disable them in Clerk Dashboard → User & Authentication.');
       } else {
-        setError('Verification incomplete. Please try again.');
+        setError(`Unexpected status: ${result.status}. Please try again.`);
       }
     } catch (e: unknown) {
       const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
@@ -1312,18 +1319,6 @@ export default function BrandOnboardingPage() {
   const next = () => setStep((s) => s + 1);
   const back = () => setStep((s) => s - 1);
 
-  // Restore form state after OAuth redirect (step + form saved before leaving page)
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem('alive_onboarding');
-      if (saved) {
-        const { form: savedForm, step: savedStep } = JSON.parse(saved) as { form: OnboardingFormData; step: number };
-        sessionStorage.removeItem('alive_onboarding');
-        setForm(savedForm);
-        setStep(savedStep);
-      }
-    } catch { /* ignore parse errors */ }
-  }, []);
   const showIndicator = step >= 2 && step <= 6;
 
   const handlePaymentSuccess = async (pid: string, oid: string) => {
