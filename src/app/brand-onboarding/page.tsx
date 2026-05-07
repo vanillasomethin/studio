@@ -634,12 +634,11 @@ function StepAuth({
 }) {
   const { isSignedIn, isLoaded } = useAuth();
   const { setActive }            = useClerk();
-  const { signIn, isLoaded: siLoaded } = useSignIn();
+  const { isLoaded: siLoaded }   = useSignIn();
   const { signUp, isLoaded: suLoaded } = useSignUp();
 
   type AuthPhase = 'form' | 'verify';
   const [phase,    setPhase]    = useState<AuthPhase>('form');
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [code,     setCode]     = useState('');
@@ -675,27 +674,6 @@ function StepAuth({
       if (msg && !msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('clos')) {
         setError(msg || 'Google sign-in failed. Please try again.');
       }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleEmailSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isReady || !signIn) return;
-    setBusy(true); setError(null);
-    try {
-      const result = await signIn.create({ identifier: email, password });
-      if (result.status === 'complete') {
-        await setActive({ session: result.createdSessionId });
-        onNext();
-      } else {
-        setError('Sign-in incomplete. Please try again.');
-      }
-    } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Sign-in failed.';
-      setError(msg);
     } finally {
       setBusy(false);
     }
@@ -782,7 +760,7 @@ function StepAuth({
         <p className="text-sm text-muted-foreground">
           {phase === 'verify'
             ? `We sent a 6-digit code to ${email}`
-            : 'Save your campaign and track it from your dashboard.'}
+            : 'Save your campaign and access your dashboard after payment.'}
         </p>
       </div>
 
@@ -805,20 +783,9 @@ function StepAuth({
         </form>
       ) : (
         <div className="space-y-5">
-          {/* Mode toggle */}
-          <div className="flex rounded-xl border border-border bg-muted/30 p-1">
-            {(['signin', 'signup'] as const).map((m) => (
-              <button key={m} type="button"
-                onClick={() => { setAuthMode(m); setError(null); }}
-                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${authMode === m ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
-                {m === 'signin' ? 'Sign in' : 'Sign up'}
-              </button>
-            ))}
-          </div>
-
           {error && <AuthErrorBox msg={error} />}
 
-          <form onSubmit={authMode === 'signin' ? handleEmailSignIn : handleEmailSignUp} className="space-y-3">
+          <form onSubmit={handleEmailSignUp} className="space-y-3">
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
               <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
@@ -827,7 +794,7 @@ function StepAuth({
             </div>
             <div className="relative">
               <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
+                placeholder="Create a password"
                 className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
               <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
@@ -835,7 +802,7 @@ function StepAuth({
               </button>
             </div>
             <Button type="submit" disabled={busy || !isReady} className="w-full h-11">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{authMode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight className="h-4 w-4" /></>}
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Create account <ArrowRight className="h-4 w-4" /></>}
             </Button>
           </form>
 
