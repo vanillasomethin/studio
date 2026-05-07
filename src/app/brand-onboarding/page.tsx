@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { useAuth, useClerk } from '@clerk/nextjs';
-import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
+import { useSignIn, useSignUp } from '@clerk/nextjs';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -728,7 +728,8 @@ function StepAuth({
         await setActive({ session: result.createdSessionId });
         onNext();
       } else if (result.status === 'missing_requirements') {
-        setError('Your Clerk app requires extra profile fields (first name / username). Disable them in Clerk Dashboard → User & Authentication.');
+        const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
+        setError(`Still missing: ${missing.length ? missing.join(', ') : 'unknown field'} — turn it off in Clerk Dashboard → User & Authentication.`);
       } else {
         setError(`Unexpected status: ${result.status}. Please try again.`);
       }
