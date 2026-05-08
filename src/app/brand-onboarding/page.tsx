@@ -987,7 +987,6 @@ function StepAgreement({
               )}
             </div>
           </div>
-        </div>
       </div>
 
       {/* Sticky accept bar — always visible at bottom on mobile */}
