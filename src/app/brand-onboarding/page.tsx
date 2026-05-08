@@ -948,42 +948,39 @@ function StepAgreement({
           <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
         </div>
 
-        <div
-          className="overflow-y-auto"
-          style={{ maxHeight: '45vh', minHeight: 220, WebkitOverflowScrolling: 'touch' }}
-        >
-          <div className="px-5 py-5 space-y-6 text-sm text-muted-foreground leading-relaxed">
-            <p>
-              These Terms of Service govern your use of Alive Advertising Solutions&apos; digital
-              out-of-home advertising platform. By accepting, {data.brandName || 'you'} agree to a
-              binding contract with VS Collective, trading as Alive Advertising Solutions.
-            </p>
+        {/* No nested scroll — content flows naturally so mobile page scroll works */}
+        <div className="px-5 py-5 space-y-6 text-sm text-muted-foreground leading-relaxed">
+          <p>
+            These Terms of Service govern your use of Alive Advertising Solutions&apos; digital
+            out-of-home advertising platform. By accepting, {data.brandName || 'you'} agree to a
+            binding contract with VS Collective, trading as Alive Advertising Solutions.
+          </p>
 
-            {clauses.map(({ n, title, items }) => (
-              <div key={n} className="space-y-2">
-                <p className="font-semibold text-foreground text-[13px]">
-                  <span className="text-primary mr-1">{n}.</span>{title}
-                </p>
-                <ul className="space-y-1.5 pl-3">
-                  {items.map((item, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="mt-2 h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+          {clauses.map(({ n, title, items }) => (
+            <div key={n} className="space-y-2">
+              <p className="font-semibold text-foreground text-[13px]">
+                <span className="text-primary mr-1">{n}.</span>{title}
+              </p>
+              <ul className="space-y-1.5 pl-3">
+                {items.map((item, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="mt-2 h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
 
-            <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground/70">
-              <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
-              <p className="font-semibold text-foreground">VS Collective</p>
-              <p>Trading as Alive Advertising Solutions</p>
-              <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor, Kankanady, Mangaluru — 575002</p>
-              <p>GSTIN: 29AAXFV2589C1ZE · Email: legal@wearealive.in</p>
-              {data.gstin && (
-                <div className="pt-1 space-y-0.5">
-                  <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
+          <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground/70">
+            <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
+            <p className="font-semibold text-foreground">VS Collective</p>
+            <p>Trading as Alive Advertising Solutions</p>
+            <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor, Kankanady, Mangaluru — 575002</p>
+            <p>GSTIN: 29AAXFV2589C1ZE · Email: legal@wearealive.in</p>
+            {data.gstin && (
+              <div className="pt-1 space-y-0.5">
+                <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
                   <p className="font-semibold text-foreground">{data.brandName}</p>
                   <p>GSTIN: {data.gstin}</p>
                 </div>
@@ -993,28 +990,30 @@ function StepAgreement({
         </div>
       </div>
 
-      {/* Checkbox */}
-      <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
-        <Checkbox
-          id="agree"
-          checked={data.agreementSigned}
-          onCheckedChange={(v) => onChange('agreementSigned', !!v)}
-          className="mt-0.5 shrink-0"
-        />
-        <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
-          I have read and agree to the Alive Advertising Terms of Service. I confirm I am
-          authorised to enter into this agreement on behalf of{' '}
-          <strong className="text-foreground">{data.brandName || 'my organisation'}</strong>.
-        </label>
-      </div>
+      {/* Sticky accept bar — always visible at bottom on mobile */}
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm pt-4 pb-2 space-y-3 -mx-4 px-4 sm:-mx-6 sm:px-6">
+        <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
+          <Checkbox
+            id="agree"
+            checked={data.agreementSigned}
+            onCheckedChange={(v) => onChange('agreementSigned', !!v)}
+            className="mt-0.5 shrink-0"
+          />
+          <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
+            I have read and agree to the Alive Advertising Terms of Service. I confirm I am
+            authorised to enter into this agreement on behalf of{' '}
+            <strong className="text-foreground">{data.brandName || 'my organisation'}</strong>.
+          </label>
+        </div>
 
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        <Button onClick={onNext} disabled={!data.agreementSigned} className="gap-1.5 h-11 px-7">
-          Continue <ArrowRight className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <Button onClick={onNext} disabled={!data.agreementSigned} className="flex-1 gap-1.5 h-11">
+            Accept &amp; continue <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );
