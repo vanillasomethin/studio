@@ -1,6 +1,5 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import { Check, Star, ArrowRight } from 'lucide-react';
 
 const plans = [
@@ -46,11 +45,7 @@ const plans = [
   },
 ];
 
-type PricingProps = {
-  onCta?: () => void;
-};
-
-export default function Pricing({ onCta }: PricingProps) {
+export default function Pricing() {
   return (
     <section id="pricing" className="py-24 bg-secondary">
       <div className="container mx-auto px-4">
@@ -147,22 +142,17 @@ export default function Pricing({ onCta }: PricingProps) {
                 ))}
               </div>
 
-              <Button
-                variant={plan.popular ? 'default' : 'outline'}
-                className="w-full"
-                onClick={onCta}
-                style={
+              <a
+                href="/brand-onboarding"
+                className={`w-full inline-flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
                   plan.popular
-                    ? {
-                        background: 'rgba(255,255,255,0.2)',
-                        color: '#fff',
-                        border: '1px solid rgba(255,255,255,0.35)',
-                      }
-                    : {}
-                }
+                    ? 'border border-white/35 text-white hover:bg-white/10'
+                    : 'border border-border text-foreground hover:bg-muted'
+                }`}
+                style={plan.popular ? { background: 'rgba(255,255,255,0.2)' } : {}}
               >
                 {plan.cta} <ArrowRight size={14} />
-              </Button>
+              </a>
             </div>
           ))}
         </div>
