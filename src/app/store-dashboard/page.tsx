@@ -362,7 +362,7 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Amount</span>
-                <span className="font-bold text-green-600">₹2,500 estimated</span>
+                <span className="font-bold text-green-600">₹500 + electricity</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">UPI / WhatsApp</span>
@@ -393,9 +393,9 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
 // ─── Earnings estimator ──────────────────────────────────────────────────────
 
 const EARNING_TABLE = [
-  { screens: 1, monthly: 2500,  annual: 30000  },
-  { screens: 2, monthly: 5000,  annual: 60000  },
-  { screens: 3, monthly: 8000,  annual: 96000  },
+  { screens: 1, monthly: 500,  annual: 6000  },
+  { screens: 2, monthly: 1000, annual: 12000 },
+  { screens: 3, monthly: 1500, annual: 18000 },
 ];
 
 const TIMELINE = [
@@ -468,8 +468,8 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
             </div>
             <div className="flex gap-2 shrink-0">
               <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-center">
-                <p className="text-base font-bold text-white">₹0</p>
-                <p className="text-[9px] text-white/40">Earned</p>
+                <p className="text-base font-bold text-white">₹500</p>
+                <p className="text-[9px] text-white/40">/month</p>
               </div>
               <div className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-center">
                 <p className="text-base font-bold text-primary">48h</p>
@@ -663,7 +663,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground/50 mt-3 italic">
-                  Actual earnings depend on bookings and uptime. A minimum guaranteed payout applies once live.
+                  ₹500/month per screen is fixed and guaranteed. Electricity is reimbursed separately based on actual consumption.
                 </p>
               </div>
 

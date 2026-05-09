@@ -21,12 +21,12 @@ const fadeUp = (delay = 0) => ({
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const BENEFITS = [
-  { icon: IndianRupee, title: '₹2,500 – ₹8,000/month', body: 'Guaranteed passive income deposited directly to your bank, every month. No sales, no effort.', color: '#22c55e' },
-  { icon: Zap,         title: 'Zero upfront cost',      body: 'We supply, install and maintain the screen at absolutely no cost to you. We own the equipment.', color: '#eab308' },
-  { icon: Shield,      title: 'We run everything',      body: 'Content, updates, tech support — all handled remotely by our team. Your job is to keep the store open.', color: '#3b82f6' },
-  { icon: TrendingUp,  title: 'Modern store feel',      body: 'A bright digital screen makes your store stand out and draws more foot traffic from the street.', color: '#a855f7' },
-  { icon: Clock,       title: 'Zero disruption',        body: 'The screen goes on your wall. Your store runs exactly as before. No changes to your routine.', color: '#f97316' },
-  { icon: Star,        title: 'Exclusive territory',    body: 'We take only 1–2 stores per locality. Register now before your nearest competitor beats you to it.', color: '#ef4444' },
+  { icon: IndianRupee, title: '₹500 + electricity/month', body: 'Fixed monthly income deposited directly to your bank, every month. Plus full electricity reimbursement for running the screen.', color: '#22c55e' },
+  { icon: Zap,         title: 'Zero upfront cost',        body: 'We supply, install and maintain the screen at absolutely no cost to you. We own the equipment.', color: '#eab308' },
+  { icon: Shield,      title: 'We run everything',        body: 'Content, updates, tech support — all handled remotely by our team. Your job is to keep the store open.', color: '#3b82f6' },
+  { icon: TrendingUp,  title: 'Modern store feel',        body: 'A bright digital screen makes your store stand out and draws more foot traffic from the street.', color: '#a855f7' },
+  { icon: Clock,       title: 'Zero disruption',          body: 'The screen goes on your wall. Your store runs exactly as before. No changes to your routine.', color: '#f97316' },
+  { icon: Star,        title: 'Exclusive territory',      body: 'We take only 1–2 stores per locality. Register now before your nearest competitor beats you to it.', color: '#ef4444' },
 ];
 
 const HOW = [
@@ -36,9 +36,9 @@ const HOW = [
 ];
 
 const EARNINGS = [
-  { screens: 1, monthly: 2500, annual: 30000  },
-  { screens: 2, monthly: 5000, annual: 60000  },
-  { screens: 3, monthly: 8000, annual: 96000  },
+  { screens: 1, monthly: 500,  annual: 6000  },
+  { screens: 2, monthly: 1000, annual: 12000 },
+  { screens: 3, monthly: 1500, annual: 18000 },
 ];
 
 // ─── Form type ────────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ function AgreementStep({
         </div>
         <div className="divide-y divide-white/8">
           {[
-            { term: 'Revenue share',       detail: 'You earn ₹2,500–₹8,000/month per screen based on campaign bookings. Payment by UPI/NEFT within 7 days of month end.' },
+            { term: 'Monthly remuneration', detail: 'You earn ₹500/month per screen as a fixed guaranteed amount. Payment by UPI/NEFT within 10 working days of month end.' },
             { term: 'Equipment ownership', detail: 'The digital screen is installed free of charge and remains the property of ALIVE at all times.' },
             { term: 'Electricity',         detail: 'ALIVE reimburses electricity costs based on each screen\'s rated power and actual operating hours at the prevailing tariff.' },
             { term: 'Term & termination',  detail: 'This agreement runs month-to-month. Either party may terminate with 30 days\' written notice. ALIVE will remove the screen at its cost.' },
@@ -463,11 +463,11 @@ export default function StorePage() {
             <h1 className="text-4xl sm:text-6xl font-black text-white leading-[1.05] tracking-tight mb-6">
               Extra income.<br />
               <span style={{ color: '#ef4444' }}>Zero effort.</span><br />
-              <span className="text-3xl sm:text-5xl text-white/70">Starting ₹2,500/month.</span>
+              <span className="text-3xl sm:text-5xl text-white/70">₹500 + electricity/month.</span>
             </h1>
             <p className="text-lg sm:text-xl text-white/60 leading-relaxed max-w-2xl mb-8">
               Alive installs a free digital screen in your store. Top brands pay to show ads on it.
-              You earn <span className="text-white font-semibold">₹2,500–₹8,000 every month</span> without lifting a finger.
+              You earn <span className="text-white font-semibold">₹500 every month + full electricity reimbursement</span> — without lifting a finger.
             </p>
             <div className="flex flex-wrap gap-3">
               <a
@@ -599,9 +599,9 @@ export default function StorePage() {
             className="rounded-3xl overflow-hidden border border-gray-100 dark:border-border"
           >
             <div className="p-8 sm:p-10" style={{ background: 'linear-gradient(135deg,#0a0000,#1c0404)' }}>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-2">Earnings calculator</p>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-2">Earnings breakdown</p>
               <h2 className="text-3xl font-black text-white mb-1">How much will you earn?</h2>
-              <p className="text-sm text-white/50 mb-8">Based on typical campaign fill rates in Mangaluru.</p>
+              <p className="text-sm text-white/50 mb-8">Fixed monthly remuneration + electricity reimbursement per screen.</p>
 
               <div className="mb-8">
                 <p className="text-xs font-bold uppercase tracking-widest text-white/40 mb-3">Number of screens in your store</p>
@@ -637,7 +637,7 @@ export default function StorePage() {
               </div>
 
               <p className="mt-4 text-xs text-white/25 italic">
-                Actual earnings depend on campaign bookings and screen uptime. Minimum guaranteed payout applies once live.
+                ₹500/month per screen is the fixed guaranteed amount. Electricity costs are reimbursed separately based on actual consumption.
               </p>
             </div>
 
@@ -689,7 +689,7 @@ export default function StorePage() {
             transition={{ duration: 0.5, delay: 0.2 }} viewport={{ once: true }}
             className="mt-8 flex flex-wrap justify-center gap-x-8 gap-y-3 text-xs text-white/30"
           >
-            {['₹0 installation cost', 'No long-term contract', 'Monthly UPI payout', '24/7 tech support'].map((t) => (
+            {['₹0 installation cost', '₹500 + electricity/month', 'Monthly UPI payout', '24/7 tech support'].map((t) => (
               <span key={t} className="flex items-center gap-1.5">
                 <Check className="h-3.5 w-3.5 text-red-500" /> {t}
               </span>
