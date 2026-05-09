@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle, MapPin,
-  Phone, ChevronRight, Check, ArrowLeft, Loader2, Clock, Star,
+  ChevronRight, Check, ArrowLeft, Loader2, Clock, Star,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import MapPicker from '@/components/map-picker';
@@ -287,16 +287,14 @@ export default function StorePage() {
           {/* Key benefits */}
           <div className="space-y-3">
             {[
-              { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed. Paid every month via UPI.',          color: '#22c55e' },
-              { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.',          color: '#eab308' },
-              { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.',        color: '#3b82f6' },
-              { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.', color: '#f97316' },
-              { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.',         color: '#ef4444' },
-            ].map(({ icon: Icon, label, sub, color }) => (
+              { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed. Paid every month via UPI.'            },
+              { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.'           },
+              { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.'         },
+              { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
+              { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.'          },
+            ].map(({ icon: Icon, label, sub }) => (
               <div key={label} className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl" style={{ background: `${color}18` }}>
-                  <Icon className="h-4 w-4" style={{ color }} />
-                </div>
+                <Icon className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
                 <div>
                   <p className="text-sm font-bold text-white">{label}</p>
                   <p className="text-xs text-white/40">{sub}</p>
@@ -306,15 +304,15 @@ export default function StorePage() {
           </div>
 
           {/* Process */}
-          <div className="rounded-2xl border border-white/10 p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.04)' }}>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">How it works</p>
+          <div className="border-t border-white/8 pt-5 space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">How it works</p>
             {[
-              { n: '1', t: 'Register below',       d: 'Takes 2 minutes.' },
-              { n: '2', t: 'We visit & install',   d: 'Free screen within 48 h.' },
-              { n: '3', t: 'Earn every month',     d: '₹500 + electricity to your account.' },
+              { n: '01', t: 'Register below',     d: 'Takes 2 minutes.' },
+              { n: '02', t: 'We visit & install', d: 'Free screen within 48 h.' },
+              { n: '03', t: 'Earn every month',   d: '₹500 + electricity to your account.' },
             ].map(({ n, t, d }) => (
               <div key={n} className="flex items-start gap-3">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 text-[10px] font-black mt-0.5">{n}</span>
+                <span className="text-[11px] font-black text-red-500/70 mt-0.5 w-5 shrink-0">{n}</span>
                 <div>
                   <p className="text-xs font-bold text-white">{t}</p>
                   <p className="text-[11px] text-white/35">{d}</p>
