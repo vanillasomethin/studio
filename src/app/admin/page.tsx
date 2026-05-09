@@ -171,17 +171,22 @@ function UploadPanel({ onSaved }: { onSaved: () => void }) {
     if (!form.storeName || !form.title || !form.validUntil) return;
     setBusy(true); setError(null);
     try {
-      const pw  = sessionStorage.getItem(SS_PW) ?? '';
-      const res = await fetch('/api/flyers/save', {
+      const pw   = sessionStorage.getItem(SS_PW) ?? '';
+      const res  = await fetch('/api/flyers/save', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'admin-password': pw },
         body:    JSON.stringify({ ...form, imageBase64: imgB64 }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      const body = await res.json() as { success?: boolean; id?: string; error?: string; note?: string };
+      if (!res.ok || body.error) throw new Error(body.error ?? `HTTP ${res.status}`);
+      if (body.note) {
+        // Redis not configured — warn but still clear form
+        setError(`Saved in memory only (Redis not configured). Flyers won't persist across deploys.`);
+      }
       setForm({ storeName: '', title: '', description: '', validUntil: '' });
       setPreview(''); setImgB64('');
       if (fileRef.current) fileRef.current.value = '';
-      setOk(true); setTimeout(() => setOk(false), 3000);
+      if (!body.note) { setOk(true); setTimeout(() => setOk(false), 4000); }
       onSaved();
     } catch (e) {
       setError((e as Error).message ?? 'Error saving flyer');

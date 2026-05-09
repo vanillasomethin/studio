@@ -1,220 +1,66 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowRight, ArrowLeft, Check, Loader2, MapPin, Navigation,
-  IndianRupee, Shield, Zap, TrendingUp, Star, Clock, Wifi,
-  PhoneCall, CheckCircle2, AlertCircle,
+  IndianRupee, Zap, Shield, TrendingUp, Clock, Star,
+  Navigation, Loader2, CheckCircle2, AlertCircle, MapPin,
+  ArrowDown, Phone, ChevronRight, Wifi, Monitor, Check,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 
-// ─── Animation variants ─────────────────────────────────────────────────────
+// ─── Animation ──────────────────────────────────────────────────────────────
 
-const stepVariants = {
-  enter:  (dir: number) => ({ opacity: 0, y: dir >= 0 ? 24 : -16, scale: 0.986 }),
-  center: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.36, ease: [0.22, 1, 0.36, 1] } },
-  exit:   (dir: number) => ({ opacity: 0, y: dir >= 0 ? -16 : 24, scale: 0.986, transition: { duration: 0.2, ease: [0.22, 1, 0.36, 1] } }),
-};
+const fadeUp = (delay = 0) => ({
+  hidden: { opacity: 0, y: 24 },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1], delay } },
+});
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.36, ease: [0.22, 1, 0.36, 1] } },
-};
-
-const stagger = {
-  hidden: {},
-  show:   { transition: { staggerChildren: 0.07, delayChildren: 0.04 } },
-};
-
-// ─── Benefit cards ──────────────────────────────────────────────────────────
+// ─── Data ────────────────────────────────────────────────────────────────────
 
 const BENEFITS = [
-  {
-    icon: IndianRupee,
-    title: '₹2,500 – ₹8,000/month',
-    subtitle: 'Passive income, every month',
-    desc: 'Earn guaranteed revenue just by hosting our digital screen. No sales, no effort.',
-    color: 'from-emerald-500/20 to-emerald-600/10',
-    iconColor: 'text-emerald-400',
-  },
-  {
-    icon: Zap,
-    title: 'Zero Upfront Cost',
-    subtitle: 'We install everything free',
-    desc: 'Screen, hardware, wiring — fully installed at no cost to you. We own the equipment.',
-    color: 'from-yellow-500/20 to-yellow-600/10',
-    iconColor: 'text-yellow-400',
-  },
-  {
-    icon: Shield,
-    title: 'We Handle Everything',
-    subtitle: 'Tech, content & maintenance',
-    desc: 'Our team manages all content and operations remotely. Zero workload for you.',
-    color: 'from-blue-500/20 to-blue-600/10',
-    iconColor: 'text-blue-400',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Attract More Customers',
-    subtitle: 'A modern, vibrant store',
-    desc: 'Bright digital screens draw attention and make your store stand out on the street.',
-    color: 'from-violet-500/20 to-violet-600/10',
-    iconColor: 'text-violet-400',
-  },
-  {
-    icon: Clock,
-    title: 'No Disruption',
-    subtitle: 'Keep running as usual',
-    desc: 'Screen goes on your wall. Your store keeps running exactly as before — we promise.',
-    color: 'from-orange-500/20 to-orange-600/10',
-    iconColor: 'text-orange-400',
-  },
-  {
-    icon: Star,
-    title: 'First-Mover Advantage',
-    subtitle: 'Limited spots per area',
-    desc: 'We take only 1–2 stores per locality. Register now before your competitor does.',
-    color: 'from-red-500/20 to-red-600/10',
-    iconColor: 'text-red-400',
-  },
-  {
-    icon: Wifi,
-    title: 'Remote Monitoring',
-    subtitle: '24/7 uptime guarantee',
-    desc: 'Our systems monitor your screen around the clock. Any issue, we fix it remotely.',
-    color: 'from-cyan-500/20 to-cyan-600/10',
-    iconColor: 'text-cyan-400',
-  },
-  {
-    icon: PhoneCall,
-    title: 'Dedicated Support',
-    subtitle: 'WhatsApp, call, or visit',
-    desc: 'A dedicated relationship manager handles all your queries and concerns personally.',
-    color: 'from-pink-500/20 to-pink-600/10',
-    iconColor: 'text-pink-400',
-  },
+  { icon: IndianRupee, title: '₹2,500 – ₹8,000/month', body: 'Guaranteed passive income deposited directly to your bank, every month. No sales, no effort.', color: '#22c55e' },
+  { icon: Zap,         title: 'Zero upfront cost',      body: 'We supply, install and maintain the screen at absolutely no cost to you. We own the equipment.', color: '#eab308' },
+  { icon: Shield,      title: 'We run everything',      body: 'Content, updates, tech support — all handled remotely by our team. Your job is to keep the store open.', color: '#3b82f6' },
+  { icon: TrendingUp,  title: 'Modern store feel',      body: 'A bright digital screen makes your store stand out and draws more foot traffic from the street.', color: '#a855f7' },
+  { icon: Clock,       title: 'Zero disruption',        body: 'The screen goes on your wall. Your store runs exactly as before. No changes to your routine.', color: '#f97316' },
+  { icon: Star,        title: 'Exclusive territory',    body: 'We take only 1–2 stores per locality. Register now before your nearest competitor beats you to it.', color: '#ef4444' },
 ];
 
-// ─── Scrolling benefit panel ────────────────────────────────────────────────
+const HOW = [
+  { n: '01', title: 'Register below',         body: 'Fill in your store details. Takes 2 minutes.' },
+  { n: '02', title: 'We visit & install',      body: 'Our team installs a free screen within 48 hours.' },
+  { n: '03', title: 'Earn every month',        body: 'Ads run 24/7. Revenue share lands in your account.' },
+];
 
-function BenefitPanel() {
-  const col1 = BENEFITS.slice(0, 4);
-  const col2 = BENEFITS.slice(4);
+const EARNINGS = [
+  { screens: 1, monthly: 2500,  annual: 30000  },
+  { screens: 2, monthly: 5000,  annual: 60000  },
+  { screens: 3, monthly: 8000,  annual: 96000  },
+];
 
-  return (
-    <div className="relative h-full w-full overflow-hidden" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%)' }}>
-      <div className="flex gap-3 h-full">
-        {/* Column 1 — scroll up */}
-        <div className="flex flex-col gap-3 animate-scroll-up flex-1">
-          {[...col1, ...col1].map((b, i) => (
-            <BenefitCard key={i} b={b} />
-          ))}
-        </div>
-        {/* Column 2 — scroll down */}
-        <div className="flex flex-col gap-3 animate-scroll-down flex-1 mt-[-60px]">
-          {[...col2, ...col2].map((b, i) => (
-            <BenefitCard key={i} b={b} />
-          ))}
-        </div>
-      </div>
-    </div>
+// ─── Geolocation ─────────────────────────────────────────────────────────────
+
+type GeoState = 'idle' | 'loading' | 'done' | 'error';
+
+async function reverseGeocode(lat: number, lng: number) {
+  const res  = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
+    { headers: { 'Accept-Language': 'en' } },
   );
+  const data = await res.json();
+  const a    = data.address ?? {};
+  return {
+    locality: a.suburb || a.neighbourhood || a.village || a.county || '',
+    pincode:  (a.postcode ?? '').replace(/\D/g, '').slice(0, 6),
+    city:     a.city || a.town || a.municipality || a.state_district || '',
+  };
 }
 
-function BenefitCard({ b }: { b: typeof BENEFITS[0] }) {
-  const Icon = b.icon;
-  return (
-    <div className={`rounded-2xl border border-white/10 bg-gradient-to-br ${b.color} p-4 shrink-0 backdrop-blur-sm`}>
-      <div className={`mb-2 w-fit rounded-xl bg-white/10 p-2`}>
-        <Icon className={`h-5 w-5 ${b.iconColor}`} />
-      </div>
-      <p className="text-sm font-bold text-white leading-tight">{b.title}</p>
-      <p className={`text-xs font-semibold mt-0.5 ${b.iconColor}`}>{b.subtitle}</p>
-      <p className="text-xs text-white/60 mt-1.5 leading-relaxed">{b.desc}</p>
-    </div>
-  );
-}
+// ─── Registration form ────────────────────────────────────────────────────────
 
-// ─── Floating Label Input ───────────────────────────────────────────────────
-
-function FloatingInput({
-  id, label, type = 'text', value, onChange, prefix, readOnly, autoComplete,
-}: {
-  id: string; label: string; type?: string;
-  value: string; onChange: (v: string) => void;
-  prefix?: string; readOnly?: boolean; autoComplete?: string;
-}) {
-  return (
-    <div className="relative flex items-stretch">
-      {prefix && (
-        <span className="flex items-center px-3 rounded-l-xl border border-r-0 border-border bg-muted text-sm font-semibold text-muted-foreground">
-          {prefix}
-        </span>
-      )}
-      <div className="relative flex-1">
-        <input
-          id={id}
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          readOnly={readOnly}
-          autoComplete={autoComplete ?? 'off'}
-          placeholder=" "
-          className={`peer w-full h-14 ${prefix ? 'rounded-r-xl' : 'rounded-xl'} border border-border bg-card px-4 pb-1.5 pt-5 text-sm text-foreground transition-all placeholder-transparent focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${readOnly ? 'bg-muted/40 cursor-default' : ''}`}
-        />
-        <label
-          htmlFor={id}
-          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground transition-all duration-200
-            peer-focus:-translate-y-[1.2rem] peer-focus:text-[10px] peer-focus:font-bold peer-focus:uppercase peer-focus:tracking-widest peer-focus:text-primary
-            peer-[:not(:placeholder-shown)]:-translate-y-[1.2rem] peer-[:not(:placeholder-shown)]:text-[10px] peer-[:not(:placeholder-shown)]:font-bold peer-[:not(:placeholder-shown)]:uppercase peer-[:not(:placeholder-shown)]:tracking-widest peer-[:not(:placeholder-shown)]:text-muted-foreground"
-        >
-          {label}
-        </label>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step indicator ─────────────────────────────────────────────────────────
-
-const STEPS = ['Store', 'Contact', 'Location'];
-
-function StepIndicator({ current }: { current: number }) {
-  return (
-    <div className="flex items-center gap-0">
-      {STEPS.map((label, i) => {
-        const n      = i + 1;
-        const done   = current > n;
-        const active = current === n;
-        return (
-          <div key={label} className="flex items-center">
-            <div className="flex flex-col items-center gap-1">
-              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all duration-300 ${
-                done   ? 'bg-primary text-white' :
-                active ? 'bg-primary text-white ring-[3px] ring-primary/25' :
-                         'bg-muted text-muted-foreground'
-              }`}>
-                {done ? <Check className="h-3.5 w-3.5" /> : n}
-              </div>
-              <span className={`text-[9px] font-bold uppercase tracking-wider transition-colors ${
-                active ? 'text-foreground' : 'text-muted-foreground/40'
-              }`}>{label}</span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <div className={`h-px w-8 sm:w-12 mb-4 mx-1.5 transition-all duration-500 ${done ? 'bg-primary' : 'bg-border'}`} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-type FormData = {
+type Form = {
   storeName: string;
   ownerName: string;
   whatsapp:  string;
@@ -226,420 +72,502 @@ type FormData = {
   lng:       string;
 };
 
-const INITIAL: FormData = {
-  storeName: '',
-  ownerName: '',
-  whatsapp:  '',
-  address:   '',
-  locality:  '',
-  city:      '',
-  pincode:   '',
-  lat:       '',
-  lng:       '',
-};
+const INIT: Form = { storeName: '', ownerName: '', whatsapp: '', address: '', locality: '', city: '', pincode: '', lat: '', lng: '' };
 
-// ─── Steps ──────────────────────────────────────────────────────────────────
-
-function StepStore({ form, set }: { form: FormData; set: (k: keyof FormData, v: string) => void }) {
+function Field({
+  label, value, onChange, type = 'text', placeholder, prefix, readOnly,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  type?: string; placeholder?: string; prefix?: string; readOnly?: boolean;
+}) {
   return (
-    <motion.div key="store" variants={stagger} initial="hidden" animate="show" className="space-y-5">
-      <motion.div variants={fadeUp} className="space-y-1">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Step 1 of 3</p>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Tell us about your store</h2>
-        <p className="text-sm text-muted-foreground">Your kirana, your name — let's get started.</p>
-      </motion.div>
-      <motion.div variants={fadeUp} className="space-y-4">
-        <FloatingInput
-          id="storeName"
-          label="Store name"
-          value={form.storeName}
-          onChange={(v) => set('storeName', v)}
-          autoComplete="organization"
+    <div className="space-y-1.5">
+      <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
+        {label}
+      </label>
+      <div className="flex">
+        {prefix && (
+          <span className="flex items-center px-3 rounded-l-xl text-sm font-bold border-y border-l border-white/20 bg-white/10" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            {prefix}
+          </span>
+        )}
+        <input
+          type={type}
+          value={value}
+          readOnly={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-full px-4 py-3 text-sm rounded-xl border border-white/20 bg-white/10 text-white placeholder-white/30 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/25 transition-all ${prefix ? 'rounded-l-none' : ''} ${readOnly ? 'opacity-60 cursor-default' : ''}`}
         />
-        <FloatingInput
-          id="ownerName"
-          label="Owner / your name"
-          value={form.ownerName}
-          onChange={(v) => set('ownerName', v)}
-          autoComplete="name"
-        />
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
-function StepContact({ form, set }: { form: FormData; set: (k: keyof FormData, v: string) => void }) {
-  return (
-    <motion.div key="contact" variants={stagger} initial="hidden" animate="show" className="space-y-5">
-      <motion.div variants={fadeUp} className="space-y-1">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Step 2 of 3</p>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Your WhatsApp number</h2>
-        <p className="text-sm text-muted-foreground">We'll use this to verify your identity and keep you updated.</p>
-      </motion.div>
-      <motion.div variants={fadeUp} className="space-y-4">
-        <FloatingInput
-          id="whatsapp"
-          label="WhatsApp number"
-          type="tel"
-          prefix="+91"
-          value={form.whatsapp}
-          onChange={(v) => set('whatsapp', v.replace(/\D/g, '').slice(0, 10))}
-          autoComplete="tel"
-        />
-        <div className="flex items-start gap-3 rounded-xl bg-[#25D366]/8 border border-[#25D366]/20 px-4 py-3">
-          {/* WhatsApp icon */}
-          <svg viewBox="0 0 24 24" className="h-4 w-4 mt-0.5 shrink-0 fill-[#25D366]">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-          </svg>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            We'll send you a WhatsApp message to confirm your registration and schedule installation.
-          </p>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
+function RegistrationForm() {
+  const router    = useRouter();
+  const [form, setForm] = useState<Form>(INIT);
+  const [geo,  setGeo]  = useState<GeoState>('idle');
+  const [geoErr, setGeoErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState('');
+  const [done, setDone] = useState(false);
 
-type GeoStatus = 'idle' | 'loading' | 'done' | 'error';
-
-function StepLocation({ form, set }: { form: FormData; set: (k: keyof FormData, v: string) => void }) {
-  const [geoStatus, setGeoStatus] = useState<GeoStatus>(form.lat ? 'done' : 'idle');
-  const [geoError,  setGeoError]  = useState<string | null>(null);
+  const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
   const locate = () => {
-    if (!navigator.geolocation) {
-      setGeoError('Geolocation is not supported by your browser.');
-      return;
-    }
-    setGeoStatus('loading');
-    setGeoError(null);
-
+    if (!navigator.geolocation) { setGeoErr('Geolocation not supported.'); return; }
+    setGeo('loading'); setGeoErr('');
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        set('lat', String(lat));
-        set('lng', String(lng));
-
+      async ({ coords: { latitude: lat, longitude: lng } }) => {
+        set('lat', String(lat)); set('lng', String(lng));
         try {
-          // OpenStreetMap Nominatim — no API key needed
-          const res  = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-            { headers: { 'Accept-Language': 'en' } },
-          );
-          const data = await res.json();
-          const addr = data.address ?? {};
-
-          const locality =
-            addr.suburb || addr.neighbourhood || addr.village ||
-            addr.county || addr.state_district || '';
-          const pincode  = addr.postcode ?? '';
-          const city     =
-            addr.city || addr.town || addr.municipality || addr.state_district || '';
-
-          set('locality', locality);
-          set('pincode',  pincode.replace(/\D/g, '').slice(0, 6));
-          set('city',     city);
-          setGeoStatus('done');
-        } catch {
-          setGeoStatus('done'); // coords saved, just address lookup failed
-        }
+          const { locality, pincode, city } = await reverseGeocode(lat, lng);
+          set('locality', locality); set('pincode', pincode); set('city', city);
+        } catch {}
+        setGeo('done');
       },
-      (err) => {
-        setGeoError(
-          err.code === 1
-            ? 'Location access denied. Please allow location in your browser and try again.'
-            : 'Could not get your location. Please fill the address manually.',
-        );
-        setGeoStatus('error');
+      (e) => {
+        setGeoErr(e.code === 1 ? 'Location access denied. Allow location and try again.' : 'Could not get location. Fill address manually.');
+        setGeo('error');
       },
       { enableHighAccuracy: true, timeout: 12000 },
     );
   };
 
-  return (
-    <motion.div key="location" variants={stagger} initial="hidden" animate="show" className="space-y-5">
-      <motion.div variants={fadeUp} className="space-y-1">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Step 3 of 3</p>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Locate your shop</h2>
-        <p className="text-sm text-muted-foreground">We use your GPS location to find the exact area and pincode.</p>
-      </motion.div>
+  const valid = form.storeName && form.ownerName && form.whatsapp.length === 10 && form.city && form.pincode.length === 6;
 
-      <motion.div variants={fadeUp} className="space-y-4">
-        {/* Locate button */}
-        <button
-          type="button"
-          onClick={locate}
-          disabled={geoStatus === 'loading'}
-          className={`w-full flex items-center justify-center gap-2.5 rounded-xl border-2 py-4 text-sm font-bold transition-all ${
-            geoStatus === 'done'
-              ? 'border-green-500 bg-green-500/8 text-green-600'
-              : geoStatus === 'error'
-              ? 'border-destructive bg-destructive/5 text-destructive'
-              : 'border-primary bg-primary/5 text-primary hover:bg-primary/10'
-          }`}
-        >
-          {geoStatus === 'loading' ? (
-            <><Loader2 className="h-4 w-4 animate-spin" /> Detecting location…</>
-          ) : geoStatus === 'done' ? (
-            <><CheckCircle2 className="h-4 w-4" /> Location detected — tap to update</>
-          ) : (
-            <><Navigation className="h-4 w-4" /> Use my current location</>
-          )}
-        </button>
-
-        {geoError && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3">
-            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-            <p className="text-xs text-destructive leading-relaxed">{geoError}</p>
-          </div>
-        )}
-
-        {/* Auto-filled fields */}
-        <div className="grid grid-cols-2 gap-3">
-          <FloatingInput
-            id="locality"
-            label="Locality / area"
-            value={form.locality}
-            onChange={(v) => set('locality', v)}
-          />
-          <FloatingInput
-            id="pincode"
-            label="Pincode"
-            value={form.pincode}
-            onChange={(v) => set('pincode', v.replace(/\D/g, '').slice(0, 6))}
-          />
-        </div>
-        <FloatingInput
-          id="city"
-          label="City"
-          value={form.city}
-          onChange={(v) => set('city', v)}
-        />
-
-        {/* Address (door no. / landmark) */}
-        <div className="relative">
-          <textarea
-            id="address"
-            rows={3}
-            value={form.address}
-            onChange={(e) => set('address', e.target.value)}
-            placeholder=" "
-            className="peer w-full rounded-xl border border-border bg-card px-4 pb-2 pt-6 text-sm text-foreground transition-all placeholder-transparent focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-          />
-          <label
-            htmlFor="address"
-            className="pointer-events-none absolute left-4 top-4 text-sm text-muted-foreground transition-all duration-200
-              peer-focus:top-2 peer-focus:text-[10px] peer-focus:font-bold peer-focus:uppercase peer-focus:tracking-widest peer-focus:text-primary
-              peer-[:not(:placeholder-shown)]:top-2 peer-[:not(:placeholder-shown)]:text-[10px] peer-[:not(:placeholder-shown)]:font-bold peer-[:not(:placeholder-shown)]:uppercase peer-[:not(:placeholder-shown)]:tracking-widest peer-[:not(:placeholder-shown)]:text-muted-foreground"
-          >
-            Door no., street & landmark
-          </label>
-        </div>
-
-        {geoStatus === 'done' && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-            <span>Coordinates saved · {parseFloat(form.lat).toFixed(4)}°N, {parseFloat(form.lng).toFixed(4)}°E</span>
-          </div>
-        )}
-      </motion.div>
-    </motion.div>
-  );
-}
-
-// ─── Page ───────────────────────────────────────────────────────────────────
-
-export default function StorePage() {
-  const router = useRouter();
-  const [step,      setStep]      = useState(1);
-  const [direction, setDirection] = useState<1 | -1>(1);
-  const [form,      setForm]      = useState<FormData>(INITIAL);
-  const [busy,      setBusy]      = useState(false);
-  const [error,     setError]     = useState<string | null>(null);
-
-  const set = (k: keyof FormData, v: string) => setForm((p) => ({ ...p, [k]: v }));
-
-  const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length)); };
-  const back = () => { setDirection(-1); setStep((s) => Math.max(s - 1, 1)); };
-
-  const step1Valid = form.storeName.trim() && form.ownerName.trim();
-  const step2Valid = form.whatsapp.length === 10;
-  const step3Valid = form.locality.trim() && form.city.trim() && form.pincode.length === 6;
-
-  const canNext = step === 1 ? step1Valid : step === 2 ? step2Valid : step3Valid;
-
-  const handleSubmit = async () => {
-    if (!canNext) return;
-    setBusy(true);
-    setError(null);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true); setErr('');
     try {
       const res = await fetch('/api/stores/save', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...form, phone: `+91${form.whatsapp}` }),
+        body: JSON.stringify({ ...form, phone: `+91${form.whatsapp}` }),
       });
       if (!res.ok) throw new Error('Submission failed. Please try again.');
-      // Store info in sessionStorage for the dashboard to read
       sessionStorage.setItem('alive_store', JSON.stringify({ ...form, phone: `+91${form.whatsapp}` }));
-      router.push('/store-dashboard');
+      setDone(true);
+      setTimeout(() => router.push('/store-dashboard'), 1800);
     } catch (e) {
-      setError((e as Error).message ?? 'Something went wrong.');
+      setErr((e as Error).message ?? 'Something went wrong.');
+    } finally {
       setBusy(false);
     }
   };
 
-  return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-background">
-
-      {/* ── Left panel ─── */}
-      <div
-        className="hidden md:flex md:w-[42%] lg:w-[38%] flex-col p-8 lg:p-10 relative overflow-hidden"
-        style={{ background: 'linear-gradient(160deg, #0f0f0f 0%, #1a0a0a 60%, #0f0f0f 100%)' }}
+  if (done) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="text-center space-y-4 py-8"
       >
-        {/* Logo */}
-        <a href="/" className="shrink-0 opacity-80 hover:opacity-100 transition-opacity">
-          <Logo />
-        </a>
-
-        {/* Heading */}
-        <div className="mt-10 mb-6 space-y-2">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary/80">Store Partners</p>
-          <h1 className="text-3xl font-bold text-white leading-tight">
-            Your wall.<br />
-            <span className="text-primary">Your income.</span>
-          </h1>
-          <p className="text-sm text-white/50 leading-relaxed">
-            Join 100+ kirana stores across Mangaluru earning passive income with Alive.
-          </p>
+        <div className="flex justify-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500/20 ring-8 ring-green-500/10">
+            <CheckCircle2 className="h-8 w-8 text-green-400" />
+          </div>
         </div>
-
-        {/* Scrolling benefit cards */}
-        <div className="flex-1 min-h-0">
-          <BenefitPanel />
+        <div>
+          <p className="text-xl font-bold text-white">Registration received!</p>
+          <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.6)' }}>Taking you to your dashboard…</p>
         </div>
+      </motion.div>
+    );
+  }
 
-        {/* Bottom stat bar */}
-        <div className="mt-6 grid grid-cols-3 gap-3 shrink-0">
-          {[
-            { value: '100+', label: 'Active stores' },
-            { value: '₹0',   label: 'Upfront cost' },
-            { value: '48h',  label: 'To go live' },
-          ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-center">
-              <p className="text-lg font-bold text-white">{s.value}</p>
-              <p className="text-[10px] text-white/40 mt-0.5">{s.label}</p>
-            </div>
-          ))}
-        </div>
+  return (
+    <form onSubmit={submit} className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Store name" value={form.storeName} onChange={(v) => set('storeName', v)} placeholder="Sharma General Store" />
+        <Field label="Owner name" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Ramesh Sharma" />
       </div>
 
-      {/* ── Right panel ── */}
-      <div className="flex-1 flex flex-col min-h-screen md:min-h-0">
+      <Field
+        label="WhatsApp number"
+        type="tel"
+        prefix="+91"
+        value={form.whatsapp}
+        onChange={(v) => set('whatsapp', v.replace(/\D/g, '').slice(0, 10))}
+        placeholder="98765 43210"
+      />
 
-        {/* Mobile header */}
-        <header className="md:hidden border-b border-border/30 bg-background/90 backdrop-blur-md shrink-0">
-          <div className="flex h-14 items-center justify-between px-4">
-            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity"><Logo /></a>
-          </div>
-        </header>
-
-        <div className="flex-1 flex flex-col justify-center px-6 py-10 sm:px-10 lg:px-16 max-w-lg mx-auto w-full">
-
-          {/* Step indicator */}
-          <div className="mb-8">
-            <StepIndicator current={step} />
-          </div>
-
-          {/* Step content */}
-          <div className="relative overflow-hidden" style={{ minHeight: 340 }}>
-            <AnimatePresence custom={direction} mode="wait">
-              <motion.div
-                key={step}
-                custom={direction}
-                variants={stepVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-              >
-                {step === 1 && <StepStore    form={form} set={set} />}
-                {step === 2 && <StepContact  form={form} set={set} />}
-                {step === 3 && <StepLocation form={form} set={set} />}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
+      {/* GPS locator */}
+      <div className="space-y-1.5">
+        <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          Shop location
+        </label>
+        <button
+          type="button"
+          onClick={locate}
+          disabled={geo === 'loading'}
+          className={`w-full flex items-center justify-center gap-2.5 rounded-xl border-2 py-3.5 text-sm font-bold transition-all ${
+            geo === 'done'
+              ? 'border-green-400 bg-green-400/15 text-green-300'
+              : geo === 'error'
+              ? 'border-red-400/60 bg-red-400/10 text-red-300'
+              : 'border-white/25 bg-white/8 text-white hover:border-white/50 hover:bg-white/15'
+          }`}
+        >
+          {geo === 'loading' ? (
+            <><Loader2 className="h-4 w-4 animate-spin" /> Detecting location…</>
+          ) : geo === 'done' ? (
+            <><Check className="h-4 w-4" /> Location detected — tap to update</>
+          ) : (
+            <><Navigation className="h-4 w-4" /> Use my current location (GPS)</>
           )}
-
-          {/* Navigation */}
-          <div className="mt-8 flex items-center gap-3">
-            {step > 1 && (
-              <button
-                onClick={back}
-                className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-              >
-                <ArrowLeft className="h-4 w-4" /> Back
-              </button>
-            )}
-
-            {step < STEPS.length ? (
-              <button
-                onClick={next}
-                disabled={!canNext}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.5)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-              >
-                Continue <ArrowRight className="h-4 w-4" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={busy || !canNext}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.5)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {busy ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</>
-                ) : (
-                  <><CheckCircle2 className="h-4 w-4" /> Register my store</>
-                )}
-              </button>
-            )}
-          </div>
-
-          <p className="mt-5 text-center text-xs text-muted-foreground/50">
-            Already a partner?{' '}
-            <a href="/store-dashboard" className="text-primary hover:underline">
-              Go to dashboard →
-            </a>
+        </button>
+        {geoErr && (
+          <p className="text-xs text-red-300 flex items-start gap-1.5 mt-1">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />{geoErr}
           </p>
-        </div>
+        )}
       </div>
 
-      {/* Global scroll animation styles */}
-      <style jsx global>{`
-        @keyframes scrollUp {
-          0%   { transform: translateY(0); }
-          100% { transform: translateY(-50%); }
+      {/* Address details */}
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Locality / area" value={form.locality} onChange={(v) => set('locality', v)} placeholder="Kankanady" />
+        <Field label="Pincode" value={form.pincode} onChange={(v) => set('pincode', v.replace(/\D/g, '').slice(0, 6))} placeholder="575002" />
+      </div>
+      <Field label="City" value={form.city} onChange={(v) => set('city', v)} placeholder="Mangaluru" />
+      <div className="space-y-1.5">
+        <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          Door no. &amp; street <span className="normal-case font-normal opacity-50">(optional)</span>
+        </label>
+        <textarea
+          rows={2}
+          value={form.address}
+          onChange={(e) => set('address', e.target.value)}
+          placeholder="Door no., street name, landmark…"
+          className="w-full px-4 py-3 text-sm rounded-xl border border-white/20 bg-white/10 text-white placeholder-white/30 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/25 transition-all resize-none"
+        />
+      </div>
+
+      {err && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
+          <p className="text-xs text-red-300">{err}</p>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={busy || !valid}
+        className="w-full flex items-center justify-center gap-2 rounded-xl py-4 text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: busy || !valid ? '#dc2626' : 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: valid ? '0 8px 24px -6px rgba(220,38,38,0.5)' : 'none' }}
+      >
+        {busy
+          ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</>
+          : <><CheckCircle2 className="h-4 w-4" /> Register my store — it&apos;s free</>
         }
-        @keyframes scrollDown {
-          0%   { transform: translateY(-50%); }
-          100% { transform: translateY(0); }
-        }
-        .animate-scroll-up {
-          animation: scrollUp 28s linear infinite;
-        }
-        .animate-scroll-down {
-          animation: scrollDown 28s linear infinite;
-        }
-        .animate-scroll-up:hover,
-        .animate-scroll-down:hover {
-          animation-play-state: paused;
-        }
-      `}</style>
+      </button>
+
+      <p className="text-center text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+        Already registered?{' '}
+        <a href="/store-dashboard" className="text-red-400 hover:text-red-300 underline-offset-2 hover:underline">
+          Sign in to your dashboard →
+        </a>
+      </p>
+    </form>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
+export default function StorePage() {
+  const [screens, setScreens] = useState(1);
+  const earning = EARNINGS.find((r) => r.screens === screens) ?? EARNINGS[0];
+
+  return (
+    <div className="min-h-screen bg-white dark:bg-background">
+
+      {/* ── Header ── */}
+      <header className="sticky top-0 z-50 border-b border-gray-100 dark:border-border bg-white/90 dark:bg-background/90 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+          <a href="/"><Logo /></a>
+          <div className="flex items-center gap-4">
+            <a href="/store-dashboard" className="text-xs font-semibold text-gray-500 dark:text-muted-foreground hover:text-gray-900 dark:hover:text-foreground transition-colors">
+              Partner login →
+            </a>
+            <a
+              href="#register"
+              className="rounded-xl px-4 py-2 text-xs font-black text-white transition-all hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)' }}
+            >
+              Register free
+            </a>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Hero ── */}
+      <section
+        className="relative overflow-hidden"
+        style={{ background: 'linear-gradient(160deg, #0a0000 0%, #1c0404 40%, #0f0000 100%)' }}
+      >
+        {/* Background glow */}
+        <div className="pointer-events-none absolute inset-0">
+          <div style={{ position: 'absolute', top: '-20%', left: '30%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(220,38,38,0.18) 0%, transparent 70%)' }} />
+          <div style={{ position: 'absolute', bottom: '-10%', right: '10%', width: 400, height: 400, background: 'radial-gradient(circle, rgba(220,38,38,0.1) 0%, transparent 70%)' }} />
+        </div>
+
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-6 py-20 sm:py-28">
+          <motion.div variants={fadeUp(0)} initial="hidden" animate="show" className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-1.5 mb-6">
+              <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
+              <span className="text-xs font-bold text-red-300 tracking-wider uppercase">Kirana Store Partners · Mangaluru</span>
+            </div>
+            <h1 className="text-4xl sm:text-6xl font-black text-white leading-[1.05] tracking-tight mb-6">
+              Your wall.<br />
+              <span style={{ color: '#ef4444' }}>Their ads.</span><br />
+              Your income.
+            </h1>
+            <p className="text-lg sm:text-xl text-white/60 leading-relaxed max-w-2xl mb-8">
+              Alive installs a free digital screen in your store. Top brands pay to show ads on it.
+              You earn <span className="text-white font-semibold">₹2,500–₹8,000 every month</span> without lifting a finger.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="#register"
+                className="inline-flex items-center gap-2 rounded-xl px-7 py-4 text-sm font-black text-white transition-all hover:scale-105"
+                style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 8px 32px -8px rgba(220,38,38,0.6)' }}
+              >
+                Register my store <ChevronRight className="h-4 w-4" />
+              </a>
+              <a
+                href="/store-dashboard"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-7 py-4 text-sm font-bold text-white/80 hover:border-white/40 hover:text-white transition-all"
+              >
+                <Phone className="h-4 w-4" /> Partner login
+              </a>
+            </div>
+          </motion.div>
+
+          {/* Stats */}
+          <motion.div variants={fadeUp(0.15)} initial="hidden" animate="show" className="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-2xl">
+            {[
+              { value: '₹0',   label: 'Upfront cost'   },
+              { value: '48h',  label: 'To go live'      },
+              { value: '100+', label: 'Active stores'   },
+              { value: '24/7', label: 'Screen uptime'   },
+            ].map((s) => (
+              <div key={s.label} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center">
+                <p className="text-2xl font-black text-white">{s.value}</p>
+                <p className="text-xs text-white/40 mt-1 font-medium">{s.label}</p>
+              </div>
+            ))}
+          </motion.div>
+        </div>
+
+        {/* Scroll indicator */}
+        <div className="flex justify-center pb-8">
+          <motion.div animate={{ y: [0, 6, 0] }} transition={{ repeat: Infinity, duration: 1.8 }}>
+            <ArrowDown className="h-5 w-5 text-white/30" />
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── How it works ── */}
+      <section className="py-20 sm:py-28 bg-white dark:bg-background">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+            className="text-center mb-16"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-500 mb-3">Simple process</p>
+            <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-gray-900 dark:text-foreground">
+              Go live in 3 steps
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+            {HOW.map((step, i) => (
+              <motion.div
+                key={step.n}
+                initial={{ opacity: 0, y: 28 }} whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+                className="relative"
+              >
+                {/* Connector line */}
+                {i < HOW.length - 1 && (
+                  <div className="hidden sm:block absolute top-7 left-[calc(100%-0px)] w-full h-px bg-gradient-to-r from-red-200 to-transparent dark:from-red-900/40 z-0" style={{ width: '60%', left: '70%' }} />
+                )}
+                <div className="relative z-10">
+                  <div
+                    className="text-4xl font-black mb-4 inline-block"
+                    style={{ WebkitTextStroke: '2px #ef4444', color: 'transparent' }}
+                  >
+                    {step.n}
+                  </div>
+                  <h3 className="text-lg font-black text-gray-900 dark:text-foreground mb-2">{step.title}</h3>
+                  <p className="text-sm text-gray-500 dark:text-muted-foreground leading-relaxed">{step.body}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Benefits grid ── */}
+      <section className="py-20 sm:py-28" style={{ background: '#fafafa' }} data-dark="bg-secondary/20">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+            className="text-center mb-16"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-500 mb-3">Why partners choose Alive</p>
+            <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-gray-900 dark:text-foreground">
+              Built for kirana store owners
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {BENEFITS.map((b, i) => {
+              const Icon = b.icon;
+              return (
+                <motion.div
+                  key={b.title}
+                  initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: i * 0.07, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+                  className="rounded-2xl border border-gray-100 dark:border-border bg-white dark:bg-card p-6 hover:shadow-lg transition-shadow"
+                >
+                  <div
+                    className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl"
+                    style={{ background: `${b.color}18` }}
+                  >
+                    <Icon className="h-6 w-6" style={{ color: b.color }} />
+                  </div>
+                  <h3 className="text-base font-black text-gray-900 dark:text-foreground mb-2">{b.title}</h3>
+                  <p className="text-sm text-gray-500 dark:text-muted-foreground leading-relaxed">{b.body}</p>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Earnings calculator ── */}
+      <section className="py-20 sm:py-28 bg-white dark:bg-background">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+            className="rounded-3xl overflow-hidden border border-gray-100 dark:border-border"
+          >
+            <div className="p-8 sm:p-10" style={{ background: 'linear-gradient(135deg,#0a0000,#1c0404)' }}>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-2">Earnings calculator</p>
+              <h2 className="text-3xl font-black text-white mb-1">How much will you earn?</h2>
+              <p className="text-sm text-white/50 mb-8">Based on typical campaign fill rates in Mangaluru.</p>
+
+              {/* Screen toggle */}
+              <div className="mb-8">
+                <p className="text-xs font-bold uppercase tracking-widest text-white/40 mb-3">Number of screens in your store</p>
+                <div className="flex gap-3">
+                  {EARNINGS.map((r) => (
+                    <button
+                      key={r.screens}
+                      type="button"
+                      onClick={() => setScreens(r.screens)}
+                      className={`flex-1 rounded-xl border py-3.5 text-sm font-black transition-all ${
+                        screens === r.screens
+                          ? 'border-red-400 bg-red-500 text-white'
+                          : 'border-white/20 bg-white/8 text-white/60 hover:border-white/40 hover:text-white'
+                      }`}
+                    >
+                      {r.screens} screen{r.screens > 1 ? 's' : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Numbers */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-2xl bg-white/8 border border-white/10 p-6">
+                  <p className="text-xs text-white/40 font-medium mb-2">Monthly income</p>
+                  <p className="text-4xl font-black text-white">₹{earning.monthly.toLocaleString('en-IN')}</p>
+                  <p className="text-xs text-red-400 font-semibold mt-1">per month</p>
+                </div>
+                <div className="rounded-2xl bg-white/8 border border-white/10 p-6">
+                  <p className="text-xs text-white/40 font-medium mb-2">Annual income</p>
+                  <p className="text-4xl font-black text-white">₹{earning.annual.toLocaleString('en-IN')}</p>
+                  <p className="text-xs text-white/40 font-medium mt-1">per year</p>
+                </div>
+              </div>
+
+              <p className="mt-4 text-xs text-white/25 italic">
+                Actual earnings depend on campaign bookings and screen uptime. Minimum guaranteed payout applies once live.
+              </p>
+            </div>
+
+            {/* Bottom CTA */}
+            <div className="px-8 sm:px-10 py-6 bg-gray-50 dark:bg-card flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-black text-gray-900 dark:text-foreground">Ready to start earning?</p>
+                <p className="text-xs text-gray-500 dark:text-muted-foreground">Takes 2 minutes. Zero risk. Zero cost.</p>
+              </div>
+              <a
+                href="#register"
+                className="shrink-0 inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-black text-white transition-all hover:opacity-90"
+                style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 4px 16px -4px rgba(220,38,38,0.5)' }}
+              >
+                Register free <ChevronRight className="h-4 w-4" />
+              </a>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── Registration form ── */}
+      <section
+        id="register"
+        className="py-20 sm:py-28"
+        style={{ background: 'linear-gradient(160deg, #0a0000 0%, #1c0404 50%, #0a0000 100%)' }}
+      >
+        <div className="mx-auto max-w-2xl px-4 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+            className="text-center mb-10"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-2">Join the network</p>
+            <h2 className="text-3xl sm:text-4xl font-black text-white mb-3">Register your store</h2>
+            <p className="text-sm text-white/50">Free installation · No contract · Cancel anytime</p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
+            className="rounded-3xl border border-white/10 p-6 sm:p-8"
+            style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)' }}
+          >
+            <RegistrationForm />
+          </motion.div>
+
+          {/* Trust signals */}
+          <motion.div
+            initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.2 }} viewport={{ once: true }}
+            className="mt-8 flex flex-wrap justify-center gap-x-8 gap-y-3 text-xs text-white/30"
+          >
+            {['₹0 installation cost', 'No long-term contract', 'Monthly UPI payout', '24/7 tech support'].map((t) => (
+              <span key={t} className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5 text-red-500" /> {t}
+              </span>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      <footer className="border-t border-white/5 py-6 text-center" style={{ background: '#050000' }}>
+        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
+          © 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru, Karnataka ·{' '}
+          <a href="mailto:hello@wearealive.in" className="hover:text-white/40 transition-colors">hello@wearealive.in</a>
+        </p>
+      </footer>
     </div>
   );
 }
