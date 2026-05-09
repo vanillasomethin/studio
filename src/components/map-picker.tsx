@@ -64,8 +64,8 @@ export default function MapPicker({ lat, lng, onLocation }: Props) {
       if (cancelled || !containerRef.current || mapRef.current) return;
 
       const map = L.map(containerRef.current, { zoomControl: true }).setView([initLat, initLng], lat ? 17 : 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '© OpenStreetMap contributors © CARTO',
         maxZoom: 19,
       }).addTo(map);
 
