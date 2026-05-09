@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Redis } from '@upstash/redis';
 
-const kv = new Redis({
-  url:   process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+function getRedis(): Redis | null {
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
+  return new Redis({
+    url:   process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+}
 
 export type Campaign = {
   id:             string;
@@ -26,7 +29,8 @@ export type Campaign = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!process.env.UPSTASH_REDIS_REST_URL) {
+  const kv = getRedis();
+  if (!kv) {
     return NextResponse.json({ success: true, id: 'demo', note: 'KV not configured' });
   }
   try {
@@ -39,7 +43,6 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    // Key by userId when authenticated, fall back to email so anonymous payments still persist
     const key      = userId ? `campaigns:user:${userId}` : `campaigns:email:${body.email}`;
     const existing = (await kv.get<Campaign[]>(key)) ?? [];
     await kv.set(key, [campaign, ...existing]);

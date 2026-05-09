@@ -1,4 +1,7 @@
+'use client';
+
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { Menu, Package, Users, BarChart, Info, LayoutDashboard, ArrowRight } from 'lucide-react';
 import { Logo } from '../icons/logo';
 
