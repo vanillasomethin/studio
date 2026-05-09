@@ -6,7 +6,7 @@ import {
   IndianRupee, CheckCircle2, Clock, Wifi, BarChart3, Phone,
   MapPin, Star, MessageCircle, Bell, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, AlertCircle, X, FileImage,
+  Mail, AlertCircle, X, FileImage, Download,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 
@@ -319,6 +319,77 @@ function StoreFlyers({ storeName }: { storeName: string }) {
   );
 }
 
+// ─── Claim payout modal ───────────────────────────────────────────────────────
+
+function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void }) {
+  const [sent, setSent] = useState(false);
+  const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 32 }} animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 32 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 space-y-5"
+      >
+        {sent ? (
+          <div className="text-center space-y-3 py-2">
+            <div className="flex justify-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-500/15 ring-8 ring-green-500/8">
+                <CheckCircle2 className="h-7 w-7 text-green-500" />
+              </div>
+            </div>
+            <div>
+              <p className="text-base font-bold text-foreground">Claim submitted!</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Our team will process your payout for {month} within 3–5 business days via UPI to +91 {store.whatsapp}.
+              </p>
+            </div>
+            <button onClick={onClose} className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white hover:opacity-90 transition-opacity">
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-foreground">Claim monthly reward</h3>
+              <p className="text-xs text-muted-foreground">Request your payout for {month}.</p>
+            </div>
+            <div className="rounded-xl bg-muted/40 p-4 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Period</span>
+                <span className="font-semibold text-foreground">{month}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Amount</span>
+                <span className="font-bold text-green-600">₹2,500 estimated</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">UPI / WhatsApp</span>
+                <span className="font-semibold text-foreground">+91 {store.whatsapp}</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+              Actual payout is calculated based on verified screen uptime and campaign bookings for the month. Final amount may vary.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="flex-1 rounded-xl border border-border py-3 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={() => setSent(true)}
+                className="flex-1 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-xs font-bold text-white hover:opacity-90 transition-opacity"
+              >
+                Submit claim
+              </button>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── Earnings estimator ──────────────────────────────────────────────────────
 
 const EARNING_TABLE = [
@@ -345,9 +416,10 @@ const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
-  const [tab,      setTab]      = useState<DashTab>('overview');
-  const [screens,  setScreens]  = useState(1);
-  const [storeData, setStoreData] = useState<StoreInfo>(store);
+  const [tab,        setTab]       = useState<DashTab>('overview');
+  const [screens,    setScreens]   = useState(1);
+  const [storeData,  setStoreData] = useState<StoreInfo>(store);
+  const [claimOpen,  setClaimOpen] = useState(false);
 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
   const earning     = EARNING_TABLE.find((r) => r.screens === screens) ?? EARNING_TABLE[0];
@@ -511,25 +583,45 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'earnings' && (
             <motion.div key="earn" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
-              {/* Current earnings */}
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <h2 className="text-sm font-bold text-foreground mb-4">Your earnings</h2>
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  {[
-                    { label: 'This month', value: '₹0', note: 'Screen not yet live' },
-                    { label: 'Total',      value: '₹0', note: 'All time'            },
-                    { label: 'Pending',    value: '₹0', note: 'Next payout'         },
-                  ].map((s) => (
-                    <div key={s.label} className="rounded-xl bg-muted/40 p-3 text-center">
-                      <p className="text-lg font-bold text-foreground">{s.value}</p>
-                      <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                      <p className="text-[9px] text-muted-foreground/50 mt-0.5">{s.note}</p>
-                    </div>
-                  ))}
+              {/* Payment received summary */}
+              <div className="rounded-2xl overflow-hidden border border-border bg-card">
+                <div className="px-5 pt-5 pb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-bold text-foreground">Payment received till date</h2>
+                    <span className="text-[10px] bg-muted text-muted-foreground px-2 py-1 rounded-full">All time</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    {[
+                      { label: 'Total received', value: '₹0', note: 'All payments',       accent: false },
+                      { label: 'This month',     value: '₹0', note: 'Current cycle',      accent: false },
+                      { label: 'Pending payout', value: '₹0', note: 'Being processed',    accent: true  },
+                    ].map((s) => (
+                      <div key={s.label} className={`rounded-xl p-3 text-center ${s.accent ? 'bg-primary/8 border border-primary/20' : 'bg-muted/40'}`}>
+                        <p className={`text-lg font-bold ${s.accent ? 'text-primary' : 'text-foreground'}`}>{s.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                        <p className="text-[9px] text-muted-foreground/50 mt-0.5">{s.note}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl bg-yellow-500/8 border border-yellow-500/20 px-3 py-2.5">
+                    <Clock className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+                    <p className="text-xs text-muted-foreground">Earnings begin once your screen is installed and goes live.</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 rounded-xl bg-yellow-500/8 border border-yellow-500/20 px-3 py-2.5">
-                  <Clock className="h-4 w-4 text-yellow-500 shrink-0" />
-                  <p className="text-xs text-muted-foreground">Earnings begin once your screen is installed and goes live.</p>
+
+                {/* Claim button */}
+                <div className="border-t border-border px-5 py-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Ready to claim?</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Request your monthly payout via UPI · processed in 3–5 days</p>
+                  </div>
+                  <button
+                    onClick={() => setClaimOpen(true)}
+                    className="shrink-0 flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-4 py-2.5 text-xs font-bold text-white shadow-[0_4px_12px_-4px_rgba(220,38,38,0.4)] hover:opacity-90 transition-opacity"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Claim rewards
+                  </button>
                 </div>
               </div>
 
@@ -575,12 +667,16 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 </p>
               </div>
 
-              {/* Payout history placeholder */}
+              {/* Payout history */}
               <div className="rounded-2xl border border-border bg-card p-5">
-                <h2 className="text-sm font-bold text-foreground mb-3">Payout history</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-bold text-foreground">Payout history</h2>
+                  <Calendar className="h-4 w-4 text-muted-foreground/40" />
+                </div>
                 <div className="text-center py-8 text-muted-foreground">
                   <IndianRupee className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                  <p className="text-xs">No payouts yet. History will appear here once your screen goes live.</p>
+                  <p className="text-xs">No payouts yet.</p>
+                  <p className="text-[10px] mt-1 text-muted-foreground/50">All transactions will appear here once your screen goes live.</p>
                 </div>
               </div>
             </motion.div>
@@ -618,6 +714,10 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
       <footer className="border-t border-border/30 py-5 text-center mt-6">
         <p className="text-xs text-muted-foreground/30">© 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru</p>
       </footer>
+
+      <AnimatePresence>
+        {claimOpen && <ClaimModal store={storeData} onClose={() => setClaimOpen(false)} />}
+      </AnimatePresence>
     </div>
   );
 }
