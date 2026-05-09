@@ -6,7 +6,7 @@ import {
   IndianRupee, CheckCircle2, Clock, Wifi, BarChart3, Phone,
   MapPin, Star, MessageCircle, Bell, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, Edit2, AlertCircle, X, FileImage, Eye,
+  Mail, AlertCircle, X, FileImage,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 
@@ -29,6 +29,7 @@ type StoreInfo = {
   ownerName: string;
   whatsapp:  string;
   phone?:    string;
+  password?: string;
   locality?: string;
   city?:     string;
   pincode?:  string;
@@ -57,35 +58,59 @@ function resolveImage(raw: string) {
   return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
 }
 
-// ─── Phone login screen ──────────────────────────────────────────────────────
+// ─── Phone + password login ───────────────────────────────────────────────────
 
 function PhoneLogin({ onLogin }: { onLogin: (s: StoreInfo) => void }) {
-  const [phone,  setPhone]  = useState('');
-  const [busy,   setBusy]   = useState(false);
-  const [error,  setError]  = useState<string | null>(null);
+  const [phone,    setPhone]    = useState('');
+  const [password, setPassword] = useState('');
+  const [busy,     setBusy]     = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (phone.length !== 10) { setError('Enter a valid 10-digit mobile number.'); return; }
+    if (phone.length !== 10) { setError('Enter a valid 10-digit WhatsApp number.'); return; }
+    if (!password)            { setError('Enter your password.'); return; }
     setBusy(true); setError(null);
+
+    // ① Check localStorage first — works immediately after registration
+    //   even when Redis isn't configured in this environment.
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw) as StoreInfo & { password?: string };
+        const storedPhone = (stored.whatsapp ?? stored.phone ?? '').replace(/\D/g, '').slice(-10);
+        if (storedPhone === phone) {
+          if (stored.password && stored.password !== password) {
+            setError('Incorrect password. Please try again.');
+            setBusy(false);
+            return;
+          }
+          onLogin(stored);
+          return;
+        }
+      }
+    } catch {}
+
+    // ② Fallback: look up in Redis via API
     try {
       const res  = await fetch('/api/stores/login', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ phone }),
+        body:    JSON.stringify({ phone, password }),
       });
-      const data = await res.json() as { store: StoreInfo | null };
-
+      const data = await res.json() as { store: (StoreInfo & { password?: string }) | null };
       if (data.store) {
+        if (data.store.password && data.store.password !== password) {
+          setError('Incorrect password. Please try again.');
+          return;
+        }
         localStorage.setItem(LS_KEY, JSON.stringify(data.store));
         onLogin(data.store);
       } else {
-        // Not found — create a temp session so they can still see the dashboard
-        // (they just registered and Redis may not be configured)
-        setError('No store found with this number. If you just registered, your application is under review. Try again in a moment, or register below.');
+        setError('No account found with this number. Please register first, or check the number you entered.');
       }
     } catch {
-      setError('Could not connect. Please try again.');
+      setError('Could not connect. Check your internet and try again.');
     } finally {
       setBusy(false);
     }
@@ -105,49 +130,65 @@ function PhoneLogin({ onLogin }: { onLogin: (s: StoreInfo) => void }) {
             <motion.div variants={fadeUp} className="space-y-1.5">
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Store Partner Portal</p>
               <h1 className="text-3xl font-bold tracking-tight text-foreground">Sign in</h1>
-              <p className="text-sm text-muted-foreground">Enter the WhatsApp number you registered with.</p>
+              <p className="text-sm text-muted-foreground">
+                Use your registered WhatsApp number and password.
+              </p>
             </motion.div>
 
             <motion.form variants={fadeUp} onSubmit={submit} className="space-y-3">
-              <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
-                <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">
-                  +91
-                </span>
+              {/* Phone */}
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">WhatsApp number (username)</label>
+                <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
+                  <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    required
+                    autoFocus
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="98765 43210"
+                    className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Password</label>
                 <input
-                  type="tel"
-                  inputMode="numeric"
-                  maxLength={10}
+                  type="password"
                   required
-                  autoFocus
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="98765 43210"
-                  className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Your login password"
+                  className="w-full rounded-xl border border-border bg-card px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                 />
               </div>
 
               {error && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-3">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
-                  <p className="text-xs text-amber-700 leading-relaxed">{error}</p>
+                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                  <p className="text-xs text-destructive leading-relaxed">{error}</p>
                 </div>
               )}
 
               <button
                 type="submit"
-                disabled={busy || phone.length !== 10}
+                disabled={busy || phone.length !== 10 || !password}
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.4)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
               >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Continue</>}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Sign in</>}
               </button>
             </motion.form>
 
-            <motion.div variants={fadeUp} className="text-center space-y-3">
+            <motion.div variants={fadeUp} className="text-center">
               <p className="text-xs text-muted-foreground">
                 New to Alive?{' '}
-                <a href="/store" className="text-primary font-semibold hover:underline">Register your store →</a>
+                <a href="/store" className="text-primary font-semibold hover:underline">Register your store — it&apos;s free →</a>
               </p>
-              <p className="text-[10px] text-muted-foreground/40">No password needed. We use your registered mobile number.</p>
             </motion.div>
           </motion.div>
         </div>
