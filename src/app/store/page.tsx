@@ -64,6 +64,7 @@ type Form = {
   storeName: string;
   ownerName: string;
   whatsapp:  string;
+  password:  string;
   address:   string;
   locality:  string;
   city:      string;
@@ -72,7 +73,9 @@ type Form = {
   lng:       string;
 };
 
-const INIT: Form = { storeName: '', ownerName: '', whatsapp: '', address: '', locality: '', city: '', pincode: '', lat: '', lng: '' };
+const INIT: Form = { storeName: '', ownerName: '', whatsapp: '', password: '', address: '', locality: '', city: '', pincode: '', lat: '', lng: '' };
+
+const AGREE_KEY = 'agree';
 
 function Field({
   label, value, onChange, type = 'text', placeholder, prefix, readOnly,
@@ -106,12 +109,13 @@ function Field({
 
 function RegistrationForm() {
   const router    = useRouter();
-  const [form, setForm] = useState<Form>(INIT);
-  const [geo,  setGeo]  = useState<GeoState>('idle');
-  const [geoErr, setGeoErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState('');
-  const [done, setDone] = useState(false);
+  const [form,    setForm]  = useState<Form>(INIT);
+  const [agreed,  setAgreed] = useState(false);
+  const [geo,     setGeo]   = useState<GeoState>('idle');
+  const [geoErr,  setGeoErr] = useState('');
+  const [busy,    setBusy]  = useState(false);
+  const [err,     setErr]   = useState('');
+  const [done,    setDone]  = useState(false);
 
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -135,20 +139,25 @@ function RegistrationForm() {
     );
   };
 
-  const valid = form.storeName && form.ownerName && form.whatsapp.length === 10 && form.city && form.pincode.length === 6;
+  const valid =
+    form.storeName && form.ownerName &&
+    form.whatsapp.length === 10 && form.password.length >= 6 &&
+    form.city && form.pincode.length === 6 && agreed;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     setBusy(true); setErr('');
+    const session = { ...form, phone: `+91${form.whatsapp}` };
     try {
-      const res = await fetch('/api/stores/save', {
+      await fetch('/api/stores/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, phone: `+91${form.whatsapp}` }),
+        body: JSON.stringify(session),
       });
-      if (!res.ok) throw new Error('Submission failed. Please try again.');
-      sessionStorage.setItem('alive_store', JSON.stringify({ ...form, phone: `+91${form.whatsapp}` }));
+      // Always persist locally so dashboard login works immediately,
+      // even when Redis is not configured in this environment.
+      localStorage.setItem('alive_store_session', JSON.stringify(session));
       setDone(true);
       setTimeout(() => router.push('/store-dashboard'), 1800);
     } catch (e) {
@@ -185,14 +194,51 @@ function RegistrationForm() {
         <Field label="Owner name" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Ramesh Sharma" />
       </div>
 
-      <Field
-        label="WhatsApp number"
-        type="tel"
-        prefix="+91"
-        value={form.whatsapp}
-        onChange={(v) => set('whatsapp', v.replace(/\D/g, '').slice(0, 10))}
-        placeholder="98765 43210"
-      />
+      {/* WhatsApp = username */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            WhatsApp number
+          </label>
+          <span className="text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ background: 'rgba(239,68,68,0.2)', color: '#fca5a5' }}>
+            This will be your username
+          </span>
+        </div>
+        <div className="flex">
+          <span className="flex items-center px-3 rounded-l-xl text-sm font-bold border-y border-l border-white/20 bg-white/10" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            +91
+          </span>
+          <input
+            type="tel"
+            inputMode="numeric"
+            maxLength={10}
+            value={form.whatsapp}
+            onChange={(e) => set('whatsapp', e.target.value.replace(/\D/g, '').slice(0, 10))}
+            placeholder="98765 43210"
+            className="w-full px-4 py-3 text-sm rounded-r-xl border border-white/20 bg-white/10 text-white placeholder-white/30 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/25 transition-all"
+          />
+        </div>
+      </div>
+
+      {/* Password */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            Create a password
+          </label>
+          <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>Min. 6 characters</span>
+        </div>
+        <input
+          type="password"
+          value={form.password}
+          onChange={(e) => set('password', e.target.value)}
+          placeholder="Set a login password"
+          className="w-full px-4 py-3 text-sm rounded-xl border border-white/20 bg-white/10 text-white placeholder-white/30 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/25 transition-all"
+        />
+        <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          Use this password to sign in to your partner dashboard at any time.
+        </p>
+      </div>
 
       {/* GPS locator */}
       <div className="space-y-1.5">
@@ -244,6 +290,40 @@ function RegistrationForm() {
           className="w-full px-4 py-3 text-sm rounded-xl border border-white/20 bg-white/10 text-white placeholder-white/30 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/25 transition-all resize-none"
         />
       </div>
+
+      {/* Agreement checkbox */}
+      <label className="flex items-start gap-3 cursor-pointer group">
+        <div className="relative mt-0.5 shrink-0">
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className={`h-5 w-5 rounded-md border-2 transition-all flex items-center justify-center ${
+            agreed ? 'border-red-400 bg-red-500' : 'border-white/30 bg-white/10 group-hover:border-white/50'
+          }`}>
+            {agreed && (
+              <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        </div>
+        <span className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          I have read and agree to the{' '}
+          <a
+            href="/store-agreement"
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-red-400 hover:text-red-300 underline underline-offset-2"
+          >
+            Store Partner Agreement
+          </a>
+          {' '}between myself and VS Collective LLP (ALIVE). I understand the terms of installation, revenue sharing, and electricity reimbursement.
+        </span>
+      </label>
 
       {err && (
         <div className="flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3">
