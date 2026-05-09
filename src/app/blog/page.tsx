@@ -62,7 +62,7 @@ const categories = ['All', 'Industry Insights', 'Marketing', 'Technology', 'Anal
 export default function BlogPage() {
   return (
     <div className="flex min-h-screen flex-col">
-      <Header onGetStartedClick={() => {}} />
+      <Header />
       <main className="flex-1">
         {/* Hero Section */}
         <section className="bg-gradient-to-b from-primary/5 to-background py-20 sm:py-32">
