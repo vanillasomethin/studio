@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  IndianRupee, CheckCircle2, Clock, Wifi, BarChart3, Phone,
-  MapPin, Star, MessageCircle, Bell, ChevronRight,
+  IndianRupee, CheckCircle2, Clock, BarChart3, Phone,
+  MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, AlertCircle, X, FileImage, Download,
+  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 
@@ -24,16 +24,18 @@ const stagger = {
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type StoreInfo = {
-  id?:       string;
-  storeName: string;
-  ownerName: string;
-  whatsapp:  string;
-  phone?:    string;
-  password?: string;
-  locality?: string;
-  city?:     string;
-  pincode?:  string;
-  email?:    string;
+  id?:           string;
+  storeName:     string;
+  ownerName:     string;
+  whatsapp:      string;
+  phone?:        string;
+  password?:     string;
+  locality?:     string;
+  city?:         string;
+  pincode?:      string;
+  email?:        string;
+  referralCode?: string;
+  referredBy?:   string;
 };
 
 type Flyer = {
@@ -319,6 +321,121 @@ function StoreFlyers({ storeName }: { storeName: string }) {
   );
 }
 
+// ─── 12-month payment timeline ───────────────────────────────────────────────
+
+function PaymentTimeline({ onClaim }: { onClaim: () => void }) {
+  const now = new Date();
+
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const start   = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1);
+    const end     = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    const isPast  = start < new Date(now.getFullYear(), now.getMonth(), 1);
+    const isCur   = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
+    const isFuture = !isPast && !isCur;
+
+    const mo  = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const yr  = start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+
+    return { label: yr, range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture, amount: '₹500' };
+  });
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-bold text-foreground">Payment timeline</h2>
+          <p className="text-[10px] text-muted-foreground mt-0.5">₹500 + electricity per month · paid by 10th of following month</p>
+        </div>
+        <Calendar className="h-4 w-4 text-muted-foreground/40" />
+      </div>
+
+      <div className="space-y-2">
+        {months.map((m, i) => (
+          <motion.div
+            key={m.label}
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] }}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+              m.isCur    ? 'border border-primary/30 bg-primary/5'  :
+              m.isPast   ? 'border border-border bg-muted/20'       :
+                           'border border-border/40 bg-transparent opacity-50'
+            }`}
+          >
+            {/* Status dot */}
+            <div className={`h-2 w-2 rounded-full shrink-0 ${
+              m.isCur  ? 'bg-primary animate-pulse' :
+              m.isPast ? 'bg-green-500'             :
+                         'bg-muted-foreground/20'
+            }`} />
+
+            {/* Month + range */}
+            <div className="flex-1 min-w-0">
+              <p className={`text-xs font-bold ${m.isCur ? 'text-primary' : m.isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
+                {m.label}
+              </p>
+              <p className="text-[10px] text-muted-foreground/60">{m.range}</p>
+            </div>
+
+            {/* Amount + status */}
+            <div className="text-right shrink-0">
+              {m.isPast ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-green-600">{m.amount}</span>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                </div>
+              ) : m.isCur ? (
+                <button
+                  onClick={onClaim}
+                  className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
+                >
+                  <Download className="h-2.5 w-2.5" /> Claim
+                </button>
+              ) : (
+                <span className="text-[10px] text-muted-foreground/40 font-medium">Upcoming</span>
+              )}
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Referral card ────────────────────────────────────────────────────────────
+
+function ReferralCard({ store }: { store: StoreInfo }) {
+  const [copied, setCopied] = useState(false);
+  const code = store.referralCode ?? '—';
+
+  const copy = () => {
+    navigator.clipboard.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <Gift className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+        <div>
+          <h2 className="text-sm font-bold text-foreground">Your referral code</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Earn ₹500 for every new store partner who joins using your code.</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 rounded-xl bg-muted/40 px-4 py-3">
+        <span className="flex-1 text-xl font-black tracking-[0.2em] text-foreground font-mono">{code}</span>
+        <button onClick={copy} className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all">
+          {copied ? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+        </button>
+      </div>
+
+      <div className="text-[10px] text-muted-foreground/50 leading-relaxed">
+        Share on WhatsApp · Referral bonus credited once the referred store goes live · No limit on referrals
+      </div>
+    </div>
+  );
+}
+
 // ─── Claim payout modal ───────────────────────────────────────────────────────
 
 function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void }) {
@@ -416,13 +533,12 @@ const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
-  const [tab,        setTab]       = useState<DashTab>('overview');
-  const [screens,    setScreens]   = useState(1);
-  const [storeData,  setStoreData] = useState<StoreInfo>(store);
-  const [claimOpen,  setClaimOpen] = useState(false);
+  const [tab,       setTab]      = useState<DashTab>('overview');
+  const [storeData, setStoreData] = useState<StoreInfo>(store);
+  const [claimOpen, setClaimOpen] = useState(false);
 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
-  const earning     = EARNING_TABLE.find((r) => r.screens === screens) ?? EARNING_TABLE[0];
+  const earning     = EARNING_TABLE[0]; // 1 screen per store
 
   const saveEmail = (email: string) => {
     const updated = { ...storeData, email };
@@ -583,102 +699,27 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'earnings' && (
             <motion.div key="earn" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
-              {/* Payment received summary */}
-              <div className="rounded-2xl overflow-hidden border border-border bg-card">
-                <div className="px-5 pt-5 pb-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-sm font-bold text-foreground">Payment received till date</h2>
-                    <span className="text-[10px] bg-muted text-muted-foreground px-2 py-1 rounded-full">All time</span>
+              {/* Summary tiles */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: 'Total received', value: '₹0',  note: 'All time'      },
+                  { label: 'This month',     value: '₹500', note: 'Claimable now' },
+                  { label: 'Per referral',   value: '₹500', note: 'Bonus earned'  },
+                ].map((s, i) => (
+                  <div key={s.label} className={`rounded-xl p-3 text-center border ${i === 1 ? 'border-primary/25 bg-primary/5' : 'border-border bg-muted/30'}`}>
+                    <p className={`text-base font-bold ${i === 1 ? 'text-primary' : 'text-foreground'}`}>{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                    <p className="text-[9px] text-muted-foreground/40 mt-0.5">{s.note}</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    {[
-                      { label: 'Total received', value: '₹0', note: 'All payments',       accent: false },
-                      { label: 'This month',     value: '₹0', note: 'Current cycle',      accent: false },
-                      { label: 'Pending payout', value: '₹0', note: 'Being processed',    accent: true  },
-                    ].map((s) => (
-                      <div key={s.label} className={`rounded-xl p-3 text-center ${s.accent ? 'bg-primary/8 border border-primary/20' : 'bg-muted/40'}`}>
-                        <p className={`text-lg font-bold ${s.accent ? 'text-primary' : 'text-foreground'}`}>{s.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                        <p className="text-[9px] text-muted-foreground/50 mt-0.5">{s.note}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-2 rounded-xl bg-yellow-500/8 border border-yellow-500/20 px-3 py-2.5">
-                    <Clock className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
-                    <p className="text-xs text-muted-foreground">Earnings begin once your screen is installed and goes live.</p>
-                  </div>
-                </div>
-
-                {/* Claim button */}
-                <div className="border-t border-border px-5 py-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-foreground">Ready to claim?</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Request your monthly payout via UPI · processed in 3–5 days</p>
-                  </div>
-                  <button
-                    onClick={() => setClaimOpen(true)}
-                    className="shrink-0 flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-4 py-2.5 text-xs font-bold text-white shadow-[0_4px_12px_-4px_rgba(220,38,38,0.4)] hover:opacity-90 transition-opacity"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Claim rewards
-                  </button>
-                </div>
+                ))}
               </div>
 
-              {/* Potential earnings */}
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-bold text-foreground">Earnings potential</h2>
-                </div>
-                <p className="text-xs text-muted-foreground mb-4">Based on typical campaign fill rates in Mangaluru.</p>
+              {/* 12-month timeline */}
+              <PaymentTimeline onClaim={() => setClaimOpen(true)} />
 
-                <div className="mb-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Screens hosted</p>
-                  <div className="flex gap-2">
-                    {EARNING_TABLE.map((r) => (
-                      <button
-                        key={r.screens}
-                        onClick={() => setScreens(r.screens)}
-                        className={`flex-1 rounded-xl border py-2.5 text-sm font-bold transition-all ${
-                          screens === r.screens ? 'border-primary bg-primary text-white' : 'border-border bg-background text-muted-foreground hover:border-primary/40'
-                        }`}
-                      >
-                        {r.screens}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              {/* Referral */}
+              <ReferralCard store={storeData} />
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-secondary/50 p-4">
-                    <p className="text-xs text-muted-foreground mb-1">Monthly income</p>
-                    <p className="text-2xl font-bold text-foreground">{fmt(earning.monthly)}</p>
-                    <p className="text-xs text-primary mt-1">per month</p>
-                  </div>
-                  <div className="rounded-xl bg-secondary/50 p-4">
-                    <p className="text-xs text-muted-foreground mb-1">Annual income</p>
-                    <p className="text-2xl font-bold text-foreground">{fmt(earning.annual)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">per year</p>
-                  </div>
-                </div>
-                <p className="text-[10px] text-muted-foreground/50 mt-3 italic">
-                  ₹500/month per screen is fixed and guaranteed. Electricity is reimbursed separately based on actual consumption.
-                </p>
-              </div>
-
-              {/* Payout history */}
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-bold text-foreground">Payout history</h2>
-                  <Calendar className="h-4 w-4 text-muted-foreground/40" />
-                </div>
-                <div className="text-center py-8 text-muted-foreground">
-                  <IndianRupee className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                  <p className="text-xs">No payouts yet.</p>
-                  <p className="text-[10px] mt-1 text-muted-foreground/50">All transactions will appear here once your screen goes live.</p>
-                </div>
-              </div>
             </motion.div>
           )}
 
