@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
     const existing = (await kv.get<Campaign[]>(key)) ?? [];
     await kv.set(key, [campaign, ...existing]);
 
+    // Also append to global list for admin visibility
+    const allExisting = (await kv.get<Campaign[]>('campaigns:all')) ?? [];
+    await kv.set('campaigns:all', [campaign, ...allExisting]);
+
     return NextResponse.json({ success: true, id: campaign.id });
   } catch (e) {
     return NextResponse.json(

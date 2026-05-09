@@ -30,6 +30,10 @@ const FLYERS_KEY = 'flyers';
 // ─── POST — save a flyer ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const pw = req.headers.get('admin-password') ?? '';
+  if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const kv = getRedis();
   if (!kv) {
     return NextResponse.json({ success: true, id: 'demo', note: 'Redis not configured' });
