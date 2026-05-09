@@ -1030,10 +1030,11 @@ function StepAgreement({
 }
 
 function StepPayment({
-  data, onSuccess, onBack,
+  data, onSuccess, onConfirm, onBack,
 }: {
   data: OnboardingFormData;
   onSuccess: (paymentId: string, orderId: string, effectivePricePerScreen: number) => void;
+  onConfirm: (effectivePricePerScreen: number) => void;
   onBack: () => void;
 }) {
   const [loading,      setLoading]      = useState(false);
@@ -1041,11 +1042,6 @@ function StepPayment({
   const [promoInput,   setPromoInput]   = useState('');
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError,   setPromoError]   = useState<string | null>(null);
-
-  const handlePayLater = () => {
-    try { localStorage.setItem('alive_pending_campaign', JSON.stringify({ form: data })); } catch { /* ignore */ }
-    window.location.href = '/dashboard';
-  };
 
   const basePerScreen      = getScreenPrice(data.screens);
   const discountPerScreen  = promoApplied ? 100 : 0;
@@ -1270,26 +1266,43 @@ function StepPayment({
         )}
       </AnimatePresence>
 
-      {/* Pay button */}
+      {/* CTA buttons */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.38, ease: [0.22, 1, 0.36, 1] }} className="space-y-3">
+
+        {/* PRIMARY — confirm booking */}
+        <button
+          type="button"
+          onClick={() => onConfirm(pricePerScreen)}
+          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.99]"
+        >
+          <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+          <span className="relative flex items-center justify-center gap-2.5 text-sm">
+            <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
+          </span>
+        </button>
+
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+          <div className="flex-1 h-px bg-border" />
+          <span>or pay now</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* SECONDARY — pay now via Razorpay */}
         <button
           type="button"
           onClick={handlePay}
           disabled={loading}
-          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
+          className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-foreground transition-all hover:border-primary/40 hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
         >
-          {!loading && (
-            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-          )}
           <span className="relative flex items-center justify-between">
-            <span className="flex items-center gap-2.5 text-sm">
+            <span className="flex items-center gap-2 text-sm">
               {loading
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)}</>}
+                : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
             </span>
             {!loading && (
-              <span className="flex items-center gap-2 border-l border-white/20 pl-4">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/60">powered by</span>
+              <span className="flex items-center gap-2 border-l border-border pl-3">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">powered by</span>
                 <RazorpayMark />
               </span>
             )}
@@ -1297,34 +1310,15 @@ function StepPayment({
         </button>
 
         <p className="text-center text-[11px] text-muted-foreground/50 leading-relaxed">
-          Secured by Razorpay · 256-bit SSL · PCI DSS compliant
+          Payment is due 24 hours before your campaign goes live.
         </p>
 
         <p className="text-center text-[11px] text-muted-foreground/60 leading-relaxed">
-          By clicking the checkout button above, you agree and acknowledge our{' '}
+          By confirming, you agree to our{' '}
           <a href="/terms" target="_blank" className="underline hover:text-foreground transition-colors">Terms of Service</a>
           {' '}and{' '}
           <a href="/privacy" target="_blank" className="underline hover:text-foreground transition-colors">Privacy Policy</a>.
         </p>
-
-        <button
-          type="button"
-          onClick={handlePayLater}
-          className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-        >
-          Continue to dashboard — pay later
-        </button>
-
-        {/* Demo mode — remove before launch */}
-        {process.env.NODE_ENV === 'development' && (
-          <button
-            type="button"
-            onClick={() => onSuccess(`demo_${Date.now()}`, `order_demo_${Date.now()}`, pricePerScreen)}
-            className="w-full rounded-xl border border-dashed border-border py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-          >
-            ⚡ Demo — skip payment (dev only)
-          </button>
-        )}
       </motion.div>
 
       <Button variant="ghost" onClick={onBack} className="gap-1.5 w-full">
@@ -1335,21 +1329,22 @@ function StepPayment({
 }
 
 function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: string }) {
-  const total = getScreenPrice(data.screens) * data.screens * data.months;
+  const paid    = !!paymentId;
+  const subtotal = getScreenPrice(data.screens) * data.screens * data.months;
+  const total    = subtotal + Math.round(subtotal * 0.18);
 
-  // Redirect to dashboard after showing the congratulations screen
   useEffect(() => {
-    const t = setTimeout(() => { window.location.href = '/dashboard'; }, 4000);
+    const t = setTimeout(() => { window.location.href = '/dashboard'; }, 5000);
     return () => clearTimeout(t);
   }, []);
 
   const checklist = [
-    { label: 'Payment confirmed',   value: paymentId,                              done: true  },
-    { label: 'Screens booked',       value: `${data.screens} screen${data.screens > 1 ? 's' : ''}`, done: true },
-    { label: 'Duration',             value: `${data.months} month${data.months > 1 ? 's' : ''}`,    done: true },
-    { label: 'Creatives',            value: 'Email to your AM',                     done: false },
-    { label: 'Campaign goes live',   value: data.startDate ? format(new Date(data.startDate + 'T00:00:00'), 'd MMM') : 'Per schedule', done: false },
-    { label: 'Campaign report',      value: 'Mid + end of campaign',                done: false },
+    { label: paid ? 'Payment confirmed' : 'Booking confirmed', value: paid ? paymentId.slice(0, 16) + '…' : 'Pending payment', done: paid },
+    { label: 'Screens booked',   value: `${data.screens} screen${data.screens > 1 ? 's' : ''}`, done: true  },
+    { label: 'Duration',         value: `${data.months} month${data.months > 1 ? 's' : ''}`,    done: true  },
+    { label: paid ? 'Payment' : 'Payment due', value: paid ? 'Paid' : '24 hrs before go-live · via dashboard', done: paid },
+    { label: 'Creatives',        value: 'Email to your AM',                                      done: false },
+    { label: 'Campaign goes live', value: data.startDate ? format(new Date(data.startDate + 'T00:00:00'), 'd MMM') : 'Per schedule', done: false },
   ];
 
   return (
@@ -1371,12 +1366,15 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
       </motion.div>
 
       <motion.div variants={fadeUp} className="space-y-3">
-        <h2 className="text-3xl font-black tracking-tight text-foreground">Campaign confirmed.</h2>
+        <h2 className="text-3xl font-black tracking-tight text-foreground">
+          {paid ? 'Campaign confirmed.' : 'Booking confirmed.'}
+        </h2>
         <p className="max-w-md mx-auto text-muted-foreground leading-relaxed">
-          Welcome to Alive, <strong className="text-foreground">{data.brandName}</strong>. Your
-          payment of <strong className="text-foreground">{fmt(total)}</strong> is confirmed. A GST
-          invoice will be sent to <strong className="text-foreground">{data.email}</strong> within 2
-          business days.
+          Welcome to Alive, <strong className="text-foreground">{data.brandName}</strong>.{' '}
+          {paid
+            ? <>Your payment of <strong className="text-foreground">{fmt(total)}</strong> is confirmed. A GST invoice will be sent to <strong className="text-foreground">{data.email}</strong> within 2 business days.</>
+            : <>Your campaign is booked. Complete payment through your dashboard at least <strong className="text-foreground">24 hours before your campaign goes live</strong> on <strong className="text-foreground">{data.startDate ? format(new Date(data.startDate + 'T00:00:00'), 'd MMMM yyyy') : 'your selected date'}</strong>.</>
+          }
         </p>
       </motion.div>
 
@@ -1501,13 +1499,9 @@ export default function BrandOnboardingPage() {
 
   const showIndicator = step >= 2 && step <= 6;
 
-  const handlePaymentSuccess = async (pid: string, oid: string, effectivePricePerScreen?: number) => {
-    setPaymentId(pid);
-    setOrderId(oid);
-    const pricePerScreen = effectivePricePerScreen ?? getScreenPrice(form.screens);
-    const subtotal       = pricePerScreen * form.screens * form.months;
-    const totalAmount    = subtotal + Math.round(subtotal * 0.18);
-    // Save campaign to Vercel KV via API route — non-blocking
+  const saveCampaign = (pid: string, oid: string, effectivePricePerScreen: number, status: 'upcoming' | 'pending_payment') => {
+    const subtotal    = effectivePricePerScreen * form.screens * form.months;
+    const totalAmount = subtotal + Math.round(subtotal * 0.18);
     fetch('/api/campaigns/save', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1520,14 +1514,27 @@ export default function BrandOnboardingPage() {
         screens:        form.screens,
         months:         form.months,
         startDate:      form.startDate,
-        pricePerScreen,
+        pricePerScreen: effectivePricePerScreen,
         totalAmount,
         paymentId:      pid,
         orderId:        oid,
-        status:         'upcoming' as const,
+        status,
       }),
-    }).catch(() => {}); // fire-and-forget — payment already confirmed
+    }).catch(() => {});
     try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
+  };
+
+  const handleConfirmBooking = (effectivePricePerScreen: number) => {
+    saveCampaign('', '', effectivePricePerScreen, 'pending_payment');
+    setPaymentId('');
+    next();
+  };
+
+  const handlePaymentSuccess = async (pid: string, oid: string, effectivePricePerScreen?: number) => {
+    setPaymentId(pid);
+    setOrderId(oid);
+    const pricePerScreen = effectivePricePerScreen ?? getScreenPrice(form.screens);
+    saveCampaign(pid, oid, pricePerScreen, 'upcoming');
     next();
   };
 
@@ -1580,7 +1587,7 @@ export default function BrandOnboardingPage() {
               )}
               {step === 5 && <StepAuth onNext={next} onBack={back} formData={form} />}
               {step === 6 && (
-                <StepPayment data={form} onSuccess={handlePaymentSuccess} onBack={back} />
+                <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onBack={back} />
               )}
               {step === 7 && <StepDone data={form} paymentId={paymentId} />}
             </motion.div>
