@@ -475,7 +475,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 {[
                   { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
                   { icon: Phone,         label: 'Call us',           desc: '+91 74113 24448',   href: 'tel:+919741324448',                                                              color: 'text-blue-500' },
-                  { icon: Shield,        label: 'Partnership terms', desc: 'Read store agreement', href: '/terms',                                                                      color: 'text-muted-foreground' },
+                  { icon: Shield,        label: 'Partnership agreement', desc: 'Read your store contract', href: '/store-agreement',                                          color: 'text-muted-foreground' },
                 ].map((a) => (
                   <a key={a.label} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
                     className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/30 hover:bg-muted/30 transition-all group"
