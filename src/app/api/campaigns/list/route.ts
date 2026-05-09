@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Redis } from '@upstash/redis';
-
-const kv = new Redis({
-  url:   process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 import type { Campaign } from '../save/route';
+
+function getRedis(): Redis | null {
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
+  return new Redis({
+    url:   process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+}
 
 export async function GET() {
   const { userId } = await auth();
@@ -14,7 +17,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!process.env.UPSTASH_REDIS_REST_URL) {
+  const kv = getRedis();
+  if (!kv) {
     return NextResponse.json({ campaigns: [] });
   }
   try {
