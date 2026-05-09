@@ -5,10 +5,11 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import {
   IndianRupee, Zap, Shield, TrendingUp, Clock, Star,
-  Navigation, Loader2, CheckCircle2, AlertCircle, MapPin,
-  ArrowDown, Phone, ChevronRight, Wifi, Monitor, Check,
+  Loader2, CheckCircle2, AlertCircle, MapPin,
+  ArrowDown, Phone, ChevronRight, Check, ArrowLeft,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
+import MapPicker from '@/components/map-picker';
 
 // ─── Animation ──────────────────────────────────────────────────────────────
 
@@ -29,36 +30,18 @@ const BENEFITS = [
 ];
 
 const HOW = [
-  { n: '01', title: 'Register below',         body: 'Fill in your store details. Takes 2 minutes.' },
-  { n: '02', title: 'We visit & install',      body: 'Our team installs a free screen within 48 hours.' },
-  { n: '03', title: 'Earn every month',        body: 'Ads run 24/7. Revenue share lands in your account.' },
+  { n: '01', title: 'Register below',        body: 'Fill in your store details. Takes 2 minutes.' },
+  { n: '02', title: 'We visit & install',    body: 'Our team installs a free screen within 48 hours.' },
+  { n: '03', title: 'Earn every month',      body: 'Ads run 24/7. Revenue share lands in your account.' },
 ];
 
 const EARNINGS = [
-  { screens: 1, monthly: 2500,  annual: 30000  },
-  { screens: 2, monthly: 5000,  annual: 60000  },
-  { screens: 3, monthly: 8000,  annual: 96000  },
+  { screens: 1, monthly: 2500, annual: 30000  },
+  { screens: 2, monthly: 5000, annual: 60000  },
+  { screens: 3, monthly: 8000, annual: 96000  },
 ];
 
-// ─── Geolocation ─────────────────────────────────────────────────────────────
-
-type GeoState = 'idle' | 'loading' | 'done' | 'error';
-
-async function reverseGeocode(lat: number, lng: number) {
-  const res  = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-    { headers: { 'Accept-Language': 'en' } },
-  );
-  const data = await res.json();
-  const a    = data.address ?? {};
-  return {
-    locality: a.suburb || a.neighbourhood || a.village || a.county || '',
-    pincode:  (a.postcode ?? '').replace(/\D/g, '').slice(0, 6),
-    city:     a.city || a.town || a.municipality || a.state_district || '',
-  };
-}
-
-// ─── Registration form ────────────────────────────────────────────────────────
+// ─── Form type ────────────────────────────────────────────────────────────────
 
 type Form = {
   storeName: string;
@@ -74,8 +57,6 @@ type Form = {
 };
 
 const INIT: Form = { storeName: '', ownerName: '', whatsapp: '', password: '', address: '', locality: '', city: '', pincode: '', lat: '', lng: '' };
-
-const AGREE_KEY = 'agree';
 
 function Field({
   label, value, onChange, type = 'text', placeholder, prefix, readOnly,
@@ -107,46 +88,173 @@ function Field({
   );
 }
 
+// ─── Step 2 — Agreement preview ───────────────────────────────────────────────
+
+function AgreementStep({
+  form, agreed, setAgreed, onBack, onSubmit, busy, err,
+}: {
+  form: Form;
+  agreed: boolean;
+  setAgreed: (v: boolean) => void;
+  onBack: () => void;
+  onSubmit: () => void;
+  busy: boolean;
+  err: string;
+}) {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 32 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="space-y-5"
+    >
+      {/* Back */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-1.5 text-xs font-semibold transition-colors"
+        style={{ color: 'rgba(255,255,255,0.4)' }}
+      >
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to form
+      </button>
+
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-1">Step 2 of 2 — Review agreement</p>
+        <h3 className="text-xl font-black text-white">Store Partner Agreement</h3>
+        <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+          Please review the key terms before confirming your registration.
+        </p>
+      </div>
+
+      {/* Autofilled party card */}
+      <div className="rounded-2xl border border-white/15 p-5 space-y-3" style={{ background: 'rgba(255,255,255,0.05)' }}>
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20">
+            <MapPin className="h-4 w-4 text-red-400" />
+          </div>
+          <div className="space-y-0.5">
+            <p className="text-sm font-black text-white">{form.storeName}</p>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              Owned by {form.ownerName} · +91 {form.whatsapp}
+            </p>
+            {(form.locality || form.city) && (
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                {[form.locality, form.city, form.pincode].filter(Boolean).join(', ')}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="border-t border-white/10 pt-3 flex items-center gap-2">
+          <span className="text-[10px] rounded-full px-2.5 py-1 font-semibold" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}>
+            VS Collective LLP (ALIVE)
+          </span>
+          <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>effective {today}</span>
+        </div>
+      </div>
+
+      {/* Key terms */}
+      <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <div className="px-4 py-3 border-b border-white/10">
+          <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>Key terms</p>
+        </div>
+        <div className="divide-y divide-white/8">
+          {[
+            { term: 'Revenue share',       detail: 'You earn ₹2,500–₹8,000/month per screen based on campaign bookings. Payment by UPI/NEFT within 7 days of month end.' },
+            { term: 'Equipment ownership', detail: 'The digital screen is installed free of charge and remains the property of ALIVE at all times.' },
+            { term: 'Electricity',         detail: 'ALIVE reimburses electricity costs based on each screen\'s rated power and actual operating hours at the prevailing tariff.' },
+            { term: 'Term & termination',  detail: 'This agreement runs month-to-month. Either party may terminate with 30 days\' written notice. ALIVE will remove the screen at its cost.' },
+            { term: 'Exclusivity',         detail: 'ALIVE will not install a competing screen within 200 metres of your store during this agreement.' },
+          ].map(({ term, detail }) => (
+            <div key={term} className="px-4 py-3.5">
+              <p className="text-xs font-bold text-white mb-0.5">{term}</p>
+              <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.45)' }}>{detail}</p>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-3 border-t border-white/10">
+          <a
+            href="/store-agreement"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-semibold text-red-400 hover:text-red-300 underline underline-offset-2"
+          >
+            Read full agreement →
+          </a>
+        </div>
+      </div>
+
+      {/* Confirm checkbox */}
+      <label className="flex items-start gap-3 cursor-pointer group">
+        <div className="relative mt-0.5 shrink-0">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="sr-only" />
+          <div className={`h-5 w-5 rounded-md border-2 transition-all flex items-center justify-center ${agreed ? 'border-red-400 bg-red-500' : 'border-white/30 bg-white/10 group-hover:border-white/50'}`}>
+            {agreed && (
+              <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        </div>
+        <span className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          I, <strong className="text-white">{form.ownerName || 'the store owner'}</strong>, have read and agree to the Store Partner Agreement between <strong className="text-white">{form.storeName || 'my store'}</strong> and VS Collective LLP (ALIVE), effective {today}.
+        </span>
+      </label>
+
+      {err && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
+          <p className="text-xs text-red-300">{err}</p>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={busy || !agreed}
+        className="w-full flex items-center justify-center gap-2 rounded-xl py-4 text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: busy || !agreed ? '#dc2626' : 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: agreed ? '0 8px 24px -6px rgba(220,38,38,0.5)' : 'none' }}
+      >
+        {busy
+          ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</>
+          : <><CheckCircle2 className="h-4 w-4" /> I agree — Register my store</>
+        }
+      </button>
+    </motion.div>
+  );
+}
+
+// ─── Registration form ────────────────────────────────────────────────────────
+
 function RegistrationForm() {
-  const router    = useRouter();
-  const [form,    setForm]  = useState<Form>(INIT);
-  const [agreed,  setAgreed] = useState(false);
-  const [geo,     setGeo]   = useState<GeoState>('idle');
-  const [geoErr,  setGeoErr] = useState('');
-  const [busy,    setBusy]  = useState(false);
-  const [err,     setErr]   = useState('');
-  const [done,    setDone]  = useState(false);
+  const router   = useRouter();
+  const [form,   setForm]   = useState<Form>(INIT);
+  const [step,   setStep]   = useState<1 | 2>(1);
+  const [agreed, setAgreed] = useState(false);
+  const [busy,   setBusy]   = useState(false);
+  const [err,    setErr]    = useState('');
+  const [done,   setDone]   = useState(false);
 
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
-  const locate = () => {
-    if (!navigator.geolocation) { setGeoErr('Geolocation not supported.'); return; }
-    setGeo('loading'); setGeoErr('');
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords: { latitude: lat, longitude: lng } }) => {
-        set('lat', String(lat)); set('lng', String(lng));
-        try {
-          const { locality, pincode, city } = await reverseGeocode(lat, lng);
-          set('locality', locality); set('pincode', pincode); set('city', city);
-        } catch {}
-        setGeo('done');
-      },
-      (e) => {
-        setGeoErr(e.code === 1 ? 'Location access denied. Allow location and try again.' : 'Could not get location. Fill address manually.');
-        setGeo('error');
-      },
-      { enableHighAccuracy: true, timeout: 12000 },
-    );
+  const handleLocation = (lat: string, lng: string, locality: string, pincode: string, city: string) => {
+    setForm((p) => ({
+      ...p,
+      lat,
+      lng,
+      locality: locality || p.locality,
+      pincode:  pincode  || p.pincode,
+      city:     city     || p.city,
+    }));
   };
 
-  const valid =
+  const validStep1 =
     form.storeName && form.ownerName &&
     form.whatsapp.length === 10 && form.password.length >= 6 &&
-    form.city && form.pincode.length === 6 && agreed;
+    form.city && form.pincode.length === 6;
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
+  const submit = async () => {
     setBusy(true); setErr('');
     const session = { ...form, phone: `+91${form.whatsapp}` };
     try {
@@ -155,8 +263,6 @@ function RegistrationForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(session),
       });
-      // Always persist locally so dashboard login works immediately,
-      // even when Redis is not configured in this environment.
       localStorage.setItem('alive_store_session', JSON.stringify(session));
       setDone(true);
       setTimeout(() => router.push('/store-dashboard'), 1800);
@@ -187,8 +293,31 @@ function RegistrationForm() {
     );
   }
 
+  if (step === 2) {
+    return (
+      <AgreementStep
+        form={form}
+        agreed={agreed}
+        setAgreed={setAgreed}
+        onBack={() => setStep(1)}
+        onSubmit={submit}
+        busy={busy}
+        err={err}
+      />
+    );
+  }
+
   return (
-    <form onSubmit={submit} className="space-y-5">
+    <form onSubmit={(e) => { e.preventDefault(); if (validStep1) setStep(2); }} className="space-y-5">
+
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 mb-1">
+        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-black">1</div>
+        <div className="flex-1 h-px bg-white/10" />
+        <div className="flex h-5 w-5 items-center justify-center rounded-full border border-white/20 text-white/30 text-[10px] font-black">2</div>
+        <span className="text-[10px] text-white/30 font-medium">Agreement</span>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Store name" value={form.storeName} onChange={(v) => set('storeName', v)} placeholder="Sharma General Store" />
         <Field label="Owner name" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Ramesh Sharma" />
@@ -236,43 +365,19 @@ function RegistrationForm() {
           className="w-full px-4 py-3 text-sm rounded-xl border border-white/20 bg-white/10 text-white placeholder-white/30 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/25 transition-all"
         />
         <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-          Use this password to sign in to your partner dashboard at any time.
+          Use this to sign in to your partner dashboard at any time.
         </p>
       </div>
 
-      {/* GPS locator */}
-      <div className="space-y-1.5">
+      {/* Map location picker */}
+      <div className="space-y-2">
         <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
-          Shop location
+          Pin your shop on the map
         </label>
-        <button
-          type="button"
-          onClick={locate}
-          disabled={geo === 'loading'}
-          className={`w-full flex items-center justify-center gap-2.5 rounded-xl border-2 py-3.5 text-sm font-bold transition-all ${
-            geo === 'done'
-              ? 'border-green-400 bg-green-400/15 text-green-300'
-              : geo === 'error'
-              ? 'border-red-400/60 bg-red-400/10 text-red-300'
-              : 'border-white/25 bg-white/8 text-white hover:border-white/50 hover:bg-white/15'
-          }`}
-        >
-          {geo === 'loading' ? (
-            <><Loader2 className="h-4 w-4 animate-spin" /> Detecting location…</>
-          ) : geo === 'done' ? (
-            <><Check className="h-4 w-4" /> Location detected — tap to update</>
-          ) : (
-            <><Navigation className="h-4 w-4" /> Use my current location (GPS)</>
-          )}
-        </button>
-        {geoErr && (
-          <p className="text-xs text-red-300 flex items-start gap-1.5 mt-1">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />{geoErr}
-          </p>
-        )}
+        <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} />
       </div>
 
-      {/* Address details */}
+      {/* Editable address fields (auto-filled by map) */}
       <div className="grid grid-cols-2 gap-4">
         <Field label="Locality / area" value={form.locality} onChange={(v) => set('locality', v)} placeholder="Kankanady" />
         <Field label="Pincode" value={form.pincode} onChange={(v) => set('pincode', v.replace(/\D/g, '').slice(0, 6))} placeholder="575002" />
@@ -291,57 +396,13 @@ function RegistrationForm() {
         />
       </div>
 
-      {/* Agreement checkbox */}
-      <label className="flex items-start gap-3 cursor-pointer group">
-        <div className="relative mt-0.5 shrink-0">
-          <input
-            type="checkbox"
-            checked={agreed}
-            onChange={(e) => setAgreed(e.target.checked)}
-            className="sr-only peer"
-          />
-          <div className={`h-5 w-5 rounded-md border-2 transition-all flex items-center justify-center ${
-            agreed ? 'border-red-400 bg-red-500' : 'border-white/30 bg-white/10 group-hover:border-white/50'
-          }`}>
-            {agreed && (
-              <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
-          </div>
-        </div>
-        <span className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
-          I have read and agree to the{' '}
-          <a
-            href="/store-agreement"
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-red-400 hover:text-red-300 underline underline-offset-2"
-          >
-            Store Partner Agreement
-          </a>
-          {' '}between myself and VS Collective LLP (ALIVE). I understand the terms of installation, revenue sharing, and electricity reimbursement.
-        </span>
-      </label>
-
-      {err && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
-          <p className="text-xs text-red-300">{err}</p>
-        </div>
-      )}
-
       <button
         type="submit"
-        disabled={busy || !valid}
+        disabled={!validStep1}
         className="w-full flex items-center justify-center gap-2 rounded-xl py-4 text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{ background: busy || !valid ? '#dc2626' : 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: valid ? '0 8px 24px -6px rgba(220,38,38,0.5)' : 'none' }}
+        style={{ background: !validStep1 ? '#dc2626' : 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: validStep1 ? '0 8px 24px -6px rgba(220,38,38,0.5)' : 'none' }}
       >
-        {busy
-          ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</>
-          : <><CheckCircle2 className="h-4 w-4" /> Register my store — it&apos;s free</>
-        }
+        Continue to Agreement <ChevronRight className="h-4 w-4" />
       </button>
 
       <p className="text-center text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
@@ -400,9 +461,9 @@ export default function StorePage() {
               <span className="text-xs font-bold text-red-300 tracking-wider uppercase">Kirana Store Partners · Mangaluru</span>
             </div>
             <h1 className="text-4xl sm:text-6xl font-black text-white leading-[1.05] tracking-tight mb-6">
-              Your wall.<br />
-              <span style={{ color: '#ef4444' }}>Their ads.</span><br />
-              Your income.
+              Extra income.<br />
+              <span style={{ color: '#ef4444' }}>Zero effort.</span><br />
+              <span className="text-3xl sm:text-5xl text-white/70">Starting ₹2,500/month.</span>
             </h1>
             <p className="text-lg sm:text-xl text-white/60 leading-relaxed max-w-2xl mb-8">
               Alive installs a free digital screen in your store. Top brands pay to show ads on it.
@@ -471,7 +532,6 @@ export default function StorePage() {
                 transition={{ duration: 0.5, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] }} viewport={{ once: true }}
                 className="relative"
               >
-                {/* Connector line */}
                 {i < HOW.length - 1 && (
                   <div className="hidden sm:block absolute top-7 left-[calc(100%-0px)] w-full h-px bg-gradient-to-r from-red-200 to-transparent dark:from-red-900/40 z-0" style={{ width: '60%', left: '70%' }} />
                 )}
@@ -492,7 +552,7 @@ export default function StorePage() {
       </section>
 
       {/* ── Benefits grid ── */}
-      <section className="py-20 sm:py-28" style={{ background: '#fafafa' }} data-dark="bg-secondary/20">
+      <section className="py-20 sm:py-28" style={{ background: '#fafafa' }}>
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
@@ -543,7 +603,6 @@ export default function StorePage() {
               <h2 className="text-3xl font-black text-white mb-1">How much will you earn?</h2>
               <p className="text-sm text-white/50 mb-8">Based on typical campaign fill rates in Mangaluru.</p>
 
-              {/* Screen toggle */}
               <div className="mb-8">
                 <p className="text-xs font-bold uppercase tracking-widest text-white/40 mb-3">Number of screens in your store</p>
                 <div className="flex gap-3">
@@ -564,7 +623,6 @@ export default function StorePage() {
                 </div>
               </div>
 
-              {/* Numbers */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="rounded-2xl bg-white/8 border border-white/10 p-6">
                   <p className="text-xs text-white/40 font-medium mb-2">Monthly income</p>
@@ -583,7 +641,6 @@ export default function StorePage() {
               </p>
             </div>
 
-            {/* Bottom CTA */}
             <div className="px-8 sm:px-10 py-6 bg-gray-50 dark:bg-card flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-black text-gray-900 dark:text-foreground">Ready to start earning?</p>
@@ -615,7 +672,7 @@ export default function StorePage() {
           >
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-2">Join the network</p>
             <h2 className="text-3xl sm:text-4xl font-black text-white mb-3">Register your store</h2>
-            <p className="text-sm text-white/50">Free installation · No contract · Cancel anytime</p>
+            <p className="text-sm text-white/50">Free installation · No upfront cost · Monthly UPI payout</p>
           </motion.div>
 
           <motion.div
@@ -627,7 +684,6 @@ export default function StorePage() {
             <RegistrationForm />
           </motion.div>
 
-          {/* Trust signals */}
           <motion.div
             initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.2 }} viewport={{ once: true }}

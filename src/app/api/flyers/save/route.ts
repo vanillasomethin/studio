@@ -69,8 +69,8 @@ export async function GET() {
 
     // Fetch all flyers in one mget call
     const keys    = index.map((id) => `flyer:${id}`);
-    const results = await kv.mget<Flyer>(...keys);
-    const flyers  = results.filter((f): f is Flyer => f !== null);
+    const results = await kv.mget<Flyer[]>(...keys);
+    const flyers  = (results as (Flyer | null)[]).filter((f): f is Flyer => f !== null);
 
     return NextResponse.json(flyers);
   } catch (e) {
