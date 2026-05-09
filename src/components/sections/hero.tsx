@@ -13,7 +13,7 @@ const heroContent = {
     image: '/For brands_r1.jpg',
     imageAlt: 'Brand advertising on in-store Alive screen',
     cta: 'Start your campaign',
-    ctaTitle: 'Start your campaign',
+    href: '/brand-onboarding',
   },
   stores: {
     eyebrow: 'For Kirana Stores',
@@ -22,7 +22,7 @@ const heroContent = {
     image: '/Kirana_Shop.jpg',
     imageAlt: 'Kirana store with Alive screen',
     cta: 'Register your store',
-    ctaTitle: 'Register as a Kirana Partner',
+    href: '/store',
   },
   consumers: {
     eyebrow: 'For Shoppers',
@@ -31,7 +31,7 @@ const heroContent = {
     image: '/pexels-kevin-malik-9016541.jpg',
     imageAlt: 'Consumer discovering products at a kirana',
     cta: 'Find deals near you',
-    ctaTitle: 'Get Deals as a Shopper',
+    href: '/deals',
   },
 };
 
@@ -43,11 +43,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'consumers', label: 'Shoppers' },
 ];
 
-type HeroProps = {
-  onGetStartedClick: (title: string) => void;
-};
-
-export default function Hero({ onGetStartedClick }: HeroProps) {
+export default function Hero() {
   const [activeTab, setActiveTab] = useState<Tab>('brands');
   const c = heroContent[activeTab];
 
@@ -109,12 +105,12 @@ export default function Hero({ onGetStartedClick }: HeroProps) {
             </motion.div>
           </AnimatePresence>
 
-          <button
-            onClick={() => onGetStartedClick(c.ctaTitle)}
+          <a
+            href={c.href}
             className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-8 py-3.5 text-sm font-bold text-white shadow-[0_8px_20px_-8px_rgba(220,38,38,0.55)] transition-all hover:from-red-600 hover:to-red-800 hover:shadow-[0_12px_24px_-8px_rgba(220,38,38,0.6)]"
           >
             {c.cta} <ArrowRight className="h-4 w-4" />
-          </button>
+          </a>
         </div>
 
         {/* Portrait device frame */}
