@@ -1026,6 +1026,11 @@ function StepPayment({
   onBack: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+
+  const handlePayLater = () => {
+    try { localStorage.setItem('alive_pending_campaign', JSON.stringify({ form: data })); } catch { /* ignore */ }
+    window.location.href = '/dashboard';
+  };
   const [error,   setError]   = useState<string | null>(null);
 
   const pricePerScreen = getScreenPrice(data.screens);
@@ -1159,6 +1164,14 @@ function StepPayment({
         <p className="text-center text-xs text-muted-foreground/50">
           Secured by Razorpay · 256-bit SSL · PCI DSS compliant
         </p>
+
+        <button
+          type="button"
+          onClick={handlePayLater}
+          className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
+        >
+          Continue to dashboard — pay later
+        </button>
 
         {/* Demo mode — remove before launch */}
         {process.env.NODE_ENV === 'development' && (
