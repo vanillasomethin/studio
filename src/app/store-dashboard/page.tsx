@@ -36,6 +36,7 @@ type StoreInfo = {
   email?:        string;
   referralCode?: string;
   referredBy?:   string;
+  agreedAt?:     string;
 };
 
 type Flyer = {
@@ -507,6 +508,65 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
   );
 }
 
+// ─── Agreement card (dashboard) ───────────────────────────────────────────────
+
+function AgreementCard({ store }: { store: StoreInfo }) {
+  const agreedAt = store.agreedAt;
+  const date = agreedAt
+    ? new Date(agreedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
+    : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border">
+        <div>
+          <h2 className="text-sm font-bold text-foreground">Your Store Partner Agreement</h2>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Signed on {date}</p>
+        </div>
+        <Shield className="h-4 w-4 text-muted-foreground/40" />
+      </div>
+
+      {/* Prefilled parties */}
+      <div className="px-5 py-3 border-b border-border bg-muted/20">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black text-foreground">{store.storeName}</p>
+            <p className="text-[11px] text-muted-foreground">{store.ownerName} · +91 {store.whatsapp}</p>
+            {store.city && <p className="text-[10px] text-muted-foreground/60">{[store.locality, store.city, store.pincode].filter(Boolean).join(', ')}</p>}
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-[11px] font-semibold text-foreground">VS Collective LLP</p>
+            <p className="text-[10px] text-muted-foreground">ALIVE · {date}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Key terms compact */}
+      <div className="divide-y divide-border">
+        {[
+          { t: 'Remuneration', d: '₹500/month per screen, fixed. Paid within 10 working days of month end via UPI/NEFT.' },
+          { t: 'Electricity',  d: 'Reimbursed at screen rated power × actual hours × prevailing tariff.' },
+          { t: 'Equipment',    d: 'Screen installed free. Remains ALIVE property at all times.' },
+          { t: 'Exit',         d: '30 days written notice by either party. ALIVE removes screen at its cost.' },
+        ].map(({ t, d }) => (
+          <div key={t} className="px-5 py-2.5 flex gap-3 text-xs">
+            <span className="font-bold text-foreground/80 shrink-0 w-24">{t}</span>
+            <span className="text-muted-foreground">{d}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="px-5 py-3 border-t border-border flex items-center justify-between">
+        <p className="text-[10px] text-muted-foreground/50">Agreement accepted · {date}</p>
+        <a href="/store-agreement" target="_blank" rel="noreferrer"
+          className="text-[11px] font-semibold text-primary hover:underline underline-offset-2">
+          Full agreement →
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ─── Earnings estimator ──────────────────────────────────────────────────────
 
 const EARNING_TABLE = [
@@ -657,13 +717,18 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 </div>
               </div>
 
+              {/* Referral */}
+              <ReferralCard store={storeData} />
+
+              {/* Agreement */}
+              <AgreementCard store={storeData} />
+
               {/* Quick actions */}
               <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Quick actions</h2>
                 {[
                   { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
-                  { icon: Phone,         label: 'Call us',           desc: '+91 74113 24448',   href: 'tel:+919741324448',                                                              color: 'text-blue-500' },
-                  { icon: Shield,        label: 'Partnership agreement', desc: 'Read your store contract', href: '/store-agreement',                                          color: 'text-muted-foreground' },
+                  { icon: Phone,         label: 'Call us',           desc: '+91 74113 24448',   href: 'tel:+919741324448', color: 'text-blue-500' },
                 ].map((a) => (
                   <a key={a.label} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
                     className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/30 hover:bg-muted/30 transition-all group"
@@ -699,26 +764,22 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'earnings' && (
             <motion.div key="earn" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
-              {/* Summary tiles */}
-              <div className="grid grid-cols-3 gap-3">
+              {/* Single-line stats */}
+              <div className="rounded-2xl border border-border bg-card px-5 py-3 flex items-center divide-x divide-border">
                 {[
-                  { label: 'Total received', value: '₹0',  note: 'All time'      },
-                  { label: 'This month',     value: '₹500', note: 'Claimable now' },
-                  { label: 'Per referral',   value: '₹500', note: 'Bonus earned'  },
-                ].map((s, i) => (
-                  <div key={s.label} className={`rounded-xl p-3 text-center border ${i === 1 ? 'border-primary/25 bg-primary/5' : 'border-border bg-muted/30'}`}>
-                    <p className={`text-base font-bold ${i === 1 ? 'text-primary' : 'text-foreground'}`}>{s.value}</p>
-                    <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                    <p className="text-[9px] text-muted-foreground/40 mt-0.5">{s.note}</p>
+                  { label: 'Total earned', value: '₹0',   accent: false },
+                  { label: 'This month',   value: '₹500', accent: true  },
+                  { label: 'Per referral', value: '₹500', accent: false },
+                ].map((s) => (
+                  <div key={s.label} className="flex-1 text-center px-3 py-1">
+                    <p className={`text-base font-black ${s.accent ? 'text-primary' : 'text-foreground'}`}>{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
                   </div>
                 ))}
               </div>
 
               {/* 12-month timeline */}
               <PaymentTimeline onClaim={() => setClaimOpen(true)} />
-
-              {/* Referral */}
-              <ReferralCard store={storeData} />
 
             </motion.div>
           )}
