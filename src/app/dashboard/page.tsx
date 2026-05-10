@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useSession, signOut as nextAuthSignOut } from 'next-auth/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths, parseISO, eachDayOfInterval } from 'date-fns';
 import {
@@ -213,15 +213,15 @@ function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
 // ─── Account Tab ──────────────────────────────────────────────────────────────
 
 function AccountTab({ campaigns }: { campaigns: Campaign[] }) {
-  const { user } = useUser();
-  const latest   = campaigns[0];
+  const { data: session } = useSession();
+  const latest            = campaigns[0];
 
   const fields: [string, string][] = [
     ['Brand / company', latest?.brandName   || '—'],
     ['Contact name',    latest?.contactName || '—'],
-    ['Email',           latest?.email       || user?.primaryEmailAddress?.emailAddress || '—'],
-    ['Phone',           user?.primaryPhoneNumber?.phoneNumber || '—'],
-    ['GSTIN',           latest?.gstin || '—'],
+    ['Email',           latest?.email       || session?.user?.email || '—'],
+    ['Phone',           latest?.phone       || '—'],
+    ['GSTIN',           latest?.gstin       || '—'],
   ];
 
   return (
@@ -400,9 +400,8 @@ function PendingPaymentCard({
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const router             = useRouter();
-  const { user, isLoaded } = useUser();
-  const { signOut }        = useClerk();
+  const router                  = useRouter();
+  const { data: session, status } = useSession();
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [fetching,  setFetching]  = useState(true);
@@ -417,8 +416,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!isLoaded) return;
-    if (!user) { router.replace('/login'); return; }
+    if (status === 'loading') return;
+    if (status === 'unauthenticated' || !session) { router.replace('/login'); return; }
 
     fetch('/api/campaigns/list')
       .then((r) => {
@@ -430,12 +429,12 @@ export default function DashboardPage() {
       .then((d: { campaigns?: Campaign[] }) => setCampaigns(d.campaigns ?? []))
       .catch(() => {})
       .finally(() => setFetching(false));
-  }, [user, isLoaded, router]);
+  }, [session, status, router]);
 
-  if (!isLoaded || (!user && fetching)) return <LoadingSkeleton />;
-  if (!user) return null;
+  if (status === 'loading' || fetching) return <LoadingSkeleton />;
+  if (!session) return null;
 
-  const brandName      = campaigns[0]?.brandName || user.fullName || 'Brand';
+  const brandName      = campaigns[0]?.brandName || session.user?.name || 'Brand';
   const totalInvested  = campaigns.reduce((s, c) => s + c.totalAmount, 0);
   const activeScreens  = campaigns.filter((c) => deriveCampaignStatus(c) === 'active').reduce((s, c) => s + c.screens, 0);
   const estimatedViews = campaigns.reduce((s, c) => s + VIEWS * c.screens * c.months, 0);
@@ -456,7 +455,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <button
-            onClick={() => signOut(() => router.replace('/login'))}
+            onClick={() => nextAuthSignOut({ callbackUrl: '/login' })}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
           >
             <LogOut className="h-3.5 w-3.5" /> Sign out
