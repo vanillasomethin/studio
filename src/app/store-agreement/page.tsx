@@ -1,56 +1,48 @@
+'use client';
+
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { Logo } from '@/components/icons/logo';
 
-const sections = [
-  {
-    id: 'parties',
-    title: 'Parties to the Agreement',
-    content: `This Agreement is made and entered into on this ___ day of ______, 2025, by and between:
+// ─── Section data ────────────────────────────────────────────────────────────
 
-VS COLLECTIVE LLP, a Limited Liability Partnership registered under the Limited Liability Partnership Act, 2008, having its registered office at #13, First Floor, Highland Manor, Falnir, Mangalore, Dakshina Kannada, Karnataka 575002. LLP Identification Number: IN-KA43598411418020V. GSTIN: 29AAXFV2589C1ZE (hereinafter referred to as "VS COLLECTIVE LLP", which expression shall, unless repugnant to the context or meaning thereof, include its successors and assigns);
-
-AND
-
-______________________, residing/operating at _____________________________, Aadhar No. / Business Registration No. / GSTIN: ________________ (hereinafter referred to as "Shop Owner", which expression shall, unless repugnant to the context or meaning thereof, include their heirs, successors, and assigns).`,
-  },
-  {
-    id: 'recitals',
-    title: 'Recitals',
-    items: [
-      { term: 'A.', def: 'VS COLLECTIVE LLP is engaged in providing digital advertising solutions, including the installation, operation, and maintenance of digital display screens ("32″ Q-LED Screens").' },
-      { term: 'B.', def: 'The Shop Owner has agreed to provide space within their premises for the installation and operation of the Screens on the terms and conditions set forth in this Agreement.' },
-    ],
-  },
+const clauses = [
   {
     id: 'scope',
     title: '1. Scope of the Agreement',
     subsections: [
-      { heading: '1.1', text: 'VS COLLECTIVE LLP shall install and operate the Screens at the Shop Owner\'s premises ("Premises").' },
+      { heading: '1.1', text: 'VS COLLECTIVE LLP shall install and operate the Screens at the Shop Owner\'s premises ("Premises") at its sole cost and expense.' },
       { heading: '1.2', text: 'The Shop Owner shall provide adequate, safe, and suitable space for the installation and uninterrupted operation of the Screens.' },
       { heading: '1.3', text: 'The Screens shall be used exclusively for advertising and promotional purposes as determined by VS COLLECTIVE LLP.' },
+      { heading: '1.4', text: 'VS COLLECTIVE LLP guarantees that it shall not install any screen within a radius of 200 metres of the Shop Owner\'s Premises for the duration of this Agreement, ensuring exclusivity of the network node for the Shop Owner.' },
     ],
   },
   {
     id: 'term',
     title: '2. Term of the Agreement',
     subsections: [
-      { heading: '2.1', text: 'This Agreement shall remain valid for an initial term of 1 year, commencing after a 3-week initial testing and commissioning phase from the date of execution of this Agreement ("Effective Date").' },
-      { heading: '2.2', text: 'Upon mutual written consent, this Agreement may be renewed for additional periods under the same or revised terms.' },
+      { heading: '2.1', text: 'This Agreement shall remain valid for an initial term of one (1) year, commencing after a three-week initial testing and commissioning phase from the date of execution ("Effective Date").' },
+      { heading: '2.2', text: 'Upon mutual written consent, this Agreement may be renewed for additional one-year periods under the same or revised terms, unless either party provides written notice of non-renewal at least 30 days before expiry.' },
     ],
   },
   {
     id: 'vs-responsibilities',
     title: '3. Responsibilities of VS Collective LLP',
     subsections: [
-      { heading: '3.1', text: 'Install and maintain the Screens in proper working condition at its sole cost and expense.' },
-      { heading: '3.2', text: 'Ensure that the Screens do not cause any physical damage or disruption to the Premises or the Shop Owner\'s operations.' },
-      { heading: '3.3', text: 'Pay the Shop Owner a fixed monthly remuneration of ₹500, which may be revised after an evaluation conducted following the initial 3 months of operation.' },
+      { heading: '3.1', text: 'Install and maintain the Screens in proper working condition at its sole cost and expense, including periodic servicing, software updates, and hardware repairs.' },
+      { heading: '3.2', text: 'Ensure that the Screens, cabling, and allied equipment comply with applicable electrical safety standards and do not cause physical damage or disruption to the Premises or the Shop Owner\'s operations.' },
+      { heading: '3.3', text: 'Pay the Shop Owner a fixed monthly remuneration of ₹500 (Rupees Five Hundred Only) per screen. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.' },
       {
         heading: '3.4',
-        text: 'Electricity Reimbursement: The Company will compensate the Shop Owner for electricity consumption based on each screen\'s rated power consumption and the actual number of hours the Screens operated during the month, at the prevailing electricity tariff rate applicable to the Premises. The Shop Owner shall submit actual electricity bills each month to facilitate accurate reimbursement.',
+        text: 'Electricity Reimbursement: Compensate the Shop Owner for electricity consumed by the Screens based on each screen\'s rated power consumption, the actual hours of operation during the month, and the prevailing electricity tariff applicable to the Premises. The Shop Owner shall submit actual electricity bills to facilitate accurate monthly reimbursement.',
       },
       {
         heading: '3.5',
-        text: 'Generator Usage Compensation: If the Screens operate during power cuts using the Shop\'s generator or backup power, the Company shall compensate the Shop Owner proportionally based on the Screens\' power consumption relative to the total load running on the generator, multiplied by the generator\'s fuel cost per hour and the hours of operation during power cuts.',
+        text: 'Generator / Backup Power Compensation: If the Screens operate during power outages using the Shop\'s generator or UPS, VS COLLECTIVE LLP shall compensate the Shop Owner proportionally — calculated as the Screens\' share of total generator load, multiplied by the fuel cost per hour and the hours of generator operation during that period.',
+      },
+      {
+        heading: '3.6',
+        text: 'Referral Reward: For each new store partner who registers on the ALIVE platform using the Shop Owner\'s unique referral code, VS COLLECTIVE LLP shall pay the Shop Owner a one-time referral bonus of ₹500, settled within 10 working days of the referred partner\'s screen going live.',
       },
     ],
   },
@@ -58,36 +50,40 @@ ______________________, residing/operating at _____________________________, Aad
     id: 'owner-responsibilities',
     title: '4. Responsibilities of the Shop Owner',
     subsections: [
-      { heading: '4.1', text: 'Provide the designated area within the Premises for installation and operation of the Screens and display of products.' },
-      { heading: '4.2', text: 'Ensure uninterrupted electricity supply to the Screens during business hours. If the Premises is equipped with a generator or backup power, the Shop Owner shall ensure continued supply to the Screens during business hours. If no backup is available, the Shop Owner shall not be held responsible for the outage but shall promptly restore supply once power is available.' },
-      { heading: '4.3', text: 'Allow reasonable access to VS COLLECTIVE LLP\'s personnel for installation, maintenance, and repairs during business hours.' },
-      { heading: '4.4', text: 'Refrain from tampering with, damaging, or modifying the Screens or related installations.' },
+      { heading: '4.1', text: 'Provide the designated area within the Premises for installation and continuous operation of the Screens during business hours, free of obstruction.' },
+      { heading: '4.2', text: 'Ensure uninterrupted electricity supply to the Screens during business hours. Where the Premises has a generator or UPS backup, the Shop Owner shall include the Screens on that backup supply. In the absence of backup, the Shop Owner shall promptly restore supply once power is available and shall not be penalised for force-majeure outages.' },
+      { heading: '4.3', text: 'Allow reasonable access to VS COLLECTIVE LLP\'s authorised personnel for installation, inspection, maintenance, and repairs during business hours, with reasonable advance notice.' },
+      { heading: '4.4', text: 'Refrain from tampering with, damaging, relocating, modifying, or obstructing the Screens or any related cabling and equipment without prior written consent from VS COLLECTIVE LLP.' },
+      { heading: '4.5', text: 'Notify VS COLLECTIVE LLP at least 24 hours in advance of any planned closure of the Premises that would interrupt screen operation.' },
     ],
   },
   {
     id: 'running-hours',
-    title: '5. Running Hours and Energy Costs',
+    title: '5. Operating Hours and Downtime',
     subsections: [
-      { heading: '5.1', text: 'The Screens shall remain operational during the Shop Owner\'s official working hours. The Shop Owner shall intimate VS Collective LLP immediately in case the shop is closed during official working hours. Any such closures shall be resolved promptly to ensure continued operation of the Screens. If the Shop Owner fails to intimate the Company of such closures, VS Collective LLP shall have the right to deduct a proportionate amount from the Shop Owner\'s monthly compensation.' },
+      { heading: '5.1', text: 'The Screens shall remain operational throughout the Shop Owner\'s regular business hours, typically 8 AM to 10 PM or as mutually agreed.' },
+      { heading: '5.2', text: 'If the Shop Owner fails to notify VS COLLECTIVE LLP of a closure that results in screen downtime exceeding two (2) hours, VS COLLECTIVE LLP reserves the right to proportionally adjust that month\'s remuneration, not exceeding ₹50 per incident.' },
+      { heading: '5.3', text: 'Planned maintenance by VS COLLECTIVE LLP shall be scheduled during off-peak hours and shall not affect the Shop Owner\'s remuneration.' },
     ],
   },
   {
     id: 'restrictions',
     title: '6. Restrictions and Non-Interference',
     subsections: [
-      { heading: '6.1', text: 'The Shop Owner shall not allow competing advertising equipment or services within the Premises without prior written consent of VS COLLECTIVE LLP.' },
-      { heading: '6.2', text: 'The Shop Owner shall not relocate, obstruct, or disable the Screens without written approval from VS COLLECTIVE LLP.' },
-      { heading: '6.3', text: 'All Screens remain the exclusive property of VS COLLECTIVE LLP, and no ownership or rights shall vest in the Shop Owner.' },
-      { heading: '6.4', text: 'The Screens shall be used exclusively for advertisements and promotional content as determined by VS COLLECTIVE LLP. The Shop Owner shall not use, or permit the use of, the Screens for personal purposes such as movies, television, CCTV monitoring, internet browsing, or any other non-approved activity. Any violation of this clause shall entitle VS Collective LLP to terminate this Agreement immediately and/or recover damages.' },
+      { heading: '6.1', text: 'The Shop Owner shall not allow competing digital advertising equipment or services within the Premises without prior written consent of VS COLLECTIVE LLP.' },
+      { heading: '6.2', text: 'The Shop Owner shall not relocate, obstruct, or disable the Screens or alter any cabling or mounts without written approval from VS COLLECTIVE LLP.' },
+      { heading: '6.3', text: 'All Screens and related hardware remain the exclusive property of VS COLLECTIVE LLP at all times. No right, title, or interest in the equipment shall vest in the Shop Owner.' },
+      { heading: '6.4', text: 'The Screens shall be used exclusively for approved advertising and promotional content managed by VS COLLECTIVE LLP. The Shop Owner shall not use, or permit the use of, the Screens for personal entertainment (movies, TV, gaming), CCTV monitoring, internet browsing, or any other non-approved purpose. Any violation shall entitle VS COLLECTIVE LLP to terminate this Agreement immediately and seek recovery of damages.' },
     ],
   },
   {
     id: 'compensation',
     title: '7. Compensation and Payment Terms',
     subsections: [
-      { heading: '7.1', text: 'The monthly remuneration and reimbursements specified in Clause 3.3 shall be paid by VS COLLECTIVE LLP to the Shop Owner within ten (10) working days of the end of each month, against receipt of a payment acknowledgment from the Shop Owner.' },
-      { heading: '7.2', text: 'In case of any dispute relating to electricity or generator reimbursement calculations, both parties agree to resolve the matter amicably within fifteen (15) days by referring to electricity bills, fuel purchase records, or load-sharing calculations.' },
-      { heading: '7.3', text: 'If the dispute remains unresolved, the matter shall be referred to an independent Chartered Accountant or Electrical Consultant mutually appointed by both parties, and their decision shall be final and binding.' },
+      { heading: '7.1', text: 'The monthly remuneration (Clause 3.3) and all reimbursements (Clauses 3.4, 3.5) shall be paid within ten (10) working days of the end of each calendar month, via UPI or NEFT to the bank account provided by the Shop Owner.' },
+      { heading: '7.2', text: 'Referral bonuses (Clause 3.6) shall be paid within ten (10) working days of the referred partner\'s screen going live.' },
+      { heading: '7.3', text: 'In the event of a dispute regarding reimbursement calculations, both parties agree to resolve the matter amicably within fifteen (15) days by reference to electricity bills, fuel purchase records, or load-sharing calculations.' },
+      { heading: '7.4', text: 'If unresolved, the dispute shall be referred to an independent Chartered Accountant or Electrical Consultant mutually appointed by both parties, whose determination shall be final and binding.' },
     ],
   },
   {
@@ -98,78 +94,126 @@ ______________________, residing/operating at _____________________________, Aad
         heading: '8.1',
         text: 'Either party may terminate this Agreement by giving 30 days\' prior written notice in the following cases:',
         bullets: [
-          'Breach of any material terms, which remains unrectified for 15 days following written notice.',
+          'Breach of any material term that remains unrectified for 15 days following written notice of breach.',
           'Insolvency, bankruptcy, or permanent closure of either party\'s business.',
-          'Force majeure events persisting beyond 60 days.',
+          'Force majeure events that render performance impossible for more than 60 consecutive days.',
         ],
       },
       {
         heading: '8.2',
+        text: 'VS COLLECTIVE LLP may terminate with immediate effect (without notice period) if the Shop Owner:',
+        bullets: [
+          'Uses the Screens for unauthorised purposes as described in Clause 6.4.',
+          'Physically damages or attempts to remove/sell VS COLLECTIVE LLP\'s equipment.',
+          'Permits a competitor advertising network to operate within the Premises.',
+        ],
+      },
+      {
+        heading: '8.3',
         text: 'Upon termination:',
         bullets: [
-          'VS COLLECTIVE LLP shall remove its Screens from the Premises within 15 days.',
-          'All outstanding payments to the Shop Owner shall be settled within 30 days.',
+          'VS COLLECTIVE LLP shall remove its Screens from the Premises within 15 working days.',
+          'All outstanding remuneration and reimbursements due to the Shop Owner shall be settled within 30 days of the effective termination date.',
+          'The Shop Owner shall cooperate with the removal process and ensure reasonable access.',
         ],
       },
     ],
   },
   {
     id: 'indemnity',
-    title: '9. Indemnity and Liability',
+    title: '9. Indemnity and Limitation of Liability',
     subsections: [
-      { heading: '9.1', text: 'VS COLLECTIVE LLP shall not be held liable for any damages to the Premises unless directly caused by its negligence.' },
-      { heading: '9.2', text: 'The Shop Owner shall indemnify VS COLLECTIVE LLP against any claims, losses, or damages arising from intentional tampering, negligence, or unauthorized interference with the Screens.' },
+      { heading: '9.1', text: 'VS COLLECTIVE LLP shall indemnify the Shop Owner against any direct losses, claims, or third-party demands arising solely from VS COLLECTIVE LLP\'s negligence in operating the Screens.' },
+      { heading: '9.2', text: 'The Shop Owner shall indemnify VS COLLECTIVE LLP against any claims, losses, or damages arising from the Shop Owner\'s intentional tampering, negligence, or unauthorised interference with the Screens.' },
+      { heading: '9.3', text: 'Neither party shall be liable to the other for indirect, consequential, or punitive damages arising under this Agreement.' },
+      { heading: '9.4', text: 'VS COLLECTIVE LLP\'s maximum aggregate liability to the Shop Owner under this Agreement shall not exceed the total remuneration paid to the Shop Owner in the preceding three (3) calendar months.' },
     ],
   },
   {
     id: 'governing-law',
     title: '10. Governing Law and Dispute Resolution',
     subsections: [
-      { heading: '10.1', text: 'This Agreement shall be governed by and construed in accordance with the laws of India, under the exclusive jurisdiction of the courts in Karnataka.' },
-      { heading: '10.2', text: 'Disputes shall first be addressed through mutual discussions. If unresolved within 30 days, disputes shall be referred to arbitration under the Arbitration and Conciliation Act, 1996, with proceedings conducted in Bangalore, Karnataka, in English.' },
+      { heading: '10.1', text: 'This Agreement shall be governed by and construed in accordance with the laws of India.' },
+      { heading: '10.2', text: 'Disputes shall first be addressed through mutual discussions in good faith. If unresolved within 30 days, disputes shall be referred to arbitration under the Arbitration and Conciliation Act, 1996, with proceedings conducted at Mangalore or Bangalore, Karnataka, in English. The arbitral award shall be final and binding.' },
+      { heading: '10.3', text: 'For matters outside the scope of arbitration, the parties submit to the exclusive jurisdiction of courts in Dakshina Kannada, Karnataka.' },
     ],
   },
   {
     id: 'safety',
-    title: '11. Risk, Fire & Electrical Safety',
+    title: '11. Electrical Safety and Risk Allocation',
     subsections: [
-      { heading: '11.1', text: 'The Company shall ensure that all its equipment, cabling, and installation are in compliance with applicable safety standards. Any loss, damage, fire, or short circuit arising directly due to defects in the Company\'s equipment shall be the sole responsibility of the Company, and the Company shall indemnify the Shop Owner against such losses.' },
-      { heading: '11.2', text: 'The Shop Owner shall ensure that the premises have proper electrical wiring, earthing, and load capacity. Any loss, fire, or damage arising due to defective internal wiring, overloading, or unauthorized interference with the Company\'s equipment shall be the sole responsibility of the Shop Owner.' },
-      { heading: '11.3', text: 'Each Party shall be responsible for insuring its own equipment, property, and stock against fire, short circuit, or accidental damage.' },
+      { heading: '11.1', text: 'VS COLLECTIVE LLP shall ensure that all its equipment, cabling, and installation comply with applicable Indian electrical safety standards (IS 732, IS 3043 as applicable). Any damage, fire, or short circuit arising directly from defects in VS COLLECTIVE LLP\'s equipment shall be VS COLLECTIVE LLP\'s sole responsibility, and it shall indemnify the Shop Owner accordingly.' },
+      { heading: '11.2', text: 'The Shop Owner shall ensure that the Premises has proper electrical wiring, adequate earthing, and sufficient load capacity as required by VS COLLECTIVE LLP. Any damage, fire, or incident arising from defective internal wiring, overloading, or the Shop Owner\'s unauthorised interference with VS COLLECTIVE LLP\'s equipment shall be the Shop Owner\'s sole responsibility.' },
+      { heading: '11.3', text: 'Each party shall independently insure its own equipment, property, and stock against fire, electrical damage, theft, and accidental loss.' },
+    ],
+  },
+  {
+    id: 'confidentiality',
+    title: '12. Confidentiality and Data',
+    subsections: [
+      { heading: '12.1', text: 'Both parties agree to keep the commercial terms of this Agreement (remuneration, reimbursement rates, referral bonuses) confidential and not disclose them to third parties without prior written consent, except as required by law.' },
+      { heading: '12.2', text: 'VS COLLECTIVE LLP\'s digital signage system may collect anonymised audience analytics (impression counts, dwell time) for billing and campaign reporting purposes. No personally identifiable information of the Shop Owner\'s customers shall be collected or retained.' },
+      { heading: '12.3', text: 'The Shop Owner\'s store details (name, location, contact) may be shared with brand partners of VS COLLECTIVE LLP solely for the purpose of campaign placement decisions.' },
     ],
   },
   {
     id: 'miscellaneous',
-    title: '12. Miscellaneous',
+    title: '13. Miscellaneous',
     items: [
-      { term: '12.1 Amendments', def: 'Any modifications must be made in writing and signed by authorized representatives of both parties.' },
-      { term: '12.2 Entire Agreement', def: 'This Agreement constitutes the full and final understanding between the parties and supersedes all prior communications.' },
-      { term: '12.3 Notices', def: 'All notices shall be sent to the parties\' respective addresses as stated above.' },
+      { term: '13.1', label: 'Amendments', def: 'Any modification to this Agreement must be made in writing and signed by authorised representatives of both parties.' },
+      { term: '13.2', label: 'Entire Agreement', def: 'This Agreement constitutes the complete and final understanding between the parties and supersedes all prior oral or written communications relating to its subject matter.' },
+      { term: '13.3', label: 'Severability', def: 'If any provision of this Agreement is found to be invalid or unenforceable, the remaining provisions shall continue in full force and effect.' },
+      { term: '13.4', label: 'Waiver', def: 'Failure by either party to enforce any provision of this Agreement at any time shall not constitute a waiver of that party\'s right to enforce it subsequently.' },
+      { term: '13.5', label: 'Notices', def: 'All formal notices shall be sent in writing to the addresses stated in this Agreement, via registered post or WhatsApp (with read confirmation), and shall be deemed received within 48 hours of dispatch.' },
+      { term: '13.6', label: 'Language', def: 'This Agreement is executed in English. If translated into any other language for reference, the English version shall prevail in the event of conflict.' },
     ],
   },
 ];
 
-export default function StoreAgreementPage() {
+// ─── Main page ───────────────────────────────────────────────────────────────
+
+function AgreementContent() {
+  const params    = useSearchParams();
+  const storeName = params.get('name')    ?? '______________________';
+  const ownerName = params.get('owner')   ?? '______________________';
+  const address   = params.get('address') ?? '_____________________________';
+  const phone     = params.get('phone')   ?? '';
+  const today     = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  const isPrefilled = params.get('name');
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
 
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border/30 bg-background/95 backdrop-blur-md">
+      <header className="sticky top-0 z-50 border-b border-border/30 bg-background/95 backdrop-blur-md print:hidden">
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
           <a href="/" className="opacity-70 hover:opacity-100 transition-opacity"><Logo /></a>
-          <a href="/store" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to registration</a>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => window.print()}
+              className="hidden sm:flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Print / Save PDF
+            </button>
+            <a href="/store" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to registration</a>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 mx-auto w-full max-w-3xl px-4 sm:px-6 py-12 sm:py-16">
+      <main className="flex-1 mx-auto w-full max-w-3xl px-4 sm:px-6 py-12 sm:py-16 print:py-4 print:px-0">
+
+        {/* Prefilled notice */}
+        {isPrefilled && (
+          <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center gap-2 text-xs text-primary font-semibold print:hidden">
+            <span className="h-2 w-2 rounded-full bg-primary inline-block" />
+            This agreement is prefilled with your registration details.
+          </div>
+        )}
 
         {/* Letterhead */}
         <div className="mb-10 rounded-2xl border border-border overflow-hidden">
-          {/* Red top bar */}
           <div className="h-2" style={{ background: 'linear-gradient(90deg,#dc2626,#991b1b)' }} />
-
           <div className="p-6 sm:p-8">
-            {/* Logo + entity name */}
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 pb-6 border-b border-border">
               <div>
                 <Logo />
@@ -179,51 +223,61 @@ export default function StoreAgreementPage() {
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
                 <p>#13, First Floor, Highland Manor</p>
                 <p>Falnir, Mangalore, Karnataka 575002</p>
-                <p className="pt-1">GST: 29AAXFV2589C1ZE</p>
-                <p>PAN: AAXFV2589C</p>
+                <p className="pt-1">GST: 29AAXFV2589C1ZE · PAN: AAXFV2589C</p>
                 <p>LLP: IN-KA43598411418020V</p>
+                <p className="pt-1">+91 74113 24448 · hello@wearealive.in</p>
               </div>
             </div>
 
-            {/* Title */}
             <div className="text-center space-y-2 mb-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Legal Document</p>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
                 Store Partner Agreement
               </h1>
-              <p className="text-sm text-muted-foreground">In-Store Kirana Live Advertisement Solutions</p>
-              <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 pt-2 text-xs text-muted-foreground/70">
-                <span><strong className="text-muted-foreground">Contact:</strong> 7411349844</span>
-                <span><strong className="text-muted-foreground">Email:</strong> hello@wearealive.in</span>
-                <span><strong className="text-muted-foreground">Web:</strong> wearealive.in</span>
-              </div>
+              <p className="text-sm text-muted-foreground">In-Store Kirana Live Advertising Network — ALIVE</p>
+              <p className="text-xs text-muted-foreground/60 pt-1">Effective date: {today}</p>
             </div>
           </div>
         </div>
 
-        {/* Sections */}
+        {/* Body */}
         <div className="space-y-8 text-sm leading-relaxed text-muted-foreground">
 
-          {sections.map((s) => (
+          {/* Parties */}
+          <section id="parties">
+            <h2 className="text-base font-bold text-foreground mb-3">Parties to the Agreement</h2>
+            <p className="mb-3">
+              This Store Partner Agreement (&ldquo;Agreement&rdquo;) is entered into as of{' '}
+              <strong className="text-foreground">{today}</strong>, by and between:
+            </p>
+            <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4 text-sm">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Party A — Company</p>
+                <p className="font-semibold text-foreground">VS COLLECTIVE LLP</p>
+                <p className="text-xs mt-0.5">Registered under the Limited Liability Partnership Act, 2008.</p>
+                <p className="text-xs">Office: #13, First Floor, Highland Manor, Falnir, Mangalore, Karnataka 575002.</p>
+                <p className="text-xs">LLP No: IN-KA43598411418020V · GSTIN: 29AAXFV2589C1ZE</p>
+                <p className="text-xs italic mt-0.5">(hereinafter referred to as &ldquo;<strong>VS COLLECTIVE LLP</strong>&rdquo; or &ldquo;<strong>the Company</strong>&rdquo;)</p>
+              </div>
+              <div className="border-t border-border pt-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Party B — Store Partner</p>
+                <p className="font-semibold text-foreground">{storeName}</p>
+                {ownerName !== '______________________' && <p className="text-xs mt-0.5">Owner / Authorised Signatory: <strong className="text-foreground">{ownerName}</strong></p>}
+                <p className="text-xs">Operating at: {address}</p>
+                {phone && <p className="text-xs">Contact: +91 {phone}</p>}
+                <p className="text-xs mt-1">Aadhar / Business Reg. / GSTIN: ________________</p>
+                <p className="text-xs italic mt-0.5">(hereinafter referred to as &ldquo;<strong>Shop Owner</strong>&rdquo; or &ldquo;<strong>Store Partner</strong>&rdquo;)</p>
+              </div>
+            </div>
+            <p className="mt-4">
+              <strong className="text-foreground">Whereas</strong>, VS COLLECTIVE LLP operates ALIVE — a kirana store digital advertising network that installs and manages 32&Prime; Q-LED screens inside kirana stores and delivers brand advertisements to local shoppers; and the Shop Owner has agreed to host an ALIVE screen at their Premises on the terms set out below.
+            </p>
+          </section>
+
+          {/* Numbered clauses */}
+          {clauses.map((s) => (
             <section key={s.id} id={s.id}>
               <h2 className="text-base font-bold text-foreground mb-3">{s.title}</h2>
-
-              {'content' in s && s.content && (
-                <div className="space-y-3">
-                  {s.content.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
-                </div>
-              )}
-
-              {'items' in s && s.items && (
-                <dl className="space-y-3">
-                  {s.items.map((item) => (
-                    <div key={item.term} className="flex gap-3">
-                      <dt className="shrink-0 font-semibold text-foreground w-12">{item.term}</dt>
-                      <dd>{item.def}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
 
               {'subsections' in s && s.subsections && (
                 <div className="space-y-4">
@@ -247,61 +301,59 @@ export default function StoreAgreementPage() {
                   ))}
                 </div>
               )}
+
+              {'items' in s && s.items && (
+                <div className="space-y-3">
+                  {s.items.map((item) => (
+                    <div key={item.term} className="flex gap-3">
+                      <span className="shrink-0 font-semibold text-foreground w-10">{item.term}</span>
+                      <p><strong className="text-foreground">{item.label}:</strong> {item.def}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           ))}
 
           {/* Signature block */}
           <section id="signatures" className="mt-12">
-            <h2 className="text-base font-bold text-foreground mb-6">Execution</h2>
-            <p className="mb-8">IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above:</p>
+            <h2 className="text-base font-bold text-foreground mb-2">Execution</h2>
+            <p className="mb-8 text-sm">
+              IN WITNESS WHEREOF, the parties have read, understood, and executed this Agreement on the date first written above. Both parties confirm that they have had the opportunity to seek independent legal advice before signing.
+            </p>
 
             <div className="grid sm:grid-cols-2 gap-8">
               {/* VS Collective */}
               <div className="rounded-xl border border-border p-5 space-y-5">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">For VS Collective LLP</p>
-                  <p className="text-sm font-semibold text-foreground">Authorized Signatory</p>
+                  <p className="text-sm font-semibold text-foreground">Authorised Signatory</p>
                 </div>
-                {[
-                  { label: 'Signature', lines: 2 },
-                  { label: 'Name',      lines: 1 },
-                  { label: 'Designation', lines: 1 },
-                  { label: 'Date',      lines: 1 },
-                ].map((f) => (
-                  <div key={f.label}>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">{f.label}</p>
-                    {Array.from({ length: f.lines }).map((_, i) => (
-                      <div key={i} className="border-b border-border mt-3" />
-                    ))}
+                {(['Signature', 'Name', 'Designation', 'Date'] as const).map((f) => (
+                  <div key={f}>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">{f}</p>
+                    <div className={`border-b border-border ${f === 'Signature' ? 'mt-8' : 'mt-3'}`} />
                   </div>
                 ))}
-                {/* Stamp box */}
                 <div className="rounded-lg border border-dashed border-border h-20 flex items-center justify-center">
-                  <p className="text-xs text-muted-foreground/40">Company Seal / Stamp</p>
+                  <p className="text-xs text-muted-foreground/40">Company Seal</p>
                 </div>
               </div>
 
               {/* Shop Owner */}
               <div className="rounded-xl border border-border p-5 space-y-5">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">For Shop Owner</p>
-                  <p className="text-sm font-semibold text-foreground">Signature & Acknowledgment</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">For Store Partner</p>
+                  <p className="text-sm font-semibold text-foreground">{ownerName !== '______________________' ? ownerName : 'Shop Owner / Authorised Signatory'}</p>
                 </div>
-                {[
-                  { label: 'Signature', lines: 2 },
-                  { label: 'Name',      lines: 1 },
-                  { label: 'Date',      lines: 1 },
-                ].map((f) => (
-                  <div key={f.label}>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">{f.label}</p>
-                    {Array.from({ length: f.lines }).map((_, i) => (
-                      <div key={i} className="border-b border-border mt-3" />
-                    ))}
+                {(['Signature', 'Name', 'Date'] as const).map((f) => (
+                  <div key={f}>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">{f}</p>
+                    <div className={`border-b border-border ${f === 'Signature' ? 'mt-8' : 'mt-3'}`} />
                   </div>
                 ))}
-                {/* Stamp box */}
                 <div className="rounded-lg border border-dashed border-border h-20 flex items-center justify-center">
-                  <p className="text-xs text-muted-foreground/40">Shop Seal / Stamp (if any)</p>
+                  <p className="text-xs text-muted-foreground/40">Shop Seal (if any)</p>
                 </div>
               </div>
             </div>
@@ -313,29 +365,31 @@ export default function StoreAgreementPage() {
                 {[1, 2].map((n) => (
                   <div key={n} className="rounded-xl border border-border p-5 space-y-4">
                     <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Witness {n}</p>
-                    {['Name', 'Signature', 'Date'].map((f) => (
+                    {['Name', 'Signature', 'Address', 'Date'].map((f) => (
                       <div key={f}>
                         <p className="text-xs font-semibold text-muted-foreground mb-1">{f}</p>
-                        <div className="border-b border-border mt-3" />
+                        <div className={`border-b border-border ${f === 'Signature' ? 'mt-7' : 'mt-3'}`} />
                       </div>
                     ))}
                   </div>
                 ))}
               </div>
             </div>
+
+            <p className="mt-8 text-xs text-muted-foreground/50 text-center">
+              Document generated by ALIVE Platform · wearealive.in · hello@wearealive.in
+            </p>
           </section>
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-border/30 mt-16 py-6 text-center">
-        <p className="text-xs text-muted-foreground/40">
-          © 2025 VS Collective LLP · ALIVE Advertising · Mangaluru, Karnataka, India
-        </p>
-        <p className="text-xs text-muted-foreground/30 mt-1">
-          GST: 29AAXFV2589C1ZE · PAN: AAXFV2589C · hello@wearealive.in · wearealive.in
-        </p>
-      </footer>
     </div>
+  );
+}
+
+export default function StoreAgreementPage() {
+  return (
+    <Suspense>
+      <AgreementContent />
+    </Suspense>
   );
 }
