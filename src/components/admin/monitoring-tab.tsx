@@ -35,15 +35,15 @@ export default function MonitoringTab() {
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
       <div>
-        <p className="text-sm font-semibold text-foreground">Backend not reachable</p>
+        <p className="text-sm font-semibold text-foreground">Could not load monitoring data</p>
         <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
       </div>
     </div>
   );
 
-  const online  = devices.filter((d) => d.status === 'online').length;
-  const offline = devices.filter((d) => d.status === 'offline').length;
-  const pending = devices.filter((d) => d.status === 'pending').length;
+  const online  = devices.filter((d) => d.status === 'ONLINE').length;
+  const offline = devices.filter((d) => d.status === 'OFFLINE').length;
+  const pending = devices.filter((d) => d.status === 'PENDING').length;
 
   return (
     <div className="space-y-4">
@@ -70,8 +70,8 @@ export default function MonitoringTab() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {devices.map((d) => {
-            const isOnline  = d.status === 'online';
-            const isOffline = d.status === 'offline';
+            const isOnline  = d.status === 'ONLINE';
+            const isOffline = d.status === 'OFFLINE';
             return (
               <div
                 key={d.id}

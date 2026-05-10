@@ -18,15 +18,15 @@ function timeSince(iso: string): string {
 }
 
 const STATUS_COLORS: Record<Device['status'], string> = {
-  online:  'bg-green-500/10 text-green-600 border-green-500/20',
-  offline: 'bg-red-500/10 text-red-600 border-red-500/20',
-  pending: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
+  ONLINE:  'bg-green-500/10 text-green-600 border-green-500/20',
+  OFFLINE: 'bg-red-500/10 text-red-600 border-red-500/20',
+  PENDING: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
 };
 
 const STATUS_ICONS: Record<Device['status'], React.ElementType> = {
-  online:  Wifi,
-  offline: WifiOff,
-  pending: Clock,
+  ONLINE:  Wifi,
+  OFFLINE: WifiOff,
+  PENDING: Clock,
 };
 
 export default function ScreensTab() {
@@ -49,9 +49,9 @@ export default function ScreensTab() {
     d.hardwareKey.includes(search),
   );
 
-  const online  = devices.filter((d) => d.status === 'online').length;
-  const offline = devices.filter((d) => d.status === 'offline').length;
-  const pending = devices.filter((d) => d.status === 'pending').length;
+  const online  = devices.filter((d) => d.status === 'ONLINE').length;
+  const offline = devices.filter((d) => d.status === 'OFFLINE').length;
+  const pending = devices.filter((d) => d.status === 'PENDING').length;
 
   if (loading) return (
     <div className="flex justify-center py-16">
@@ -63,9 +63,8 @@ export default function ScreensTab() {
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
       <div>
-        <p className="text-sm font-semibold text-foreground">Backend not reachable</p>
+        <p className="text-sm font-semibold text-foreground">Could not load screens</p>
         <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
-        <p className="text-xs text-muted-foreground/60 mt-2">Set <code className="text-primary">NEXT_PUBLIC_BACKEND_URL</code> to your ALIVE-Backend URL (e.g. <code>https://api.wearealive.in</code>).</p>
       </div>
     </div>
   );

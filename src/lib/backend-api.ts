@@ -2,19 +2,23 @@
 // Calls relative /api/* paths — auth is handled via admin-password header from env.
 
 function adminHeaders(): Record<string, string> {
-  return process.env.NEXT_PUBLIC_ADMIN_PASSWORD
-    ? { 'admin-password': process.env.NEXT_PUBLIC_ADMIN_PASSWORD }
-    : {};
+  // In browser: read from sessionStorage (set by admin page login gate).
+  // Server-side: use ADMIN_PASSWORD env var (e.g. internal server-to-server calls).
+  const pw = typeof window !== 'undefined'
+    ? (sessionStorage.getItem('alive_admin_pw') ?? '')
+    : (process.env.ADMIN_PASSWORD ?? '');
+  return pw ? { 'admin-password': pw } : {};
 }
 
 export type Device = {
   id:          string;
   hardwareKey: string;
   storeName:   string;
-  storeId?:    string;
-  status:      string;
-  lastSeen?:   string;
-  groupName?:  string;
+  storeId?:    string | null;
+  status:      'ONLINE' | 'OFFLINE' | 'PENDING';
+  lastSeen?:   string | null;
+  groupName?:  string | null;
+  uptimePct?:  number | null;
   claimedAt:   string;
 };
 

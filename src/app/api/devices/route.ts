@@ -12,19 +12,26 @@ function adminGuard(req: NextRequest) {
 export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const devices = await db.device.findMany({
+    const rows = await db.device.findMany({
       orderBy: { claimedAt: 'desc' },
       select: {
-        id:          true,
-        hardwareKey: true,
-        storeName:   true,
-        storeId:     true,
-        status:      true,
-        lastSeen:    true,
-        groupName:   true,
-        claimedAt:   true,
+        id:           true,
+        hardwareKey:  true,
+        storeName:    true,
+        storeId:      true,
+        status:       true,
+        lastSeen:     true,
+        groupName:    true,
+        claimedAt:    true,
+        uptimePctD30: true,
       },
     });
+    const devices = rows.map((d) => ({
+      ...d,
+      uptimePct: d.uptimePctD30,
+      lastSeen:  d.lastSeen?.toISOString() ?? null,
+      claimedAt: d.claimedAt.toISOString(),
+    }));
     return NextResponse.json({ devices });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
