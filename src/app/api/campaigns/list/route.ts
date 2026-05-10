@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth';
 import { Redis } from '@upstash/redis';
 import type { Campaign } from '../save/route';
 
@@ -12,8 +12,8 @@ function getRedis(): Redis | null {
 }
 
 export async function GET() {
-  const { userId } = await auth();
-  if (!userId) {
+  const session = await auth();
+  if (!session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -22,7 +22,7 @@ export async function GET() {
     return NextResponse.json({ campaigns: [] });
   }
   try {
-    const campaigns = (await kv.get<Campaign[]>(`campaigns:user:${userId}`)) ?? [];
+    const campaigns = (await kv.get<Campaign[]>(`campaigns:email:${session.user.email}`)) ?? [];
     return NextResponse.json({ campaigns });
   } catch (e) {
     return NextResponse.json(
