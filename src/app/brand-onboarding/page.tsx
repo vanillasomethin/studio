@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths } from 'date-fns';
-import { useAuth, useClerk } from '@clerk/nextjs';
-import { useSignIn, useSignUp } from '@clerk/nextjs/legacy';
+import { signIn, useSession } from 'next-auth/react';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -478,6 +477,28 @@ function StepCampaign({
           })}
         </motion.div>
 
+        {/* Coupon callout — show available offers */}
+        <motion.div variants={fadeUp} className="rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Available offers</p>
+          <div className="space-y-1.5">
+            {[
+              { code: 'GETALIVENOW', desc: '₹100 off per screen/month', minScreens: 1 },
+            ].map((offer) => (
+              <div key={offer.code} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md border border-green-500/40 bg-green-500/10 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-green-700">
+                    {offer.code}
+                  </span>
+                  <span className="text-xs text-green-800">{offer.desc}</span>
+                </div>
+                {data.screens >= offer.minScreens && (
+                  <span className="text-[10px] font-semibold text-green-600">Apply at checkout →</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
         {/* Custom stepper */}
         <motion.div
           variants={fadeUp}
@@ -624,232 +645,121 @@ function StepCampaign({
   );
 }
 
-// ─── Google icon ──────────────────────────────────────────────────────────────
-
-function GoogleIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/>
-      <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/>
-      <path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332Z" fill="#FBBC05"/>
-      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335"/>
-    </svg>
-  );
-}
-
 // ─── Step Auth ─────────────────────────────────────────────────────────────────
 
 function StepAuth({
-  onNext, onBack, formData,
+  onNext, onBack,
 }: {
   onNext: () => void;
   onBack: () => void;
   formData: OnboardingFormData;
 }) {
-  const { isSignedIn, isLoaded } = useAuth();
-  const { setActive }            = useClerk();
-  const { signIn, isLoaded: siLoaded } = useSignIn();
-  const { signUp, isLoaded: suLoaded } = useSignUp();
+  const { data: session, status } = useSession();
 
-  type AuthPhase = 'form' | 'verify';
-  const [phase,    setPhase]    = useState<AuthPhase>('form');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [code,     setCode]     = useState('');
   const [showPw,   setShowPw]   = useState(false);
   const [busy,     setBusy]     = useState(false);
   const [error,    setError]    = useState<string | null>(null);
+  const [isSignUp, setIsSignUp] = useState(false);
 
-  // If already signed in (e.g. restored after OAuth redirect), advance
+  // Already signed in — skip this step
   useEffect(() => {
-    if (isLoaded && isSignedIn) onNext();
-  }, [isLoaded, isSignedIn, onNext]);
+    if (status === 'authenticated' && session) onNext();
+  }, [status, session, onNext]);
 
-  const isReady = isLoaded && siLoaded && suLoaded;
-
-  const handleGoogle = async () => {
-    if (!isReady || !signIn) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Use popup so the onboarding page never navigates away.
-      // After the popup closes, Clerk updates isSignedIn → useEffect below calls onNext().
-      await (signIn as unknown as {
-        authenticateWithPopup: (p: { strategy: string; redirectUrl: string; redirectUrlComplete: string }) => Promise<void>;
-      }).authenticateWithPopup({
-        strategy:            'oauth_google',
-        redirectUrl:         `${window.location.origin}/sso-callback`,
-        redirectUrlComplete: `${window.location.origin}/brand-onboarding`,
-      });
-    } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error)?.message ?? '';
-      // Ignore intentional popup-close by user
-      if (msg && !msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('clos')) {
-        setError(msg || 'Google sign-in failed. Please try again.');
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleEmailSignUp = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isReady || !signUp) return;
     setBusy(true); setError(null);
-
-    const clerkMsg = (err: unknown) => {
-      const c = err as { errors?: { longMessage?: string; message?: string }[]; message?: string };
-      return c?.errors?.[0]?.longMessage ?? c?.errors?.[0]?.message ?? c?.message
-        ?? (err instanceof Error ? err.message : String(err)) ?? 'Sign-up failed.';
-    };
-
     try {
-      const parts     = formData.contactName.trim().split(/\s+/);
-      const firstName = parts[0] ?? '';
-      const lastName  = parts.slice(1).join(' ') ?? '';
-
-      try {
-        // Try with name fields first (satisfies Clerk if they're required)
-        await signUp.create({
-          emailAddress: email, password,
-          ...(firstName && { firstName }),
-          ...(lastName  && { lastName  }),
+      if (isSignUp) {
+        const res = await fetch('/api/brands/register', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ email, password }),
         });
-      } catch {
-        // Name fields may be disabled in Clerk — retry with email+password only
-        await signUp.create({ emailAddress: email, password });
+        const data = await res.json() as { success?: boolean; error?: string };
+        if (!res.ok) { setError(data.error ?? 'Sign-up failed.'); return; }
       }
-
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-      setPhase('verify');
-    } catch (e: unknown) {
-      setError(clerkMsg(e));
+      const result = await signIn('email-password', { email, password, redirect: false });
+      if (result?.error) {
+        setError(isSignUp ? 'Account created — sign in below.' : 'Incorrect email or password.');
+        if (isSignUp) setIsSignUp(false);
+      }
+      // On success, useSession updates → useEffect above calls onNext()
+    } catch {
+      setError('Something went wrong. Please try again.');
     } finally {
       setBusy(false);
     }
-  };
+  }, [email, password, isSignUp]);
 
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isReady || !signUp) return;
-    setBusy(true); setError(null);
-    try {
-      let result = await signUp.attemptEmailAddressVerification({ code });
+  if (status === 'loading') {
+    return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  }
 
-      // If Clerk still reports missing fields (e.g. username), auto-fill and retry
-      if (result.status === 'missing_requirements') {
-        const missing: string[] = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
-        const patch: Record<string, string> = {};
-        if (missing.includes('username'))   patch.username  = `user_${Date.now()}`;
-        if (missing.includes('first_name')) patch.firstName = formData.contactName.split(' ')[0] || 'User';
-        if (missing.includes('last_name'))  patch.lastName  = formData.contactName.split(' ').slice(1).join(' ') || '.';
-        if (Object.keys(patch).length) {
-          result = await signUp.update(patch);
-        }
-      }
-
-      if (result.status === 'complete') {
-        // setActive triggers isSignedIn → useEffect calls onNext() — don't call it here too
-        await setActive({ session: result.createdSessionId });
-      } else {
-        const missing = (result as unknown as { missingFields?: string[] })?.missingFields ?? [];
-        setError(`Sign-up blocked by Clerk (${result.status}): ${missing.join(', ') || 'unknown'}. Check production instance settings.`);
-      }
-    } catch (e: unknown) {
-      const msg = (e as { errors?: { message: string }[] })?.errors?.[0]?.message
-        ?? (e as Error).message ?? 'Invalid code.';
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const inputCls = "w-full h-12 rounded-xl border border-border bg-card px-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all";
 
   return (
     <div className="space-y-6">
       <div className="space-y-1">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          {phase === 'verify' ? 'Verify your email' : 'Create your account'}
+          {isSignUp ? 'Create your account' : 'Sign in'}
         </h2>
         <p className="text-sm text-muted-foreground">
-          {phase === 'verify'
-            ? `We sent a 6-digit code to ${email}`
-            : 'Save your campaign and access your dashboard after payment.'}
+          {isSignUp
+            ? 'Save your campaign and access your brand dashboard.'
+            : 'Sign in to continue setting up your campaign.'}
         </p>
       </div>
 
-      {phase === 'verify' ? (
-        <form onSubmit={handleVerify} className="space-y-4">
-          {error && <AuthErrorBox msg={error} />}
-          <input
-            type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
-            value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-            placeholder="6-digit code" autoFocus
-            className="w-full h-14 rounded-xl border border-border bg-card px-4 text-center text-2xl font-bold tracking-widest text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <Button type="submit" disabled={busy || code.length < 6} className="w-full h-11">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Verify &amp; continue <ArrowRight className="h-4 w-4" /></>}
-          </Button>
-          <button type="button" onClick={() => { setPhase('form'); setCode(''); setError(null); }}
-            className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
-            ← Back
-          </button>
-        </form>
-      ) : (
-        <div className="space-y-5">
-          {error && <AuthErrorBox msg={error} />}
-
-          <form onSubmit={handleEmailSignUp} className="space-y-3">
-            <div className="relative">
-              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email address"
-                className="w-full h-12 rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-            <div className="relative">
-              <input type={showPw ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Create a password"
-                className="w-full h-12 rounded-xl border border-border bg-card px-4 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-              <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            <Button type="submit" disabled={busy || !isReady} className="w-full h-11">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Create account <ArrowRight className="h-4 w-4" /></>}
-            </Button>
-          </form>
-
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground/50">or</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          <button type="button" onClick={handleGoogle} disabled={busy || !isReady}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-border bg-card px-5 py-3 text-sm font-semibold text-foreground hover:bg-muted/50 disabled:opacity-40 transition-all">
-            <GoogleIcon /> Continue with Google
-          </button>
-
-          <div className="flex gap-3 pt-1">
-            <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-11">
-              <ArrowLeft className="h-4 w-4" /> Back
-            </Button>
-            <button type="button" onClick={onNext}
-              className="flex-1 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
-              Skip for now → pay as guest
-            </button>
-          </div>
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
         </div>
       )}
-    </div>
-  );
-}
 
-function AuthErrorBox({ msg }: { msg: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
-      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {msg}
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="relative">
+          <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
+          <input type="email" required autoComplete="email" value={email}
+            onChange={(e) => setEmail(e.target.value)} placeholder="Email address"
+            className={`${inputCls} pl-10`} />
+        </div>
+        <div className="relative">
+          <input type={showPw ? 'text' : 'password'} required
+            minLength={isSignUp ? 6 : undefined}
+            autoComplete={isSignUp ? 'new-password' : 'current-password'}
+            value={password} onChange={(e) => setPassword(e.target.value)}
+            placeholder={isSignUp ? 'Create a password (min 6 chars)' : 'Password'}
+            className={`${inputCls} pr-11`} />
+          <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+            {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+        <Button type="submit" disabled={busy} className="w-full h-11">
+          {busy
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <>{isSignUp ? 'Create account' : 'Sign in'} <ArrowRight className="h-4 w-4" /></>}
+        </Button>
+      </form>
+
+      <p className="text-center text-sm text-muted-foreground">
+        {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+        <button onClick={() => { setIsSignUp((v) => !v); setError(null); }}
+          className="text-primary font-semibold hover:underline">{isSignUp ? 'Sign in' : 'Sign up'}</button>
+      </p>
+
+      <div className="flex gap-3 pt-1">
+        <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-11">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <button type="button" onClick={onNext}
+          className="flex-1 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+          Skip — pay as guest
+        </button>
+      </div>
     </div>
   );
 }
@@ -1000,8 +910,8 @@ function StepAgreement({
           </div>
       </div>
 
-      {/* Sticky accept bar — always visible at bottom on mobile */}
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm pt-4 pb-2 space-y-3 -mx-4 px-4 sm:-mx-6 sm:px-6">
+      {/* Accept bar */}
+      <div className="pt-2 space-y-3">
         <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
           <Checkbox
             id="agree"
@@ -1039,7 +949,7 @@ function StepPayment({
 }) {
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
-  const [promoInput,   setPromoInput]   = useState('');
+  const [promoInput,   setPromoInput]   = useState('GETALIVENOW');
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError,   setPromoError]   = useState<string | null>(null);
 
@@ -1269,31 +1179,14 @@ function StepPayment({
       {/* CTA buttons */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.38, ease: [0.22, 1, 0.36, 1] }} className="space-y-3">
 
-        {/* PRIMARY — confirm booking */}
-        <button
-          type="button"
-          onClick={() => onConfirm(pricePerScreen)}
-          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.99]"
-        >
-          <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-          <span className="relative flex items-center justify-center gap-2.5 text-sm">
-            <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
-          </span>
-        </button>
-
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
-          <div className="flex-1 h-px bg-border" />
-          <span>or pay now</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        {/* SECONDARY — pay now via Razorpay */}
+        {/* PRIMARY — pay now via Razorpay */}
         <button
           type="button"
           onClick={handlePay}
           disabled={loading}
-          className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-foreground transition-all hover:border-primary/40 hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
+          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
         >
+          <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
           <span className="relative flex items-center justify-between">
             <span className="flex items-center gap-2 text-sm">
               {loading
@@ -1301,11 +1194,28 @@ function StepPayment({
                 : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
             </span>
             {!loading && (
-              <span className="flex items-center gap-2 border-l border-border pl-3">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">powered by</span>
+              <span className="flex items-center gap-2 border-l border-primary-foreground/20 pl-3">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-primary-foreground/60">powered by</span>
                 <RazorpayMark />
               </span>
             )}
+          </span>
+        </button>
+
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+          <div className="flex-1 h-px bg-border" />
+          <span>or confirm and pay later</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* SECONDARY — confirm booking, pay later */}
+        <button
+          type="button"
+          onClick={() => onConfirm(pricePerScreen)}
+          className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground active:scale-[0.99]"
+        >
+          <span className="relative flex items-center justify-center gap-2.5 text-sm">
+            <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
           </span>
         </button>
 
@@ -1468,7 +1378,9 @@ export default function BrandOnboardingPage() {
   const [form,      setForm]      = useState<OnboardingFormData>(INITIAL);
   const [paymentId, setPaymentId] = useState('');
   const [orderId,   setOrderId]   = useState('');
-  const { isSignedIn, isLoaded }  = useAuth();
+  const { data: session, status } = useSession();
+  const isLoaded    = status !== 'loading';
+  const isSignedIn  = status === 'authenticated';
 
   // Restore a pending campaign if the user left during payment and came back signed in
   useEffect(() => {

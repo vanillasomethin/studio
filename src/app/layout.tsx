@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import '../bones/registry';
-import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from '@/components/ui/toaster';
 import { Providers } from '@/components/providers';
 import { cn } from '@/lib/utils';
@@ -18,10 +17,6 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      signInUrl="/login"
-      signUpUrl="/brand-onboarding"
-    >
       <html lang="en">
         <head>
           <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,6 +34,5 @@ export default function RootLayout({
           <Toaster />
         </body>
       </html>
-    </ClerkProvider>
   );
 }

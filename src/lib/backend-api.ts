@@ -1,14 +1,20 @@
 // Typed fetch wrapper for the in-Studio device/content/scheduling API.
-// Calls relative /api/* paths — auth is handled by the same Next.js app session.
+// Calls relative /api/* paths — auth is handled via admin-password header from env.
+
+function adminHeaders(): Record<string, string> {
+  return process.env.NEXT_PUBLIC_ADMIN_PASSWORD
+    ? { 'admin-password': process.env.NEXT_PUBLIC_ADMIN_PASSWORD }
+    : {};
+}
 
 export type Device = {
   id:          string;
   hardwareKey: string;
   storeName:   string;
   storeId?:    string;
-  status:      'online' | 'offline' | 'pending';
+  status:      string;
   lastSeen?:   string;
-  uptimePct?:  number;
+  groupName?:  string;
   claimedAt:   string;
 };
 
@@ -27,13 +33,21 @@ export type Content = {
   id:          string;
   name:        string;
   type:        'image' | 'video';
+  objectKey:   string;
   url:         string;
   md5:         string;
   sizeBytes:   number;
-  uploadedAt:  string;
+  durationMs?: number;
+  createdAt:   string;
 };
 
-export type PlaylistItem = { contentId: string; durationMs: number; order: number };
+export type PlaylistItem = {
+  id:         string;
+  contentId:  string;
+  durationMs: number;
+  order:      number;
+  content:    Content;
+};
 
 export type Playlist = {
   id:        string;
@@ -46,21 +60,23 @@ export type Schedule = {
   id:          string;
   name:        string;
   playlistId:  string;
+  playlist?:   { name: string };
   deviceIds?:  string[];
   groupName?:  string;
   startAt:     string;
   endAt:       string;
   recurrence:  'once' | 'daily' | 'weekly';
+  dailyStart?: string;
+  dailyEnd?:   string;
   createdAt:   string;
 };
-
-export type BackendError = { message: string; status: number };
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
+      ...adminHeaders(),
       ...(opts?.headers ?? {}),
     },
     credentials: 'same-origin',
@@ -74,36 +90,61 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
-export const getDevices       = ()              => apiFetch<Device[]>('/api/devices');
-export const getDeviceStatus  = (id: string)    => apiFetch<Device>(`/api/devices/${id}/status`);
+export const getDevices = () =>
+  apiFetch<{ devices: Device[] }>('/api/devices').then((r) => r.devices);
 
 // ─── Play Events (POP) ────────────────────────────────────────────────────────
 
 export const getEvents = (params?: Record<string, string>) => {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<PlayEvent[]>(`/api/events${qs}`);
+  return apiFetch<{ events: PlayEvent[]; nextCursor: string | null }>(`/api/events${qs}`)
+    .then((r) => r.events);
 };
 
 export function getEventsExportUrl(params?: Record<string, string>): string {
-  const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-  return `/api/events/export/csv${qs}`;
+  const base = '/api/events/export/csv';
+  if (!params || Object.keys(params).length === 0) return base;
+  const pw = typeof window !== 'undefined' && (process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? '');
+  const p  = { ...params, ...(pw ? { 'admin-password': pw } : {}) };
+  return `${base}?${new URLSearchParams(p).toString()}`;
 }
 
 // ─── Content ─────────────────────────────────────────────────────────────────
 
-export const getContent    = ()           => apiFetch<Content[]>('/api/content');
-export const deleteContent = (id: string) => apiFetch<void>(`/api/content/${id}`, { method: 'DELETE' });
+export const getContent = () =>
+  apiFetch<{ content: Content[] }>('/api/content').then((r) => r.content);
+
+export const deleteContent = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
+
+export const initiateUpload = (body: {
+  name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; durationMs?: number;
+}) =>
+  apiFetch<{ id: string; uploadUrl: string; objectKey: string }>('/api/content', {
+    method: 'POST',
+    body:   JSON.stringify(body),
+  });
 
 // ─── Playlists ────────────────────────────────────────────────────────────────
 
-export const getPlaylists    = ()                 => apiFetch<Playlist[]>('/api/playlists');
-export const createPlaylist  = (body: Omit<Playlist, 'id' | 'createdAt'>) =>
-  apiFetch<Playlist>('/api/playlists', { method: 'POST', body: JSON.stringify(body) });
-export const deletePlaylist  = (id: string)      => apiFetch<void>(`/api/playlists/${id}`, { method: 'DELETE' });
+export const getPlaylists = () =>
+  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => r.playlists);
+
+export const createPlaylist = (body: { name: string; items?: { contentId: string; durationMs: number }[] }) =>
+  apiFetch<{ playlist: Playlist }>('/api/playlists', { method: 'POST', body: JSON.stringify(body) })
+    .then((r) => r.playlist);
+
+export const deletePlaylist = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/playlists/${id}`, { method: 'DELETE' });
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
 
-export const getSchedules    = ()                 => apiFetch<Schedule[]>('/api/schedules');
-export const createSchedule  = (body: Omit<Schedule, 'id' | 'createdAt'>) =>
-  apiFetch<Schedule>('/api/schedules', { method: 'POST', body: JSON.stringify(body) });
-export const deleteSchedule  = (id: string)      => apiFetch<void>(`/api/schedules/${id}`, { method: 'DELETE' });
+export const getSchedules = () =>
+  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => r.schedules);
+
+export const createSchedule = (body: Omit<Schedule, 'id' | 'createdAt' | 'playlist'>) =>
+  apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
+    .then((r) => r.schedule);
+
+export const deleteSchedule = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });

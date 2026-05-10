@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Loader2, Film, ImageIcon, Trash2, AlertCircle } from 'lucide-react';
-import { getContent, deleteContent, type Content } from '@/lib/backend-api';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2 } from 'lucide-react';
+import { getContent, deleteContent, initiateUpload, type Content } from '@/lib/backend-api';
 
 function fmtBytes(b: number): string {
-  if (b < 1024)        return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024)         return `${b} B`;
+  if (b < 1024 * 1024)  return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -15,18 +15,31 @@ function fmtDate(iso: string) {
   catch { return iso; }
 }
 
+async function md5Hex(file: File): Promise<string> {
+  const buf    = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('MD5', buf).catch(() => null);
+  if (!digest) return `nohash-${Date.now()}`;
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+type UploadState = { name: string; progress: number; done: boolean; error?: string };
+
 export default function ContentTab() {
   const [content,  setContent]  = useState<Content[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [uploads,  setUploads]  = useState<UploadState[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  const reload = () => {
+    setLoading(true);
     getContent()
       .then(setContent)
-      .catch((e: Error) => setError(e.message))
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { reload(); }, []);
 
   const del = async (id: string) => {
     if (!confirm('Delete this content item?')) return;
@@ -38,33 +51,63 @@ export default function ContentTab() {
     finally { setDeleting(null); }
   };
 
-  const images = content.filter((c) => c.type === 'image').length;
-  const videos = content.filter((c) => c.type === 'video').length;
-  const totalMB = content.reduce((s, c) => s + c.sizeBytes, 0) / (1024 * 1024);
+  const handleFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
 
-  if (error) return (
-    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
-      <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-      <div>
-        <p className="text-sm font-semibold text-foreground">Backend not reachable</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
-        <p className="text-xs text-muted-foreground/60 mt-2">
-          Content is managed via ALIVE-Backend. Set <code className="text-primary">NEXT_PUBLIC_BACKEND_URL</code> to connect.
-        </p>
-      </div>
-    </div>
-  );
+    for (const file of Array.from(files)) {
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      if (!isVideo && !isImage) continue;
 
-  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+      const idx = uploads.length;
+      setUploads((u) => [...u, { name: file.name, progress: 0, done: false }]);
+
+      try {
+        const hash = await md5Hex(file);
+        const { uploadUrl } = await initiateUpload({
+          name:      file.name.replace(/\.[^.]+$/, ''),
+          type:      isVideo ? 'video' : 'image',
+          sizeBytes: file.size,
+          md5:       hash,
+        });
+
+        // Upload directly to R2 via signed PUT URL
+        const xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = (ev) => {
+          if (!ev.lengthComputable) return;
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: pct } : x));
+        };
+        await new Promise<void>((resolve, reject) => {
+          xhr.onload  = () => (xhr.status < 300 ? resolve() : reject(new Error(`R2 ${xhr.status}`)));
+          xhr.onerror = () => reject(new Error('Network error'));
+          xhr.open('PUT', uploadUrl);
+          xhr.setRequestHeader('Content-Type', file.type);
+          xhr.send(file);
+        });
+
+        setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: 100, done: true } : x));
+      } catch (err) {
+        setUploads((u) => u.map((x, i) => i === idx ? { ...x, error: (err as Error).message } : x));
+      }
+    }
+
+    // Reload library after all uploads finish
+    setTimeout(reload, 800);
+  };
+
+  const images   = content.filter((c) => c.type === 'image').length;
+  const videos   = content.filter((c) => c.type === 'video').length;
+  const totalMB  = content.reduce((s, c) => s + c.sizeBytes, 0) / (1024 * 1024);
 
   return (
     <div className="space-y-4">
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Images', value: images, icon: ImageIcon, color: 'text-blue-500'  },
-          { label: 'Videos', value: videos, icon: Film,      color: 'text-purple-500' },
-          { label: 'Storage', value: `${totalMB.toFixed(1)} MB`, icon: Film, color: 'text-orange-500' },
+          { label: 'Images',  value: images,                    icon: ImageIcon, color: 'text-blue-500'   },
+          { label: 'Videos',  value: videos,                    icon: Film,      color: 'text-purple-500' },
+          { label: 'Storage', value: `${totalMB.toFixed(1)} MB`, icon: Film,     color: 'text-orange-500' },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4">
             <s.icon className={`h-4 w-4 ${s.color} mb-2`} />
@@ -74,19 +117,71 @@ export default function ContentTab() {
         ))}
       </div>
 
-      {/* Upload note */}
-      <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-        Upload media via the ALIVE-Backend admin API or S3 bucket directly. Files uploaded there will appear here once the backend is connected.
+      {/* Upload dropzone */}
+      <div
+        className="rounded-xl border-2 border-dashed border-border bg-muted/20 p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all group"
+        onClick={() => fileRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+      >
+        <Upload className="h-7 w-7 mx-auto mb-2 text-muted-foreground/50 group-hover:text-primary/70 transition-colors" />
+        <p className="text-sm font-semibold text-foreground">Drop files here or click to upload</p>
+        <p className="text-xs text-muted-foreground/60 mt-1">MP4 video · JPG / PNG / WebP image · Max 500 MB</p>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="video/*,image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
       </div>
 
-      {!content.length ? (
-        <p className="text-sm text-muted-foreground text-center py-10">No content in library yet.</p>
+      {/* Upload progress */}
+      {uploads.length > 0 && (
+        <div className="space-y-2">
+          {uploads.map((u, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+              {u.done
+                ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                : u.error
+                  ? <X className="h-4 w-4 text-destructive shrink-0" />
+                  : <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">{u.name}</p>
+                {!u.done && !u.error && (
+                  <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary transition-all duration-200" style={{ width: `${u.progress}%` }} />
+                  </div>
+                )}
+                {u.error && <p className="text-[10px] text-destructive mt-0.5">{u.error}</p>}
+              </div>
+              <span className="text-[10px] text-muted-foreground shrink-0">
+                {u.done ? 'Done' : u.error ? 'Failed' : `${u.progress}%`}
+              </span>
+            </div>
+          ))}
+          <button
+            onClick={() => setUploads([])}
+            className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Library */}
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : !content.length ? (
+        <p className="text-sm text-muted-foreground text-center py-10">No content yet. Upload images or videos above.</p>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
               <tr>
-                {['Name', 'Type', 'Size', 'MD5', 'Uploaded'].map((h) => (
+                {['', 'Name', 'Type', 'Size', 'Added'].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{h}</th>
                 ))}
                 <th className="px-4 py-2.5" />
@@ -95,7 +190,17 @@ export default function ContentTab() {
             <tbody className="divide-y divide-border">
               {content.map((c) => (
                 <tr key={c.id} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-3 font-semibold text-foreground">{c.name}</td>
+                  <td className="px-4 py-3 w-10">
+                    {c.type === 'image' ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={c.url} alt="" className="h-8 w-12 object-cover rounded-lg bg-muted" />
+                    ) : (
+                      <div className="flex h-8 w-12 items-center justify-center rounded-lg bg-purple-500/10">
+                        <Film className="h-4 w-4 text-purple-600" />
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate">{c.name}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                       c.type === 'video' ? 'bg-purple-500/10 text-purple-600' : 'bg-blue-500/10 text-blue-600'
@@ -105,8 +210,7 @@ export default function ContentTab() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{fmtBytes(c.sizeBytes)}</td>
-                  <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground/60">{c.md5.slice(0, 8)}…</td>
-                  <td className="px-4 py-3 text-muted-foreground/60">{fmtDate(c.uploadedAt)}</td>
+                  <td className="px-4 py-3 text-muted-foreground/60">{fmtDate(c.createdAt)}</td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => del(c.id)}

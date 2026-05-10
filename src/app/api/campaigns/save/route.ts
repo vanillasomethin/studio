@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { Redis } from '@upstash/redis';
 
 function getRedis(): Redis | null {
@@ -34,7 +33,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, id: 'demo', note: 'KV not configured' });
   }
   try {
-    const { userId } = await auth();
     const body = await req.json() as Omit<Campaign, 'id' | 'createdAt'>;
 
     const campaign: Campaign = {
@@ -43,7 +41,7 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    const key      = userId ? `campaigns:user:${userId}` : `campaigns:email:${body.email}`;
+    const key      = `campaigns:email:${body.email}`;
     const existing = (await kv.get<Campaign[]>(key)) ?? [];
     await kv.set(key, [campaign, ...existing]);
 
