@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, ListVideo, Plus, Trash2, AlertCircle } from 'lucide-react';
-import { getPlaylists, deletePlaylist, type Playlist } from '@/lib/backend-api';
+import { getPlaylists, createPlaylist, deletePlaylist, type Playlist } from '@/lib/backend-api';
 
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
@@ -41,7 +41,6 @@ export default function PlaylistsTab() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const { createPlaylist } = await import('@/lib/backend-api');
       const pl = await createPlaylist({ name: newName.trim(), items: [] });
       setPlaylists((p) => [pl, ...p]);
       setNewName('');
@@ -53,7 +52,7 @@ export default function PlaylistsTab() {
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
       <div>
-        <p className="text-sm font-semibold text-foreground">Backend not reachable</p>
+        <p className="text-sm font-semibold text-foreground">Could not load playlists</p>
         <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
       </div>
     </div>

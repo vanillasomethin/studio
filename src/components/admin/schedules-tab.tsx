@@ -73,7 +73,7 @@ export default function SchedulesTab() {
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
       <div>
-        <p className="text-sm font-semibold text-foreground">Backend not reachable</p>
+        <p className="text-sm font-semibold text-foreground">Could not load schedules</p>
         <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
       </div>
     </div>
