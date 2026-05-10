@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
-  ChevronRight, Check, ArrowLeft, Loader2, Clock, Star, Gift,
+  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import MapPicker from '@/components/map-picker';
@@ -16,12 +16,16 @@ import MapPicker from '@/components/map-picker';
 type Form = {
   storeName: string; ownerName: string; whatsapp: string; password: string;
   address: string; locality: string; city: string; pincode: string;
-  lat: string; lng: string; referredBy: string;
+  lat: string; lng: string; referredBy: string; gstin: string;
 };
 const INIT: Form = {
   storeName: '', ownerName: '', whatsapp: '', password: '',
-  address: '', locality: '', city: '', pincode: '', lat: '', lng: '', referredBy: '',
+  address: '', locality: '', city: '', pincode: '', lat: '', lng: '',
+  referredBy: '', gstin: '',
 };
+
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+
 type FieldErrors = Partial<Record<keyof Form, string>>;
 
 function validate(form: Form): FieldErrors {
@@ -30,8 +34,12 @@ function validate(form: Form): FieldErrors {
   if (!form.ownerName.trim())       e.ownerName = 'Owner name is required';
   if (form.whatsapp.length !== 10)  e.whatsapp  = 'Enter a valid 10-digit number';
   if (form.password.length < 6)     e.password  = 'Minimum 6 characters required';
+  if (!form.address.trim())         e.address   = 'Shop address is required';
   if (!form.city.trim())            e.city      = 'City is required';
   if (form.pincode.length !== 6)    e.pincode   = 'Enter a valid 6-digit pincode';
+  if (form.gstin && !GSTIN_RE.test(form.gstin.toUpperCase())) {
+    e.gstin = 'Invalid GSTIN — must be 15 characters (e.g. 29AAXFV2589C1ZE)';
+  }
   return e;
 }
 
@@ -42,18 +50,52 @@ function makeReferralCode(storeName: string, ownerName: string): string {
   return `${s}${o}${r}`;
 }
 
+// ─── Password strength ────────────────────────────────────────────────────────
+
+function PasswordStrength({ password }: { password: string }) {
+  if (!password) return null;
+  const criteria = [
+    { label: 'At least 6 characters',    met: password.length >= 6 },
+    { label: 'Contains a number',        met: /\d/.test(password) },
+    { label: 'Contains uppercase letter', met: /[A-Z]/.test(password) },
+    { label: 'Contains special character', met: /[^A-Za-z0-9]/.test(password) },
+  ];
+  const score = criteria.filter((c) => c.met).length;
+  const barColor = score <= 1 ? 'bg-red-400' : score <= 2 ? 'bg-amber-400' : score <= 3 ? 'bg-yellow-400' : 'bg-green-500';
+
+  return (
+    <div className="space-y-1.5 -mt-1">
+      {/* Strength bar */}
+      <div className="flex gap-1">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className={`flex-1 h-1 rounded-full transition-all duration-300 ${i <= score ? barColor : 'bg-gray-200'}`} />
+        ))}
+      </div>
+      {/* Checklist */}
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+        {criteria.map((c) => (
+          <span key={c.label} className={`flex items-center gap-1 text-[10px] ${c.met ? 'text-green-600' : 'text-gray-400'}`}>
+            {c.met
+              ? <Check className="h-2.5 w-2.5 shrink-0" />
+              : <span className="h-2.5 w-2.5 shrink-0 flex items-center justify-center text-[8px]">✗</span>
+            }
+            {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Field ───────────────────────────────────────────────────────────────────
 
-function Field({ label, value, onChange, type = 'text', placeholder, prefix, error, badge }: {
+function Field({ label, value, onChange, type = 'text', placeholder, prefix, error, hint }: {
   label: string; value: string; onChange: (v: string) => void;
-  type?: string; placeholder?: string; prefix?: string; error?: string; badge?: string;
+  type?: string; placeholder?: string; prefix?: string; error?: string; hint?: string;
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">{label}</label>
-        {badge && <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-red-50 text-red-500">{badge}</span>}
-      </div>
+      <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">{label}</label>
       <div className="flex">
         {prefix && (
           <span className={`flex items-center px-3 rounded-l-xl text-sm font-bold border-y border-l bg-gray-50 ${error ? 'border-red-300' : 'border-gray-200'} text-gray-600`}>{prefix}</span>
@@ -66,7 +108,7 @@ function Field({ label, value, onChange, type = 'text', placeholder, prefix, err
       </div>
       {error
         ? <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{error}</p>
-        : null
+        : hint ? <p className="text-[10px] text-gray-400">{hint}</p> : null
       }
     </div>
   );
@@ -79,10 +121,24 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
   onBack: () => void; onSubmit: () => void; busy: boolean; err: string;
 }) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  const gstin = form.gstin ? form.gstin.toUpperCase() : null;
+
+  const agreementHref = `/store-agreement?${new URLSearchParams({
+    name:    form.storeName,
+    owner:   form.ownerName,
+    address: [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', '),
+    phone:   form.whatsapp,
+    ...(gstin ? { gstin } : {}),
+  }).toString()}`;
+
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-3">
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs font-semibold text-gray-400 hover:text-gray-600 transition-colors">
-        <ArrowLeft className="h-3 w-3" /> Back to form
+
+      {/* Prominent back button */}
+      <button type="button" onClick={onBack}
+        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-all"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" /> Back to form
       </button>
 
       <div>
@@ -90,7 +146,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
       </div>
 
-      {/* Prominent prefilled party info */}
+      {/* Prefilled party info */}
       <div className="rounded-xl border-2 border-red-100 bg-red-50 p-4">
         <p className="text-[10px] font-bold uppercase tracking-widest text-red-400 mb-2">This agreement is between</p>
         <div className="space-y-1">
@@ -99,7 +155,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
             <span className="text-xs text-gray-500">({form.ownerName})</span>
           </div>
           <p className="text-sm text-gray-600">+91 {form.whatsapp}</p>
+          {form.address && <p className="text-xs text-gray-500">{form.address}</p>}
           {form.city && <p className="text-xs text-gray-500">{[form.locality, form.city, form.pincode].filter(Boolean).join(', ')}</p>}
+          {gstin && <p className="text-xs text-gray-500">GSTIN: {gstin}</p>}
           <div className="pt-1 border-t border-red-100 mt-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-700">VS Collective LLP (ALIVE)</span>
             <span className="text-xs text-gray-400">{today}</span>
@@ -107,7 +165,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         </div>
       </div>
 
-      {/* Terms — compact rows */}
+      {/* Terms */}
       <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
         {[
           { t: 'Remuneration', d: '₹500/month per screen, fixed. Paid within 10 working days of month end.' },
@@ -121,9 +179,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
           </div>
         ))}
         <div className="border-t border-gray-100 px-3.5 py-2">
-          <a
-            href={`/store-agreement?name=${encodeURIComponent(form.storeName)}&owner=${encodeURIComponent(form.ownerName)}&address=${encodeURIComponent([form.locality, form.city, form.pincode].filter(Boolean).join(', '))}&phone=${encodeURIComponent(form.whatsapp)}`}
-            target="_blank" rel="noreferrer"
+          <a href={agreementHref} target="_blank" rel="noreferrer"
             className="text-[11px] text-red-500 hover:text-red-600 font-semibold underline underline-offset-2"
           >
             Read full agreement →
@@ -131,7 +187,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         </div>
       </div>
 
-      {/* Confirm */}
+      {/* Checkbox */}
       <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-3 hover:bg-gray-100 transition-colors">
         <div className="relative mt-0.5 shrink-0">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="sr-only" />
@@ -152,7 +208,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
       )}
 
       <button type="button" onClick={onSubmit} disabled={busy || !agreed}
-        className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: agreed ? '0 4px 16px -4px rgba(220,38,38,0.4)' : 'none' }}
       >
         {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</> : <><CheckCircle2 className="h-4 w-4" /> I agree — Register my store</>}
@@ -162,6 +218,8 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
 }
 
 // ─── Registration form ────────────────────────────────────────────────────────
+
+const DRAFT_KEY = 'alive_store_draft';
 
 function RegistrationForm() {
   const router    = useRouter();
@@ -173,8 +231,21 @@ function RegistrationForm() {
   const [done,    setDone]    = useState(false);
   const [touched, setTouched] = useState(false);
 
+  // Restore saved draft on mount
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(DRAFT_KEY);
+      if (saved) setForm(JSON.parse(saved) as Form);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Persist draft on every change
+  useEffect(() => {
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch { /* ignore */ }
+  }, [form]);
+
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
-  const errors   = useMemo(() => validate(form), [form]);
+  const errors    = useMemo(() => validate(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
 
   const handleLocation = (lat: string, lng: string, locality: string, pincode: string, city: string) => {
@@ -192,6 +263,7 @@ function RegistrationForm() {
     const code = makeReferralCode(form.storeName, form.ownerName);
     const payload = {
       ...form,
+      gstin:        form.gstin ? form.gstin.toUpperCase() : undefined,
       referralCode: code,
       agreedAt:     new Date().toISOString(),
     };
@@ -204,12 +276,14 @@ function RegistrationForm() {
       const data = await res.json() as { success?: boolean; error?: string };
       if (!res.ok) { setErr(data.error ?? 'Registration failed.'); return; }
 
-      // Establish Auth.js session immediately after registration
       await signIn('phone-password', {
         phone:    `+91${form.whatsapp}`,
         password: form.password,
         redirect: false,
       });
+
+      // Clear draft on success
+      try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 
       setDone(true);
       setTimeout(() => router.push('/store-dashboard'), 1500);
@@ -253,21 +327,43 @@ function RegistrationForm() {
         <Field label="Owner name" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Ramesh Sharma" error={fe('ownerName')} />
       </div>
 
-      <Field label="WhatsApp number" value={form.whatsapp} onChange={(v) => set('whatsapp', v.replace(/\D/g, '').slice(0, 10))}
-        type="tel" placeholder="98765 43210" prefix="+91" error={fe('whatsapp')} badge="Your username"
-      />
+      {/* WhatsApp field with username callout */}
+      <div className="space-y-1">
+        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">WhatsApp number</label>
+        <div className="flex">
+          <span className={`flex items-center px-3 rounded-l-xl text-sm font-bold border-y border-l bg-gray-50 ${fe('whatsapp') ? 'border-red-300' : 'border-gray-200'} text-gray-600`}>+91</span>
+          <input type="tel" value={form.whatsapp}
+            onChange={(e) => set('whatsapp', e.target.value.replace(/\D/g, '').slice(0, 10))}
+            placeholder="98765 43210"
+            className={`w-full px-3 py-2.5 text-sm rounded-l-none rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all ${fe('whatsapp') ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-red-400 focus:ring-red-100'}`}
+          />
+        </div>
+        {fe('whatsapp')
+          ? <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('whatsapp')}</p>
+          : (
+            <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+              <span className="text-amber-500 text-sm font-bold shrink-0">★</span>
+              <p className="text-[11px] text-amber-800 font-semibold">This number is your login username — save it.</p>
+            </div>
+          )
+        }
+      </div>
 
-      <Field label="Password" value={form.password} onChange={(v) => set('password', v)}
-        type="password" placeholder="Min. 6 characters" error={fe('password')}
-      />
-      {!fe('password') && (
-        <p className="text-[10px] text-gray-400 -mt-2">Use this to sign in to your dashboard at any time.</p>
-      )}
+      {/* Password with strength indicator */}
+      <div className="space-y-1.5">
+        <Field label="Password" value={form.password} onChange={(v) => set('password', v)}
+          type="password" placeholder="Min. 6 characters" error={fe('password')}
+        />
+        <PasswordStrength password={form.password} />
+        {!fe('password') && !form.password && (
+          <p className="text-[10px] text-gray-400">Use this to sign in to your dashboard at any time.</p>
+        )}
+      </div>
 
       {/* Map */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Pin your shop on the map</label>
-        <p className="text-[10px] text-gray-400">Drag the pin or tap the map. City and pincode will be autofilled.</p>
+        <p className="text-[10px] text-gray-400">Tap "Use my current location" or drag the pin. City and pincode will be autofilled.</p>
         <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} />
       </div>
 
@@ -277,15 +373,33 @@ function RegistrationForm() {
       </div>
       <Field label="City" value={form.city} onChange={(v) => set('city', v)} placeholder="Mangaluru" error={fe('city')} />
 
+      {/* Address — mandatory */}
       <div className="space-y-1">
-        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
-          Door no. &amp; street <span className="normal-case font-normal text-gray-400">(optional)</span>
-        </label>
-        <textarea rows={2} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Door no., street, landmark…"
-          className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 transition-all resize-none"
+        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Shop address</label>
+        <textarea rows={2} value={form.address} onChange={(e) => set('address', e.target.value)}
+          placeholder="Door no., street name, landmark…"
+          className={`w-full px-3 py-2.5 text-sm rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none ${fe('address') ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-red-400 focus:ring-red-100'}`}
         />
+        {fe('address') && <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('address')}</p>}
       </div>
 
+      {/* GSTIN — optional, validated if filled */}
+      <div className="space-y-1">
+        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
+          GSTIN <span className="normal-case font-normal text-gray-400">(optional)</span>
+        </label>
+        <input type="text" value={form.gstin}
+          onChange={(e) => set('gstin', e.target.value.toUpperCase().replace(/\s/g, '').slice(0, 15))}
+          placeholder="e.g. 29AAXFV2589C1ZE"
+          className={`w-full px-3 py-2.5 text-sm rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all font-mono tracking-wider ${fe('gstin') ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-red-400 focus:ring-red-100'}`}
+        />
+        {fe('gstin')
+          ? <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('gstin')}</p>
+          : <p className="text-[10px] text-gray-400">Enter your shop&apos;s GST number if registered.</p>
+        }
+      </div>
+
+      {/* Referral code */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
           Referral code <span className="normal-case font-normal text-gray-400">(optional)</span>
@@ -296,11 +410,12 @@ function RegistrationForm() {
         <p className="text-[10px] text-gray-400">Have a code from another store partner? Enter it to help them earn ₹500.</p>
       </div>
 
+      {/* Continue button — prominent */}
       <button type="submit"
-        className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-black text-white transition-all"
+        className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-black text-white transition-all"
         style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 4px 16px -4px rgba(220,38,38,0.35)' }}
       >
-        Continue to Agreement <ChevronRight className="h-4 w-4" />
+        Continue to Agreement <ChevronRight className="h-5 w-5" />
       </button>
 
       {touched && hasErrors && (

@@ -34,6 +34,8 @@ type StoreInfo = {
   locality?:     string;
   city?:         string;
   pincode?:      string;
+  address?:      string;
+  gstin?:        string;
   email?:        string;
   referralCode?: string;
   referredBy?:   string;
@@ -505,6 +507,10 @@ function AgreementCard({ store }: { store: StoreInfo }) {
             <p className="text-xs font-black text-foreground">{store.storeName}</p>
             <p className="text-[11px] text-muted-foreground">{store.ownerName} · +91 {store.whatsapp}</p>
             {store.city && <p className="text-[10px] text-muted-foreground/60">{[store.locality, store.city, store.pincode].filter(Boolean).join(', ')}</p>}
+            {store.gstin
+              ? <p className="text-[10px] text-muted-foreground/60 font-mono">GSTIN: {store.gstin}</p>
+              : <p className="text-[10px] text-muted-foreground/40">GSTIN: —</p>
+            }
           </div>
           <div className="text-right shrink-0">
             <p className="text-[11px] font-semibold text-foreground">VS Collective LLP</p>

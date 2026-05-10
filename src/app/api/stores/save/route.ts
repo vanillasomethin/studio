@@ -35,12 +35,13 @@ type RegistrationBody = {
   ownerName:    string;
   whatsapp:     string;   // 10-digit, no country code
   password:     string;
-  address?:     string;
+  address:      string;   // mandatory
   locality?:    string;
   city?:        string;
   pincode?:     string;
   lat?:         string;
   lng?:         string;
+  gstin?:       string;
   referredBy?:  string;
   referralCode: string;
   agreedAt:     string;
@@ -49,6 +50,10 @@ type RegistrationBody = {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as RegistrationBody;
+
+    if (!body.address?.trim()) {
+      return NextResponse.json({ error: 'Shop address is required.' }, { status: 400 });
+    }
 
     const phone = `+91${body.whatsapp.replace(/\D/g, '').slice(-10)}`;
 
@@ -72,6 +77,7 @@ export async function POST(req: NextRequest) {
             ownerName:    body.ownerName,
             whatsapp:     body.whatsapp,
             address:      body.address,
+            gstin:        body.gstin || null,
             locality:     body.locality,
             city:         body.city,
             pincode:      body.pincode,

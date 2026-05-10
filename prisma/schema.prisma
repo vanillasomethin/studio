@@ -92,6 +92,7 @@ model Store {
   pincode       String?
   lat           Float?
   lng           Float?
+  gstin         String?
   referralCode  String     @unique
   referredBy    String?
   agreedAt      DateTime?
