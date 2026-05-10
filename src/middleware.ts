@@ -1,16 +1,16 @@
+import { auth } from '@/lib/auth';
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 
-const hasClerkCredentials =
+const hasClerk =
   Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) &&
   Boolean(process.env.CLERK_SECRET_KEY);
 
-const isProtected = createRouteMatcher(['/dashboard(.*)']);
+const isClerkProtected   = createRouteMatcher(['/dashboard(.*)']);
+const isAuthJsProtected  = (pathname: string) => pathname.startsWith('/store-dashboard');
 
-export default function middleware(req: NextRequest) {
-  // Clerk adds __clerk_handshake to the URL during cross-domain cookie sync.
-  // While clerk.wearealive.in DNS is unverified the JWT processing crashes the
-  // Edge Runtime. Strip it and redirect clean so the page loads normally.
+export default async function middleware(req: NextRequest) {
+  // Strip Clerk handshake params that crash the Edge Runtime when DNS isn't verified
   if (req.nextUrl.searchParams.has('__clerk_handshake')) {
     const url = req.nextUrl.clone();
     url.searchParams.delete('__clerk_handshake');
@@ -18,15 +18,26 @@ export default function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (!hasClerkCredentials) return NextResponse.next();
-
-  return clerkMiddleware(async (auth, request) => {
-    if (!isProtected(request)) return;
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.redirect(new URL('/login', request.url));
+  // Auth.js — protect /store-dashboard
+  if (isAuthJsProtected(req.nextUrl.pathname)) {
+    const session = await auth();
+    if (!session) {
+      const loginUrl = new URL('/store-dashboard', req.url);
+      // Redirect to the same page; PhoneLogin UI will be rendered
+      return NextResponse.redirect(loginUrl);
     }
-  })(req, {} as never);
+    return NextResponse.next();
+  }
+
+  // Clerk — protect /dashboard (brand campaigns)
+  if (hasClerk && isClerkProtected(req)) {
+    return clerkMiddleware(async (clerkAuth, request) => {
+      const { userId } = await clerkAuth();
+      if (!userId) return NextResponse.redirect(new URL('/login', request.url));
+    })(req, {} as never);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
