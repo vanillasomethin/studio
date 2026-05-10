@@ -1,5 +1,5 @@
-// Typed fetch wrapper for ALIVE-Backend REST calls.
-// Reads NEXT_PUBLIC_BACKEND_URL + BACKEND_ADMIN_TOKEN at call time.
+// Typed fetch wrapper for the in-Studio device/content/scheduling API.
+// Calls relative /api/* paths — auth is handled by the same Next.js app session.
 
 export type Device = {
   id:          string;
@@ -56,20 +56,14 @@ export type Schedule = {
 
 export type BackendError = { message: string; status: number };
 
-function base(): string {
-  return process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-}
-
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const b = base();
-  if (!b) throw Object.assign(new Error('Backend URL not configured. Set NEXT_PUBLIC_BACKEND_URL.'), { status: 0 });
-  const res = await fetch(`${b}${path}`, {
+  const res = await fetch(path, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      Authorization:  `Bearer ${process.env.NEXT_PUBLIC_BACKEND_ADMIN_TOKEN ?? ''}`,
       ...(opts?.headers ?? {}),
     },
+    credentials: 'same-origin',
   });
   if (!res.ok) {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
@@ -80,36 +74,36 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
-export const getDevices       = ()   => apiFetch<Device[]>('/devices');
-export const getDeviceStatus  = (id: string) => apiFetch<Device>(`/devices/${id}/status`);
+export const getDevices       = ()              => apiFetch<Device[]>('/api/devices');
+export const getDeviceStatus  = (id: string)    => apiFetch<Device>(`/api/devices/${id}/status`);
 
 // ─── Play Events (POP) ────────────────────────────────────────────────────────
 
 export const getEvents = (params?: Record<string, string>) => {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<PlayEvent[]>(`/events${qs}`);
+  return apiFetch<PlayEvent[]>(`/api/events${qs}`);
 };
 
 export function getEventsExportUrl(params?: Record<string, string>): string {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-  return `${base()}/events/export/csv${qs}`;
+  return `/api/events/export/csv${qs}`;
 }
 
 // ─── Content ─────────────────────────────────────────────────────────────────
 
-export const getContent    = ()         => apiFetch<Content[]>('/content');
-export const deleteContent = (id: string) => apiFetch<void>(`/content/${id}`, { method: 'DELETE' });
+export const getContent    = ()           => apiFetch<Content[]>('/api/content');
+export const deleteContent = (id: string) => apiFetch<void>(`/api/content/${id}`, { method: 'DELETE' });
 
 // ─── Playlists ────────────────────────────────────────────────────────────────
 
-export const getPlaylists    = ()                 => apiFetch<Playlist[]>('/playlists');
+export const getPlaylists    = ()                 => apiFetch<Playlist[]>('/api/playlists');
 export const createPlaylist  = (body: Omit<Playlist, 'id' | 'createdAt'>) =>
-  apiFetch<Playlist>('/playlists', { method: 'POST', body: JSON.stringify(body) });
-export const deletePlaylist  = (id: string)      => apiFetch<void>(`/playlists/${id}`, { method: 'DELETE' });
+  apiFetch<Playlist>('/api/playlists', { method: 'POST', body: JSON.stringify(body) });
+export const deletePlaylist  = (id: string)      => apiFetch<void>(`/api/playlists/${id}`, { method: 'DELETE' });
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
 
-export const getSchedules    = ()                 => apiFetch<Schedule[]>('/schedules');
+export const getSchedules    = ()                 => apiFetch<Schedule[]>('/api/schedules');
 export const createSchedule  = (body: Omit<Schedule, 'id' | 'createdAt'>) =>
-  apiFetch<Schedule>('/schedules', { method: 'POST', body: JSON.stringify(body) });
-export const deleteSchedule  = (id: string)      => apiFetch<void>(`/schedules/${id}`, { method: 'DELETE' });
+  apiFetch<Schedule>('/api/schedules', { method: 'POST', body: JSON.stringify(body) });
+export const deleteSchedule  = (id: string)      => apiFetch<void>(`/api/schedules/${id}`, { method: 'DELETE' });

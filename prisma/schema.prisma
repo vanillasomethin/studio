@@ -1,0 +1,317 @@
+// ALIVE Studio — unified schema
+// Postgres for ops data; Upstash Redis (separate) holds session caches and rate limiting.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// ─── Auth (Auth.js compatible) ───────────────────────────────────────────────
+
+enum UserRole {
+  STORE_PARTNER
+  BRAND
+  AGENCY
+  ADMIN
+  OPS
+}
+
+model User {
+  id             String     @id @default(cuid())
+  email          String?    @unique
+  emailVerified  DateTime?
+  phone          String?    @unique
+  passwordHash   String?
+  name           String?
+  image          String?
+  role           UserRole   @default(STORE_PARTNER)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  store          Store?
+  brand          Brand?
+
+  @@index([phone])
+  @@index([role])
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Store partners ──────────────────────────────────────────────────────────
+
+model Store {
+  id            String     @id @default(cuid())
+  userId        String     @unique
+  storeName     String
+  ownerName     String
+  whatsapp      String
+  address       String?
+  locality      String?
+  city          String?
+  pincode       String?
+  lat           Float?
+  lng           Float?
+  referralCode  String     @unique
+  referredBy    String?
+  agreedAt      DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  devices       Device[]
+
+  @@index([city])
+  @@index([pincode])
+  @@index([referralCode])
+}
+
+// ─── Brands ──────────────────────────────────────────────────────────────────
+
+model Brand {
+  id          String     @id @default(cuid())
+  userId      String     @unique
+  brandName   String
+  contactName String
+  email       String
+  phone       String
+  gstin       String?
+  walletPaise BigInt     @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns   Campaign[]
+}
+
+model Campaign {
+  id              String     @id @default(cuid())
+  brandId         String
+  name            String
+  contactName     String?
+  email           String?
+  phone           String?
+  screens         Int        @default(1)
+  months          Int        @default(1)
+  startDate       DateTime
+  pricePerScreen  Int
+  totalAmount     Int
+  paymentId       String?
+  status          String     @default("upcoming") // upcoming | active | completed | cancelled
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  brand           Brand      @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  playEvents      PlayEvent[]
+
+  @@index([brandId])
+  @@index([status])
+}
+
+// ─── Devices (screens) ───────────────────────────────────────────────────────
+
+enum DeviceStatus {
+  PENDING
+  ONLINE
+  OFFLINE
+}
+
+model Device {
+  id           String        @id @default(cuid())
+  hardwareKey  String        @unique
+  storeId      String?
+  name         String
+  groupName    String?       // e.g. "Mangaluru North" — for group-based scheduling
+  jwtSecret    String        // per-device secret used to sign tokens
+  status       DeviceStatus  @default(PENDING)
+  lastSeen     DateTime?
+  uptimePctD30 Float?
+  claimedAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  events       PlayEvent[]
+
+  @@index([storeId])
+  @@index([groupName])
+  @@index([status])
+}
+
+// ─── Content + Playlists + Schedules ─────────────────────────────────────────
+
+enum ContentType {
+  IMAGE
+  VIDEO
+}
+
+model Content {
+  id           String         @id @default(cuid())
+  name         String
+  type         ContentType
+  // R2 object key — full URL is built from R2_PUBLIC_BASE
+  objectKey    String         @unique
+  md5          String
+  sizeBytes    BigInt
+  durationMs   Int?           // for video; null for image (default playback duration set by playlist)
+  width        Int?
+  height       Int?
+  uploadedById String?
+  uploadedAt   DateTime       @default(now())
+
+  items        PlaylistItem[]
+
+  @@index([uploadedById])
+}
+
+model Playlist {
+  id        String         @id @default(cuid())
+  name      String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  items     PlaylistItem[]
+  schedules Schedule[]
+}
+
+model PlaylistItem {
+  id         String   @id @default(cuid())
+  playlistId String
+  contentId  String
+  durationMs Int      // override duration per item
+  order      Int
+
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  content    Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, order])
+  @@index([contentId])
+}
+
+enum Recurrence {
+  ONCE
+  DAILY
+  WEEKLY
+}
+
+model Schedule {
+  id          String     @id @default(cuid())
+  name        String
+  playlistId  String
+  // Either deviceIds OR groupName — group-based scheduling preferred at scale (Xibo pattern)
+  deviceIds   String[]   @default([])
+  groupName   String?
+  startAt     DateTime
+  endAt       DateTime
+  recurrence  Recurrence @default(ONCE)
+  // Optional dayparting window (HH:mm). If null, runs all hours within startAt..endAt.
+  dailyStart  String?
+  dailyEnd    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  playlist    Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@index([playlistId])
+  @@index([groupName])
+  @@index([startAt, endAt])
+}
+
+// ─── Proof-of-play ───────────────────────────────────────────────────────────
+
+model PlayEvent {
+  id         String    @id @default(cuid())
+  deviceId   String
+  campaignId String?
+  mediaId    String    // Content.id
+  layoutId   String?   // Schedule.id (which schedule was active)
+  startedAt  DateTime
+  endedAt    DateTime
+  durationMs Int
+  tag        String?   // free-form: brand/campaign external ID for billing attribution
+  // Tamper-evident chain (T2 — sign each row with prev hash)
+  prevHash   String?
+  rowHash    String?
+  createdAt  DateTime  @default(now())
+
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, startedAt])
+  @@index([campaignId])
+  @@index([tag])
+  @@index([startedAt])
+}
+
+// ─── Flyers (existing — keep in Postgres now) ────────────────────────────────
+
+model Flyer {
+  id          String   @id @default(cuid())
+  storeName   String
+  title       String
+  description String?
+  validUntil  DateTime
+  // R2 object key — replaces base64 storage in Redis
+  objectKey   String?
+  // Legacy: keep imageBase64 nullable for migration window
+  imageBase64 String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([validUntil])
+}
+
+// ─── Audit log (T2) ──────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  target    String?
+  meta      Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
