@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   IndianRupee, CheckCircle2, Clock, BarChart3, Phone,
@@ -49,8 +50,6 @@ type Flyer = {
   createdAt:   string;
 };
 
-const LS_KEY = 'alive_store_session';
-
 function fmt(n: number) { return `₹${n.toLocaleString('en-IN')}`; }
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
@@ -63,7 +62,7 @@ function resolveImage(raw: string) {
 
 // ─── Phone + password login ───────────────────────────────────────────────────
 
-function PhoneLogin({ onLogin }: { onLogin: (s: StoreInfo) => void }) {
+function PhoneLogin() {
   const [phone,    setPhone]    = useState('');
   const [password, setPassword] = useState('');
   const [busy,     setBusy]     = useState(false);
@@ -75,43 +74,16 @@ function PhoneLogin({ onLogin }: { onLogin: (s: StoreInfo) => void }) {
     if (!password)            { setError('Enter your password.'); return; }
     setBusy(true); setError(null);
 
-    // ① Check localStorage first — works immediately after registration
-    //   even when Redis isn't configured in this environment.
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const stored = JSON.parse(raw) as StoreInfo & { password?: string };
-        const storedPhone = (stored.whatsapp ?? stored.phone ?? '').replace(/\D/g, '').slice(-10);
-        if (storedPhone === phone) {
-          if (stored.password && stored.password !== password) {
-            setError('Incorrect password. Please try again.');
-            setBusy(false);
-            return;
-          }
-          onLogin(stored);
-          return;
-        }
-      }
-    } catch {}
-
-    // ② Fallback: look up in Redis via API
-    try {
-      const res  = await fetch('/api/stores/login', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ phone, password }),
+      const result = await signIn('phone-password', {
+        phone:    `+91${phone}`,
+        password,
+        redirect: false,
       });
-      const data = await res.json() as { store: (StoreInfo & { password?: string }) | null };
-      if (data.store) {
-        if (data.store.password && data.store.password !== password) {
-          setError('Incorrect password. Please try again.');
-          return;
-        }
-        localStorage.setItem(LS_KEY, JSON.stringify(data.store));
-        onLogin(data.store);
-      } else {
-        setError('No account found with this number. Please register first, or check the number you entered.');
+      if (result?.error) {
+        setError('Incorrect number or password. Please try again.');
       }
+      // On success, useSession in the parent will update and render MainDashboard
     } catch {
       setError('Could not connect. Check your internet and try again.');
     } finally {
@@ -601,9 +573,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
   const earning     = EARNING_TABLE[0]; // 1 screen per store
 
   const saveEmail = (email: string) => {
-    const updated = { ...storeData, email };
-    setStoreData(updated);
-    localStorage.setItem(LS_KEY, JSON.stringify(updated));
+    setStoreData((prev) => ({ ...prev, email }));
   };
 
   return (
@@ -827,25 +797,46 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function StoreDashboardPage() {
-  const [store, setStore] = useState<StoreInfo | null | 'loading'>('loading');
+  const { data: session, status } = useSession();
+  const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
+  const [storeLoading, setStoreLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchStore = useCallback(async () => {
+    setStoreLoading(true);
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      setStore(raw ? (JSON.parse(raw) as StoreInfo) : null);
-    } catch {
-      setStore(null);
+      const res = await fetch('/api/stores/me');
+      if (res.ok) setStoreInfo(await res.json() as StoreInfo);
+    } finally {
+      setStoreLoading(false);
     }
   }, []);
 
-  const handleLogin = (s: StoreInfo) => setStore(s);
+  useEffect(() => {
+    if (status === 'authenticated' && !storeInfo) fetchStore();
+  }, [status, storeInfo, fetchStore]);
 
-  const handleLogout = () => {
-    localStorage.removeItem(LS_KEY);
-    setStore(null);
+  const handleLogout = async () => {
+    await signOut({ redirect: false });
+    setStoreInfo(null);
   };
 
-  if (store === 'loading') return null;
-  if (!store) return <PhoneLogin onLogin={handleLogin} />;
-  return <MainDashboard store={store} onLogout={handleLogout} />;
+  if (status === 'loading' || storeLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (status === 'unauthenticated' || !session) return <PhoneLogin />;
+
+  if (!storeInfo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return <MainDashboard store={storeInfo} onLogout={handleLogout} />;
 }

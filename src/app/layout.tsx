@@ -3,6 +3,7 @@ import './globals.css';
 import '../bones/registry';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from '@/components/ui/toaster';
+import { Providers } from '@/components/providers';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
@@ -34,7 +35,7 @@ export default function RootLayout({
           className={cn('min-h-screen bg-background font-sans antialiased')}
           style={{ fontFamily: 'Poppins, sans-serif' }}
         >
-          {children}
+          <Providers>{children}</Providers>
           <Toaster />
         </body>
       </html>

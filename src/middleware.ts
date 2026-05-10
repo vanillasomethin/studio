@@ -1,16 +1,13 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 
-const hasClerkCredentials =
-  Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) &&
-  Boolean(process.env.CLERK_SECRET_KEY);
+// Routes protected by Auth.js session (store partners + brands)
+function isProtected(pathname: string) {
+  return pathname.startsWith('/store-dashboard') || pathname.startsWith('/dashboard');
+}
 
-const isProtected = createRouteMatcher(['/dashboard(.*)']);
-
-export default function middleware(req: NextRequest) {
-  // Clerk adds __clerk_handshake to the URL during cross-domain cookie sync.
-  // While clerk.wearealive.in DNS is unverified the JWT processing crashes the
-  // Edge Runtime. Strip it and redirect clean so the page loads normally.
+export default async function middleware(req: NextRequest) {
+  // Strip Clerk handshake params (safe to keep during transition period)
   if (req.nextUrl.searchParams.has('__clerk_handshake')) {
     const url = req.nextUrl.clone();
     url.searchParams.delete('__clerk_handshake');
@@ -18,15 +15,17 @@ export default function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (!hasClerkCredentials) return NextResponse.next();
-
-  return clerkMiddleware(async (auth, request) => {
-    if (!isProtected(request)) return;
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.redirect(new URL('/login', request.url));
+  if (isProtected(req.nextUrl.pathname)) {
+    const session = await auth();
+    if (!session) {
+      const loginUrl = req.nextUrl.pathname.startsWith('/store-dashboard')
+        ? new URL('/store-dashboard', req.url)
+        : new URL('/login', req.url);
+      return NextResponse.redirect(loginUrl);
     }
-  })(req, {} as never);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {

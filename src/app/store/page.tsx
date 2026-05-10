@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
   ChevronRight, Check, ArrowLeft, Loader2, Clock, Star, Gift,
@@ -184,11 +185,28 @@ function RegistrationForm() {
 
   const submit = async () => {
     setBusy(true); setErr('');
-    const code    = makeReferralCode(form.storeName, form.ownerName);
-    const session = { ...form, phone: `+91${form.whatsapp}`, referralCode: code, screens: 1, agreedAt: new Date().toISOString() };
+    const code = makeReferralCode(form.storeName, form.ownerName);
+    const payload = {
+      ...form,
+      referralCode: code,
+      agreedAt:     new Date().toISOString(),
+    };
     try {
-      await fetch('/api/stores/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(session) });
-      localStorage.setItem('alive_store_session', JSON.stringify(session));
+      const res = await fetch('/api/stores/save', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok) { setErr(data.error ?? 'Registration failed.'); return; }
+
+      // Establish Auth.js session immediately after registration
+      await signIn('phone-password', {
+        phone:    `+91${form.whatsapp}`,
+        password: form.password,
+        redirect: false,
+      });
+
       setDone(true);
       setTimeout(() => router.push('/store-dashboard'), 1500);
     } catch (e) {

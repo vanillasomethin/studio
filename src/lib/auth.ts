@@ -14,6 +14,11 @@ declare module 'next-auth' {
       phone: string | null;
     };
   }
+  interface JWT {
+    id?:    string;
+    role?:  UserRole;
+    phone?: string | null;
+  }
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -32,9 +37,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(creds) {
-        const phone    = (creds?.phone    ?? '').toString().replace(/\D/g, '');
+        const raw      = (creds?.phone ?? '').toString();
         const password = (creds?.password ?? '').toString();
-        if (!phone || !password) return null;
+        if (!raw || !password) return null;
+
+        // Normalise to E.164 +91XXXXXXXXXX
+        const digits = raw.replace(/\D/g, '');
+        const phone  = digits.startsWith('91') && digits.length === 12
+          ? `+${digits}`
+          : `+91${digits.slice(-10)}`;
 
         const user = await db.user.findUnique({ where: { phone } });
         if (!user?.passwordHash) return null;
@@ -48,6 +59,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           image: user.image,
         };
+      },
+    }),
+
+    // Email + password — for brands, admin, ops
+    Credentials({
+      id:   'email-password',
+      name: 'Email + password',
+      credentials: {
+        email:    { label: 'Email',    type: 'email' },
+        password: { label: 'Password', type: 'password' },
+      },
+      async authorize(creds) {
+        const email    = (creds?.email    ?? '').toString().trim().toLowerCase();
+        const password = (creds?.password ?? '').toString();
+        if (!email || !password) return null;
+
+        const user = await db.user.findUnique({ where: { email } });
+        if (!user?.passwordHash) return null;
+
+        const ok = await bcrypt.compare(password, user.passwordHash);
+        if (!ok) return null;
+
+        return { id: user.id, name: user.name, email: user.email, image: user.image };
       },
     }),
 

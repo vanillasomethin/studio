@@ -1,35 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
+import bcrypt from 'bcryptjs';
+import { db } from '@/lib/db';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type Store = {
-  id:          string;
-  storeName:   string;
-  ownerName:   string;
-  phone:       string;
-  whatsapp:    string;
-  address:     string;
-  area:        string;
-  city:        string;
-  pincode:     string;
-  screenCount: string;
-  createdAt:   string;
-};
-
-// ─── Redis client ─────────────────────────────────────────────────────────────
+// ─── Redis (dual-write for admin panel backward compat during migration) ──────
 
 function getRedis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return null;
-  }
-  return new Redis({
-    url:   process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
+  return new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
 }
-
-const STORES_KEY = 'stores';
 
 // ─── GET — list all stores (admin) ───────────────────────────────────────────
 
@@ -38,41 +17,105 @@ export async function GET(req: NextRequest) {
   if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const kv = getRedis();
-  if (!kv) return NextResponse.json([]);
   try {
-    const stores = (await kv.get<Store[]>(STORES_KEY)) ?? [];
+    const stores = await db.store.findMany({
+      include: { user: { select: { phone: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
     return NextResponse.json(stores);
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }
 
-// ─── POST — register a store ──────────────────────────────────────────────────
+// ─── POST — register a new store partner ─────────────────────────────────────
+
+type RegistrationBody = {
+  storeName:    string;
+  ownerName:    string;
+  whatsapp:     string;   // 10-digit, no country code
+  password:     string;
+  address?:     string;
+  locality?:    string;
+  city?:        string;
+  pincode?:     string;
+  lat?:         string;
+  lng?:         string;
+  referredBy?:  string;
+  referralCode: string;
+  agreedAt:     string;
+};
 
 export async function POST(req: NextRequest) {
-  const kv = getRedis();
-  if (!kv) {
-    return NextResponse.json({ success: true, id: 'demo', note: 'Redis not configured' });
-  }
-
   try {
-    const body = await req.json() as Omit<Store, 'id' | 'createdAt'>;
+    const body = await req.json() as RegistrationBody;
 
-    const store: Store = {
-      ...body,
-      id:        `store_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      createdAt: new Date().toISOString(),
-    };
+    const phone = `+91${body.whatsapp.replace(/\D/g, '').slice(-10)}`;
 
-    const existing = (await kv.get<Store[]>(STORES_KEY)) ?? [];
-    await kv.set(STORES_KEY, [store, ...existing]);
+    // Guard: duplicate phone
+    const existing = await db.user.findUnique({ where: { phone } });
+    if (existing) {
+      return NextResponse.json({ error: 'An account with this number already exists.' }, { status: 409 });
+    }
 
-    return NextResponse.json({ success: true, id: store.id });
+    const passwordHash = await bcrypt.hash(body.password, 10);
+
+    const user = await db.user.create({
+      data: {
+        phone,
+        passwordHash,
+        name: body.ownerName,
+        role: 'STORE_PARTNER',
+        store: {
+          create: {
+            storeName:    body.storeName,
+            ownerName:    body.ownerName,
+            whatsapp:     body.whatsapp,
+            address:      body.address,
+            locality:     body.locality,
+            city:         body.city,
+            pincode:      body.pincode,
+            lat:          body.lat ? parseFloat(body.lat) : null,
+            lng:          body.lng ? parseFloat(body.lng) : null,
+            referralCode: body.referralCode,
+            referredBy:   body.referredBy || null,
+            agreedAt:     new Date(body.agreedAt),
+          },
+        },
+      },
+      include: { store: true },
+    });
+
+    // Dual-write to Redis so the existing admin panel still lists new stores
+    try {
+      const kv = getRedis();
+      if (kv && user.store) {
+        const s = user.store;
+        const ids: string[] = (await kv.get<string[]>('stores:index')) ?? [];
+        if (!ids.includes(s.id)) await kv.set('stores:index', [s.id, ...ids]);
+        await kv.set(`store:${s.id}`, {
+          id:           s.id,
+          storeName:    s.storeName,
+          ownerName:    s.ownerName,
+          phone,
+          whatsapp:     s.whatsapp,
+          address:      s.address ?? '',
+          locality:     s.locality ?? '',
+          city:         s.city ?? '',
+          pincode:      s.pincode ?? '',
+          referralCode: s.referralCode,
+          referredBy:   s.referredBy ?? '',
+          agreedAt:     s.agreedAt?.toISOString() ?? '',
+          createdAt:    s.createdAt.toISOString(),
+        });
+      }
+    } catch {
+      // Redis dual-write failure is non-fatal — Postgres is source of truth
+    }
+
+    return NextResponse.json({ success: true, referralCode: user.store?.referralCode });
   } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message ?? 'Failed to save store' },
-      { status: 500 },
-    );
+    const msg = (e as Error).message ?? 'Failed to register store';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
