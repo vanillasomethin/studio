@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       select: {
         id:           true,
         hardwareKey:  true,
-        storeName:    true,
+        name:         true,
         storeId:      true,
         status:       true,
         lastSeen:     true,
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     });
     const devices = rows.map((d) => ({
       ...d,
+      storeName: d.name,
       uptimePct: d.uptimePctD30,
       lastSeen:  d.lastSeen?.toISOString() ?? null,
       claimedAt: d.claimedAt.toISOString(),

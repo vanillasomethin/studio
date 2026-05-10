@@ -66,8 +66,8 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-      orderBy: { startAt: 'asc' },
-      take: 1, // take the nearest active schedule
+      orderBy: [{ priority: 'desc' }, { startAt: 'asc' }],
+      take: 1, // highest-priority schedule wins (Xibo pattern)
     });
 
     const schedule = schedules[0];

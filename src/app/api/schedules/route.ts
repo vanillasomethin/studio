@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const {
       name, playlistId, groupName, deviceIds,
       startAt, endAt, recurrence,
-      dailyStart, dailyEnd,
+      dailyStart, dailyEnd, priority,
     } = await req.json() as {
       name:        string;
       playlistId:  string;
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       recurrence:  'once' | 'daily' | 'weekly';
       dailyStart?: string;
       dailyEnd?:   string;
+      priority?:   number;
     };
 
     if (!name || !playlistId || !startAt || !endAt) {
@@ -51,11 +52,12 @@ export async function POST(req: NextRequest) {
       data: {
         name,
         playlistId,
+        priority:   priority   ?? 0,
         groupName:  groupName  ?? null,
         deviceIds:  deviceIds  ?? [],
         startAt:    new Date(startAt),
         endAt:      new Date(endAt),
-        recurrence: recurrence ?? 'once',
+        recurrence: (recurrence?.toUpperCase() ?? 'ONCE') as 'ONCE' | 'DAILY' | 'WEEKLY',
         dailyStart: dailyStart ?? null,
         dailyEnd:   dailyEnd   ?? null,
       },

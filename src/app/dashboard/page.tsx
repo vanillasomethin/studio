@@ -17,7 +17,13 @@ import {
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
   CreditCard, X, Loader2,
 } from 'lucide-react';
-import type { Campaign } from '@/app/api/campaigns/save/route';
+type Campaign = {
+  id: string; name?: string; brandName?: string; contactName?: string | null;
+  email?: string | null; phone?: string | null; gstin?: string | null;
+  screens: number; months: number;
+  startDate: string; pricePerScreen: number; totalAmount: number;
+  paymentId?: string | null; orderId?: string | null; status: string; createdAt: string;
+};
 
 // ─── Animations ────────────────────────────────────────────────────────────────
 
@@ -144,7 +150,7 @@ function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
   );
 
   const barData = campaigns.map((c) => ({
-    name:            c.brandName.slice(0, 14),
+    name:            (c.brandName ?? c.name ?? '').slice(0, 14),
     'Monthly views': VIEWS * c.screens,
     'Daily plays':   PLAYS * c.screens,
   }));
@@ -156,7 +162,7 @@ function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
     if (!c.startDate) return;
     const start = parseISO(c.startDate);
     const end   = addMonths(start, c.months);
-    const label = c.brandName.slice(0, 14);
+    const label = (c.brandName ?? c.name ?? '').slice(0, 14);
     campaignDayMap[label] = {};
     eachDayOfInterval({ start, end }).slice(0, 60).forEach((d) => {
       const key = format(d, 'dd MMM');

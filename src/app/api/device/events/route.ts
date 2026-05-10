@@ -1,5 +1,6 @@
 // Device play-event ingest — player POSTs proof-of-play rows in batches.
 // Idempotent by id: duplicate submissions are silently ignored.
+// Each row gets a SHA-256 rowHash and prevHash for tamper-evident chain (Xibo T2 pattern).
 //
 // POST /api/device/events
 // Auth: Authorization: Bearer <device-jwt>
@@ -9,16 +10,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyDeviceToken } from '@/lib/device-auth';
+import crypto from 'crypto';
 
 type PlayEventInput = {
-  id:         string;   // client-generated UUID for dedup
-  mediaId:    string;   // Content.id
+  id:          string;   // client-generated UUID for dedup
+  mediaId:     string;   // Content.id
   scheduleId?: string;
   campaignId?: string;
   tag?:        string;
-  startedAt:  string;   // ISO
-  endedAt:    string;   // ISO
-  durationMs: number;
+  startedAt:   string;   // ISO
+  endedAt:     string;   // ISO
+  durationMs:  number;
 };
 
 async function authenticate(req: NextRequest) {
@@ -41,6 +43,11 @@ async function authenticate(req: NextRequest) {
   }
 }
 
+function computeRowHash(id: string, deviceId: string, mediaId: string, startedAt: string, endedAt: string, durationMs: number, tag: string | null, prevHash: string | null): string {
+  const data = [id, deviceId, mediaId, startedAt, endedAt, String(durationMs), tag ?? '', prevHash ?? ''].join('|');
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
+
 export async function POST(req: NextRequest) {
   const device = await authenticate(req);
   if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -54,10 +61,25 @@ export async function POST(req: NextRequest) {
     // Cap batch size to prevent abuse
     const batch = events.slice(0, 500);
 
+    // Fetch the last event for this device to chain hashes
+    const lastEvent = await db.playEvent.findFirst({
+      where:   { deviceId: device.id },
+      orderBy: { startedAt: 'desc' },
+      select:  { rowHash: true },
+    });
+
+    let chainHash: string | null = lastEvent?.rowHash ?? null;
     let accepted = 0;
+
     for (const ev of batch) {
       if (!ev.id || !ev.mediaId || !ev.startedAt || !ev.endedAt) continue;
       try {
+        const rowHash = computeRowHash(
+          ev.id, device.id, ev.mediaId,
+          ev.startedAt, ev.endedAt, ev.durationMs,
+          ev.tag ?? null, chainHash,
+        );
+
         await db.playEvent.upsert({
           where:  { id: ev.id },
           update: {}, // already accepted — no-op
@@ -67,12 +89,16 @@ export async function POST(req: NextRequest) {
             mediaId:    ev.mediaId,
             layoutId:   ev.scheduleId ?? null,
             campaignId: ev.campaignId ?? null,
-            tag:        ev.tag ?? null,
+            tag:        ev.tag        ?? null,
             startedAt:  new Date(ev.startedAt),
             endedAt:    new Date(ev.endedAt),
             durationMs: ev.durationMs,
+            prevHash:   chainHash,
+            rowHash,
           },
         });
+
+        chainHash = rowHash;
         accepted++;
       } catch {
         // Skip malformed rows; don't fail the whole batch
