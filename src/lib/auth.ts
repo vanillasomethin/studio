@@ -5,6 +5,7 @@ import { PrismaAdapter } from '@auth/prisma-adapter';
 import bcrypt from 'bcryptjs';
 import { db } from './db';
 import type { UserRole } from '@prisma/client';
+import { authConfig } from './auth.config';
 
 declare module 'next-auth' {
   interface Session {
@@ -22,10 +23,8 @@ declare module 'next-auth' {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   adapter: PrismaAdapter(db),
-  session: { strategy: 'jwt' },
-  pages:   { signIn: '/login' },
-  trustHost: true,
 
   providers: [
     // Phone + password — for store partners (and any user with passwordHash)
@@ -102,6 +101,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
 
   callbacks: {
+    authorized: authConfig.callbacks!.authorized,
     async jwt({ token, user }) {
       if (user) {
         const dbUser = await db.user.findUnique({ where: { id: user.id! } });

@@ -1,36 +1,30 @@
-import { auth } from '@/lib/auth';
+// Edge middleware — uses only the lightweight auth config (no Prisma/bcrypt/nodemailer).
+// Route protection logic lives in authConfig.callbacks.authorized.
+
+import NextAuth from 'next-auth';
+import { authConfig } from '@/lib/auth.config';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Routes protected by Auth.js session (store partners + brands)
-function isProtected(pathname: string) {
-  return pathname.startsWith('/store-dashboard') || pathname.startsWith('/dashboard');
-}
+const { auth } = NextAuth(authConfig);
 
-export default async function middleware(req: NextRequest) {
-  // Strip Clerk handshake params (safe to keep during transition period)
+export default auth(function middleware(req: NextRequest) {
+  // Strip legacy Clerk handshake params during transition
   if (req.nextUrl.searchParams.has('__clerk_handshake')) {
     const url = req.nextUrl.clone();
     url.searchParams.delete('__clerk_handshake');
     url.searchParams.delete('__clerk_help_debug_token');
     return NextResponse.redirect(url);
   }
-
-  if (isProtected(req.nextUrl.pathname)) {
-    const session = await auth();
-    if (!session) {
-      const loginUrl = req.nextUrl.pathname.startsWith('/store-dashboard')
-        ? new URL('/store-dashboard', req.url)
-        : new URL('/login', req.url);
-      return NextResponse.redirect(loginUrl);
-    }
-  }
-
   return NextResponse.next();
-}
+});
 
+// Only run middleware on the routes that actually need it.
+// Keeping the matcher tight reduces edge invocations and bundle pressure.
 export const config = {
   matcher: [
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    '/(api|trpc)(.*)',
+    '/store-dashboard/:path*',
+    '/dashboard/:path*',
+    // Clerk cleanup — remove once all traffic has migrated
+    '/(.*)?__clerk_handshake(.*)',
   ],
 };
