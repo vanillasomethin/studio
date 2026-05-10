@@ -6,7 +6,16 @@ import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, Calendar, CheckCircle2, Clock, AlertCircle, X,
   TrendingUp, Users, IndianRupee, Eye,
+  Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+
+const ScreensTab    = dynamic(() => import('@/components/admin/screens-tab'),    { ssr: false });
+const ReportsTab    = dynamic(() => import('@/components/admin/reports-tab'),    { ssr: false });
+const ContentTab    = dynamic(() => import('@/components/admin/content-tab'),    { ssr: false });
+const PlaylistsTab  = dynamic(() => import('@/components/admin/playlists-tab'),  { ssr: false });
+const SchedulesTab  = dynamic(() => import('@/components/admin/schedules-tab'),  { ssr: false });
+const MonitoringTab = dynamic(() => import('@/components/admin/monitoring-tab'), { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -104,12 +113,18 @@ const lbl = 'block text-[10px] font-bold uppercase tracking-widest text-muted-fo
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────
 
-type Tab = 'flyers' | 'stores' | 'campaigns';
+type Tab = 'flyers' | 'stores' | 'campaigns' | 'screens' | 'reports' | 'content' | 'playlists' | 'schedules' | 'monitoring';
 
-const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'flyers',    label: 'Flyers',    icon: FileImage  },
-  { id: 'stores',    label: 'Stores',    icon: Store      },
-  { id: 'campaigns', label: 'Campaigns', icon: BarChart3  },
+const TABS: { id: Tab; label: string; icon: React.ElementType; group: 'ops' | 'screen' }[] = [
+  { id: 'flyers',     label: 'Flyers',      icon: FileImage,      group: 'ops'    },
+  { id: 'stores',     label: 'Stores',      icon: Store,          group: 'ops'    },
+  { id: 'campaigns',  label: 'Campaigns',   icon: BarChart3,      group: 'ops'    },
+  { id: 'screens',    label: 'Screens',     icon: Tv2,            group: 'screen' },
+  { id: 'content',    label: 'Content',     icon: ImageIcon,      group: 'screen' },
+  { id: 'playlists',  label: 'Playlists',   icon: ListVideo,      group: 'screen' },
+  { id: 'schedules',  label: 'Schedules',   icon: CalendarClock,  group: 'screen' },
+  { id: 'reports',    label: 'Reports',     icon: FileBarChart2,  group: 'screen' },
+  { id: 'monitoring', label: 'Monitoring',  icon: Activity,       group: 'screen' },
 ];
 
 // ─── Flyer image modal ──────────────────────────────────────────────────────
@@ -561,25 +576,47 @@ function Dashboard() {
             <span className="hidden sm:inline text-xs font-bold uppercase tracking-widest text-muted-foreground/50">Admin</span>
           </div>
 
-          {/* Tabs */}
-          <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/30 p-1">
-            {TABS.map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                    tab === t.id
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t.label}</span>
-                </button>
-              );
-            })}
+          {/* Tabs — two groups */}
+          <div className="flex items-center gap-1 overflow-x-auto">
+            <div className="flex items-center gap-0.5 rounded-xl border border-border bg-muted/30 p-1 shrink-0">
+              {TABS.filter((t) => t.group === 'ops').map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                      tab === t.id
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-muted-foreground/30 text-xs px-1">|</div>
+            <div className="flex items-center gap-0.5 rounded-xl border border-border bg-muted/30 p-1 shrink-0">
+              {TABS.filter((t) => t.group === 'screen').map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                      tab === t.id
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <button
@@ -624,6 +661,60 @@ function Dashboard() {
                 <h1 className="text-2xl font-bold text-foreground">All campaigns</h1>
               </div>
               <CampaignsPanel />
+            </motion.div>
+          )}
+          {tab === 'screens' && (
+            <motion.div key="screens" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Screen fleet</p>
+                <h1 className="text-2xl font-bold text-foreground">Registered screens</h1>
+              </div>
+              <ScreensTab />
+            </motion.div>
+          )}
+          {tab === 'content' && (
+            <motion.div key="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Media library</p>
+                <h1 className="text-2xl font-bold text-foreground">Content</h1>
+              </div>
+              <ContentTab />
+            </motion.div>
+          )}
+          {tab === 'playlists' && (
+            <motion.div key="playlists" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Screen programming</p>
+                <h1 className="text-2xl font-bold text-foreground">Playlists</h1>
+              </div>
+              <PlaylistsTab />
+            </motion.div>
+          )}
+          {tab === 'schedules' && (
+            <motion.div key="schedules" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Content delivery</p>
+                <h1 className="text-2xl font-bold text-foreground">Schedules</h1>
+              </div>
+              <SchedulesTab />
+            </motion.div>
+          )}
+          {tab === 'reports' && (
+            <motion.div key="reports" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Proof of play</p>
+                <h1 className="text-2xl font-bold text-foreground">Play reports</h1>
+              </div>
+              <ReportsTab />
+            </motion.div>
+          )}
+          {tab === 'monitoring' && (
+            <motion.div key="monitoring" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Live status</p>
+                <h1 className="text-2xl font-bold text-foreground">Monitoring</h1>
+              </div>
+              <MonitoringTab />
             </motion.div>
           )}
         </AnimatePresence>

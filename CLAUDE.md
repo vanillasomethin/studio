@@ -14,18 +14,32 @@ The platform connects three parties:
 
 ---
 
+## Architecture (target)
+
+ALIVE is **one Next.js app** that does everything:
+- Marketing site (`/`, `/store`, `/blog`, etc.)
+- Brand onboarding + dashboard
+- Store partner registration + dashboard
+- **Console / admin** for fleet management (`/admin` with Screens, Content, Playlists, Schedules, Reports, Monitoring tabs)
+- **Device/player API** for the Android TV apps (`/api/device/*`)
+
+The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
+
 ## Tech Stack
 
 - **Framework:** Next.js 15 App Router (`'use client'` boundaries throughout)
 - **Styling:** Tailwind CSS + shadcn/ui (Radix primitives)
 - **Animations:** Framer Motion
-- **Auth:** Clerk v7 (brands/admin only) — store partners use custom phone+password auth
-- **Database:** Upstash Redis (`@upstash/redis`) with lazy `getRedis()` pattern
+- **Auth (target):** Auth.js v5 (`next-auth@beta`) with Prisma adapter. One `User` table with `role` enum (`STORE_PARTNER | BRAND | AGENCY | ADMIN | OPS`). Phone+password (Credentials provider) for store partners; email magic-link for brand/admin/ops.
+- **Auth (legacy, in migration):** Clerk for brand dashboard + custom localStorage for store partners — both being phased out.
+- **Primary DB:** PostgreSQL via Prisma 6. Use **Neon** for Vercel — pooled `DATABASE_URL` for runtime + direct `DATABASE_DIRECT_URL` for migrations.
+- **Cache / sessions / rate-limit:** Upstash Redis (kept alongside Postgres for short-lived state).
+- **Media storage:** Cloudflare R2 (S3-compatible, zero egress). Direct browser→R2 upload via signed PUT URLs from `lib/r2.ts` — never proxy media through Next.js API routes (Vercel payload limits).
 - **Payments:** Razorpay (brand campaigns)
-- **Maps:** Leaflet (plain, no react-leaflet) + CartoDB Voyager tiles (light, shows landmarks/labels)
-- **Geocoding:** OpenStreetMap Nominatim (reverse geocode lat/lng → locality, pincode, city)
+- **Maps:** Leaflet (plain, no react-leaflet) + CartoDB Voyager tiles
+- **Geocoding:** OpenStreetMap Nominatim
 - **AI:** Genkit + Google AI
-- **React version:** 18.3.1 (NOT 19 — do NOT install packages requiring React 19)
+- **React version:** 18.3.1 (NOT 19)
 
 ---
 
@@ -61,7 +75,34 @@ The platform connects three parties:
 
 ---
 
-## Redis Data Model
+## Database Models (Prisma)
+
+Defined in `prisma/schema.prisma`. Run `npx prisma migrate dev` after pulling.
+
+| Model | Purpose |
+|-------|---------|
+| `User` | All humans (store partners, brands, admin/ops) — Auth.js compatible. Holds `role`, `phone`, `passwordHash`. |
+| `Account / Session / VerificationToken` | Auth.js standard. |
+| `Store` | Kirana store profile (1-to-1 with a STORE_PARTNER User). Holds map coords, referral code. |
+| `Brand` | Brand profile (1-to-1 with a BRAND User). `walletPaise` BigInt for prepaid balance (T2). |
+| `Campaign` | Brand campaign — already on Razorpay. |
+| `Device` | Physical screen running ALIVE-Player. `hardwareKey` from Android. `groupName` for group-based scheduling. |
+| `Content` | Media file (image / video). `objectKey` is the R2 path. `md5` for player cache invalidation. |
+| `Playlist` + `PlaylistItem` | Ordered list of content with per-item duration. |
+| `Schedule` | Assigns a playlist to a set of devices OR a `groupName`, with optional dayparting (`dailyStart`/`dailyEnd`). |
+| `PlayEvent` | Proof-of-play log row. Indexed on `(deviceId, startedAt)`, `tag` (campaign attribution). `prevHash`/`rowHash` reserved for T2 tamper-evident chain. |
+| `Flyer` | Existing flyer feature, migrating from Redis-base64 to R2. |
+| `AuditLog` | Reserved for T2 audit trail. |
+
+Always import the singleton from `@/lib/db`:
+```ts
+import { db } from '@/lib/db';
+const stores = await db.store.findMany();
+```
+
+---
+
+## Redis Data Model (legacy, being migrated)
 
 Uses per-key storage (not single-blob arrays) to stay under Upstash 1MB/value limit.
 

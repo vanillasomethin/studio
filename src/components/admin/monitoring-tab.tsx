@@ -1,0 +1,112 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw } from 'lucide-react';
+import { getDevices, type Device } from '@/lib/backend-api';
+
+function timeSince(iso: string): string {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60)   return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  return `${Math.floor(secs / 3600)}h`;
+}
+
+export default function MonitoringTab() {
+  const [devices,   setDevices]   = useState<Device[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [lastFetch, setLastFetch] = useState<Date | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
+    getDevices()
+      .then((d) => { setDevices(d); setLastFetch(new Date()); })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 30_000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  if (error) return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
+      <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+      <div>
+        <p className="text-sm font-semibold text-foreground">Backend not reachable</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+      </div>
+    </div>
+  );
+
+  const online  = devices.filter((d) => d.status === 'online').length;
+  const offline = devices.filter((d) => d.status === 'offline').length;
+  const pending = devices.filter((d) => d.status === 'pending').length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" />{online} online</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" />{offline} offline</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-yellow-500 inline-block" />{pending} pending</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {lastFetch && <span className="text-[10px] text-muted-foreground/50">Updated {lastFetch.toLocaleTimeString('en-IN')}</span>}
+          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Grid */}
+      {loading && !devices.length ? (
+        <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : !devices.length ? (
+        <p className="text-sm text-muted-foreground text-center py-10">No screens registered yet.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {devices.map((d) => {
+            const isOnline  = d.status === 'online';
+            const isOffline = d.status === 'offline';
+            return (
+              <div
+                key={d.id}
+                className={`rounded-xl border p-4 space-y-2 transition-colors ${
+                  isOnline  ? 'border-green-500/30 bg-green-500/5'  :
+                  isOffline ? 'border-red-500/20 bg-red-500/5'      :
+                              'border-yellow-500/20 bg-yellow-500/5'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-1">
+                  <p className="text-xs font-semibold text-foreground leading-tight line-clamp-2">{d.storeName}</p>
+                  {isOnline  ? <Wifi    className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" /> :
+                   isOffline ? <WifiOff className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5"   /> :
+                               <Clock   className="h-3.5 w-3.5 text-yellow-500 shrink-0 mt-0.5" />}
+                </div>
+                <div className="space-y-0.5">
+                  {d.lastSeen && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Last seen: <span className="font-semibold">{timeSince(d.lastSeen)}</span> ago
+                    </p>
+                  )}
+                  {d.uptimePct != null && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Uptime: <span className={`font-semibold ${d.uptimePct >= 98 ? 'text-green-600' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}`}>
+                        {d.uptimePct.toFixed(1)}%
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-[10px] font-mono text-muted-foreground/40">{d.id.slice(0, 8)}…</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
