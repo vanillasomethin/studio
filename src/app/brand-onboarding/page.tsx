@@ -943,7 +943,7 @@ function StepPayment({
   data, onSuccess, onConfirm, onBack,
 }: {
   data: OnboardingFormData;
-  onSuccess: (paymentId: string, orderId: string, effectivePricePerScreen: number) => void;
+  onSuccess: (paymentId: string, orderId: string) => void;
   onConfirm: (effectivePricePerScreen: number) => void;
   onBack: () => void;
 }) {
@@ -1008,11 +1008,29 @@ function StepPayment({
         description: `${data.screens} screen${data.screens > 1 ? 's' : ''} · ${data.months} month${data.months > 1 ? 's' : ''}`,
         order_id: body.id,
         handler: async (response: RazorpayResponse) => {
+          const subtotal    = pricePerScreen * data.screens * data.months;
+          const totalAmount = subtotal + Math.round(subtotal * 0.18);
           const verify = await fetch('/api/razorpay/verify-payment', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...response,
+              campaign: {
+                brandName:      data.brandName,
+                contactName:    data.contactName,
+                email:          data.email,
+                phone:          data.phone,
+                gstin:          data.gstin,
+                screens:        data.screens,
+                months:         data.months,
+                startDate:      data.startDate,
+                pricePerScreen,
+                totalAmount,
+              },
+            }),
           });
           const result = await verify.json() as { success: boolean };
-          if (result.success) { onSuccess(response.razorpay_payment_id, response.razorpay_order_id, pricePerScreen); }
+          if (result.success) { onSuccess(response.razorpay_payment_id, response.razorpay_order_id); }
           else { setError('Payment verification failed. Please contact hello@wearealive.in.'); setLoading(false); }
         },
         prefill: { name: data.contactName, email: data.email, contact: data.phone },
@@ -1442,11 +1460,11 @@ export default function BrandOnboardingPage() {
     next();
   };
 
-  const handlePaymentSuccess = async (pid: string, oid: string, effectivePricePerScreen?: number) => {
+  const handlePaymentSuccess = async (pid: string, oid: string) => {
     setPaymentId(pid);
     setOrderId(oid);
-    const pricePerScreen = effectivePricePerScreen ?? getScreenPrice(form.screens);
-    saveCampaign(pid, oid, pricePerScreen, 'upcoming');
+    // Campaign already saved as 'active' by verify-payment — no duplicate save needed
+    try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
     next();
   };
 

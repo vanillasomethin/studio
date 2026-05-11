@@ -1,10 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { db } from '@/lib/db';
+
+type Body = {
+  razorpay_order_id:   string;
+  razorpay_payment_id: string;
+  razorpay_signature:  string;
+  // Optional campaign payload — when present, campaign is upserted as 'active'
+  campaign?: {
+    brandName:      string;
+    contactName:    string;
+    email:          string;
+    phone:          string;
+    gstin?:         string;
+    screens:        number;
+    months:         number;
+    startDate:      string;
+    pricePerScreen: number;
+    totalAmount:    number;
+  };
+};
 
 export async function POST(req: NextRequest) {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-      await req.json();
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, campaign } =
+      await req.json() as Body;
 
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expected = crypto
@@ -12,11 +32,43 @@ export async function POST(req: NextRequest) {
       .update(body)
       .digest('hex');
 
-    if (expected === razorpay_signature) {
-      return NextResponse.json({ success: true, payment_id: razorpay_payment_id });
+    if (expected !== razorpay_signature) {
+      return NextResponse.json({ success: false, error: 'Signature mismatch' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: false, error: 'Signature mismatch' }, { status: 400 });
+    // Upsert campaign — find by orderId if it already exists (pay-later flow), else create
+    if (campaign) {
+      const brand = await db.brand.findFirst({ where: { email: campaign.email } });
+
+      const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
+
+      if (existing) {
+        await db.campaign.update({
+          where: { id: existing.id },
+          data:  { paymentId: razorpay_payment_id, status: 'active' },
+        });
+      } else {
+        await db.campaign.create({
+          data: {
+            brandId:        brand?.id ?? null,
+            name:           `${campaign.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
+            contactName:    campaign.contactName,
+            email:          campaign.email,
+            phone:          campaign.phone ?? undefined,
+            screens:        campaign.screens    ?? 1,
+            months:         campaign.months     ?? 1,
+            startDate:      new Date(campaign.startDate),
+            pricePerScreen: campaign.pricePerScreen,
+            totalAmount:    campaign.totalAmount,
+            paymentId:      razorpay_payment_id,
+            orderId:        razorpay_order_id,
+            status:         'active',
+          },
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true, payment_id: razorpay_payment_id });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
