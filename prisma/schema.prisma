@@ -101,6 +101,7 @@ model Store {
 
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   devices       Device[]
+  bills         Bill[]
 
   @@index([city])
   @@index([pincode])
@@ -301,6 +302,56 @@ model Flyer {
   createdAt   DateTime @default(now())
 
   @@index([validUntil])
+}
+
+// ─── VoiceBill — Customer purchases ─────────────────────────────────────────
+
+model Customer {
+  id        String    @id @default(cuid())
+  phone     String    @unique
+  name      String
+  token     String    @unique  // random UUID token stored in customer's localStorage for lightweight auth
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bills     Bill[]
+
+  @@index([phone])
+}
+
+model Bill {
+  id          String     @id @default(cuid())
+  billRef     String     @unique   // human-readable "ALIVE-XXXXXX"
+  storeId     String?
+  storeName   String
+  totalAmount Int                  // whole rupees
+  payMethod   String     @default("cash")  // cash | upi | card | khata
+  status      String     @default("open")  // open | paid
+  customerId  String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  store       Store?     @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  customer    Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items       BillItem[]
+
+  @@index([customerId])
+  @@index([storeId])
+  @@index([billRef])
+  @@index([createdAt])
+}
+
+model BillItem {
+  id     String @id @default(cuid())
+  billId String
+  name   String
+  qty    Int
+  unit   String @default("pcs")
+  price  Int    // per unit in rupees
+
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
 }
 
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────
