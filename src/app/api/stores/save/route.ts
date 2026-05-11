@@ -22,7 +22,16 @@ export async function GET(req: NextRequest) {
       include: { user: { select: { phone: true, email: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(stores);
+    // Flatten user.phone/email to top level for admin panel
+    const result = stores.map(({ user, ...s }) => ({
+      ...s,
+      phone:     user?.phone ?? null,
+      email:     user?.email ?? null,
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+      agreedAt:  s.agreedAt?.toISOString() ?? null,
+    }));
+    return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

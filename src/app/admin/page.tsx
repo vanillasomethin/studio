@@ -27,8 +27,8 @@ type Flyer = {
 };
 type StoreReg = {
   id: string; storeName: string; ownerName: string; phone: string;
-  whatsapp: string; locality: string; city: string; pincode: string;
-  lat?: string; lng?: string; createdAt: string;
+  whatsapp: string; address?: string; locality: string; city: string; pincode: string;
+  lat?: string; lng?: string; gstin?: string; email?: string; createdAt: string;
 };
 type Campaign = {
   id: string; brandName: string; contactName: string; email: string;
@@ -335,8 +335,14 @@ function StoresPanel() {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {s.phone || (s.whatsapp ? `+91 ${s.whatsapp}` : '—')}</span>
-                  <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {s.locality || s.city}{s.pincode ? ` — ${s.pincode}` : ''}</span>
+                  <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {[s.address, s.locality, s.city, s.pincode].filter(Boolean).join(', ') || '—'}</span>
                 </div>
+                {(s.gstin || s.email) && (
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/70">
+                    {s.gstin && <span>GST: {s.gstin}</span>}
+                    {s.email && <span>{s.email}</span>}
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}
