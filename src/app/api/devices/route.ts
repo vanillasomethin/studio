@@ -1,12 +1,23 @@
 // GET /api/devices  — list all registered devices with status
+// Status is computed on-read from lastSeen — no cron required.
+// A device is ONLINE if lastSeen within the past 5 minutes, OFFLINE otherwise,
+// PENDING if it has never checked in.
 // Auth: admin-password header
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
   return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
+}
+
+function effectiveStatus(lastSeen: Date | null, dbStatus: string): 'ONLINE' | 'OFFLINE' | 'PENDING' {
+  if (dbStatus === 'PENDING' && !lastSeen) return 'PENDING';
+  if (!lastSeen) return 'OFFLINE';
+  return Date.now() - lastSeen.getTime() < OFFLINE_THRESHOLD_MS ? 'ONLINE' : 'OFFLINE';
 }
 
 export async function GET(req: NextRequest) {
@@ -29,6 +40,7 @@ export async function GET(req: NextRequest) {
     const devices = rows.map((d) => ({
       ...d,
       storeName: d.name,
+      status:    effectiveStatus(d.lastSeen, d.status),
       uptimePct: d.uptimePctD30,
       lastSeen:  d.lastSeen?.toISOString() ?? null,
       claimedAt: d.claimedAt.toISOString(),
