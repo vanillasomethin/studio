@@ -178,6 +178,7 @@ function AgreementContent() {
   const ownerName = params.get('owner')   ?? '______________________';
   const address   = params.get('address') ?? '_____________________________';
   const phone     = params.get('phone')   ?? '';
+  const gstin     = params.get('gstin')   ?? '';
   const today     = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const isPrefilled = params.get('name');
 
@@ -195,7 +196,10 @@ function AgreementContent() {
             >
               Print / Save PDF
             </button>
-            <a href="/store" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to registration</a>
+            <a href="/store" className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+              Back to registration
+            </a>
           </div>
         </div>
       </header>
@@ -265,7 +269,7 @@ function AgreementContent() {
                 {ownerName !== '______________________' && <p className="text-xs mt-0.5">Owner / Authorised Signatory: <strong className="text-foreground">{ownerName}</strong></p>}
                 <p className="text-xs">Operating at: {address}</p>
                 {phone && <p className="text-xs">Contact: +91 {phone}</p>}
-                <p className="text-xs mt-1">Aadhar / Business Reg. / GSTIN: ________________</p>
+                {gstin && <p className="text-xs">GSTIN: <strong className="text-foreground">{gstin}</strong></p>}
                 <p className="text-xs italic mt-0.5">(hereinafter referred to as &ldquo;<strong>Shop Owner</strong>&rdquo; or &ldquo;<strong>Store Partner</strong>&rdquo;)</p>
               </div>
             </div>
@@ -315,70 +319,40 @@ function AgreementContent() {
             </section>
           ))}
 
-          {/* Signature block */}
-          <section id="signatures" className="mt-12">
-            <h2 className="text-base font-bold text-foreground mb-2">Execution</h2>
-            <p className="mb-8 text-sm">
-              IN WITNESS WHEREOF, the parties have read, understood, and executed this Agreement on the date first written above. Both parties confirm that they have had the opportunity to seek independent legal advice before signing.
-            </p>
+          {/* Digital Acceptance */}
+          <section id="acceptance" className="mt-12">
+            <h2 className="text-base font-bold text-foreground mb-4">Digital Acceptance</h2>
 
-            <div className="grid sm:grid-cols-2 gap-8">
-              {/* VS Collective */}
-              <div className="rounded-xl border border-border p-5 space-y-5">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">For VS Collective LLP</p>
-                  <p className="text-sm font-semibold text-foreground">Authorised Signatory</p>
+            <div className="rounded-2xl border-2 border-primary/20 bg-primary/5 p-6 space-y-6">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                This Agreement is executed electronically under the <strong className="text-foreground">Information Technology Act, 2000</strong>. Electronic acceptance via the ALIVE platform constitutes valid execution without the need for physical signatures or witnesses. Both parties confirm they have read and understood all terms above.
+              </p>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                {/* Party A */}
+                <div className="rounded-xl border border-border bg-background p-4 space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Party A — VS Collective LLP</p>
+                  <p className="text-sm font-semibold text-foreground">VS Collective LLP</p>
+                  <p className="text-xs text-muted-foreground">Accepted by: ALIVE Platform</p>
+                  <p className="text-xs text-muted-foreground">Date: {today}</p>
+                  <p className="text-xs text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
                 </div>
-                {(['Signature', 'Name', 'Designation', 'Date'] as const).map((f) => (
-                  <div key={f}>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">{f}</p>
-                    <div className={`border-b border-border ${f === 'Signature' ? 'mt-8' : 'mt-3'}`} />
-                  </div>
-                ))}
-                <div className="rounded-lg border border-dashed border-border h-20 flex items-center justify-center">
-                  <p className="text-xs text-muted-foreground/40">Company Seal</p>
+
+                {/* Party B */}
+                <div className="rounded-xl border border-border bg-background p-4 space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Party B — Store Partner</p>
+                  <p className="text-sm font-semibold text-foreground">{storeName}</p>
+                  {ownerName !== '______________________' && <p className="text-xs text-muted-foreground">Authorised by: {ownerName}</p>}
+                  {phone && <p className="text-xs text-muted-foreground">Phone: +91 {phone}</p>}
+                  {gstin && <p className="text-xs text-muted-foreground">GSTIN: {gstin}</p>}
+                  <p className="text-xs text-muted-foreground">Date of acceptance: {today}</p>
                 </div>
               </div>
 
-              {/* Shop Owner */}
-              <div className="rounded-xl border border-border p-5 space-y-5">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">For Store Partner</p>
-                  <p className="text-sm font-semibold text-foreground">{ownerName !== '______________________' ? ownerName : 'Shop Owner / Authorised Signatory'}</p>
-                </div>
-                {(['Signature', 'Name', 'Date'] as const).map((f) => (
-                  <div key={f}>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">{f}</p>
-                    <div className={`border-b border-border ${f === 'Signature' ? 'mt-8' : 'mt-3'}`} />
-                  </div>
-                ))}
-                <div className="rounded-lg border border-dashed border-border h-20 flex items-center justify-center">
-                  <p className="text-xs text-muted-foreground/40">Shop Seal (if any)</p>
-                </div>
-              </div>
+              <p className="text-xs text-muted-foreground/50 text-center">
+                Document generated by ALIVE Platform · wearealive.in · hello@wearealive.in
+              </p>
             </div>
-
-            {/* Witnesses */}
-            <div className="mt-8">
-              <p className="text-sm font-semibold text-foreground mb-4">Witnesses</p>
-              <div className="grid sm:grid-cols-2 gap-6">
-                {[1, 2].map((n) => (
-                  <div key={n} className="rounded-xl border border-border p-5 space-y-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Witness {n}</p>
-                    {['Name', 'Signature', 'Address', 'Date'].map((f) => (
-                      <div key={f}>
-                        <p className="text-xs font-semibold text-muted-foreground mb-1">{f}</p>
-                        <div className={`border-b border-border ${f === 'Signature' ? 'mt-7' : 'mt-3'}`} />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <p className="mt-8 text-xs text-muted-foreground/50 text-center">
-              Document generated by ALIVE Platform · wearealive.in · hello@wearealive.in
-            </p>
           </section>
         </div>
       </main>

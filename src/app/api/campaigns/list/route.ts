@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { Redis } from '@upstash/redis';
-import type { Campaign } from '../save/route';
-
-function getRedis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
-  return new Redis({
-    url:   process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
-}
+import { db } from '@/lib/db';
 
 export async function GET() {
   const session = await auth();
@@ -17,13 +8,30 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const kv = getRedis();
-  if (!kv) {
-    return NextResponse.json({ campaigns: [] });
-  }
   try {
-    const campaigns = (await kv.get<Campaign[]>(`campaigns:email:${session.user.email}`)) ?? [];
-    return NextResponse.json({ campaigns });
+    const campaigns = await db.campaign.findMany({
+      where:   { email: session.user.email },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const result = campaigns.map((c) => ({
+      id:             c.id,
+      name:           c.name,
+      contactName:    c.contactName,
+      email:          c.email,
+      phone:          c.phone,
+      screens:        c.screens,
+      months:         c.months,
+      startDate:      c.startDate.toISOString(),
+      pricePerScreen: c.pricePerScreen,
+      totalAmount:    c.totalAmount,
+      paymentId:      c.paymentId,
+      orderId:        c.orderId ?? null,
+      status:         c.status,
+      createdAt:      c.createdAt.toISOString(),
+    }));
+
+    return NextResponse.json({ campaigns: result });
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message ?? 'Failed to fetch campaigns' },

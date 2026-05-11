@@ -92,6 +92,7 @@ model Store {
   pincode       String?
   lat           Float?
   lng           Float?
+  gstin         String?
   referralCode  String     @unique
   referredBy    String?
   agreedAt      DateTime?
@@ -126,7 +127,7 @@ model Brand {
 
 model Campaign {
   id              String     @id @default(cuid())
-  brandId         String
+  brandId         String?
   name            String
   contactName     String?
   email           String?
@@ -137,15 +138,17 @@ model Campaign {
   pricePerScreen  Int
   totalAmount     Int
   paymentId       String?
+  orderId         String?
   status          String     @default("upcoming") // upcoming | active | completed | cancelled
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  brand           Brand      @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brand           Brand?     @relation(fields: [brandId], references: [id], onDelete: SetNull)
   playEvents      PlayEvent[]
 
   @@index([brandId])
   @@index([status])
+  @@index([email])
 }
 
 // ─── Devices (screens) ───────────────────────────────────────────────────────
@@ -237,6 +240,7 @@ model Schedule {
   id          String     @id @default(cuid())
   name        String
   playlistId  String
+  priority    Int        @default(0)
   // Either deviceIds OR groupName — group-based scheduling preferred at scale (Xibo pattern)
   deviceIds   String[]   @default([])
   groupName   String?

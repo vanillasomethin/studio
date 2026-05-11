@@ -1,53 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Redis } from '@upstash/redis';
-
-function getRedis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
-  return new Redis({
-    url:   process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
-}
-
-export type Campaign = {
-  id:             string;
-  brandName:      string;
-  contactName:    string;
-  email:          string;
-  phone:          string;
-  gstin:          string;
-  screens:        number;
-  months:         number;
-  startDate:      string;
-  pricePerScreen: number;
-  totalAmount:    number;
-  paymentId:      string;
-  orderId:        string;
-  status:         'upcoming' | 'active' | 'completed';
-  createdAt:      string;
-};
+import { db } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
-  const kv = getRedis();
-  if (!kv) {
-    return NextResponse.json({ success: true, id: 'demo', note: 'KV not configured' });
-  }
   try {
-    const body = await req.json() as Omit<Campaign, 'id' | 'createdAt'>;
-
-    const campaign: Campaign = {
-      ...body,
-      id:        `campaign_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      createdAt: new Date().toISOString(),
+    const body = await req.json() as {
+      brandName:      string;
+      contactName:    string;
+      email:          string;
+      phone:          string;
+      gstin?:         string;
+      screens:        number;
+      months:         number;
+      startDate:      string;
+      pricePerScreen: number;
+      totalAmount:    number;
+      paymentId?:     string;
+      orderId?:       string;
+      status?:        string;
     };
 
-    const key      = `campaigns:email:${body.email}`;
-    const existing = (await kv.get<Campaign[]>(key)) ?? [];
-    await kv.set(key, [campaign, ...existing]);
+    if (!body.email || !body.brandName) {
+      return NextResponse.json({ error: 'brandName and email required' }, { status: 400 });
+    }
 
-    // Also append to global list for admin visibility
-    const allExisting = (await kv.get<Campaign[]>('campaigns:all')) ?? [];
-    await kv.set('campaigns:all', [campaign, ...allExisting]);
+    // Look up brand by email — optional link
+    const brand = await db.brand.findFirst({ where: { email: body.email } });
+
+    const campaign = await db.campaign.create({
+      data: {
+        brandId:        brand?.id ?? null,
+        name:           `${body.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
+        contactName:    body.contactName,
+        email:          body.email,
+        phone:          body.phone ?? undefined,
+        screens:        body.screens    ?? 1,
+        months:         body.months     ?? 1,
+        startDate:      new Date(body.startDate),
+        pricePerScreen: body.pricePerScreen,
+        totalAmount:    body.totalAmount,
+        paymentId:      body.paymentId  ?? null,
+        orderId:        body.orderId    ?? null,
+        status:         body.status     ?? 'upcoming',
+      },
+    });
 
     return NextResponse.json({ success: true, id: campaign.id });
   } catch (e) {

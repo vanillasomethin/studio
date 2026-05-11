@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { signedUploadUrl } from '@/lib/r2';
+import { signedUploadUrl, publicUrl } from '@/lib/r2';
 import { randomUUID } from 'crypto';
 
 function adminGuard(req: NextRequest) {
@@ -16,8 +16,13 @@ function adminGuard(req: NextRequest) {
 export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const rows    = await db.content.findMany({ orderBy: { createdAt: 'desc' } });
-    const content = rows.map((c) => ({ ...c, url: publicUrl(c.objectKey) }));
+    const rows    = await db.content.findMany({ orderBy: { uploadedAt: 'desc' } });
+    const content = rows.map((c) => ({
+      ...c,
+      type:      c.type.toLowerCase() as 'image' | 'video',
+      url:       publicUrl(c.objectKey),
+      createdAt: c.uploadedAt.toISOString(),
+    }));
     return NextResponse.json({ content });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -41,11 +46,12 @@ export async function POST(req: NextRequest) {
     const ext       = type === 'video' ? 'mp4' : 'jpg';
     const objectKey = `content/${randomUUID()}.${ext}`;
     const contentType = type === 'video' ? 'video/mp4' : 'image/jpeg';
+    const dbType    = type === 'video' ? 'VIDEO' : 'IMAGE';
 
     const uploadUrl = await signedUploadUrl(objectKey, contentType, 900); // 15 min
 
     const content = await db.content.create({
-      data: { name, type, objectKey, md5, sizeBytes, durationMs: durationMs ?? null },
+      data: { name, type: dbType, objectKey, md5, sizeBytes, durationMs: durationMs ?? null },
     });
 
     return NextResponse.json({ id: content.id, uploadUrl, objectKey });
