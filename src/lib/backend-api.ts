@@ -122,7 +122,7 @@ export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
 
 export const initiateUpload = (body: {
-  name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; durationMs?: number;
+  name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; mimeType?: string; durationMs?: number;
 }) =>
   apiFetch<{ id: string; uploadUrl: string; objectKey: string }>('/api/content', {
     method: 'POST',

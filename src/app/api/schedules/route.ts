@@ -14,10 +14,17 @@ function adminGuard(req: NextRequest) {
 export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const schedules = await db.schedule.findMany({
+    const rows = await db.schedule.findMany({
       include: { playlist: { select: { name: true } } },
       orderBy: { startAt: 'desc' },
     });
+    const schedules = rows.map((s) => ({
+      ...s,
+      recurrence: s.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
+      startAt:    s.startAt.toISOString(),
+      endAt:      s.endAt.toISOString(),
+      createdAt:  s.createdAt.toISOString(),
+    }));
     return NextResponse.json({ schedules });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -64,7 +71,14 @@ export async function POST(req: NextRequest) {
       include: { playlist: { select: { name: true } } },
     });
 
-    return NextResponse.json({ schedule });
+    const norm = {
+      ...schedule,
+      recurrence: schedule.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
+      startAt:    schedule.startAt.toISOString(),
+      endAt:      schedule.endAt.toISOString(),
+      createdAt:  schedule.createdAt.toISOString(),
+    };
+    return NextResponse.json({ schedule: norm });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
