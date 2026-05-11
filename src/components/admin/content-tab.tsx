@@ -16,10 +16,14 @@ function fmtDate(iso: string) {
 }
 
 async function md5Hex(file: File): Promise<string> {
-  const buf    = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest('MD5', buf).catch(() => null);
-  if (!digest) return `nohash-${Date.now()}`;
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  // Web Crypto doesn't support MD5; use SHA-256 truncated to 32 hex chars as cache key
+  try {
+    const buf    = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(digest)).slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return `nohash-${Date.now()}`;
+  }
 }
 
 type UploadState = { name: string; progress: number; done: boolean; error?: string };
@@ -67,6 +71,7 @@ export default function ContentTab() {
         const { uploadUrl } = await initiateUpload({
           name:      file.name.replace(/\.[^.]+$/, ''),
           type:      isVideo ? 'video' : 'image',
+          mimeType:  file.type || undefined,
           sizeBytes: file.size,
           md5:       hash,
         });
@@ -82,7 +87,7 @@ export default function ContentTab() {
           xhr.onload  = () => (xhr.status < 300 ? resolve() : reject(new Error(`R2 ${xhr.status}`)));
           xhr.onerror = () => reject(new Error('Network error'));
           xhr.open('PUT', uploadUrl);
-          xhr.setRequestHeader('Content-Type', file.type);
+          if (file.type) xhr.setRequestHeader('Content-Type', file.type);
           xhr.send(file);
         });
 

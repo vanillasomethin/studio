@@ -12,11 +12,13 @@ export async function GET() {
     const campaigns = await db.campaign.findMany({
       where:   { email: session.user.email },
       orderBy: { createdAt: 'desc' },
+      include: { brand: { select: { brandName: true } } },
     });
 
     const result = campaigns.map((c) => ({
       id:             c.id,
       name:           c.name,
+      brandName:      c.brand?.brandName ?? c.name.split(' — ')[0],
       contactName:    c.contactName,
       email:          c.email,
       phone:          c.phone,
@@ -39,3 +41,4 @@ export async function GET() {
     );
   }
 }
+

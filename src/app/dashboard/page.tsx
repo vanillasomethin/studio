@@ -41,16 +41,18 @@ const CHART_COLORS = [
   'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))',
 ];
 
-const STATUS_STYLES: Record<Campaign['status'], string> = {
-  upcoming:  'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  active:    'bg-green-500/15 text-green-400 border-green-500/20',
-  completed: 'bg-muted text-muted-foreground border-border',
+const STATUS_STYLES: Record<string, string> = {
+  upcoming:        'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  active:          'bg-green-500/15 text-green-400 border-green-500/20',
+  completed:       'bg-muted text-muted-foreground border-border',
+  pending_payment: 'bg-amber-500/15 text-amber-500 border-amber-500/20',
 };
 
-const STATUS_ICONS: Record<Campaign['status'], React.ReactNode> = {
-  upcoming:  <Clock        className="h-3 w-3" />,
-  active:    <CheckCircle2 className="h-3 w-3" />,
-  completed: <AlertCircle  className="h-3 w-3" />,
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  upcoming:        <Clock        className="h-3 w-3" />,
+  active:          <CheckCircle2 className="h-3 w-3" />,
+  completed:       <AlertCircle  className="h-3 w-3" />,
+  pending_payment: <CreditCard   className="h-3 w-3" />,
 };
 
 function deriveCampaignStatus(c: Campaign): Campaign['status'] {
@@ -313,26 +315,21 @@ function PendingPaymentCard({
         order_id: body.id,
         handler: async (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
           const verify = await fetch('/api/razorpay/verify-payment', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...response,
+              campaign: { ...pending, pricePerScreen, totalAmount: total },
+            }),
           });
           const result = await verify.json() as { success: boolean };
           if (!result.success) { setError('Payment verification failed. Contact hello@wearealive.in.'); setLoading(false); return; }
-
-          const saveRes = await fetch('/api/campaigns/save', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ...pending, pricePerScreen, totalAmount: total,
-              paymentId: response.razorpay_payment_id,
-              orderId:   response.razorpay_order_id,
-              status:    'upcoming',
-            }),
-          });
-          const saved = await saveRes.json() as { id?: string };
           localStorage.removeItem(PENDING_KEY);
           const newCampaign: Campaign = {
-            id: saved.id ?? `campaign_${Date.now()}`, ...pending, pricePerScreen,
-            totalAmount: total, paymentId: response.razorpay_payment_id,
-            orderId: response.razorpay_order_id, status: 'upcoming',
+            id: `campaign_${Date.now()}`, ...pending, brandName: pending.brandName,
+            pricePerScreen, totalAmount: total,
+            paymentId: response.razorpay_payment_id,
+            orderId:   response.razorpay_order_id,
+            status:    'active',
             createdAt: new Date().toISOString(),
           };
           onPaid(newCampaign);

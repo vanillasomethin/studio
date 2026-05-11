@@ -32,20 +32,25 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { name, type, sizeBytes, md5, durationMs } = await req.json() as {
+    const { name, type, sizeBytes, md5, durationMs, mimeType } = await req.json() as {
       name: string;
       type: 'image' | 'video';
       sizeBytes: number;
       md5: string;
       durationMs?: number;
+      mimeType?: string;
     };
     if (!name || !type || !sizeBytes || !md5) {
       return NextResponse.json({ error: 'name, type, sizeBytes, md5 required' }, { status: 400 });
     }
 
-    const ext       = type === 'video' ? 'mp4' : 'jpg';
-    const objectKey = `content/${randomUUID()}.${ext}`;
-    const contentType = type === 'video' ? 'video/mp4' : 'image/jpeg';
+    const MIME_TO_EXT: Record<string, string> = {
+      'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    };
+    const ext         = MIME_TO_EXT[mimeType ?? ''] ?? (type === 'video' ? 'mp4' : 'jpg');
+    const contentType = mimeType ?? (type === 'video' ? 'video/mp4' : 'image/jpeg');
+    const objectKey   = `content/${randomUUID()}.${ext}`;
     const dbType    = type === 'video' ? 'VIDEO' : 'IMAGE';
 
     const uploadUrl = await signedUploadUrl(objectKey, contentType, 900); // 15 min

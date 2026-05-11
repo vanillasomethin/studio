@@ -5,20 +5,38 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { publicUrl } from '@/lib/r2';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
   return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizePlaylist(pl: any) {
+  return {
+    ...pl,
+    createdAt: (pl.createdAt as Date).toISOString(),
+    items: (pl.items ?? []).map((item: any) => ({
+      ...item,
+      content: {
+        ...item.content,
+        type:      (item.content.type as string).toLowerCase() as 'image' | 'video',
+        url:       publicUrl(item.content.objectKey as string),
+        createdAt: (item.content.uploadedAt as Date).toISOString(),
+      },
+    })),
+  };
+}
+
 export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const playlists = await db.playlist.findMany({
+    const rows = await db.playlist.findMany({
       include: { items: { include: { content: true }, orderBy: { order: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json({ playlists });
+    return NextResponse.json({ playlists: rows.map(normalizePlaylist) });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
@@ -47,7 +65,7 @@ export async function POST(req: NextRequest) {
       include: { items: { include: { content: true }, orderBy: { order: 'asc' } } },
     });
 
-    return NextResponse.json({ playlist });
+    return NextResponse.json({ playlist: normalizePlaylist(playlist) });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
