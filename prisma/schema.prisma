@@ -185,10 +185,91 @@ model Device {
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
   events       PlayEvent[]
+  telemetryEvents TelemetryEvent[]
+  remediationTickets RemediationTicket[]
 
   @@index([storeId])
   @@index([groupName])
   @@index([status])
+}
+
+enum RemediationTicketStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum RemediationActionType {
+  CONFIG_CHANGE
+  ROLLBACK
+  PATCH_TARGET
+}
+
+enum RemediationApplyMode {
+  AUTO
+  REQUIRES_APPROVAL
+}
+
+model RemediationTicket {
+  id                 String                  @id @default(cuid())
+  deviceId           String
+  status             RemediationTicketStatus @default(OPEN)
+  triggerType        String
+  severity           String                  @default("medium")
+  triggerWindowStart DateTime?
+  triggerWindowEnd   DateTime?
+  snapshot           Json
+  createdAt          DateTime                @default(now())
+  resolvedAt         DateTime?
+
+  device             Device                  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  proposals          RemediationProposal[]
+
+  @@index([deviceId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model RemediationProposal {
+  id               String               @id @default(cuid())
+  ticketId         String
+  rank             Int
+  actionType       RemediationActionType
+  title            String
+  rationale        String
+  proposedChange   Json
+  confidence       Float
+  blastRadius      String
+  blastRadiusScore Int                  @default(1)
+  applyMode        RemediationApplyMode
+  requiresApproval Boolean              @default(false)
+  approvalState    String               @default("PENDING")
+  prHookState      String               @default("NOT_REQUESTED")
+  createdAt        DateTime             @default(now())
+
+  ticket           RemediationTicket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, rank])
+  @@index([actionType, applyMode])
+}
+
+model TelemetryEvent {
+  id            String   @id @default(cuid())
+  route         String
+  level         String   @default("error")
+  errorClass    String?
+  message       String
+  stackHash     String?
+  correlationId String
+  actorType     String
+  requestMeta   Json?
+  createdAt     DateTime @default(now())
+  deviceId      String?
+
+  device        Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([route, createdAt])
+  @@index([correlationId])
+  @@index([deviceId])
 }
 
 // ─── Content + Playlists + Schedules ─────────────────────────────────────────

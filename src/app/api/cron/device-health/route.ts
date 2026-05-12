@@ -8,6 +8,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+const UPTIME_DROP_THRESHOLD_PCT = 15;
+const OFFLINE_TRANSITION_THRESHOLD = 3;
+const MISSING_HEARTBEAT_WINDOWS_THRESHOLD = 3;
+const HEARTBEAT_WINDOW_MS = 10 * 60 * 1000;
+
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization') ?? '';
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -31,8 +36,10 @@ export async function GET(req: NextRequest) {
     // 2. Recalculate rolling 30-day uptime for all non-PENDING devices
     const devices = await db.device.findMany({
       where:  { status: { not: 'PENDING' } },
-      select: { id: true, claimedAt: true },
+      select: { id: true, claimedAt: true, uptimePctD30: true, status: true, lastSeen: true, groupName: true, storeId: true },
     });
+
+    let createdTickets = 0;
 
     for (const device of devices) {
       const windowStart = device.claimedAt > thirtyDaysAgo ? device.claimedAt : thirtyDaysAgo;
@@ -52,9 +59,76 @@ export async function GET(req: NextRequest) {
         where: { id: device.id },
         data:  { uptimePctD30 },
       });
+
+      const uptimeDropBreached = (device.uptimePctD30 ?? uptimePctD30) - uptimePctD30 > UPTIME_DROP_THRESHOLD_PCT;
+
+      const [offlineTransitions, recentEventsCount, unresolvedTicket] = await Promise.all([
+        db.playEvent.count({
+          where: {
+            deviceId: device.id,
+            startedAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+            tag: 'OFFLINE_TRANSITION',
+          },
+        }),
+        db.playEvent.count({
+          where: {
+            deviceId: device.id,
+            startedAt: { gte: new Date(now.getTime() - HEARTBEAT_WINDOW_MS * MISSING_HEARTBEAT_WINDOWS_THRESHOLD) },
+          },
+        }),
+        db.remediationTicket.findFirst({
+          where: { deviceId: device.id, status: 'OPEN' },
+          select: { id: true },
+        }),
+      ]);
+
+      const msSinceLastSeen = device.lastSeen ? now.getTime() - device.lastSeen.getTime() : Number.MAX_SAFE_INTEGER;
+      const missingHeartbeatWindows = Math.floor(msSinceLastSeen / HEARTBEAT_WINDOW_MS);
+      const missingHeartbeatBreached = missingHeartbeatWindows >= MISSING_HEARTBEAT_WINDOWS_THRESHOLD;
+      const offlineTransitionsBreached = offlineTransitions >= OFFLINE_TRANSITION_THRESHOLD;
+
+      if ((uptimeDropBreached || missingHeartbeatBreached || offlineTransitionsBreached) && !unresolvedTicket) {
+        const triggerType = uptimeDropBreached
+          ? 'UPTIME_DROP'
+          : missingHeartbeatBreached
+            ? 'MISSING_HEARTBEATS'
+            : 'REPEATED_OFFLINE_TRANSITIONS';
+
+        await db.remediationTicket.create({
+          data: {
+            deviceId: device.id,
+            triggerType,
+            severity: missingHeartbeatWindows >= 6 ? 'high' : 'medium',
+            triggerWindowStart: windowStart,
+            triggerWindowEnd: now,
+            snapshot: {
+              device: {
+                id: device.id,
+                status: device.status,
+                lastSeen: device.lastSeen,
+                groupName: device.groupName,
+                storeId: device.storeId,
+              },
+              metrics: {
+                previousUptimePctD30: device.uptimePctD30,
+                computedUptimePctD30: uptimePctD30,
+                missingHeartbeatWindows,
+                offlineTransitions,
+                recentEventsCount,
+              },
+              thresholds: {
+                uptimeDropPct: UPTIME_DROP_THRESHOLD_PCT,
+                offlineTransitions: OFFLINE_TRANSITION_THRESHOLD,
+                missingHeartbeatWindows: MISSING_HEARTBEAT_WINDOWS_THRESHOLD,
+              },
+            },
+          },
+        });
+        createdTickets++;
+      }
     }
 
-    return NextResponse.json({ ok: true, markedOffline, updatedUptime: devices.length });
+    return NextResponse.json({ ok: true, markedOffline, updatedUptime: devices.length, createdTickets });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
