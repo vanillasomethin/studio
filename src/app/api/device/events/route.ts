@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyDeviceToken } from '@/lib/device-auth';
 import crypto from 'crypto';
+import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -49,6 +50,8 @@ function computeRowHash(id: string, deviceId: string, mediaId: string, startedAt
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
+  const route = '/api/device/events';
   const device = await authenticate(req);
   if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -113,6 +116,17 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ accepted });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    await recordError({
+      route,
+      errorClass: error.name,
+      message: error.message,
+      stackHash: hashStack(error.stack),
+      requestMeta: { correlationId, method: req.method },
+      actorType: 'device',
+      deviceId: device.id,
+      correlationId,
+    });
+    return NextResponse.json({ error: error.message, correlationId }, { status: 500 });
   }
 }

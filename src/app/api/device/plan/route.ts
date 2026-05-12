@@ -7,9 +7,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyDeviceToken } from '@/lib/device-auth';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
+import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 
 async function authenticate(req: NextRequest) {
   const auth  = req.headers.get('authorization') ?? '';
@@ -39,6 +39,8 @@ async function authenticate(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
+  const route = '/api/device/plan';
   const device = await authenticate(req);
   if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -100,6 +102,17 @@ export async function GET(req: NextRequest) {
       items,
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    await recordError({
+      route,
+      errorClass: error.name,
+      message: error.message,
+      stackHash: hashStack(error.stack),
+      requestMeta: { correlationId, method: req.method },
+      actorType: 'device',
+      deviceId: device.id,
+      correlationId,
+    });
+    return NextResponse.json({ error: error.message, correlationId }, { status: 500 });
   }
 }

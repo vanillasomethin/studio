@@ -7,10 +7,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { signDeviceToken } from '@/lib/device-auth';
 import crypto from 'crypto';
 
 export async function POST(req: NextRequest) {
+  const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
+  const route = '/api/device/claim';
   try {
     const { hardwareKey, name, groupName } = await req.json() as {
       hardwareKey: string;
@@ -42,6 +45,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ deviceId: device.id, token });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    await recordError({ route, errorClass: error.name, message: error.message, stackHash: hashStack(error.stack), requestMeta: { correlationId, method: req.method }, actorType: 'device', correlationId });
+    return NextResponse.json({ error: error.message, correlationId }, { status: 500 });
   }
 }

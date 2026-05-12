@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -12,7 +13,9 @@ function adminGuard(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
+  const route = '/api/events';
+  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized', correlationId }, { status: 401 });
 
   const p          = req.nextUrl.searchParams;
   const deviceId   = p.get('deviceId')   ?? undefined;
@@ -45,6 +48,16 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ events: page, nextCursor });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    await recordError({
+      route,
+      errorClass: error.name,
+      message: error.message,
+      stackHash: hashStack(error.stack),
+      requestMeta: { correlationId, method: req.method },
+      actorType: 'admin',
+      correlationId,
+    });
+    return NextResponse.json({ error: error.message, correlationId }, { status: 500 });
   }
 }
