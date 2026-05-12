@@ -47,6 +47,17 @@ const PAY_LABELS: Record<string, string> = {
   cash: 'Cash', upi: 'UPI', card: 'Card', khata: 'Khata',
 };
 
+
+function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="Flyer" className="max-h-[90vh] max-w-full rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+      <button onClick={onClose} className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">✕</button>
+    </div>
+  );
+}
+
 // ─── Login form ───────────────────────────────────────────────────────────────
 
 function LoginPrompt({ onSession }: { onSession: (s: CustomerSession) => void }) {
@@ -139,6 +150,7 @@ function Dashboard({ session, onLogout }: { session: CustomerSession; onLogout: 
   const [bills,   setBills]   = useState<Bill[]>([]);
   const [flyers,  setFlyers]  = useState<Flyer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modal,   setModal]   = useState<string | null>(null);
 
   const firstName = session.name?.split(' ')[0] ?? 'there';
 
@@ -177,6 +189,8 @@ function Dashboard({ session, onLogout }: { session: CustomerSession; onLogout: 
           </button>
         </div>
       </header>
+
+      {modal && <ImageModal src={modal} onClose={() => setModal(null)} />}
 
       <main className="mx-auto max-w-lg px-4 py-5 space-y-4">
 
@@ -264,7 +278,7 @@ function Dashboard({ session, onLogout }: { session: CustomerSession; onLogout: 
               {flyers.map((f) => {
                 const img = resolveImage(f.imageBase64);
                 return (
-                  <div key={f.id} className="rounded-xl bg-white border border-gray-200 overflow-hidden">
+                  <div key={f.id} className="rounded-xl bg-white border border-gray-200 overflow-hidden cursor-pointer" onClick={() => img && setModal(img)}>
                     {img ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={img} alt={f.title} className="w-full aspect-video object-cover" />

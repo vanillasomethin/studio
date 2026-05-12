@@ -20,12 +20,14 @@ type Form = {
   address: string; locality: string; city: string; pincode: string;
   lat: string; lng: string; referredBy: string; gstin: string;
   offers: OfferInput[];
+  payoutMethod: string; upiId: string; bankAccountName: string; bankAccountNo: string; bankIfsc: string; bankName: string;
 };
 const INIT: Form = {
   storeName: '', ownerName: '', whatsapp: '', password: '',
   address: '', locality: '', city: '', pincode: '', lat: '', lng: '',
   referredBy: '', gstin: '',
   offers: [{ productName: '', weight: '', mrp: '', offerPrice: '' }],
+  payoutMethod: 'upi', upiId: '', bankAccountName: '', bankAccountNo: '', bankIfsc: '', bankName: '',
 };
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
@@ -435,6 +437,25 @@ function RegistrationForm() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Rewards deposit details */}
+      <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/70 p-3">
+        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Rewards deposit details</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => set('payoutMethod', 'upi')} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${form.payoutMethod === 'upi' ? 'border-red-400 bg-red-50 text-red-600' : 'border-gray-200 bg-white text-gray-600'}`}>UPI</button>
+          <button type="button" onClick={() => set('payoutMethod', 'bank')} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${form.payoutMethod === 'bank' ? 'border-red-400 bg-red-50 text-red-600' : 'border-gray-200 bg-white text-gray-600'}`}>Bank transfer</button>
+        </div>
+        {form.payoutMethod === 'upi' ? (
+          <input value={form.upiId} onChange={(e) => set('upiId', e.target.value)} placeholder="UPI ID (e.g. name@okaxis)" className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input value={form.bankAccountName} onChange={(e) => set('bankAccountName', e.target.value)} placeholder="Account holder name" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
+            <input value={form.bankName} onChange={(e) => set('bankName', e.target.value)} placeholder="Bank name" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
+            <input value={form.bankAccountNo} onChange={(e) => set('bankAccountNo', e.target.value)} placeholder="Account number" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
+            <input value={form.bankIfsc} onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())} placeholder="IFSC code" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
+          </div>
+        )}
       </div>
 
       {/* Referral code */}

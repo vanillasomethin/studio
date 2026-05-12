@@ -37,6 +37,17 @@ function resolveImage(raw: string): string {
   return `data:image/jpeg;base64,${raw}`;
 }
 
+
+function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="Flyer" className="max-h-[90vh] max-w-full rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+      <button onClick={onClose} className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">✕</button>
+    </div>
+  );
+}
+
 // ─── Skeleton card ────────────────────────────────────────────────────────────
 
 function SkeletonCard() {
@@ -56,13 +67,14 @@ function SkeletonCard() {
 
 // ─── Flyer card ───────────────────────────────────────────────────────────────
 
-function FlyerCard({ flyer }: { flyer: Flyer }) {
+function FlyerCard({ flyer, onOpen }: { flyer: Flyer; onOpen: (src: string) => void }) {
   const imgSrc = resolveImage(flyer.imageBase64);
 
   return (
     <motion.div
       variants={fadeUp}
-      className="rounded-xl border border-border bg-card overflow-hidden flex flex-col hover:border-primary/30 transition-colors"
+      className="rounded-xl border border-border bg-card overflow-hidden flex flex-col hover:border-primary/30 transition-colors cursor-pointer"
+      onClick={() => imgSrc && onOpen(imgSrc)}
     >
       {imgSrc ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -114,6 +126,7 @@ export default function DealsPage() {
   const [flyers,  setFlyers]  = useState<Flyer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [modal,   setModal]   = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +157,8 @@ export default function DealsPage() {
           </a>
         </div>
       </header>
+
+      {modal && <ImageModal src={modal} onClose={() => setModal(null)} />}
 
       <main className="flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-10 sm:py-14">
 
@@ -191,7 +206,7 @@ export default function DealsPage() {
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
           >
             {flyers.map((flyer) => (
-              <FlyerCard key={flyer.id} flyer={flyer} />
+              <FlyerCard key={flyer.id} flyer={flyer} onOpen={setModal} />
             ))}
           </motion.div>
         )}
