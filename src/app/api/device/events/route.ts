@@ -12,6 +12,7 @@ import { db } from '@/lib/db';
 import { verifyDeviceToken } from '@/lib/device-auth';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
+import { respond } from '@/lib/api-envelope';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -50,15 +51,20 @@ function computeRowHash(id: string, deviceId: string, mediaId: string, startedAt
 }
 
 export async function POST(req: NextRequest) {
+  const startedAtMs = Date.now();
   const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
   const route = '/api/device/events';
   const device = await authenticate(req);
-  if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!device) {
+    const envelope = await respond({ error: 'Unauthorized' }, { route, request: { correlationId }, outcome: 'unauthorized', policyFlags: ['auth_failed'], errorCategory: 'auth' });
+    return NextResponse.json(envelope, { status: 401 });
+  }
 
   try {
     const { events } = await req.json() as { events: PlayEventInput[] };
     if (!Array.isArray(events) || events.length === 0) {
-      return NextResponse.json({ accepted: 0 });
+      const envelope = await respond({ accepted: 0 }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'invalid_request', policyFlags: ['empty_batch'], errorCategory: 'validation', startedAtMs });
+      return NextResponse.json(envelope);
     }
 
     // Cap batch size to prevent abuse
@@ -114,7 +120,8 @@ export async function POST(req: NextRequest) {
       data:  { lastSeen: new Date(), status: 'ONLINE' },
     });
 
-    return NextResponse.json({ accepted });
+    const envelope = await respond({ accepted }, { route, request: { correlationId, eventsCount: batch.length }, outcome: 'success', policyFlags: [], startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
     const error = e as Error;
     await recordError({
@@ -127,6 +134,7 @@ export async function POST(req: NextRequest) {
       deviceId: device.id,
       correlationId,
     });
-    return NextResponse.json({ error: error.message, correlationId }, { status: 500 });
+    const envelope = await respond({ error: error.message, correlationId }, { route, request: { correlationId }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }
