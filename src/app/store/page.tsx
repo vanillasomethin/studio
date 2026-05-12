@@ -13,15 +13,19 @@ import MapPicker from '@/components/map-picker';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+type OfferInput = { productName: string; weight: string; mrp: string; offerPrice: string };
+
 type Form = {
   storeName: string; ownerName: string; whatsapp: string; password: string;
   address: string; locality: string; city: string; pincode: string;
   lat: string; lng: string; referredBy: string; gstin: string;
+  offers: OfferInput[];
 };
 const INIT: Form = {
   storeName: '', ownerName: '', whatsapp: '', password: '',
   address: '', locality: '', city: '', pincode: '', lat: '', lng: '',
   referredBy: '', gstin: '',
+  offers: [{ productName: '', weight: '', mrp: '', offerPrice: '' }],
 };
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
@@ -245,6 +249,14 @@ function RegistrationForm() {
   }, [form]);
 
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const setOffer = (idx: number, key: keyof OfferInput, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      offers: prev.offers.map((offer, i) => (i === idx ? { ...offer, [key]: value } : offer)),
+    }));
+  };
+  const addOffer = () => setForm((prev) => ({ ...prev, offers: [...prev.offers, { productName: '', weight: '', mrp: '', offerPrice: '' }] }));
+  const removeOffer = (idx: number) => setForm((prev) => ({ ...prev, offers: prev.offers.filter((_, i) => i !== idx) }));
   const errors    = useMemo(() => validate(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
 
@@ -397,6 +409,32 @@ function RegistrationForm() {
           ? <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('gstin')}</p>
           : <p className="text-[10px] text-gray-400">Enter your shop&apos;s GST number if registered.</p>
         }
+      </div>
+
+
+
+      {/* Offers section */}
+      <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/70 p-3">
+        <div className="flex items-center justify-between">
+          <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Current offers (optional)</label>
+          <button type="button" onClick={addOffer} className="text-[11px] font-semibold text-red-500 hover:text-red-600">+ Add offer</button>
+        </div>
+        <p className="text-[10px] text-gray-400">Add products customers can see in offers: product name, weight, MRP and offer price.</p>
+        <div className="space-y-2">
+          {form.offers.map((offer, idx) => (
+            <div key={idx} className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg border border-gray-200 bg-white p-2">
+              <input value={offer.productName} onChange={(e) => setOffer(idx, 'productName', e.target.value)} placeholder="Product name" className="px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
+              <input value={offer.weight} onChange={(e) => setOffer(idx, 'weight', e.target.value)} placeholder="Weight (e.g. 1kg)" className="px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
+              <input value={offer.mrp} onChange={(e) => setOffer(idx, 'mrp', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="MRP" className="px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
+              <div className="flex gap-2">
+                <input value={offer.offerPrice} onChange={(e) => setOffer(idx, 'offerPrice', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="Offer price" className="min-w-0 w-full px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
+                {form.offers.length > 1 && (
+                  <button type="button" onClick={() => removeOffer(idx)} className="px-2 text-[11px] text-gray-500 hover:text-red-600">Remove</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Referral code */}
