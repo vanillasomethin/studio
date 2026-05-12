@@ -461,3 +461,27 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+model ContextSyncState {
+  key       String   @id
+  watermark DateTime
+  updatedAt DateTime @updatedAt
+}
+
+model ContextDocument {
+  id          String   @id @default(cuid())
+  sourceType  String
+  sourceId    String
+  timestamp   DateTime
+  actors      String[]
+  serviceArea String
+  summary     String
+  rawRef      String
+  embedding   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([timestamp])
+  @@index([serviceArea])
+}
