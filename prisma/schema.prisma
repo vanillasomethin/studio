@@ -96,6 +96,16 @@ model Store {
   referralCode  String     @unique
   referredBy    String?
   agreedAt      DateTime?
+  onboardingStage String    @default("new") // new | physically_onboarded | digitally_onboarded | live
+  payoutStatus    String    @default("pending_setup") // pending_setup | ready | paid | on_hold
+  payoutMethod    String?   // upi | bank
+  upiId           String?
+  bankAccountName String?
+  bankAccountNo   String?
+  bankIfsc        String?
+  bankName        String?
+  payoutLastPaidAt DateTime?
+  payoutNotes      String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

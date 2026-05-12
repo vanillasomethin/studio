@@ -29,6 +29,9 @@ type StoreReg = {
   id: string; storeName: string; ownerName: string; phone: string;
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
   lat?: string; lng?: string; gstin?: string; email?: string; createdAt: string;
+  onboardingStage?: string; payoutStatus?: string; payoutMethod?: string; upiId?: string;
+  bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
+  payoutLastPaidAt?: string | null; payoutNotes?: string | null;
 };
 type Campaign = {
   id: string; brandName: string; contactName: string; email: string;
@@ -92,7 +95,8 @@ function fmtDate(iso: string) {
 }
 function resolveImage(raw: string): string {
   if (!raw) return '';
-  return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+  if (raw.startsWith('data:') || raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('//')) return raw;
+  return `data:image/jpeg;base64,${raw}`;
 }
 function fmt(n: number) { return `₹${n.toLocaleString('en-IN')}`; }
 
@@ -296,6 +300,27 @@ function StoresPanel() {
       .finally(() => setLoading(false));
   }, []);
 
+  const saveStore = async (store: StoreReg) => {
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    const res = await fetch(`/api/stores/${store.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'admin-password': pw },
+      body: JSON.stringify({
+        onboardingStage: store.onboardingStage,
+        payoutStatus: store.payoutStatus,
+        payoutMethod: store.payoutMethod,
+        upiId: store.upiId,
+        bankAccountName: store.bankAccountName,
+        bankAccountNo: store.bankAccountNo,
+        bankIfsc: store.bankIfsc,
+        bankName: store.bankName,
+        payoutLastPaidAt: store.payoutLastPaidAt || null,
+        payoutNotes: store.payoutNotes || null,
+      }),
+    });
+    if (!res.ok) throw new Error('Save failed');
+  };
+
   const filtered = stores.filter((s) =>
     !search ||
     s.storeName.toLowerCase().includes(search.toLowerCase()) ||
@@ -343,6 +368,23 @@ function StoresPanel() {
                     {s.email && <span>{s.email}</span>}
                   </div>
                 )}
+
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <select value={s.onboardingStage ?? 'new'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, onboardingStage: e.target.value } : x))} className={inp}>
+                    <option value="new">New</option><option value="physically_onboarded">Physically onboarded</option><option value="digitally_onboarded">Digitally onboarded</option><option value="live">Live</option>
+                  </select>
+                  <select value={s.payoutStatus ?? 'pending_setup'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutStatus: e.target.value } : x))} className={inp}>
+                    <option value="pending_setup">Payout setup pending</option><option value="ready">Ready for payout</option><option value="paid">Paid</option><option value="on_hold">On hold</option>
+                  </select>
+                  <input value={s.upiId ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, upiId: e.target.value, payoutMethod: 'upi' } : x))} placeholder="UPI ID" className={inp} />
+                  <input value={s.bankAccountNo ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, bankAccountNo: e.target.value, payoutMethod: 'bank' } : x))} placeholder="Bank account no" className={inp} />
+                  <input value={s.bankIfsc ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, bankIfsc: e.target.value.toUpperCase(), payoutMethod: 'bank' } : x))} placeholder="IFSC" className={inp} />
+                  <input type="date" value={s.payoutLastPaidAt ? String(s.payoutLastPaidAt).slice(0, 10) : ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutLastPaidAt: e.target.value || null } : x))} className={inp} />
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input value={s.payoutNotes ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutNotes: e.target.value } : x))} placeholder="Payout notes" className={inp} />
+                  <button type="button" onClick={() => void saveStore(s)} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white">Save</button>
+                </div>
               </div>
             </motion.div>
           ))}
