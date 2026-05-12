@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     const scheduleOrFilters: Array<Record<string, unknown>> = [{ deviceIds: { has: ticket.deviceId } }];
     if (ticket.device.groupName) scheduleOrFilters.push({ groupName: ticket.device.groupName });
 
-    const [recentEvents, schedules, existingProposals] = await Promise.all([
+    const [recentEvents, schedules, externalSignals, existingProposals] = await Promise.all([
       db.playEvent.findMany({
         where: { deviceId: ticket.deviceId, startedAt: { gte: lookback } },
         orderBy: { startedAt: 'desc' },
@@ -109,6 +109,11 @@ export async function POST(req: NextRequest) {
         where: { OR: scheduleOrFilters },
         orderBy: { updatedAt: 'desc' },
         take: 20,
+      }),
+      db.externalSignal.findMany({
+        where: { expiresAt: { gt: now } },
+        orderBy: [{ severity: 'desc' }, { observedAt: 'desc' }],
+        take: 12,
       }),
       db.remediationProposal.count({ where: { ticketId: ticket.id } }),
     ]);
@@ -126,6 +131,7 @@ export async function POST(req: NextRequest) {
       },
       recentEvents,
       schedules,
+      externalSignals,
     };
 
     const options = await askDiagnosticAgent(context);

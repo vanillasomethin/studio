@@ -27,9 +27,9 @@ export const QUERY_SCHEMA = {
     },
     finance_ops: {
       description: 'Store payouts and revenue proxies.',
-      metrics: ['stores_ready_for_payout', 'stores_paid', 'stores_on_hold', 'campaign_revenue_proxy', 'bill_revenue_proxy'],
-      groupBy: ['payoutStatus', 'city', 'day'],
-      filters: ['payoutStatus', 'city'],
+      metrics: ['stores_ready_for_payout', 'stores_paid', 'stores_on_hold', 'campaign_revenue_proxy', 'bill_revenue_proxy', 'high_risk_external_signals', 'avg_external_confidence'],
+      groupBy: ['payoutStatus', 'city', 'day', 'severity'],
+      filters: ['payoutStatus', 'city', 'source', 'severity'],
       timeField: 'createdAt/payoutLastPaidAt',
     },
   },
@@ -161,20 +161,29 @@ export async function runQueryDsl(input: QueryDsl) {
         ...(typeof filters.payoutStatus === 'string' ? { payoutStatus: filters.payoutStatus } : {}),
         ...(typeof filters.city === 'string' ? { city: filters.city } : {}),
       };
-      const [stores, campaigns, bills] = await Promise.all([
+      const signalWhere: Prisma.ExternalSignalWhereInput = {
+        ...(typeof filters.source === 'string' ? { source: filters.source as any } : {}),
+        ...(typeof filters.severity === 'string' ? { severity: filters.severity } : {}),
+        ...(from || to ? { observedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+      };
+      const [stores, campaigns, bills, signals] = await Promise.all([
         db.store.findMany({ where: storeWhere, select: { id: true, city: true, payoutStatus: true, createdAt: true } }),
         db.campaign.findMany({ where: (from || to) ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}, select: { totalAmount: true } }),
         db.bill.findMany({ where: (from || to) ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}, select: { totalAmount: true } }),
+        db.externalSignal.findMany({ where: signalWhere, select: { source: true, severity: true, confidence: true, observedAt: true } }),
       ]);
       const rows = stores.map((s) => ({ ...s, day: dayKey(s.createdAt) }));
-      const grouped = groupRows(rows as any[], groupBy);
+      const signalRows = signals.map((x) => ({ ...x, day: dayKey(x.observedAt) }));
+      const grouped = groupRows((groupBy.includes('severity') ? signalRows : rows) as any[], groupBy);
       return { domain: input.domain, metrics, totals: {
         stores_ready_for_payout: stores.filter((s) => s.payoutStatus === 'ready').length,
         stores_paid: stores.filter((s) => s.payoutStatus === 'paid').length,
         stores_on_hold: stores.filter((s) => s.payoutStatus === 'on_hold').length,
         campaign_revenue_proxy: campaigns.reduce((a, c) => a + c.totalAmount, 0),
         bill_revenue_proxy: bills.reduce((a, b) => a + b.totalAmount, 0),
-      }, groups: grouped.slice(0, limit).map((g) => ({ group: g.group, store_count: g.rows.length })) };
+        high_risk_external_signals: signals.filter((x) => x.severity === 'high').length,
+        avg_external_confidence: signals.length ? signals.reduce((a, x) => a + x.confidence, 0) / signals.length : 0,
+      }, groups: grouped.slice(0, limit).map((g) => ({ group: g.group, count: g.rows.length })) };
     }
   }
 }

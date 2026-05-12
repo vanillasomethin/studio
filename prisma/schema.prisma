@@ -462,6 +462,36 @@ model AuditLog {
   @@index([createdAt])
 }
 
+
+
+enum ExternalSignalSource {
+  market_sentiment
+  competitor_activity
+  infra_cost_efficiency
+}
+
+model ExternalSignal {
+  id                 String               @id @default(cuid())
+  source             ExternalSignalSource
+  sourceId           String
+  observedAt         DateTime
+  expiresAt          DateTime
+  category           String
+  summary            String
+  details            Json
+  score              Float
+  trendVelocity      Float
+  confidence         Float
+  freshness          Float
+  severity           String
+  recommendedActions Json
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([source, sourceId])
+  @@index([source, observedAt])
+  @@index([expiresAt])
+}
 model ContextSyncState {
   key       String   @id
   watermark DateTime

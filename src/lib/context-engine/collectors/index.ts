@@ -64,12 +64,33 @@ export async function collectSupportAdminNotes(since: Date): Promise<RawCollecto
   ]);
 }
 
+
+
+export async function collectExternalSignals(since: Date): Promise<RawCollectorRecord[]> {
+  const signals = await db.externalSignal.findMany({
+    where: { observedAt: { gt: since } },
+    orderBy: { observedAt: 'asc' },
+  });
+
+  return signals.map((signal) => ({
+    id: signal.id,
+    sourceType: 'external_signal',
+    timestamp: signal.observedAt,
+    actor: signal.source,
+    serviceArea: signal.category,
+    summary: signal.summary,
+    rawRef: `external_signal:${signal.id}`,
+    payload: { confidence: signal.confidence, freshness: signal.freshness, severity: signal.severity },
+  }));
+}
+
 export async function collectAllContextSources(since: Date): Promise<RawCollectorRecord[]> {
-  const [commits, logs, notes] = await Promise.all([
+  const [commits, logs, notes, externalSignals] = await Promise.all([
     collectGitCommits(since),
     collectProdLogs(since),
     collectSupportAdminNotes(since),
+    collectExternalSignals(since),
   ]);
 
-  return [...commits, ...logs, ...notes].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  return [...commits, ...logs, ...notes, ...externalSignals].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 }
