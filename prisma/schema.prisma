@@ -175,10 +175,31 @@ model Device {
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
   events       PlayEvent[]
+  telemetryEvents TelemetryEvent[]
 
   @@index([storeId])
   @@index([groupName])
   @@index([status])
+}
+
+model TelemetryEvent {
+  id            String   @id @default(cuid())
+  route         String
+  level         String   @default("error")
+  errorClass    String?
+  message       String
+  stackHash     String?
+  correlationId String
+  actorType     String
+  requestMeta   Json?
+  createdAt     DateTime @default(now())
+  deviceId      String?
+
+  device        Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([route, createdAt])
+  @@index([correlationId])
+  @@index([deviceId])
 }
 
 // ─── Content + Playlists + Schedules ─────────────────────────────────────────
