@@ -1,4 +1,4 @@
-export type ContextSourceType = 'git_commit' | 'prod_log' | 'support_note' | 'admin_note';
+export type ContextSourceType = 'git_commit' | 'prod_log' | 'support_note' | 'admin_note' | 'external_signal';
 
 export type CanonicalContextDocument = {
   sourceType: ContextSourceType;
