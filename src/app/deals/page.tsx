@@ -33,7 +33,8 @@ function formatDate(iso: string): string {
 
 function resolveImage(raw: string): string {
   if (!raw) return '';
-  return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+  if (raw.startsWith('data:') || raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('//')) return raw;
+  return `data:image/jpeg;base64,${raw}`;
 }
 
 // ─── Skeleton card ────────────────────────────────────────────────────────────
