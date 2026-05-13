@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { ai } from '@/ai/genkit';
 
+export const runtime = 'nodejs';
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
