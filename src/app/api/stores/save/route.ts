@@ -30,6 +30,16 @@ export async function GET(req: NextRequest) {
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
       agreedAt:  s.agreedAt?.toISOString() ?? null,
+      onboardingStage: s.onboardingStage,
+      payoutStatus: s.payoutStatus,
+      payoutMethod: s.payoutMethod,
+      upiId: s.upiId,
+      bankAccountName: s.bankAccountName,
+      bankAccountNo: s.bankAccountNo,
+      bankIfsc: s.bankIfsc,
+      bankName: s.bankName,
+      payoutLastPaidAt: s.payoutLastPaidAt?.toISOString() ?? null,
+      payoutNotes: s.payoutNotes ?? null,
     }));
     return NextResponse.json(result);
   } catch (e) {
@@ -54,6 +64,12 @@ type RegistrationBody = {
   referredBy?:  string;
   referralCode: string;
   agreedAt:     string;
+  payoutMethod?: string;
+  upiId?: string;
+  bankAccountName?: string;
+  bankAccountNo?: string;
+  bankIfsc?: string;
+  bankName?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -95,6 +111,12 @@ export async function POST(req: NextRequest) {
             referralCode: body.referralCode,
             referredBy:   body.referredBy || null,
             agreedAt:     new Date(body.agreedAt),
+            payoutMethod: body.payoutMethod || null,
+            upiId: body.upiId || null,
+            bankAccountName: body.bankAccountName || null,
+            bankAccountNo: body.bankAccountNo || null,
+            bankIfsc: body.bankIfsc || null,
+            bankName: body.bankName || null,
           },
         },
       },
