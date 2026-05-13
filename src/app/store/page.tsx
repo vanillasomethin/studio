@@ -241,7 +241,7 @@ function RegistrationForm() {
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
-      if (saved) setForm(JSON.parse(saved) as Form);
+      if (saved && saved.trim()) setForm(JSON.parse(saved) as Form);
     } catch { /* ignore */ }
   }, []);
 
