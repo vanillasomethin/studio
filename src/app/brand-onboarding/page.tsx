@@ -430,7 +430,7 @@ function StepCampaign({
                 className={`relative rounded-xl border border-border bg-card text-left ${popular ? 'pt-8 pb-4 px-4' : 'p-4'}`}
               >
                 {popular && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap shadow-sm">
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 rounded-full bg-primary px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap shadow-sm ring-2 ring-background">
                     Popular
                   </span>
                 )}
@@ -855,8 +855,33 @@ function StepAgreement({
         {/* No nested scroll — content flows naturally so mobile page scroll works */}
         <div className="px-5 py-5 space-y-6 text-sm text-muted-foreground leading-relaxed">
           <p>
-            These Terms of Service govern your use of ALIVE&apos;s digital out-of-home advertising platform (the &quot;Platform&quot;). By accepting, <strong className="text-foreground">{data.brandName || 'your organisation'}</strong> enters into a legally binding Campaign Agreement with ALIVE Advertising Pvt. Ltd. (&quot;ALIVE&quot;).
+            These Terms of Service govern your use of ALIVE&apos;s digital out-of-home advertising platform (the &quot;Platform&quot;). By accepting, <strong className="text-foreground">{data.brandName || 'your organisation'}</strong> enters into a legally binding Campaign Agreement with VS Collective LLP, operating as ALIVE (&quot;ALIVE&quot;).
           </p>
+
+          {/* Parties to the Agreement */}
+          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4 text-sm">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Parties to the Agreement</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
+                <p className="font-semibold text-foreground">VS Collective LLP</p>
+                <p className="text-muted-foreground">LLP IN-KA43598411418020V</p>
+                <p className="text-muted-foreground">#13, First Floor, Highland Manor</p>
+                <p className="text-muted-foreground">Falnir, Mangaluru 575002, Karnataka</p>
+                <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
+                <p className="text-muted-foreground">hello@wearealive.in · +91 74113 24448</p>
+                <p className="text-muted-foreground">Operating as: ALIVE advertising platform</p>
+              </div>
+              <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party B — Advertiser</p>
+                <p className="font-semibold text-foreground">{data.brandName || '—'}</p>
+                {data.contactName && <p className="text-muted-foreground">Contact: {data.contactName}</p>}
+                {data.email       && <p className="text-muted-foreground">{data.email}</p>}
+                {data.phone       && <p className="text-muted-foreground">+91 {data.phone}</p>}
+                {data.gstin       && <p className="text-muted-foreground">GSTIN: {data.gstin}</p>}
+              </div>
+            </div>
+          </div>
 
           {clauses.map(({ n, title, items }) => (
             <div key={n} className="space-y-2">
@@ -884,8 +909,8 @@ function StepAgreement({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div className="space-y-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
-                <p className="font-semibold text-foreground">ALIVE Advertising Pvt. Ltd.</p>
-                <p className="text-muted-foreground">Highland Manor, Kankanady, Mangaluru 575002</p>
+                <p className="font-semibold text-foreground">VS Collective LLP</p>
+                <p className="text-muted-foreground">#13, First Floor, Highland Manor, Falnir, Mangaluru 575002</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
                 <p className="text-muted-foreground">Authorised by: ALIVE Platform (automated)</p>
                 <p className="text-muted-foreground">Date: {effectiveDate}</p>
@@ -1345,7 +1370,7 @@ export default function BrandOnboardingPage() {
   const update = (key: keyof OnboardingFormData, value: OnboardingFormData[keyof OnboardingFormData]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length + 1)); };
+  const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length + 2)); };
   const back = () => { setDirection(-1); setStep((s) => Math.max(s - 1, 1)); };
 
   // Save campaign data when the user reaches the payment step
