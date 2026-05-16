@@ -122,79 +122,104 @@ function Field({ label, value, onChange, type = 'text', placeholder, prefix, err
 
 // ─── Agreement step ───────────────────────────────────────────────────────────
 
+const AGREEMENT_TERMS = [
+  { heading: 'Remuneration',    body: 'VS Collective LLP shall pay a fixed monthly remuneration of ₹500 per screen, within 10 working days of month end via UPI/NEFT.' },
+  { heading: 'Electricity',     body: 'Electricity consumed by the screens is reimbursed at screen rated power × actual hours of operation × prevailing tariff. Submit monthly electricity bills for accurate settlement.' },
+  { heading: 'Generator / UPS', body: 'If screens operate on your generator during outages, VS Collective LLP compensates proportionally (screen share of generator load × fuel cost/hr × hours run).' },
+  { heading: 'Referral reward', body: '₹500 bonus for every new store partner who joins using your referral code, paid within 10 working days of their screen going live.' },
+  { heading: 'Equipment',       body: 'Screens are installed free of charge and remain the exclusive property of VS Collective LLP at all times. No right, title or interest vests in the Shop Owner.' },
+  { heading: 'Your obligations', body: 'Provide unobstructed space during business hours. Do not tamper, relocate, or allow competing advertising equipment on premises. Notify ALIVE 24 hrs before any planned closure.' },
+  { heading: 'Exclusivity',     body: 'VS Collective LLP will not install any screen within 200 m of your premises for the duration of this agreement.' },
+  { heading: 'Operating hours', body: 'Screens run during your regular business hours (~8 AM–10 PM or as mutually agreed). Planned maintenance is scheduled off-peak and does not affect your remuneration.' },
+  { heading: 'Exit',            body: '30 days written notice by either party. ALIVE removes the screen within 15 working days at its own cost. All outstanding dues settled within 30 days of termination.' },
+  { heading: 'Content',         body: 'All advertising content is managed exclusively by VS Collective LLP. Screens must not be used for personal entertainment, CCTV, browsing, or any non-approved purpose.' },
+  { heading: 'Governing law',   body: 'This agreement is governed by the laws of India. Disputes resolved by arbitration in Mangaluru under the Arbitration and Conciliation Act, 1996.' },
+  { heading: 'Digital execution', body: 'This agreement is executed electronically under the Information Technology Act, 2000. Electronic acceptance constitutes valid execution without physical signatures or witnesses.' },
+];
+
 function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }: {
   form: Form; agreed: boolean; setAgreed: (v: boolean) => void;
   onBack: () => void; onSubmit: () => void; busy: boolean; err: string;
 }) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const gstin = form.gstin ? form.gstin.toUpperCase() : null;
-
-  const agreementHref = `/store-agreement?${new URLSearchParams({
-    name:    form.storeName,
-    owner:   form.ownerName,
-    address: [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', '),
-    phone:   form.whatsapp,
-    ...(gstin ? { gstin } : {}),
-  }).toString()}`;
+  const fullAddress = [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', ');
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-3">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
 
-      {/* Prominent back button */}
-      <button type="button" onClick={onBack}
-        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-all"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" /> Back to form
-      </button>
-
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2 — Partner Agreement</p>
-        <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
-      </div>
-
-      {/* Prefilled party info */}
-      <div className="rounded-xl border-2 border-red-100 bg-red-50 p-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-red-400 mb-2">This agreement is between</p>
-        <div className="space-y-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-base font-black text-gray-900">{form.storeName}</span>
-            <span className="text-xs text-gray-500">({form.ownerName})</span>
+      {/* Step nav */}
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={onBack}
+          className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-all"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> Back
+        </button>
+        <div className="flex items-center gap-2 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-white text-[10px] font-black"><Check className="h-3 w-3" /></span>
+            <span className="text-[10px] text-gray-400">Details</span>
           </div>
-          <p className="text-sm text-gray-600">+91 {form.whatsapp}</p>
-          {form.address && <p className="text-xs text-gray-500">{form.address}</p>}
-          {form.city && <p className="text-xs text-gray-500">{[form.locality, form.city, form.pincode].filter(Boolean).join(', ')}</p>}
-          {gstin && <p className="text-xs text-gray-500">GSTIN: {gstin}</p>}
-          <div className="pt-1 border-t border-red-100 mt-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-700">VS Collective LLP (ALIVE)</span>
-            <span className="text-xs text-gray-400">{today}</span>
+          <div className="flex-1 h-px bg-red-200" />
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-black">2</span>
+            <span className="text-[10px] font-semibold text-red-500">Agreement</span>
           </div>
         </div>
       </div>
 
-      {/* Terms */}
-      <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
-        {[
-          { t: 'Remuneration', d: '₹500/month per screen, fixed. Paid within 10 working days of month end.' },
-          { t: 'Electricity',  d: 'ALIVE reimburses at screen rated power × actual hours × prevailing tariff.' },
-          { t: 'Equipment',    d: 'Screen installed free. Remains ALIVE property at all times.' },
-          { t: 'Exit',         d: '30 days written notice by either party. ALIVE removes screen at its cost.' },
-        ].map(({ t, d }, i) => (
-          <div key={t} className={`px-3.5 py-2.5 flex gap-3 text-xs ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-            <span className="font-bold text-gray-700 shrink-0 w-24">{t}</span>
-            <span className="text-gray-500">{d}</span>
-          </div>
-        ))}
-        <div className="border-t border-gray-100 px-3.5 py-2">
-          <a href={agreementHref} target="_blank" rel="noreferrer"
-            className="text-[11px] text-red-500 hover:text-red-600 font-semibold underline underline-offset-2"
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2</p>
+        <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
+        <p className="text-xs text-gray-500 mt-0.5">Read the key terms below, then sign digitally.</p>
+      </div>
+
+      {/* Parties block */}
+      <div className="rounded-xl border-2 border-red-100 bg-red-50/60 p-4 space-y-3">
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-1">Party A — Company</p>
+          <p className="text-sm font-bold text-gray-900">VS Collective LLP (ALIVE)</p>
+          <p className="text-xs text-gray-500">#13, First Floor, Highland Manor, Falnir, Mangalore 575002</p>
+          <p className="text-xs text-gray-500">GSTIN: 29AAXFV2589C1ZE · LLP: IN-KA43598411418020V</p>
+        </div>
+        <div className="border-t border-red-100 pt-3">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-1">Party B — Store Partner</p>
+          <p className="text-sm font-bold text-gray-900">{form.storeName}</p>
+          <p className="text-xs text-gray-600">{form.ownerName} · +91 {form.whatsapp}</p>
+          {fullAddress && <p className="text-xs text-gray-500">{fullAddress}</p>}
+          {gstin && <p className="text-xs text-gray-500 font-mono">GSTIN: {gstin}</p>}
+          <p className="text-xs text-gray-400 mt-1">Date of execution: {today}</p>
+        </div>
+      </div>
+
+      {/* Full agreement terms — scrollable */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
+          <p className="text-xs font-bold text-gray-700">Terms &amp; Conditions — Store Partner Agreement</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Scroll to read all terms before signing</p>
+        </div>
+        <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+          {AGREEMENT_TERMS.map(({ heading, body }) => (
+            <div key={heading} className="px-4 py-3 flex gap-3 text-xs">
+              <span className="font-bold text-gray-800 shrink-0 w-28">{heading}</span>
+              <span className="text-gray-500 leading-relaxed">{body}</span>
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between bg-gray-50/40">
+          <p className="text-[10px] text-gray-400">Full legal document</p>
+          <a
+            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}) }).toString()}`}
+            target="_blank" rel="noreferrer"
+            className="text-[11px] text-red-500 hover:text-red-600 font-semibold flex items-center gap-1"
           >
-            Read full agreement →
+            Open full PDF version <ChevronRight className="h-3 w-3" />
           </a>
         </div>
       </div>
 
       {/* Checkbox */}
-      <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-3 hover:bg-gray-100 transition-colors">
+      <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-3.5 hover:bg-gray-100 transition-colors">
         <div className="relative mt-0.5 shrink-0">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="sr-only" />
           <div className={`h-[18px] w-[18px] rounded border-2 transition-all flex items-center justify-center ${agreed ? 'border-red-500 bg-red-500' : 'border-gray-300 bg-white'}`}>
@@ -202,7 +227,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
           </div>
         </div>
         <span className="text-xs text-gray-600 leading-relaxed">
-          I, <strong className="text-gray-900">{form.ownerName}</strong>, agree to the Store Partner Agreement between <strong className="text-gray-900">{form.storeName}</strong> and VS Collective LLP (ALIVE), effective {today}.
+          I, <strong className="text-gray-900">{form.ownerName}</strong>, on behalf of <strong className="text-gray-900">{form.storeName}</strong>, have read and agree to the Store Partner Agreement with VS Collective LLP (ALIVE), effective {today}. I confirm this electronic acceptance is legally binding under the IT Act, 2000.
         </span>
       </label>
 

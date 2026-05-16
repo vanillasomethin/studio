@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { randomUUID } from 'crypto';
+import { notifyStoreWA, billClaimedMsg } from '@/lib/notify';
 
 export async function POST(
   req: NextRequest,
@@ -28,10 +29,18 @@ export async function POST(
       update: {},
     });
 
-    await db.bill.update({
-      where: { billRef },
-      data:  { customerId: customer.id },
+    const updated = await db.bill.update({
+      where:   { billRef },
+      data:    { customerId: customer.id },
+      include: { store: { select: { whatsapp: true } } },
     });
+
+    // Notify store owner (non-fatal)
+    if (updated.store?.whatsapp) {
+      void notifyStoreWA(updated.store.whatsapp, billClaimedMsg(
+        updated.storeName, customer.name, customer.phone, billRef,
+      ));
+    }
 
     return NextResponse.json({ token: customer.token, name: customer.name, phone: customer.phone });
   } catch (e) {

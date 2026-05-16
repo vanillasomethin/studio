@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
+import { notifyAdminWA, storeRegistrationMsg } from '@/lib/notify';
 import { respond } from '@/lib/api-envelope';
 
 // ─── Redis (dual-write for admin panel backward compat during migration) ──────
@@ -160,6 +161,17 @@ export async function POST(req: NextRequest) {
       // Redis dual-write failure is non-fatal — Postgres is source of truth
     }
 
+    // Notify admin via WhatsApp (non-fatal)
+    void notifyAdminWA(storeRegistrationMsg({
+      storeName: body.storeName,
+      ownerName: body.ownerName,
+      phone,
+      city:    body.city    ?? null,
+      address: body.address ?? null,
+      gstin:   body.gstin   ?? null,
+    }));
+
+    return NextResponse.json({ success: true, referralCode: user.store?.referralCode });
     const envelope = await respond({ success: true, referralCode: user.store?.referralCode }, { route, request: { phone, storeName: body.storeName }, outcome: 'success', startedAtMs });
     return NextResponse.json(envelope);
   } catch (e) {
