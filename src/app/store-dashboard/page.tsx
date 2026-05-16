@@ -8,6 +8,7 @@ import {
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
   Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag,
+  KeyRound, Eye, EyeOff, ArrowLeft,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
@@ -68,33 +69,85 @@ function resolveImage(raw: string) {
 
 // ─── Phone + password login ───────────────────────────────────────────────────
 
-function PhoneLogin() {
-  const [phone,    setPhone]    = useState('');
-  const [password, setPassword] = useState('');
-  const [busy,     setBusy]     = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
+type LoginView = 'login' | 'forgot_phone' | 'forgot_otp' | 'forgot_done';
 
+function PhoneLogin() {
+  const [view,        setView]        = useState<LoginView>('login');
+  const [phone,       setPhone]       = useState('');
+  const [password,    setPassword]    = useState('');
+  const [showPw,      setShowPw]      = useState(false);
+  const [busy,        setBusy]        = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+
+  // reset flow state
+  const [resetPhone,  setResetPhone]  = useState('');
+  const [otp,         setOtp]         = useState('');
+  const [newPw,       setNewPw]       = useState('');
+  const [showNewPw,   setShowNewPw]   = useState(false);
+
+  const inputCls = 'w-full rounded-xl border border-border bg-card px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all';
+
+  // ── Sign in ────────────────────────────────────────────────────────────────
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length !== 10) { setError('Enter a valid 10-digit WhatsApp number.'); return; }
     if (!password)            { setError('Enter your password.'); return; }
     setBusy(true); setError(null);
-
     try {
-      const result = await signIn('phone-password', {
-        phone:    `+91${phone}`,
-        password,
-        redirect: false,
-      });
-      if (result?.error) {
-        setError('Incorrect number or password. Please try again.');
-      }
-      // On success, useSession in the parent will update and render MainDashboard
+      const result = await signIn('phone-password', { phone: `+91${phone}`, password, redirect: false });
+      if (result?.error) setError('Incorrect number or password. Please try again.');
     } catch {
       setError('Could not connect. Check your internet and try again.');
     } finally {
       setBusy(false);
     }
+  };
+
+  // ── Request OTP ───────────────────────────────────────────────────────────
+  const requestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (resetPhone.length !== 10) { setError('Enter a valid 10-digit WhatsApp number.'); return; }
+    setBusy(true); setError(null);
+    try {
+      await fetch('/api/stores/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request', phone: resetPhone }),
+      });
+      // Always advance — don't reveal if number is registered
+      setView('forgot_otp');
+    } catch {
+      setError('Could not send code. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ── Verify OTP + set new password ─────────────────────────────────────────
+  const verifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otp.length !== 6)   { setError('Enter the 6-digit code from WhatsApp.'); return; }
+    if (newPw.length < 6)   { setError('New password must be at least 6 characters.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const res  = await fetch('/api/stores/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', phone: resetPhone, otp, newPassword: newPw }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) { setError(data.error ?? 'Reset failed. Try again.'); return; }
+      setView('forgot_done');
+    } catch {
+      setError('Could not verify. Check your connection.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const backToLogin = () => {
+    setView('login'); setError(null);
+    setResetPhone(''); setOtp(''); setNewPw('');
   };
 
   return (
@@ -107,71 +160,209 @@ function PhoneLogin() {
 
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
-          <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6">
-            <motion.div variants={fadeUp} className="space-y-1.5">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Store Partner Portal</p>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">Sign in</h1>
-              <p className="text-sm text-muted-foreground">
-                Use your registered WhatsApp number and password.
-              </p>
-            </motion.div>
+          <AnimatePresence mode="wait">
 
-            <motion.form variants={fadeUp} onSubmit={submit} className="space-y-3">
-              {/* Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">WhatsApp number (username)</label>
-                <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
-                  <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    maxLength={10}
-                    required
-                    autoFocus
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    placeholder="98765 43210"
-                    className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-                  />
+            {/* ── Sign in ── */}
+            {view === 'login' && (
+              <motion.div key="login" variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6">
+                <motion.div variants={fadeUp} className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Store Partner Portal</p>
+                  <h1 className="text-3xl font-bold tracking-tight text-foreground">Sign in</h1>
+                  <p className="text-sm text-muted-foreground">Use your registered WhatsApp number and password.</p>
+                </motion.div>
+
+                <motion.form variants={fadeUp} onSubmit={submit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">WhatsApp number (username)</label>
+                    <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
+                      <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
+                      <input
+                        type="tel" inputMode="numeric" maxLength={10} required autoFocus
+                        value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="98765 43210"
+                        className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-semibold text-muted-foreground">Password</label>
+                      <button type="button" onClick={() => { setResetPhone(phone); setView('forgot_phone'); setError(null); }}
+                        className="text-xs text-primary hover:underline font-medium">
+                        Forgot password?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showPw ? 'text' : 'password'} required
+                        value={password} onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Your login password"
+                        className={`${inputCls} pr-11`}
+                      />
+                      <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                        {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={busy || phone.length !== 10 || !password}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.4)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Sign in</>}
+                  </button>
+                </motion.form>
+
+                <motion.div variants={fadeUp} className="text-center">
+                  <p className="text-xs text-muted-foreground">
+                    New to Alive?{' '}
+                    <a href="/store" className="text-primary font-semibold hover:underline">Register your store — it&apos;s free →</a>
+                  </p>
+                </motion.div>
+              </motion.div>
+            )}
+
+            {/* ── Forgot: enter phone ── */}
+            {view === 'forgot_phone' && (
+              <motion.div key="forgot_phone" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+                <div className="space-y-1.5">
+                  <button onClick={backToLogin} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                      <KeyRound className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <h1 className="text-xl font-bold tracking-tight text-foreground">Reset password</h1>
+                      <p className="text-xs text-muted-foreground">We&apos;ll send a code to your WhatsApp.</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Password */}
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Your login password"
-                  className="w-full rounded-xl border border-border bg-card px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                />
-              </div>
+                <form onSubmit={requestOtp} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Registered WhatsApp number</label>
+                    <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
+                      <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
+                      <input
+                        type="tel" inputMode="numeric" maxLength={10} required autoFocus
+                        value={resetPhone} onChange={(e) => setResetPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="98765 43210"
+                        className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                      />
+                    </div>
+                  </div>
 
-              {error && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-                  <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                  {error && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={busy || resetPhone.length !== 10}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Send code via WhatsApp</>}
+                  </button>
+                </form>
+              </motion.div>
+            )}
+
+            {/* ── Forgot: enter OTP + new password ── */}
+            {view === 'forgot_otp' && (
+              <motion.div key="forgot_otp" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+                <div className="space-y-1.5">
+                  <button onClick={() => { setView('forgot_phone'); setError(null); }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                      <KeyRound className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <h1 className="text-xl font-bold tracking-tight text-foreground">Enter code</h1>
+                      <p className="text-xs text-muted-foreground">Sent to +91 {resetPhone} via WhatsApp.</p>
+                    </div>
+                  </div>
                 </div>
-              )}
 
-              <button
-                type="submit"
-                disabled={busy || phone.length !== 10 || !password}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.4)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Sign in</>}
-              </button>
-            </motion.form>
+                <form onSubmit={verifyOtp} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">6-digit code</label>
+                    <input
+                      type="text" inputMode="numeric" maxLength={6} required autoFocus
+                      value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="123456"
+                      className={`${inputCls} text-center text-xl font-bold tracking-[0.3em]`}
+                    />
+                  </div>
 
-            <motion.div variants={fadeUp} className="text-center">
-              <p className="text-xs text-muted-foreground">
-                New to Alive?{' '}
-                <a href="/store" className="text-primary font-semibold hover:underline">Register your store — it&apos;s free →</a>
-              </p>
-            </motion.div>
-          </motion.div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">New password</label>
+                    <div className="relative">
+                      <input
+                        type={showNewPw ? 'text' : 'password'} required minLength={6}
+                        value={newPw} onChange={(e) => setNewPw(e.target.value)}
+                        placeholder="At least 6 characters"
+                        className={`${inputCls} pr-11`}
+                      />
+                      <button type="button" tabIndex={-1} onClick={() => setShowNewPw((v) => !v)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                        {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={busy || otp.length !== 6 || newPw.length < 6}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><KeyRound className="h-4 w-4" /> Set new password</>}
+                  </button>
+
+                  <p className="text-center text-xs text-muted-foreground">
+                    Didn&apos;t receive it?{' '}
+                    <button type="button" onClick={() => { setView('forgot_phone'); setError(null); }}
+                      className="text-primary hover:underline font-medium">Resend code</button>
+                  </p>
+                </form>
+              </motion.div>
+            )}
+
+            {/* ── Success ── */}
+            {view === 'forgot_done' && (
+              <motion.div key="forgot_done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-500/10">
+                    <Check className="h-7 w-7 text-green-600" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold tracking-tight text-foreground">Password updated</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Sign in with your new password.</p>
+                  </div>
+                </div>
+                <button onClick={backToLogin}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90">
+                  <ArrowRight className="h-4 w-4" /> Go to sign in
+                </button>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
         </div>
       </main>
     </div>
