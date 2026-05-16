@@ -588,30 +588,16 @@ const TIMELINE = [
 
 
 
-type OfferInput = { productName: string; weight: string; mrp: string; offerPrice: string };
-
 function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved: (patch: Partial<StoreInfo>) => void }) {
-  const [offers, setOffers] = useState<OfferInput[]>([{ productName: '', weight: '', mrp: '', offerPrice: '' }]);
   const [payout, setPayout] = useState({
     payoutMethod: store.payoutMethod ?? 'upi',
     upiId: store.upiId ?? '', bankAccountName: store.bankAccountName ?? '', bankAccountNo: store.bankAccountNo ?? '', bankIfsc: store.bankIfsc ?? '', bankName: store.bankName ?? '',
   });
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(`alive_store_offers_${store.id ?? store.storeName}`);
-      if (raw && raw.trim()) setOffers(JSON.parse(raw) as OfferInput[]);
-    } catch {}
-  }, [store.id, store.storeName]);
-
-  const addOffer = () => setOffers((p) => [...p, { productName: '', weight: '', mrp: '', offerPrice: '' }]);
-  const setOffer = (idx: number, k: keyof OfferInput, v: string) => setOffers((p) => p.map((o, i) => i === idx ? { ...o, [k]: v } : o));
-
   const save = async () => {
     setBusy(true);
     try {
-      localStorage.setItem(`alive_store_offers_${store.id ?? store.storeName}`, JSON.stringify(offers));
       const res = await fetch('/api/stores/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payout) });
       if (res.ok) onSaved(payout);
     } finally { setBusy(false); }
@@ -619,14 +605,24 @@ function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved
 
   return <div className="space-y-4">
     <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-      <div className="flex items-center justify-between"><h2 className="text-sm font-bold">Current offers (optional)</h2><button onClick={addOffer} className="text-xs font-semibold text-primary">+ Add offer</button></div>
-      {offers.map((o, i) => <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2"><input value={o.productName} onChange={(e)=>setOffer(i,'productName',e.target.value)} placeholder="Product" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={o.weight} onChange={(e)=>setOffer(i,'weight',e.target.value)} placeholder="Weight" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={o.mrp} onChange={(e)=>setOffer(i,'mrp',e.target.value)} placeholder="MRP" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={o.offerPrice} onChange={(e)=>setOffer(i,'offerPrice',e.target.value)} placeholder="Offer price" className="rounded-lg border border-border px-3 py-2 text-xs" /></div>)}
-    </div>
-    <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-      <h2 className="text-sm font-bold">Rewards deposit details</h2>
-      <div className="grid grid-cols-2 gap-2"><button onClick={()=>setPayout((p)=>({...p,payoutMethod:'upi'}))} className="rounded-lg border border-border px-3 py-2 text-xs">UPI</button><button onClick={()=>setPayout((p)=>({...p,payoutMethod:'bank'}))} className="rounded-lg border border-border px-3 py-2 text-xs">Bank</button></div>
-      {payout.payoutMethod==='upi' ? <input value={payout.upiId} onChange={(e)=>setPayout((p)=>({...p,upiId:e.target.value}))} placeholder="UPI ID" className="w-full rounded-lg border border-border px-3 py-2 text-xs" /> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><input value={payout.bankAccountName} onChange={(e)=>setPayout((p)=>({...p,bankAccountName:e.target.value}))} placeholder="Account name" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={payout.bankName} onChange={(e)=>setPayout((p)=>({...p,bankName:e.target.value}))} placeholder="Bank name" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={payout.bankAccountNo} onChange={(e)=>setPayout((p)=>({...p,bankAccountNo:e.target.value}))} placeholder="Account no" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={payout.bankIfsc} onChange={(e)=>setPayout((p)=>({...p,bankIfsc:e.target.value.toUpperCase()}))} placeholder="IFSC" className="rounded-lg border border-border px-3 py-2 text-xs" /></div>}
-      <button onClick={save} disabled={busy} className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white">{busy ? 'Saving…' : 'Save details'}</button>
+      <h2 className="text-sm font-bold">Payout method</h2>
+      <p className="text-xs text-muted-foreground">Where should we send your monthly ₹500 + electricity reimbursement?</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={()=>setPayout((p)=>({...p,payoutMethod:'upi'}))} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${payout.payoutMethod==='upi' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>UPI</button>
+        <button onClick={()=>setPayout((p)=>({...p,payoutMethod:'bank'}))} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${payout.payoutMethod==='bank' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>Bank transfer</button>
+      </div>
+      {payout.payoutMethod==='upi'
+        ? <input value={payout.upiId} onChange={(e)=>setPayout((p)=>({...p,upiId:e.target.value}))} placeholder="UPI ID (e.g. name@upi)" className="w-full rounded-lg border border-border px-3 py-2 text-xs" />
+        : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input value={payout.bankAccountName} onChange={(e)=>setPayout((p)=>({...p,bankAccountName:e.target.value}))} placeholder="Account name" className="rounded-lg border border-border px-3 py-2 text-xs" />
+            <input value={payout.bankName} onChange={(e)=>setPayout((p)=>({...p,bankName:e.target.value}))} placeholder="Bank name" className="rounded-lg border border-border px-3 py-2 text-xs" />
+            <input value={payout.bankAccountNo} onChange={(e)=>setPayout((p)=>({...p,bankAccountNo:e.target.value}))} placeholder="Account number" className="rounded-lg border border-border px-3 py-2 text-xs" />
+            <input value={payout.bankIfsc} onChange={(e)=>setPayout((p)=>({...p,bankIfsc:e.target.value.toUpperCase()}))} placeholder="IFSC code" className="rounded-lg border border-border px-3 py-2 text-xs" />
+          </div>
+      }
+      <button onClick={save} disabled={busy} className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+        {busy ? 'Saving…' : 'Save payout details'}
+      </button>
     </div>
   </div>;
 }

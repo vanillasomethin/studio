@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { notifyAdminWA } from '@/lib/notify';
+import { recordError, hashStack, getOrCreateCorrelationId } from '@/lib/telemetry';
 
 const UPTIME_DROP_THRESHOLD_PCT = 15;
 const OFFLINE_TRANSITION_THRESHOLD = 3;
@@ -94,11 +96,12 @@ export async function GET(req: NextRequest) {
             ? 'MISSING_HEARTBEATS'
             : 'REPEATED_OFFLINE_TRANSITIONS';
 
-        await db.remediationTicket.create({
+        const severity = missingHeartbeatWindows >= 6 ? 'high' : 'medium';
+        const newTicket = await db.remediationTicket.create({
           data: {
             deviceId: device.id,
             triggerType,
-            severity: missingHeartbeatWindows >= 6 ? 'high' : 'medium',
+            severity,
             triggerWindowStart: windowStart,
             triggerWindowEnd: now,
             snapshot: {
@@ -125,11 +128,25 @@ export async function GET(req: NextRequest) {
           },
         });
         createdTickets++;
+
+        void notifyAdminWA(
+          `⚠️ Device alert [${triggerType}]\nDevice: ${device.id}\nSeverity: ${severity}\nStore: ${device.storeId ?? 'unassigned'}\nLast seen: ${device.lastSeen?.toISOString() ?? 'never'}`
+        );
+
+        const remediateUrl = `${process.env.NEXTAUTH_URL ?? ''}/api/agent/remediate`;
+        void fetch(remediateUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.CRON_SECRET ?? ''}` },
+          body: JSON.stringify({ ticketId: newTicket.id }),
+        }).catch(() => {});
       }
     }
 
     return NextResponse.json({ ok: true, markedOffline, updatedUptime: devices.length, createdTickets });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    const correlationId = getOrCreateCorrelationId(null);
+    void recordError({ route: '/api/cron/device-health', errorClass: error.name, message: error.message, stackHash: hashStack(error.stack), correlationId, actorType: 'system' });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

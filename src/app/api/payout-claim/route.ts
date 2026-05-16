@@ -6,8 +6,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { notifyAdminWA, payoutClaimMsg } from '@/lib/notify';
+import { withApiHandler } from '@/lib/with-api-handler';
 
-export async function POST(req: NextRequest) {
+export const POST = withApiHandler('/api/payout-claim', 'user', async (req: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -38,4 +39,4 @@ export async function POST(req: NextRequest) {
   }));
 
   return NextResponse.json({ ok: true, month: claimMonth });
-}
+});
