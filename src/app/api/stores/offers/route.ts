@@ -5,12 +5,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { withApiHandler } from '@/lib/with-api-handler';
 
 async function getStore(userId: string) {
   return db.store.findUnique({ where: { userId } });
 }
 
-export async function GET() {
+export const GET = withApiHandler('/api/stores/offers', 'user', async () => {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -28,9 +29,9 @@ export async function GET() {
     updatedAt:  o.updatedAt.toISOString(),
     validUntil: o.validUntil?.toISOString() ?? null,
   })));
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withApiHandler('/api/stores/offers', 'user', async (req: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -63,4 +64,4 @@ export async function POST(req: NextRequest) {
     updatedAt:  offer.updatedAt.toISOString(),
     validUntil: offer.validUntil?.toISOString() ?? null,
   });
-}
+});

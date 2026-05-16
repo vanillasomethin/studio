@@ -171,7 +171,6 @@ export async function POST(req: NextRequest) {
       gstin:   body.gstin   ?? null,
     }));
 
-    return NextResponse.json({ success: true, referralCode: user.store?.referralCode });
     const envelope = await respond({ success: true, referralCode: user.store?.referralCode }, { route, request: { phone, storeName: body.storeName }, outcome: 'success', startedAtMs });
     return NextResponse.json(envelope);
   } catch (e) {
