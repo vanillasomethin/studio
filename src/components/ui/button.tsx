@@ -5,12 +5,12 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 overflow-hidden",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative isolate",
   {
     variants: {
       variant: {
         default:
-          "bg-gradient-to-br from-red-500 to-red-700 text-white shadow-[0_8px_20px_-8px_rgba(220,38,38,0.55)] hover:from-red-600 hover:to-red-800",
+          "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
@@ -43,24 +43,28 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, children, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
-    const showTrace = variant === "default" || variant === undefined || variant === null || variant === "outline"
+    const showTrace = !asChild && (!variant || variant === 'default' || variant === 'outline')
+
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}
       >
-        {showTrace && (
-          <svg
-            className="btn-trace-svg"
-            preserveAspectRatio="none"
-            viewBox="0 0 200 44"
-            aria-hidden="true"
-          >
-            <rect x="1" y="1" width="198" height="42" rx="7" />
-          </svg>
-        )}
-        {children}
+        {showTrace ? (
+          <>
+            <svg
+              aria-hidden="true"
+              className={cn('btn-trace', size === 'lg' ? 'btn-trace-lg' : 'btn-trace-default')}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 1 }}
+              preserveAspectRatio="none"
+              viewBox="0 0 200 44"
+            >
+              <rect x="1" y="1" width="198" height="42" rx="5" />
+            </svg>
+            <span style={{ position: 'relative', zIndex: 2, display: 'inline-flex', alignItems: 'center', gap: '8px' }}>{children}</span>
+          </>
+        ) : children}
       </Comp>
     )
   }

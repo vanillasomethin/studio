@@ -6,9 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DATABASE_DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // directUrl removed — Neon pooler (DATABASE_URL) handles both runtime and
+  // migrations. Set DATABASE_DIRECT_URL locally for npx prisma migrate dev.
 }
 
 // ─── Auth (Auth.js compatible) ───────────────────────────────────────────────

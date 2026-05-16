@@ -8,21 +8,21 @@
     },
     {
       "id": "how-it-works-brands",
-      "description": "A bustling kirana store in India, showing products on shelves.",
-      "imageUrl": "/For brands_r1.jpg",
-      "imageHint": "indian store owner"
+      "description": "A kirana shopkeeper handing a product to a customer — the Alive discovery moment.",
+      "imageUrl": "/alive-product-shot.png",
+      "imageHint": "kirana shopkeeper customer"
     },
     {
       "id": "how-it-works-stores",
-      "description": "A happy Indian Kirana store owner standing proudly in his shop.",
-      "imageUrl": "/Kirana_Shop.jpg",
-      "imageHint": "indian store owner"
+      "description": "A vibrant India street market scene showing the kirana ecosystem.",
+      "imageUrl": "/india-street.jpg",
+      "imageHint": "india street market"
     },
     {
       "id": "how-it-works-consumers",
-      "description": "A customer in a Kirana store, smiling as they look at products.",
-      "imageUrl": "/1733742351200.png",
-      "imageHint": "indian kirana"
+      "description": "A customer browsing products in a kirana store aisle.",
+      "imageUrl": "/store-aisle.jpg",
+      "imageHint": "kirana store aisle"
     },
     {
       "id": "deal-scanner-shelf",
