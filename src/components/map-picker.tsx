@@ -6,8 +6,6 @@ import { MapPin, LocateFixed, Loader2, CheckCircle2, AlertCircle } from 'lucide-
 // Dynamically import leaflet only on client — avoids SSR window errors
 async function loadLeaflet() {
   const L = (await import('leaflet')).default;
-  // @ts-expect-error — CSS import has no type declaration
-  await import('leaflet/dist/leaflet.css');
   // Fix default marker icon path broken by webpack
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (L.Icon.Default.prototype as any)._getIconUrl;
