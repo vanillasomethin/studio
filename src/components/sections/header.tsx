@@ -2,7 +2,7 @@
 
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Menu, Package, Users, BarChart, Info, LayoutDashboard, ArrowRight } from 'lucide-react';
+import { Menu, Package, Users, BarChart, Info, LayoutDashboard, ArrowRight, Store } from 'lucide-react';
 import { Logo } from '../icons/logo';
 
 const navLinks = [
@@ -33,6 +33,12 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <a
+            href="/store-dashboard"
+            className="hidden md:flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
+          >
+            <Store className="h-3.5 w-3.5" /> Store Login
+          </a>
           <a
             href="/login"
             className="hidden md:flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
@@ -68,6 +74,12 @@ export default function Header() {
                       {link.label}
                     </a>
                   ))}
+                  <a
+                    href="/store-dashboard"
+                    className="flex items-center gap-3 rounded-md p-2 text-lg font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Store className="h-5 w-5" /> Store Partner Login
+                  </a>
                   <a
                     href="/login"
                     className="flex items-center gap-3 rounded-md p-2 text-lg font-medium text-muted-foreground transition-colors hover:text-foreground"

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths } from 'date-fns';
-import { signIn, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -50,7 +50,7 @@ const DURATION_OPTIONS = [
   { months: 6, label: '6 mo'  },
 ];
 
-const STEPS = ['Details', 'Campaign', 'Agreement', 'Login', 'Payment'];
+const STEPS = ['Details', 'Campaign', 'Agreement', 'Payment'];
 
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
@@ -621,125 +621,6 @@ function StepCampaign({
           Continue <ArrowRight className="h-4 w-4" />
         </Button>
       </motion.div>
-    </div>
-  );
-}
-
-// ─── Step Auth ─────────────────────────────────────────────────────────────────
-
-function StepAuth({
-  onNext, onBack,
-}: {
-  onNext: () => void;
-  onBack: () => void;
-  formData: OnboardingFormData;
-}) {
-  const { data: session, status } = useSession();
-
-  const [email,    setEmail]    = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw,   setShowPw]   = useState(false);
-  const [busy,     setBusy]     = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const [isSignUp, setIsSignUp] = useState(false);
-
-  // Already signed in — skip this step
-  useEffect(() => {
-    if (status === 'authenticated' && session) onNext();
-  }, [status, session, onNext]);
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true); setError(null);
-    try {
-      if (isSignUp) {
-        const res = await fetch('/api/brands/register', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ email, password }),
-        });
-        const data = await res.json() as { success?: boolean; error?: string };
-        if (!res.ok) { setError(data.error ?? 'Sign-up failed.'); return; }
-      }
-      const result = await signIn('email-password', { email, password, redirect: false });
-      if (result?.error) {
-        setError(isSignUp ? 'Account created — sign in below.' : 'Incorrect email or password.');
-        if (isSignUp) setIsSignUp(false);
-      }
-      // On success, useSession updates → useEffect above calls onNext()
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  }, [email, password, isSignUp]);
-
-  if (status === 'loading') {
-    return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
-  }
-
-  const inputCls = "w-full h-12 rounded-xl border border-border bg-card px-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all";
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          {isSignUp ? 'Create your account' : 'Sign in'}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {isSignUp
-            ? 'Save your campaign and access your brand dashboard.'
-            : 'Sign in to continue setting up your campaign.'}
-        </p>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="relative">
-          <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
-          <input type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)} placeholder="Email address"
-            className={`${inputCls} pl-10`} />
-        </div>
-        <div className="relative">
-          <input type={showPw ? 'text' : 'password'} required
-            minLength={isSignUp ? 6 : undefined}
-            autoComplete={isSignUp ? 'new-password' : 'current-password'}
-            value={password} onChange={(e) => setPassword(e.target.value)}
-            placeholder={isSignUp ? 'Create a password (min 6 chars)' : 'Password'}
-            className={`${inputCls} pr-11`} />
-          <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
-            {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <Button type="submit" disabled={busy} className="w-full h-11">
-          {busy
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <>{isSignUp ? 'Create account' : 'Sign in'} <ArrowRight className="h-4 w-4" /></>}
-        </Button>
-      </form>
-
-      <p className="text-center text-sm text-muted-foreground">
-        {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-        <button onClick={() => { setIsSignUp((v) => !v); setError(null); }}
-          className="text-primary font-semibold hover:underline">{isSignUp ? 'Sign in' : 'Sign up'}</button>
-      </p>
-
-      <div className="flex gap-3 pt-1">
-        <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-11">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        <button type="button" onClick={onNext}
-          className="flex-1 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
-          Skip — pay as guest
-        </button>
-      </div>
     </div>
   );
 }
@@ -1362,7 +1243,7 @@ export default function BrandOnboardingPage() {
         const { form: savedForm } = JSON.parse(saved) as { form: OnboardingFormData };
         localStorage.removeItem(PENDING_KEY);
         setForm(savedForm);
-        setStep(6); // drop straight back to payment
+        setStep(5); // drop straight back to payment
       }
     } catch { /* ignore */ }
   }, [isLoaded, isSignedIn]);
@@ -1375,12 +1256,12 @@ export default function BrandOnboardingPage() {
 
   // Save campaign data when the user reaches the payment step
   useEffect(() => {
-    if (step === 6) {
+    if (step === 5) {
       try { localStorage.setItem(PENDING_KEY, JSON.stringify({ form })); } catch { /* ignore */ }
     }
   }, [step, form]);
 
-  const showIndicator = step >= 2 && step <= 6;
+  const showIndicator = step >= 2 && step <= 5;
 
   const saveCampaign = (pid: string, oid: string, effectivePricePerScreen: number, status: 'upcoming' | 'pending_payment') => {
     const subtotal    = effectivePricePerScreen * form.screens * form.months;
@@ -1468,11 +1349,10 @@ export default function BrandOnboardingPage() {
               {step === 4 && (
                 <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
               )}
-              {step === 5 && <StepAuth onNext={next} onBack={back} formData={form} />}
-              {step === 6 && (
+              {step === 5 && (
                 <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onBack={back} />
               )}
-              {step === 7 && <StepDone data={form} paymentId={paymentId} />}
+              {step === 6 && <StepDone data={form} paymentId={paymentId} />}
             </motion.div>
           </AnimatePresence>
         )}

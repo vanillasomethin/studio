@@ -119,14 +119,24 @@ export async function POST(req: NextRequest) {
           },
         },
       },
-      include: { store: true },
+    });
+
+    // Fetch only safe columns (avoids columns not yet migrated, e.g. onboardingStage)
+    const store = await db.store.findFirst({
+      where: { userId: user.id },
+      select: {
+        id: true, referralCode: true, storeName: true, whatsapp: true,
+        locality: true, city: true, pincode: true, lat: true, lng: true,
+        ownerName: true, address: true, referredBy: true, agreedAt: true,
+        createdAt: true,
+      },
     });
 
     // Dual-write to Redis so the existing admin panel still lists new stores
     try {
       const kv = getRedis();
-      if (kv && user.store) {
-        const s = user.store;
+      if (kv && store) {
+        const s = store;
         const ids: string[] = (await kv.get<string[]>('stores:index')) ?? [];
         if (!ids.includes(s.id)) await kv.set('stores:index', [s.id, ...ids]);
         await kv.set(`store:${s.id}`, {
@@ -159,7 +169,7 @@ export async function POST(req: NextRequest) {
       gstin:   body.gstin   ?? null,
     }));
 
-    const envelope = await respond({ success: true, referralCode: user.store?.referralCode }, { route, request: { phone, storeName: body.storeName }, outcome: 'success', startedAtMs });
+    const envelope = await respond({ success: true, referralCode: store?.referralCode }, { route, request: { phone, storeName: body.storeName }, outcome: 'success', startedAtMs });
     return NextResponse.json(envelope);
   } catch (e) {
     const msg = (e as Error).message ?? 'Failed to register store';
