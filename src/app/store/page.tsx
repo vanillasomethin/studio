@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
-  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift,
+  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, Tag,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import MapPicker from '@/components/map-picker';
@@ -587,6 +587,47 @@ export default function StorePage() {
               <span key={t} className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
                 <Check className="h-3 w-3 text-red-500" /> {t}
               </span>
+            ))}
+          </div>
+
+          {/* Joining bonus callout */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Gift className="h-4 w-4 text-amber-600 shrink-0" />
+              <p className="text-sm font-bold text-amber-800">Joining bonus — ₹500</p>
+            </div>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              We credit ₹500 to your account the day your screen goes live — no conditions, no waiting period. It's our way of welcoming you to the network.
+            </p>
+          </div>
+
+          {/* Store offers feature callout */}
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-green-600 shrink-0" />
+              <p className="text-sm font-bold text-green-800">Publish your own offers</p>
+            </div>
+            <p className="text-xs text-green-700 leading-relaxed">
+              Post today's deals — product, weight, MRP, offer price — directly from your dashboard. Your offers show up on the ALIVE screen and on our deals page so customers always see your best prices.
+            </p>
+          </div>
+
+          {/* Deposit / payout */}
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Deposit &amp; payout</p>
+            {[
+              { label: 'Security deposit', value: '₹0', note: 'No deposit ever. Equipment is fully free.' },
+              { label: 'Monthly payout',   value: '₹500+', note: 'Credited within 10 working days of month end.' },
+              { label: 'Electricity',      value: 'Reimbursed', note: 'At rated power × hours × tariff rate.' },
+              { label: 'Exit clause',      value: '30-day notice', note: 'Cancel anytime with 30 days notice.' },
+            ].map(({ label, value, note }) => (
+              <div key={label} className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-800">{label}</p>
+                  <p className="text-[11px] text-gray-500">{note}</p>
+                </div>
+                <span className="text-xs font-black text-red-500 shrink-0">{value}</span>
+              </div>
             ))}
           </div>
         </motion.div>
