@@ -366,9 +366,9 @@ function RegistrationForm() {
         {fe('whatsapp')
           ? <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('whatsapp')}</p>
           : (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-              <span className="text-amber-500 text-sm font-bold shrink-0">★</span>
-              <p className="text-[11px] text-amber-800 font-semibold">This number is your login username — save it.</p>
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+              <span className="text-gray-400 text-sm font-bold shrink-0">★</span>
+              <p className="text-[11px] text-gray-600 font-semibold">This number is your login username — save it.</p>
             </div>
           )
         }
@@ -534,23 +534,23 @@ export default function StorePage() {
           </div>
 
           {/* Joining bonus callout */}
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
-              <Gift className="h-4 w-4 text-amber-600 shrink-0" />
-              <p className="text-sm font-bold text-amber-800">Joining bonus — ₹500</p>
+              <Gift className="h-4 w-4 text-gray-400 shrink-0" />
+              <p className="text-sm font-bold text-gray-900">Joining bonus — ₹500</p>
             </div>
-            <p className="text-xs text-amber-700 leading-relaxed">
+            <p className="text-xs text-gray-500 leading-relaxed">
               We credit ₹500 to your account the day your screen goes live — no conditions, no waiting period. It's our way of welcoming you to the network.
             </p>
           </div>
 
           {/* Store offers feature callout */}
-          <div className="rounded-2xl border border-green-200 bg-green-50 p-4 space-y-2">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-green-600 shrink-0" />
-              <p className="text-sm font-bold text-green-800">Publish your own offers</p>
+              <Tag className="h-4 w-4 text-gray-400 shrink-0" />
+              <p className="text-sm font-bold text-gray-900">Publish your own offers</p>
             </div>
-            <p className="text-xs text-green-700 leading-relaxed">
+            <p className="text-xs text-gray-500 leading-relaxed">
               Post today's deals — product, weight, MRP, offer price — directly from your dashboard. Your offers show up on the ALIVE screen and on our deals page so customers always see your best prices.
             </p>
           </div>
