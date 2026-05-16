@@ -188,12 +188,18 @@ function EmailBanner({ store, onSave }: { store: StoreInfo; onSave: (email: stri
   const save = async () => {
     if (!email.includes('@')) return;
     setBusy(true);
-    // Fire-and-forget email update (we'd persist this properly with an API call)
-    await new Promise((r) => setTimeout(r, 600));
-    onSave(email);
-    setSaved(true);
-    setTimeout(() => setOpen(false), 1500);
-    setBusy(false);
+    try {
+      await fetch('/api/stores/me', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email }),
+      });
+      onSave(email);
+      setSaved(true);
+      setTimeout(() => setOpen(false), 1500);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -416,6 +422,8 @@ function ReferralCard({ store }: { store: StoreInfo }) {
 
 function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void }) {
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState<string | null>(null);
   const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   return (
@@ -465,15 +473,29 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
             <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
               Actual payout is calculated based on verified screen uptime and campaign bookings for the month. Final amount may vary.
             </p>
+            {err && <p className="text-[11px] text-destructive rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">{err}</p>}
             <div className="flex gap-2">
               <button onClick={onClose} className="flex-1 rounded-xl border border-border py-3 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
                 Cancel
               </button>
               <button
-                onClick={() => setSent(true)}
-                className="flex-1 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-xs font-bold text-white hover:opacity-90 transition-opacity"
+                onClick={async () => {
+                  setBusy(true); setErr(null);
+                  try {
+                    const res = await fetch('/api/payout-claim', {
+                      method:  'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body:    JSON.stringify({ month }),
+                    });
+                    if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error); }
+                    setSent(true);
+                  } catch (e) { setErr((e as Error).message ?? 'Failed. Try again.'); }
+                  finally { setBusy(false); }
+                }}
+                disabled={busy}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-xs font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                Submit claim
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Submit claim'}
               </button>
             </div>
           </>

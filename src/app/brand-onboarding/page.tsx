@@ -53,6 +53,25 @@ const DURATION_OPTIONS = [
 
 const STEPS = ['Details', 'Campaign', 'Agreement', 'Login', 'Payment'];
 
+// ─── Coupon codes ──────────────────────────────────────────────────────────────
+
+type Coupon = {
+  code:        string;
+  discount:    number;   // ₹ off per screen per month
+  minScreens:  number;
+  label:       string;
+};
+
+const COUPONS: Coupon[] = [
+  { code: 'GETALIVENOW', discount: 100, minScreens: 1,  label: '₹100 off / screen / month' },
+  { code: 'SCALE10',     discount: 80,  minScreens: 10, label: '₹80 off / screen / month · 10+ screens' },
+  { code: 'SCALE20',     discount: 120, minScreens: 20, label: '₹120 off / screen / month · 20+ screens' },
+];
+
+function findCoupon(code: string): Coupon | undefined {
+  return COUPONS.find((c) => c.code === code.trim().toUpperCase());
+}
+
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -416,7 +435,7 @@ function StepCampaign({
         <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Screen plan
         </motion.p>
-        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-3">
+        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-5">
           {SCREEN_TIERS.map((t) => {
             const active   = data.screens === t.screens;
             const popular  = 'popular' in t && t.popular;
@@ -427,11 +446,11 @@ function StepCampaign({
                 onClick={() => onChange('screens', t.screens)}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                className={`relative rounded-xl border border-border bg-card text-left ${popular ? 'pt-7 pb-4 px-4' : 'p-4'}`}
+                className={`relative rounded-xl border border-border bg-card text-left ${popular ? 'pt-8 pb-4 px-4' : 'p-4'}`}
               >
                 {popular && (
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap">
-                    Best value
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap shadow-sm">
+                    Popular
                   </span>
                 )}
                 {active && (
@@ -477,25 +496,26 @@ function StepCampaign({
           })}
         </motion.div>
 
-        {/* Coupon callout — show available offers */}
-        <motion.div variants={fadeUp} className="rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Available offers</p>
-          <div className="space-y-1.5">
-            {[
-              { code: 'GETALIVENOW', desc: '₹100 off per screen/month', minScreens: 1 },
-            ].map((offer) => (
-              <div key={offer.code} className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-md border border-green-500/40 bg-green-500/10 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-green-700">
-                    {offer.code}
+        {/* Coupon callout — volume-based offers */}
+        <motion.div variants={fadeUp} className="rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Promo codes available</p>
+          <div className="space-y-2">
+            {COUPONS.map((c) => {
+              const eligible = data.screens >= c.minScreens;
+              return (
+                <div key={c.code} className={`flex items-center justify-between gap-3 transition-opacity ${eligible ? 'opacity-100' : 'opacity-40'}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="shrink-0 rounded-md border border-green-500/40 bg-green-500/10 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-green-700">
+                      {c.code}
+                    </span>
+                    <span className="text-xs text-green-800 truncate">{c.label}</span>
+                  </div>
+                  <span className="shrink-0 text-[10px] font-semibold text-green-600">
+                    {eligible ? 'Apply at checkout →' : `Need ${c.minScreens}+ screens`}
                   </span>
-                  <span className="text-xs text-green-800">{offer.desc}</span>
                 </div>
-                {data.screens >= offer.minScreens && (
-                  <span className="text-[10px] font-semibold text-green-600">Apply at checkout →</span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </motion.div>
 
@@ -947,37 +967,43 @@ function StepPayment({
   onConfirm: (effectivePricePerScreen: number) => void;
   onBack: () => void;
 }) {
-  const [loading,      setLoading]      = useState(false);
-  const [error,        setError]        = useState<string | null>(null);
-  const [promoInput,   setPromoInput]   = useState('GETALIVENOW');
-  const [promoApplied, setPromoApplied] = useState(false);
-  const [promoError,   setPromoError]   = useState<string | null>(null);
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+  const [promoInput,    setPromoInput]    = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [promoError,    setPromoError]    = useState<string | null>(null);
 
-  const basePerScreen      = getScreenPrice(data.screens);
-  const discountPerScreen  = promoApplied ? 100 : 0;
-  const pricePerScreen     = Math.max(basePerScreen - discountPerScreen, 499);
-  const subtotal           = pricePerScreen * data.screens * data.months;
-  const gstAmount          = Math.round(subtotal * 0.18);
-  const total              = subtotal + gstAmount;
+  const basePerScreen     = getScreenPrice(data.screens);
+  const discountPerScreen = appliedCoupon?.discount ?? 0;
+  const pricePerScreen    = Math.max(basePerScreen - discountPerScreen, 449);
+  const subtotal          = pricePerScreen * data.screens * data.months;
+  const gstAmount         = Math.round(subtotal * 0.18);
+  const total             = subtotal + gstAmount;
 
   const startDate = data.startDate ? new Date(data.startDate + 'T00:00:00') : null;
   const endDate   = startDate ? addMonths(startDate, data.months) : null;
 
   const applyPromo = () => {
-    const code = promoInput.trim().toUpperCase();
-    if (code === 'GETALIVENOW') {
-      setPromoApplied(true);
-      setPromoError(null);
-    } else if (!code) {
-      setPromoError('Enter a promo code first.');
-    } else {
-      setPromoError('Invalid promo code. Try GETALIVENOW.');
-      setPromoApplied(false);
+    const code   = promoInput.trim().toUpperCase();
+    if (!code) { setPromoError('Enter a promo code first.'); return; }
+    const coupon = findCoupon(code);
+    if (!coupon) {
+      setPromoError(`Code "${code}" is not valid.`);
+      setAppliedCoupon(null);
+      return;
     }
+    if (data.screens < coupon.minScreens) {
+      setPromoError(`"${code}" requires ${coupon.minScreens}+ screens. You have ${data.screens}.`);
+      setAppliedCoupon(null);
+      return;
+    }
+    setAppliedCoupon(coupon);
+    setPromoError(null);
+    setPromoInput('');
   };
 
   const removePromo = () => {
-    setPromoApplied(false);
+    setAppliedCoupon(null);
     setPromoInput('');
     setPromoError(null);
   };
@@ -1077,7 +1103,7 @@ function StepPayment({
           <motion.div variants={fadeUp} className="flex items-center justify-between">
             <span className="text-muted-foreground">Price / screen / month</span>
             <span className="flex items-center gap-2 font-semibold text-foreground">
-              {promoApplied && (
+              {appliedCoupon && (
                 <span className="text-xs text-muted-foreground/60 line-through">{fmt(basePerScreen)}</span>
               )}
               {fmt(pricePerScreen)}
@@ -1086,13 +1112,13 @@ function StepPayment({
           </motion.div>
 
           {/* Promo discount row */}
-          {promoApplied && (
+          {appliedCoupon && (
             <motion.div
               initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
               className="flex items-center justify-between text-green-600"
             >
-              <span className="flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> Promo: GETALIVENOW</span>
-              <span className="font-semibold">−₹{discountPerScreen}/screen/mo</span>
+              <span className="flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> {appliedCoupon.code}</span>
+              <span className="font-semibold">−{fmt(discountPerScreen)}/screen/mo</span>
             </motion.div>
           )}
 
@@ -1146,12 +1172,40 @@ function StepPayment({
 
       {/* Promo code */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="space-y-2">
-        {promoApplied ? (
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Promo code</p>
+
+        {/* Available hints */}
+        <div className="flex flex-wrap gap-1.5">
+          {COUPONS.map((c) => {
+            const eligible = data.screens >= c.minScreens;
+            return (
+              <button
+                key={c.code}
+                type="button"
+                disabled={!eligible || !!appliedCoupon}
+                onClick={() => { setPromoInput(c.code); setPromoError(null); }}
+                className={`rounded-md border font-mono text-[11px] font-bold tracking-wider px-2 py-0.5 transition-all ${
+                  appliedCoupon?.code === c.code
+                    ? 'border-green-500 bg-green-500/10 text-green-700'
+                    : eligible
+                      ? 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary cursor-pointer'
+                      : 'border-border/40 bg-muted/20 text-muted-foreground/30 cursor-not-allowed'
+                }`}
+                title={eligible ? c.label : `Requires ${c.minScreens}+ screens`}
+              >
+                {c.code}
+              </button>
+            );
+          })}
+        </div>
+
+        {appliedCoupon ? (
           <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3">
             <div className="flex items-center gap-2 text-sm text-green-700 font-semibold">
-              <Check className="h-4 w-4" /> GETALIVENOW applied — saving {fmt(discountPerScreen * data.screens * data.months)} (excl. GST)
+              <Check className="h-4 w-4" />
+              <span>{appliedCoupon.code} — saving {fmt(discountPerScreen * data.screens * data.months)} total (excl. GST)</span>
             </div>
-            <button onClick={removePromo} className="text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={removePromo} className="text-muted-foreground hover:text-foreground transition-colors ml-2 shrink-0">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -1164,8 +1218,10 @@ function StepPayment({
                 value={promoInput}
                 onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
                 onKeyDown={(e) => e.key === 'Enter' && applyPromo()}
-                placeholder="Promo code"
-                className="w-full h-11 rounded-xl border border-border bg-card pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                placeholder="Enter code or tap above"
+                className={`w-full h-11 rounded-xl border bg-card pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 transition-all ${
+                  promoError ? 'border-destructive focus:border-destructive focus:ring-destructive/20' : 'border-border focus:border-primary focus:ring-primary/20'
+                }`}
               />
             </div>
             <button
@@ -1178,7 +1234,9 @@ function StepPayment({
           </div>
         )}
         {promoError && (
-          <p className="text-xs text-destructive px-1">{promoError}</p>
+          <p className="flex items-center gap-1.5 text-xs text-destructive px-1">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />{promoError}
+          </p>
         )}
       </motion.div>
 
