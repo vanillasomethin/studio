@@ -298,8 +298,9 @@ function RegistrationForm() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),
       });
-      const data = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok) { setErr(data.error ?? 'Registration failed.'); return; }
+      const data = await res.json() as { data?: { success?: boolean; error?: string; referralCode?: string }; success?: boolean; error?: string };
+      const payload2 = data.data ?? data;
+      if (!res.ok) { setErr(payload2.error ?? 'Registration failed.'); return; }
 
       await signIn('phone-password', {
         phone:    `+91${form.whatsapp}`,
