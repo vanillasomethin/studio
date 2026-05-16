@@ -7,10 +7,11 @@ import {
   IndianRupee, CheckCircle2, Clock, BarChart3, Phone,
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart,
+  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
+import OffersTab from '@/components/store/offers-tab';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
 
@@ -632,14 +633,15 @@ function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'settings';
+type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'settings';
 
 const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
-  { id: 'overview',  label: 'Overview',  icon: BarChart3    },
-  { id: 'earnings',  label: 'Earnings',  icon: IndianRupee  },
-  { id: 'flyers',    label: 'My flyers', icon: FileImage    },
-  { id: 'voicebill', label: 'VoiceBill', icon: ShoppingCart },
-  { id: 'settings',  label: 'Offers & Payout', icon: Gift },
+  { id: 'overview',  label: 'Overview',       icon: BarChart3    },
+  { id: 'earnings',  label: 'Earnings',       icon: IndianRupee  },
+  { id: 'flyers',    label: 'My flyers',      icon: FileImage    },
+  { id: 'voicebill', label: 'VoiceBill',      icon: ShoppingCart },
+  { id: 'offers',    label: 'Offers',         icon: Tag          },
+  { id: 'settings',  label: 'Payout',         icon: Gift         },
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
@@ -861,6 +863,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'voicebill' && (
             <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
               <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} />
+            </motion.div>
+          )}
+
+          {tab === 'offers' && (
+            <motion.div key="offers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <OffersTab />
             </motion.div>
           )}
 
