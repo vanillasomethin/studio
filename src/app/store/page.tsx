@@ -13,21 +13,15 @@ import MapPicker from '@/components/map-picker';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type OfferInput = { productName: string; weight: string; mrp: string; offerPrice: string };
-
 type Form = {
   storeName: string; ownerName: string; whatsapp: string; password: string;
   address: string; locality: string; city: string; pincode: string;
   lat: string; lng: string; referredBy: string; gstin: string;
-  offers: OfferInput[];
-  payoutMethod: string; upiId: string; bankAccountName: string; bankAccountNo: string; bankIfsc: string; bankName: string;
 };
 const INIT: Form = {
   storeName: '', ownerName: '', whatsapp: '', password: '',
   address: '', locality: '', city: '', pincode: '', lat: '', lng: '',
   referredBy: '', gstin: '',
-  offers: [{ productName: '', weight: '', mrp: '', offerPrice: '' }],
-  payoutMethod: 'upi', upiId: '', bankAccountName: '', bankAccountNo: '', bankIfsc: '', bankName: '',
 };
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
@@ -276,14 +270,6 @@ function RegistrationForm() {
   }, [form]);
 
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
-  const setOffer = (idx: number, key: keyof OfferInput, value: string) => {
-    setForm((prev) => ({
-      ...prev,
-      offers: prev.offers.map((offer, i) => (i === idx ? { ...offer, [key]: value } : offer)),
-    }));
-  };
-  const addOffer = () => setForm((prev) => ({ ...prev, offers: [...prev.offers, { productName: '', weight: '', mrp: '', offerPrice: '' }] }));
-  const removeOffer = (idx: number) => setForm((prev) => ({ ...prev, offers: prev.offers.filter((_, i) => i !== idx) }));
   const errors    = useMemo(() => validate(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
 
@@ -439,49 +425,6 @@ function RegistrationForm() {
       </div>
 
 
-
-      {/* Offers section */}
-      <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/70 p-3">
-        <div className="flex items-center justify-between">
-          <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Current offers (optional)</label>
-          <button type="button" onClick={addOffer} className="text-[11px] font-semibold text-red-500 hover:text-red-600">+ Add offer</button>
-        </div>
-        <p className="text-[10px] text-gray-400">Add products customers can see in offers: product name, weight, MRP and offer price.</p>
-        <div className="space-y-2">
-          {form.offers.map((offer, idx) => (
-            <div key={idx} className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg border border-gray-200 bg-white p-2">
-              <input value={offer.productName} onChange={(e) => setOffer(idx, 'productName', e.target.value)} placeholder="Product name" className="px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
-              <input value={offer.weight} onChange={(e) => setOffer(idx, 'weight', e.target.value)} placeholder="Weight (e.g. 1kg)" className="px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
-              <input value={offer.mrp} onChange={(e) => setOffer(idx, 'mrp', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="MRP" className="px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
-              <div className="flex gap-2">
-                <input value={offer.offerPrice} onChange={(e) => setOffer(idx, 'offerPrice', e.target.value.replace(/[^0-9.]/g, ''))} placeholder="Offer price" className="min-w-0 w-full px-2.5 py-2 text-xs rounded-lg border border-gray-200 focus:outline-none focus:border-red-400" />
-                {form.offers.length > 1 && (
-                  <button type="button" onClick={() => removeOffer(idx)} className="px-2 text-[11px] text-gray-500 hover:text-red-600">Remove</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Rewards deposit details */}
-      <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/70 p-3">
-        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Rewards deposit details</label>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => set('payoutMethod', 'upi')} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${form.payoutMethod === 'upi' ? 'border-red-400 bg-red-50 text-red-600' : 'border-gray-200 bg-white text-gray-600'}`}>UPI</button>
-          <button type="button" onClick={() => set('payoutMethod', 'bank')} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${form.payoutMethod === 'bank' ? 'border-red-400 bg-red-50 text-red-600' : 'border-gray-200 bg-white text-gray-600'}`}>Bank transfer</button>
-        </div>
-        {form.payoutMethod === 'upi' ? (
-          <input value={form.upiId} onChange={(e) => set('upiId', e.target.value)} placeholder="UPI ID (e.g. name@okaxis)" className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <input value={form.bankAccountName} onChange={(e) => set('bankAccountName', e.target.value)} placeholder="Account holder name" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
-            <input value={form.bankName} onChange={(e) => set('bankName', e.target.value)} placeholder="Bank name" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
-            <input value={form.bankAccountNo} onChange={(e) => set('bankAccountNo', e.target.value)} placeholder="Account number" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
-            <input value={form.bankIfsc} onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())} placeholder="IFSC code" className="px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:border-red-400" />
-          </div>
-        )}
-      </div>
 
       {/* Referral code */}
       <div className="space-y-1">
