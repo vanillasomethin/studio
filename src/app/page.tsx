@@ -1,7 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import Image from 'next/image';
+
+const StoreMap        = dynamic(() => import('@/components/sections/store-map'),                        { ssr: false });
+const AliveBeforeAfter = dynamic(() => import('@/components/interactive/alive-before-after'),           { ssr: false });
+const KiranaExplorer   = dynamic(() => import('@/components/interactive/kirana-store-explorer'),        { ssr: false });
 
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
@@ -156,7 +161,7 @@ export default function Home() {
       <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
         <a href="#" className="brand">alive<span className="dot" /></a>
         <ul>
-          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#proof','Proof'],['#voices','Voices']].map(([href,lbl]) => (
+          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#network','Network'],['#voices','Voices']].map(([href,lbl]) => (
             <li key={href}><a href={href}>{lbl}</a></li>
           ))}
         </ul>
@@ -332,6 +337,32 @@ export default function Home() {
         </ul>
       </section>
 
+      {/* EXPERIENCE ALIVE IN ACTION */}
+      <section id="experience" style={{ padding: '5rem 0', background: '#fafafa', borderTop: '1px solid #f0f0f0' }}>
+        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0 1.5rem' }}>
+          <div style={{ marginBottom: '3rem', textAlign: 'center' }}>
+            <div className="idx" style={{ fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.45, marginBottom: '0.5rem' }}>03 / Experience</div>
+            <h2 className="fade" style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-0.03em', margin: '0 0 1rem' }}>
+              Experience Alive <span className="red">in Action</span>
+            </h2>
+            <p className="fade" style={{ maxWidth: '38rem', margin: '0 auto', fontSize: '0.95rem', lineHeight: 1.65, opacity: 0.65 }}>
+              Drag the slider to see how a single screen transforms an ordinary kirana counter into a live brand moment.
+            </p>
+          </div>
+          <AliveBeforeAfter />
+
+          <div style={{ marginTop: '5rem', marginBottom: '2.5rem', textAlign: 'center' }}>
+            <h3 className="fade" style={{ fontSize: 'clamp(1.4rem, 3vw, 2.2rem)', fontWeight: 800, letterSpacing: '-0.02em', margin: '0 0 0.75rem' }}>
+              Find an <span className="red">ALIVE screen</span> near you
+            </h3>
+            <p className="fade" style={{ maxWidth: '32rem', margin: '0 auto', fontSize: '0.9rem', lineHeight: 1.65, opacity: 0.6 }}>
+              Select your city and neighbourhood to see how many partner stores are live in your area.
+            </p>
+          </div>
+          <KiranaExplorer />
+        </div>
+      </section>
+
       {/* PROOF */}
       <div className="proof" id="proof">
         <div className="proof-head">
@@ -352,6 +383,23 @@ export default function Home() {
           ))}
         </div>
       </div>
+
+      {/* NETWORK MAP */}
+      <section id="network" style={{ padding: '5rem 0', background: 'var(--bg, #fff)' }}>
+        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0 1.5rem' }}>
+          <div style={{ marginBottom: '2.5rem' }}>
+            <div className="idx" style={{ fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.45, marginBottom: '0.5rem' }}>03.5 / Network</div>
+            <h2 className="fade" style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-0.03em', margin: 0 }}>
+              Live across <span className="red">Mangaluru</span><span className="hdot" /><br />
+              <span style={{ fontWeight: 400, fontStyle: 'italic', opacity: 0.55 }}>expanding city by city.</span>
+            </h2>
+            <p className="fade" style={{ marginTop: '1rem', maxWidth: '38rem', fontSize: '0.95rem', lineHeight: 1.65, opacity: 0.7 }}>
+              Every pin is a kirana partner. Every shaded ward has at least one Alive screen. Pick your neighbourhood — see how deep the network runs.
+            </p>
+          </div>
+          <StoreMap />
+        </div>
+      </section>
 
       {/* VOICES */}
       <section className="stewards" id="voices">
@@ -428,9 +476,9 @@ export default function Home() {
           </div>
           <div className="col">
             <h4>Reach Us</h4>
-            <p><strong>hello@aliveindia.in</strong>For brand & press enquiries</p>
-            <p style={{ marginTop: 14 }}><strong>+91 22 4000 0000</strong>Mon–Sat · 10 AM to 7 PM IST</p>
-            <p style={{ marginTop: 14 }}><strong>HQ · Mumbai</strong>Bandra Kurla Complex<br />Mumbai 400 051</p>
+            <p><a href="mailto:hello@wearealive.in" style={{ color: 'inherit' }}><strong>hello@wearealive.in</strong></a>For brand &amp; press enquiries</p>
+            <p style={{ marginTop: 14 }}><a href="tel:+917411324448" style={{ color: 'inherit' }}><strong>+91 74113 24448</strong></a>Mon–Sat · 10 AM to 7 PM IST</p>
+            <p style={{ marginTop: 14 }}><strong>VS Collective LLP · Mangaluru</strong>#13 First Floor, Highland Manor<br />Falnir, Mangaluru 575 002</p>
           </div>
         </div>
 
