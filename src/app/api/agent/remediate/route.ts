@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 
 type AgentOption = {
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
           actionType: option.actionType,
           title: option.title,
           rationale: option.rationale,
-          proposedChange: option.proposedChange,
+          proposedChange: option.proposedChange as Prisma.InputJsonValue,
           confidence: option.confidence,
           blastRadius: option.blastRadius,
           blastRadiusScore: option.blastRadiusScore,

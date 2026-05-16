@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 
 export type ActorType = 'device' | 'admin' | 'user' | 'system' | 'anonymous';
@@ -52,7 +53,7 @@ export async function recordEvent(input: EventInput) {
       message: input.message,
       correlationId: input.correlationId,
       actorType: input.actorType,
-      requestMeta: input.requestMeta,
+      requestMeta: input.requestMeta as Prisma.InputJsonValue | undefined,
       deviceId: input.deviceId,
     },
   });
@@ -71,7 +72,7 @@ export async function recordError(input: ErrorInput) {
       stackHash: input.stackHash,
       correlationId: input.correlationId,
       actorType: input.actorType,
-      requestMeta: input.requestMeta,
+      requestMeta: input.requestMeta as Prisma.InputJsonValue | undefined,
       deviceId: input.deviceId,
     },
   });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { collectMarketSentimentSignals } from '@/lib/data-sources/market-sentiment';
 import { collectCompetitorActivitySignals } from '@/lib/data-sources/competitor-activity';
@@ -28,13 +29,13 @@ export async function POST(req: NextRequest) {
           expiresAt: signal.expiresAt,
           category: signal.category,
           summary: signal.summary,
-          details: signal.details,
+          details: signal.details as Prisma.InputJsonValue,
           score: signal.score,
           trendVelocity: signal.trendVelocity,
           confidence: signal.confidence,
           freshness: signal.freshness,
           severity: signal.severity,
-          recommendedActions: signal.recommendedActions,
+          recommendedActions: signal.recommendedActions as Prisma.InputJsonValue,
         },
         create: {
           source: signal.source,
@@ -43,13 +44,13 @@ export async function POST(req: NextRequest) {
           expiresAt: signal.expiresAt,
           category: signal.category,
           summary: signal.summary,
-          details: signal.details,
+          details: signal.details as Prisma.InputJsonValue,
           score: signal.score,
           trendVelocity: signal.trendVelocity,
           confidence: signal.confidence,
           freshness: signal.freshness,
           severity: signal.severity,
-          recommendedActions: signal.recommendedActions,
+          recommendedActions: signal.recommendedActions as Prisma.InputJsonValue,
         },
       }),
     ),
