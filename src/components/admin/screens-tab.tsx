@@ -1,9 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle } from 'lucide-react';
+import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
 import { getDevices, type Device } from '@/lib/backend-api';
 
+// ─── Play Store / APK config ─────────────────────────────────────────────────
+// Update PLAY_STORE_URL once the app is published.
+const PLAY_STORE_URL   = 'https://play.google.com/store/apps/details?id=in.wearealive.player';
+const APK_DIRECT_URL   = 'https://pub-7a9bd7006a434f6c84ea68e69b323918.r2.dev/alive-player-latest.apk';
+const CLAIM_ENDPOINT   = '/api/device/claim';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
   catch { return iso; }
@@ -11,7 +18,7 @@ function fmtDate(iso: string) {
 
 function timeSince(iso: string): string {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 60)  return `${secs}s ago`;
+  if (secs < 60)   return `${secs}s ago`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
   return `${Math.floor(secs / 86400)}d ago`;
@@ -29,6 +36,146 @@ const STATUS_ICONS: Record<Device['status'], React.ElementType> = {
   PENDING: Clock,
 };
 
+// ─── Registration onboarding card ────────────────────────────────────────────
+function AddScreenCard() {
+  const [open,    setOpen]    = useState(false);
+  const [copied,  setCopied]  = useState(false);
+
+  const baseUrl   = typeof window !== 'undefined' ? window.location.origin : 'https://wearealive.in';
+  const claimUrl  = `${baseUrl}${CLAIM_ENDPOINT}`;
+  const qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(PLAY_STORE_URL)}`;
+
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-primary/20 bg-primary/5 overflow-hidden">
+      {/* Header — always visible */}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-primary/5 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shrink-0">
+            <Smartphone className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-foreground">Register a new screen</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Install ALIVE Player on any Android TV device → it connects automatically</p>
+          </div>
+        </div>
+        {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-primary/10 px-5 py-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+            {/* Step 1 */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px] font-black shrink-0">1</span>
+                <p className="text-xs font-bold text-foreground">Install ALIVE Player</p>
+              </div>
+              <div className="flex flex-col items-center gap-3">
+                {/* QR Code */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={qrDataUrl} alt="Play Store QR" className="rounded-xl border border-border" width={120} height={120} />
+                <p className="text-[10px] text-muted-foreground text-center">Scan to open Play Store on Android TV</p>
+              </div>
+              <a
+                href={PLAY_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Get on Play Store
+              </a>
+              <a
+                href={APK_DIRECT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/30 transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Direct APK download
+              </a>
+            </div>
+
+            {/* Step 2 */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px] font-black shrink-0">2</span>
+                <p className="text-xs font-bold text-foreground">Boot &amp; auto-connect</p>
+              </div>
+              <ol className="space-y-2.5">
+                {[
+                  { n: 'a', t: 'Open ALIVE Player on the Android TV / Fire Stick' },
+                  { n: 'b', t: 'The app reads the device\'s hardware ID automatically' },
+                  { n: 'c', t: 'It calls the claim endpoint and gets a unique token' },
+                  { n: 'd', t: 'The screen appears here as "Pending" within seconds' },
+                ].map(s => (
+                  <li key={s.n} className="flex gap-2.5 text-[11px] text-muted-foreground">
+                    <span className="font-bold text-primary shrink-0 w-4">{s.n}.</span>
+                    <span>{s.t}</span>
+                  </li>
+                ))}
+              </ol>
+              <div className="rounded-xl bg-muted/40 border border-border p-3">
+                <p className="text-[10px] font-bold text-foreground mb-1.5 flex items-center gap-1.5"><QrCode className="h-3 w-3" />Claim endpoint</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-[9px] font-mono text-muted-foreground flex-1 break-all">{claimUrl}</code>
+                  <button
+                    onClick={() => copy(claimUrl)}
+                    className="shrink-0 rounded-lg border border-border bg-background p-1.5 hover:bg-muted/50 transition-colors"
+                    title="Copy"
+                  >
+                    {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px] font-black shrink-0">3</span>
+                <p className="text-xs font-bold text-foreground">Assign &amp; go live</p>
+              </div>
+              <ol className="space-y-2.5">
+                {[
+                  { n: 'a', t: 'Screen appears in the list below as status: PENDING' },
+                  { n: 'b', t: 'Assign it to a store group in the Schedules tab' },
+                  { n: 'c', t: 'Upload content in the Content tab' },
+                  { n: 'd', t: 'Build a playlist → attach to a schedule → screen goes ONLINE and starts playing' },
+                ].map(s => (
+                  <li key={s.n} className="flex gap-2.5 text-[11px] text-muted-foreground">
+                    <span className="font-bold text-primary shrink-0 w-4">{s.n}.</span>
+                    <span>{s.t}</span>
+                  </li>
+                ))}
+              </ol>
+              <div className="rounded-xl bg-green-500/8 border border-green-500/20 p-3">
+                <p className="text-[11px] text-green-700 font-semibold">Supported devices</p>
+                <ul className="mt-1.5 space-y-1 text-[10px] text-green-700/80">
+                  <li>• Android TV boxes (Mi Box, Nvidia Shield, etc.)</li>
+                  <li>• Amazon Fire TV Stick (4K or later)</li>
+                  <li>• Smart TVs running Android TV OS</li>
+                  <li>• Android tablets in kiosk mode</li>
+                </ul>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main tab ────────────────────────────────────────────────────────────────
 export default function ScreensTab() {
   const [devices,  setDevices]  = useState<Device[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -53,91 +200,94 @@ export default function ScreensTab() {
   const offline = devices.filter((d) => d.status === 'OFFLINE').length;
   const pending = devices.filter((d) => d.status === 'PENDING').length;
 
-  if (loading) return (
-    <div className="flex justify-center py-16">
-      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-    </div>
-  );
-
-  if (error) return (
-    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
-      <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-      <div>
-        <p className="text-sm font-semibold text-foreground">Could not load screens</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
-      </div>
-    </div>
-  );
-
   return (
     <div className="space-y-4">
+
+      {/* Add screen onboarding */}
+      <AddScreenCard />
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total screens', value: devices.length,      icon: Tv2,     color: 'text-blue-500'    },
-          { label: 'Online',        value: online,               icon: Wifi,    color: 'text-green-500'   },
-          { label: 'Offline',       value: offline,              icon: WifiOff, color: 'text-red-500'     },
-          { label: 'Pending claim', value: pending,              icon: Clock,   color: 'text-yellow-500'  },
+          { label: 'Total screens', value: devices.length, icon: Tv2,     color: 'text-blue-500'   },
+          { label: 'Online',        value: online,          icon: Wifi,    color: 'text-green-500'  },
+          { label: 'Offline',       value: offline,         icon: WifiOff, color: 'text-red-500'    },
+          { label: 'Pending claim', value: pending,         icon: Clock,   color: 'text-yellow-500' },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4">
             <s.icon className={`h-4 w-4 ${s.color} mb-2`} />
-            <p className="text-xl font-bold text-foreground">{s.value}</p>
+            <p className="text-xl font-bold text-foreground">{loading ? '—' : s.value}</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
           </div>
         ))}
       </div>
 
-      {/* Search */}
-      <input
-        type="search"
-        placeholder="Search by store name or device ID…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-      />
-
-      {!filtered.length ? (
-        <p className="text-sm text-muted-foreground text-center py-10">
-          {search ? 'No devices match your search.' : 'No screens registered yet. Install ALIVE-Player on an Android TV to get started.'}
-        </p>
-      ) : (
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/50">
-              <tr>
-                {['Store', 'Device ID', 'Status', 'Last seen', 'Uptime', 'Claimed'].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.map((d) => {
-                const StatusIcon = STATUS_ICONS[d.status];
-                return (
-                  <tr key={d.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-foreground">{d.storeName}</td>
-                    <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{d.id.slice(0, 12)}…</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
-                        <StatusIcon className="h-2.5 w-2.5" />
-                        {d.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{d.lastSeen ? timeSince(d.lastSeen) : '—'}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {d.uptimePct != null ? (
-                        <span className={d.uptimePct >= 98 ? 'text-green-600 font-semibold' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}>
-                          {d.uptimePct.toFixed(1)}%
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground/60">{fmtDate(d.claimedAt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+      ) : error ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Could not load screens</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <input
+            type="search"
+            placeholder="Search by store name, device ID or hardware key…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+          />
+
+          {!filtered.length ? (
+            <p className="text-sm text-muted-foreground text-center py-10">
+              {search ? 'No devices match your search.' : 'No screens registered yet — expand "Register a new screen" above to get started.'}
+            </p>
+          ) : (
+            <div className="rounded-xl border border-border overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50">
+                  <tr>
+                    {['Store', 'Hardware key', 'Status', 'Last seen', 'Uptime (30d)', 'Claimed'].map((h) => (
+                      <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map((d) => {
+                    const StatusIcon = STATUS_ICONS[d.status];
+                    return (
+                      <tr key={d.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{d.storeName}</td>
+                        <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{d.hardwareKey.slice(0, 16)}&hellip;</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
+                            <StatusIcon className="h-2.5 w-2.5" />
+                            {d.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{d.lastSeen ? timeSince(d.lastSeen) : '—'}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {d.uptimePct != null ? (
+                            <span className={d.uptimePct >= 98 ? 'text-green-600 font-semibold' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}>
+                              {d.uptimePct.toFixed(1)}%
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(d.claimedAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
