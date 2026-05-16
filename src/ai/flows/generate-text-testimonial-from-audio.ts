@@ -9,7 +9,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import wav from 'wav';
 
 const GenerateTextTestimonialFromAudioInputSchema = z.object({
   audioDataUri: z
@@ -23,7 +22,7 @@ export type GenerateTextTestimonialFromAudioInput = z.infer<typeof GenerateTextT
 const GenerateTextTestimonialFromAudioOutputSchema = z.object({
   textTestimonial: z.string().describe('The generated text testimonial from the audio content.'),
 });
-export type GenerateTextTestimonialFromAudioOutput = z.infer<typeof GenerateTextTestTestimonialFromAudioOutputSchema>;
+export type GenerateTextTestimonialFromAudioOutput = z.infer<typeof GenerateTextTestimonialFromAudioOutputSchema>;
 
 export async function generateTextTestimonialFromAudio(input: GenerateTextTestimonialFromAudioInput): Promise<GenerateTextTestimonialFromAudioOutput> {
   return generateTextTestimonialFromAudioFlow(input);
