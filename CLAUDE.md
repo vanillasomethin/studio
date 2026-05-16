@@ -215,6 +215,24 @@ function getRedis(): Redis | null {
 
 ---
 
+## Design Conventions — UI / Visual
+
+**Strictly avoid generic AI aesthetics:**
+- No neon accent colours, rainbow palettes, or glowing buttons
+- No floating decorative shapes, orbs, or blobs in backgrounds
+- No heavy gradients used purely for decoration (gradients are fine for data viz or subtle depth)
+- No "glassmorphism" cards with heavy backdrop-blur as the primary design motif
+- No animated particle effects or canvas-based decorations
+
+**ALIVE visual language:**
+- Brand red: `#ef4444` / `#b91c1c` (primary), used sparingly on CTAs and key labels
+- Backgrounds: white (`bg-white`) or very light gray (`bg-gray-50` / `bg-background`)
+- Cards: white with a single `border border-border` — no shadow stacks, no double-border tricks
+- Typography: tight tracking on headings (`tracking-tight`), `font-black` for hero numbers
+- Savings / positive indicators: `text-green-700` on `bg-green-50` — not neon green
+- Status badges: small, muted, no icons unless genuinely necessary
+- Motion: Framer Motion for enter animations only (`fadeUp`, `stagger`) — never looping or attention-seeking
+
 ## Important Conventions
 
 - **`'use client'`** must be first line of any component using hooks, browser APIs, or Framer Motion

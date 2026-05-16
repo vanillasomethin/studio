@@ -79,28 +79,32 @@ export function buildLearningArtifact({ route, request, responseMeta, latencyMs,
 }
 
 export async function emitLearningArtifact(artifact: LearningArtifact): Promise<string> {
-  await db.telemetryEvent.create({
-    data: {
-      route: artifact.route,
-      level: 'learning_artifact',
-      message: JSON.stringify({
-        learningArtifactId: artifact.id,
-        outcome: artifact.outcome,
-        latencyMs: artifact.latencyMs,
-        errorCategory: artifact.errorCategory,
-        policyFlags: artifact.policyFlags,
-        inputSummary: artifact.inputSummary,
-        outputSummary: artifact.outputSummary,
-      }),
-      correlationId: artifact.id,
-      actorType: 'system',
-      requestMeta: {
-        type: 'vector_ingestion_queue',
-        artifactRef: artifact.id,
-        createdAt: artifact.createdAt,
+  try {
+    await db.telemetryEvent.create({
+      data: {
+        route: artifact.route,
+        level: 'learning_artifact',
+        message: JSON.stringify({
+          learningArtifactId: artifact.id,
+          outcome: artifact.outcome,
+          latencyMs: artifact.latencyMs,
+          errorCategory: artifact.errorCategory,
+          policyFlags: artifact.policyFlags,
+          inputSummary: artifact.inputSummary,
+          outputSummary: artifact.outputSummary,
+        }),
+        correlationId: artifact.id,
+        actorType: 'system',
+        requestMeta: {
+          type: 'vector_ingestion_queue',
+          artifactRef: artifact.id,
+          createdAt: artifact.createdAt,
+        },
       },
-    },
-  });
+    });
+  } catch {
+    // non-fatal — DB may not have the table yet; route still returns normally
+  }
 
   return artifact.id;
 }

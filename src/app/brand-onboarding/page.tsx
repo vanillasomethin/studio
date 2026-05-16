@@ -11,8 +11,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
-  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays,
-  EyeOff, Tag, X,
+  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays, EyeOff,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -53,24 +52,6 @@ const DURATION_OPTIONS = [
 
 const STEPS = ['Details', 'Campaign', 'Agreement', 'Login', 'Payment'];
 
-// ─── Coupon codes ──────────────────────────────────────────────────────────────
-
-type Coupon = {
-  code:        string;
-  discount:    number;   // ₹ off per screen per month
-  minScreens:  number;
-  label:       string;
-};
-
-const COUPONS: Coupon[] = [
-  { code: 'GETALIVENOW', discount: 100, minScreens: 1,  label: '₹100 off / screen / month' },
-  { code: 'SCALE10',     discount: 80,  minScreens: 10, label: '₹80 off / screen / month · 10+ screens' },
-  { code: 'SCALE20',     discount: 120, minScreens: 20, label: '₹120 off / screen / month · 20+ screens' },
-];
-
-function findCoupon(code: string): Coupon | undefined {
-  return COUPONS.find((c) => c.code === code.trim().toUpperCase());
-}
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -465,16 +446,18 @@ function StepCampaign({
                     <p className="text-2xl font-black text-foreground leading-none">{t.screens}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{t.screens === 1 ? 'screen' : 'screens'}</p>
                   </div>
-                  <div className="border-t border-border pt-3 space-y-0.5">
-                    {t.pricePerScreen < BASE_PRICE && (
-                      <p className="text-[10px] text-muted-foreground/60 line-through leading-none">{fmt(BASE_PRICE)}</p>
+                  <div className="border-t border-border pt-3 space-y-1">
+                    {t.pricePerScreen < BASE_PRICE ? (
+                      <p className="text-[10px] text-muted-foreground/50 line-through leading-none">{fmt(BASE_PRICE)}/screen</p>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground/50 leading-none invisible">–</p>
                     )}
-                    <p className="text-sm font-bold text-foreground">{fmt(t.pricePerScreen)}</p>
+                    <p className="text-base font-black text-foreground leading-none">{fmt(t.pricePerScreen)}</p>
                     <p className="text-[10px] text-muted-foreground leading-none">per screen / month</p>
                     {t.pricePerScreen < BASE_PRICE && (
-                      <span className="inline-block rounded-full bg-green-500/10 px-1.5 py-0.5 text-[9px] font-bold text-green-600 uppercase tracking-wide">
-                        Save {Math.round((1 - t.pricePerScreen / BASE_PRICE) * 100)}%
-                      </span>
+                      <p className="text-[11px] font-bold text-green-700 leading-none">
+                        Save ₹{BASE_PRICE - t.pricePerScreen}/screen/mo
+                      </p>
                     )}
                   </div>
                   <div className="space-y-1 pt-1">
@@ -494,29 +477,6 @@ function StepCampaign({
               </motion.button>
             );
           })}
-        </motion.div>
-
-        {/* Coupon callout — volume-based offers */}
-        <motion.div variants={fadeUp} className="rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Promo codes available</p>
-          <div className="space-y-2">
-            {COUPONS.map((c) => {
-              const eligible = data.screens >= c.minScreens;
-              return (
-                <div key={c.code} className={`flex items-center justify-between gap-3 transition-opacity ${eligible ? 'opacity-100' : 'opacity-40'}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="shrink-0 rounded-md border border-green-500/40 bg-green-500/10 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-green-700">
-                      {c.code}
-                    </span>
-                    <span className="text-xs text-green-800 truncate">{c.label}</span>
-                  </div>
-                  <span className="shrink-0 text-[10px] font-semibold text-green-600">
-                    {eligible ? 'Apply at checkout →' : `Need ${c.minScreens}+ screens`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
         </motion.div>
 
         {/* Custom stepper */}
@@ -914,19 +874,34 @@ function StepAgreement({
             </div>
           ))}
 
-          <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground/70">
-            <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
-            <p className="font-semibold text-foreground">ALIVE Advertising Pvt. Ltd.</p>
-            <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor, Kankanady, Mangaluru — 575002</p>
-            <p>GSTIN: 29AAXFV2589C1ZE · Email: legal@wearealive.in</p>
-            {data.gstin && (
-              <div className="pt-1 space-y-0.5">
-                <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
-                  <p className="font-semibold text-foreground">{data.brandName}</p>
-                  <p>GSTIN: {data.gstin}</p>
-                </div>
-              )}
+          {/* Digital Acceptance block */}
+          <div className="pt-4 border-t border-border">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Digital Acceptance</p>
+            <p className="text-xs text-muted-foreground/70 mb-4 leading-relaxed">
+              This agreement is executed electronically under the Information Technology Act, 2000.
+              Electronic acceptance via the ALIVE platform constitutes valid execution without physical signatures.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
+                <p className="font-semibold text-foreground">ALIVE Advertising Pvt. Ltd.</p>
+                <p className="text-muted-foreground">Highland Manor, Kankanady, Mangaluru 575002</p>
+                <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
+                <p className="text-muted-foreground">Authorised by: ALIVE Platform (automated)</p>
+                <p className="text-muted-foreground">Date: {effectiveDate}</p>
+              </div>
+              <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party B — Advertiser</p>
+                <p className="font-semibold text-foreground">{data.brandName || '—'}</p>
+                {data.contactName && <p className="text-muted-foreground">Contact: {data.contactName}</p>}
+                {data.email      && <p className="text-muted-foreground">{data.email}</p>}
+                {data.phone      && <p className="text-muted-foreground">+91 {data.phone}</p>}
+                {data.gstin      && <p className="text-muted-foreground">GSTIN: {data.gstin}</p>}
+                <p className="text-muted-foreground">Campaign: {data.screens} screen{data.screens !== 1 ? 's' : ''} · {data.months} month{data.months !== 1 ? 's' : ''} · {monthlyFee}/mo</p>
+                <p className="text-muted-foreground">Date of acceptance: {effectiveDate}</p>
+              </div>
             </div>
+          </div>
           </div>
       </div>
 
@@ -967,46 +942,16 @@ function StepPayment({
   onConfirm: (effectivePricePerScreen: number) => void;
   onBack: () => void;
 }) {
-  const [loading,       setLoading]       = useState(false);
-  const [error,         setError]         = useState<string | null>(null);
-  const [promoInput,    setPromoInput]    = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
-  const [promoError,    setPromoError]    = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
 
-  const basePerScreen     = getScreenPrice(data.screens);
-  const discountPerScreen = appliedCoupon?.discount ?? 0;
-  const pricePerScreen    = Math.max(basePerScreen - discountPerScreen, 449);
-  const subtotal          = pricePerScreen * data.screens * data.months;
-  const gstAmount         = Math.round(subtotal * 0.18);
-  const total             = subtotal + gstAmount;
+  const pricePerScreen = getScreenPrice(data.screens);
+  const subtotal       = pricePerScreen * data.screens * data.months;
+  const gstAmount      = Math.round(subtotal * 0.18);
+  const total          = subtotal + gstAmount;
 
   const startDate = data.startDate ? new Date(data.startDate + 'T00:00:00') : null;
   const endDate   = startDate ? addMonths(startDate, data.months) : null;
-
-  const applyPromo = () => {
-    const code   = promoInput.trim().toUpperCase();
-    if (!code) { setPromoError('Enter a promo code first.'); return; }
-    const coupon = findCoupon(code);
-    if (!coupon) {
-      setPromoError(`Code "${code}" is not valid.`);
-      setAppliedCoupon(null);
-      return;
-    }
-    if (data.screens < coupon.minScreens) {
-      setPromoError(`"${code}" requires ${coupon.minScreens}+ screens. You have ${data.screens}.`);
-      setAppliedCoupon(null);
-      return;
-    }
-    setAppliedCoupon(coupon);
-    setPromoError(null);
-    setPromoInput('');
-  };
-
-  const removePromo = () => {
-    setAppliedCoupon(null);
-    setPromoInput('');
-    setPromoError(null);
-  };
 
   const handlePay = async () => {
     setLoading(true);
@@ -1103,22 +1048,17 @@ function StepPayment({
           <motion.div variants={fadeUp} className="flex items-center justify-between">
             <span className="text-muted-foreground">Price / screen / month</span>
             <span className="flex items-center gap-2 font-semibold text-foreground">
-              {appliedCoupon && (
-                <span className="text-xs text-muted-foreground/60 line-through">{fmt(basePerScreen)}</span>
+              {pricePerScreen < BASE_PRICE && (
+                <span className="text-xs text-muted-foreground/50 line-through">{fmt(BASE_PRICE)}</span>
               )}
               {fmt(pricePerScreen)}
               <span className="text-[10px] text-muted-foreground font-normal">excl. GST</span>
             </span>
           </motion.div>
-
-          {/* Promo discount row */}
-          {appliedCoupon && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              className="flex items-center justify-between text-green-600"
-            >
-              <span className="flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> {appliedCoupon.code}</span>
-              <span className="font-semibold">−{fmt(discountPerScreen)}/screen/mo</span>
+          {pricePerScreen < BASE_PRICE && (
+            <motion.div variants={fadeUp} className="flex items-center justify-between text-green-700 text-xs font-semibold">
+              <span>Volume discount</span>
+              <span>−₹{BASE_PRICE - pricePerScreen}/screen/mo</span>
             </motion.div>
           )}
 
@@ -1168,76 +1108,6 @@ function StepPayment({
             {fmt(total)}
           </motion.span>
         </motion.div>
-      </motion.div>
-
-      {/* Promo code */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Promo code</p>
-
-        {/* Available hints */}
-        <div className="flex flex-wrap gap-1.5">
-          {COUPONS.map((c) => {
-            const eligible = data.screens >= c.minScreens;
-            return (
-              <button
-                key={c.code}
-                type="button"
-                disabled={!eligible || !!appliedCoupon}
-                onClick={() => { setPromoInput(c.code); setPromoError(null); }}
-                className={`rounded-md border font-mono text-[11px] font-bold tracking-wider px-2 py-0.5 transition-all ${
-                  appliedCoupon?.code === c.code
-                    ? 'border-green-500 bg-green-500/10 text-green-700'
-                    : eligible
-                      ? 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary cursor-pointer'
-                      : 'border-border/40 bg-muted/20 text-muted-foreground/30 cursor-not-allowed'
-                }`}
-                title={eligible ? c.label : `Requires ${c.minScreens}+ screens`}
-              >
-                {c.code}
-              </button>
-            );
-          })}
-        </div>
-
-        {appliedCoupon ? (
-          <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm text-green-700 font-semibold">
-              <Check className="h-4 w-4" />
-              <span>{appliedCoupon.code} — saving {fmt(discountPerScreen * data.screens * data.months)} total (excl. GST)</span>
-            </div>
-            <button onClick={removePromo} className="text-muted-foreground hover:text-foreground transition-colors ml-2 shrink-0">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-              <input
-                type="text"
-                value={promoInput}
-                onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
-                onKeyDown={(e) => e.key === 'Enter' && applyPromo()}
-                placeholder="Enter code or tap above"
-                className={`w-full h-11 rounded-xl border bg-card pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 transition-all ${
-                  promoError ? 'border-destructive focus:border-destructive focus:ring-destructive/20' : 'border-border focus:border-primary focus:ring-primary/20'
-                }`}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={applyPromo}
-              className="h-11 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-all whitespace-nowrap"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-        {promoError && (
-          <p className="flex items-center gap-1.5 text-xs text-destructive px-1">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" />{promoError}
-          </p>
-        )}
       </motion.div>
 
       {/* Error */}
