@@ -1,11 +1,11 @@
 ALTER TABLE "Store"
-  ADD COLUMN "onboardingStage" TEXT NOT NULL DEFAULT 'new',
-  ADD COLUMN "payoutStatus" TEXT NOT NULL DEFAULT 'pending_setup',
-  ADD COLUMN "payoutMethod" TEXT,
-  ADD COLUMN "upiId" TEXT,
-  ADD COLUMN "bankAccountName" TEXT,
-  ADD COLUMN "bankAccountNo" TEXT,
-  ADD COLUMN "bankIfsc" TEXT,
-  ADD COLUMN "bankName" TEXT,
-  ADD COLUMN "payoutLastPaidAt" TIMESTAMP(3),
-  ADD COLUMN "payoutNotes" TEXT;
+  ADD COLUMN IF NOT EXISTS "onboardingStage" TEXT NOT NULL DEFAULT 'new',
+  ADD COLUMN IF NOT EXISTS "payoutStatus" TEXT NOT NULL DEFAULT 'pending_setup',
+  ADD COLUMN IF NOT EXISTS "payoutMethod" TEXT,
+  ADD COLUMN IF NOT EXISTS "upiId" TEXT,
+  ADD COLUMN IF NOT EXISTS "bankAccountName" TEXT,
+  ADD COLUMN IF NOT EXISTS "bankAccountNo" TEXT,
+  ADD COLUMN IF NOT EXISTS "bankIfsc" TEXT,
+  ADD COLUMN IF NOT EXISTS "bankName" TEXT,
+  ADD COLUMN IF NOT EXISTS "payoutLastPaidAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "payoutNotes" TEXT;

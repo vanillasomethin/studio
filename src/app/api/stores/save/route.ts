@@ -71,12 +71,6 @@ type RegistrationBody = {
   referredBy?:  string;
   referralCode: string;
   agreedAt:     string;
-  payoutMethod?: string;
-  upiId?: string;
-  bankAccountName?: string;
-  bankAccountNo?: string;
-  bankIfsc?: string;
-  bankName?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -122,12 +116,6 @@ export async function POST(req: NextRequest) {
             referralCode: body.referralCode,
             referredBy:   body.referredBy || null,
             agreedAt:     new Date(body.agreedAt),
-            payoutMethod: body.payoutMethod || null,
-            upiId: body.upiId || null,
-            bankAccountName: body.bankAccountName || null,
-            bankAccountNo: body.bankAccountNo || null,
-            bankIfsc: body.bankIfsc || null,
-            bankName: body.bankName || null,
           },
         },
       },
