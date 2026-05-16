@@ -5,6 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
+import { respond } from '@/lib/api-envelope';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -12,7 +14,13 @@ function adminGuard(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const startedAtMs = Date.now();
+  const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
+  const route = '/api/events';
+  if (!adminGuard(req)) {
+    const envelope = await respond({ error: 'Unauthorized', correlationId }, { route, request: { correlationId }, outcome: 'unauthorized', policyFlags: ['admin_guard'], errorCategory: 'auth', startedAtMs });
+    return NextResponse.json(envelope, { status: 401 });
+  }
 
   const p          = req.nextUrl.searchParams;
   const deviceId   = p.get('deviceId')   ?? undefined;
@@ -43,8 +51,20 @@ export async function GET(req: NextRequest) {
     const page       = hasMore ? events.slice(0, limit) : events;
     const nextCursor = hasMore ? page[page.length - 1].id : null;
 
-    return NextResponse.json({ events: page, nextCursor });
+    const envelope = await respond({ events: page, nextCursor }, { route, request: { correlationId, deviceId, campaignId, tag, hasFrom: !!from, hasTo: !!to, limit }, outcome: 'success', startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    await recordError({
+      route,
+      errorClass: error.name,
+      message: error.message,
+      stackHash: hashStack(error.stack),
+      requestMeta: { correlationId, method: req.method },
+      actorType: 'admin',
+      correlationId,
+    });
+    const envelope = await respond({ error: error.message, correlationId }, { route, request: { correlationId }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@ import { Redis } from '@upstash/redis';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import { notifyAdminWA, storeRegistrationMsg } from '@/lib/notify';
+import { respond } from '@/lib/api-envelope';
 
 // ─── Redis (dual-write for admin panel backward compat during migration) ──────
 
@@ -14,9 +15,12 @@ function getRedis(): Redis | null {
 // ─── GET — list all stores (admin) ───────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const route = '/api/stores/save';
+  const startedAtMs = Date.now();
   const pw = req.headers.get('admin-password') ?? '';
   if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const envelope = await respond({ error: 'Unauthorized' }, { route, request: { hasAdminPassword: !!pw }, outcome: 'unauthorized', policyFlags: ['admin_guard'], errorCategory: 'auth', startedAtMs });
+    return NextResponse.json(envelope, { status: 401 });
   }
   try {
     const stores = await db.store.findMany({
@@ -31,10 +35,22 @@ export async function GET(req: NextRequest) {
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
       agreedAt:  s.agreedAt?.toISOString() ?? null,
+      onboardingStage: s.onboardingStage,
+      payoutStatus: s.payoutStatus,
+      payoutMethod: s.payoutMethod,
+      upiId: s.upiId,
+      bankAccountName: s.bankAccountName,
+      bankAccountNo: s.bankAccountNo,
+      bankIfsc: s.bankIfsc,
+      bankName: s.bankName,
+      payoutLastPaidAt: s.payoutLastPaidAt?.toISOString() ?? null,
+      payoutNotes: s.payoutNotes ?? null,
     }));
-    return NextResponse.json(result);
+    const envelope = await respond(result, { route, request: { operation: 'list_stores' }, outcome: 'success', startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const envelope = await respond({ error: (e as Error).message }, { route, request: { operation: 'list_stores' }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }
 
@@ -55,14 +71,23 @@ type RegistrationBody = {
   referredBy?:  string;
   referralCode: string;
   agreedAt:     string;
+  payoutMethod?: string;
+  upiId?: string;
+  bankAccountName?: string;
+  bankAccountNo?: string;
+  bankIfsc?: string;
+  bankName?: string;
 };
 
 export async function POST(req: NextRequest) {
+  const route = '/api/stores/save';
+  const startedAtMs = Date.now();
   try {
     const body = await req.json() as RegistrationBody;
 
     if (!body.address?.trim()) {
-      return NextResponse.json({ error: 'Shop address is required.' }, { status: 400 });
+      const envelope = await respond({ error: 'Shop address is required.' }, { route, request: { hasAddress: false }, outcome: 'invalid_request', policyFlags: ['missing_required_fields'], errorCategory: 'validation', startedAtMs });
+      return NextResponse.json(envelope, { status: 400 });
     }
 
     const phone = `+91${body.whatsapp.replace(/\D/g, '').slice(-10)}`;
@@ -70,7 +95,8 @@ export async function POST(req: NextRequest) {
     // Guard: duplicate phone
     const existing = await db.user.findUnique({ where: { phone } });
     if (existing) {
-      return NextResponse.json({ error: 'An account with this number already exists.' }, { status: 409 });
+      const envelope = await respond({ error: 'An account with this number already exists.' }, { route, request: { phone }, outcome: 'conflict', policyFlags: ['duplicate_account'], errorCategory: 'duplicate', startedAtMs });
+      return NextResponse.json(envelope, { status: 409 });
     }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
@@ -96,6 +122,12 @@ export async function POST(req: NextRequest) {
             referralCode: body.referralCode,
             referredBy:   body.referredBy || null,
             agreedAt:     new Date(body.agreedAt),
+            payoutMethod: body.payoutMethod || null,
+            upiId: body.upiId || null,
+            bankAccountName: body.bankAccountName || null,
+            bankAccountNo: body.bankAccountNo || null,
+            bankIfsc: body.bankIfsc || null,
+            bankName: body.bankName || null,
           },
         },
       },
@@ -140,8 +172,11 @@ export async function POST(req: NextRequest) {
     }));
 
     return NextResponse.json({ success: true, referralCode: user.store?.referralCode });
+    const envelope = await respond({ success: true, referralCode: user.store?.referralCode }, { route, request: { phone, storeName: body.storeName }, outcome: 'success', startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
     const msg = (e as Error).message ?? 'Failed to register store';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const envelope = await respond({ error: msg }, { route, request: { operation: 'register_store' }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }

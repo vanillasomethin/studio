@@ -96,6 +96,16 @@ model Store {
   referralCode  String     @unique
   referredBy    String?
   agreedAt      DateTime?
+  onboardingStage String    @default("new") // new | physically_onboarded | digitally_onboarded | live
+  payoutStatus    String    @default("pending_setup") // pending_setup | ready | paid | on_hold
+  payoutMethod    String?   // upi | bank
+  upiId           String?
+  bankAccountName String?
+  bankAccountNo   String?
+  bankIfsc        String?
+  bankName        String?
+  payoutLastPaidAt DateTime?
+  payoutNotes      String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -175,10 +185,91 @@ model Device {
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
   events       PlayEvent[]
+  telemetryEvents TelemetryEvent[]
+  remediationTickets RemediationTicket[]
 
   @@index([storeId])
   @@index([groupName])
   @@index([status])
+}
+
+enum RemediationTicketStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum RemediationActionType {
+  CONFIG_CHANGE
+  ROLLBACK
+  PATCH_TARGET
+}
+
+enum RemediationApplyMode {
+  AUTO
+  REQUIRES_APPROVAL
+}
+
+model RemediationTicket {
+  id                 String                  @id @default(cuid())
+  deviceId           String
+  status             RemediationTicketStatus @default(OPEN)
+  triggerType        String
+  severity           String                  @default("medium")
+  triggerWindowStart DateTime?
+  triggerWindowEnd   DateTime?
+  snapshot           Json
+  createdAt          DateTime                @default(now())
+  resolvedAt         DateTime?
+
+  device             Device                  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  proposals          RemediationProposal[]
+
+  @@index([deviceId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model RemediationProposal {
+  id               String               @id @default(cuid())
+  ticketId         String
+  rank             Int
+  actionType       RemediationActionType
+  title            String
+  rationale        String
+  proposedChange   Json
+  confidence       Float
+  blastRadius      String
+  blastRadiusScore Int                  @default(1)
+  applyMode        RemediationApplyMode
+  requiresApproval Boolean              @default(false)
+  approvalState    String               @default("PENDING")
+  prHookState      String               @default("NOT_REQUESTED")
+  createdAt        DateTime             @default(now())
+
+  ticket           RemediationTicket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, rank])
+  @@index([actionType, applyMode])
+}
+
+model TelemetryEvent {
+  id            String   @id @default(cuid())
+  route         String
+  level         String   @default("error")
+  errorClass    String?
+  message       String
+  stackHash     String?
+  correlationId String
+  actorType     String
+  requestMeta   Json?
+  createdAt     DateTime @default(now())
+  deviceId      String?
+
+  device        Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([route, createdAt])
+  @@index([correlationId])
+  @@index([deviceId])
 }
 
 // ─── Content + Playlists + Schedules ─────────────────────────────────────────
@@ -369,4 +460,58 @@ model AuditLog {
   @@index([actorId])
   @@index([action])
   @@index([createdAt])
+}
+
+
+
+enum ExternalSignalSource {
+  market_sentiment
+  competitor_activity
+  infra_cost_efficiency
+}
+
+model ExternalSignal {
+  id                 String               @id @default(cuid())
+  source             ExternalSignalSource
+  sourceId           String
+  observedAt         DateTime
+  expiresAt          DateTime
+  category           String
+  summary            String
+  details            Json
+  score              Float
+  trendVelocity      Float
+  confidence         Float
+  freshness          Float
+  severity           String
+  recommendedActions Json
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([source, sourceId])
+  @@index([source, observedAt])
+  @@index([expiresAt])
+}
+model ContextSyncState {
+  key       String   @id
+  watermark DateTime
+  updatedAt DateTime @updatedAt
+}
+
+model ContextDocument {
+  id          String   @id @default(cuid())
+  sourceType  String
+  sourceId    String
+  timestamp   DateTime
+  actors      String[]
+  serviceArea String
+  summary     String
+  rawRef      String
+  embedding   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([timestamp])
+  @@index([serviceArea])
 }

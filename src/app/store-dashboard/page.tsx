@@ -41,6 +41,7 @@ type StoreInfo = {
   referralCode?: string;
   referredBy?:   string;
   agreedAt?:     string;
+  payoutMethod?: string; upiId?: string; bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
 };
 
 type Flyer = {
@@ -60,7 +61,8 @@ function fmtDate(iso: string) {
 }
 function resolveImage(raw: string) {
   if (!raw) return '';
-  return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+  if (raw.startsWith('data:') || raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('//')) return raw;
+  return `data:image/jpeg;base64,${raw}`;
 }
 
 // ─── Phone + password login ───────────────────────────────────────────────────
@@ -583,15 +585,61 @@ const TIMELINE = [
   { label: 'Screen goes live',        desc: 'Ads start running — you start earning!',             done: false },
 ];
 
+
+
+type OfferInput = { productName: string; weight: string; mrp: string; offerPrice: string };
+
+function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved: (patch: Partial<StoreInfo>) => void }) {
+  const [offers, setOffers] = useState<OfferInput[]>([{ productName: '', weight: '', mrp: '', offerPrice: '' }]);
+  const [payout, setPayout] = useState({
+    payoutMethod: store.payoutMethod ?? 'upi',
+    upiId: store.upiId ?? '', bankAccountName: store.bankAccountName ?? '', bankAccountNo: store.bankAccountNo ?? '', bankIfsc: store.bankIfsc ?? '', bankName: store.bankName ?? '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`alive_store_offers_${store.id ?? store.storeName}`);
+      if (raw && raw.trim()) setOffers(JSON.parse(raw) as OfferInput[]);
+    } catch {}
+  }, [store.id, store.storeName]);
+
+  const addOffer = () => setOffers((p) => [...p, { productName: '', weight: '', mrp: '', offerPrice: '' }]);
+  const setOffer = (idx: number, k: keyof OfferInput, v: string) => setOffers((p) => p.map((o, i) => i === idx ? { ...o, [k]: v } : o));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      localStorage.setItem(`alive_store_offers_${store.id ?? store.storeName}`, JSON.stringify(offers));
+      const res = await fetch('/api/stores/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payout) });
+      if (res.ok) onSaved(payout);
+    } finally { setBusy(false); }
+  };
+
+  return <div className="space-y-4">
+    <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+      <div className="flex items-center justify-between"><h2 className="text-sm font-bold">Current offers (optional)</h2><button onClick={addOffer} className="text-xs font-semibold text-primary">+ Add offer</button></div>
+      {offers.map((o, i) => <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2"><input value={o.productName} onChange={(e)=>setOffer(i,'productName',e.target.value)} placeholder="Product" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={o.weight} onChange={(e)=>setOffer(i,'weight',e.target.value)} placeholder="Weight" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={o.mrp} onChange={(e)=>setOffer(i,'mrp',e.target.value)} placeholder="MRP" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={o.offerPrice} onChange={(e)=>setOffer(i,'offerPrice',e.target.value)} placeholder="Offer price" className="rounded-lg border border-border px-3 py-2 text-xs" /></div>)}
+    </div>
+    <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+      <h2 className="text-sm font-bold">Rewards deposit details</h2>
+      <div className="grid grid-cols-2 gap-2"><button onClick={()=>setPayout((p)=>({...p,payoutMethod:'upi'}))} className="rounded-lg border border-border px-3 py-2 text-xs">UPI</button><button onClick={()=>setPayout((p)=>({...p,payoutMethod:'bank'}))} className="rounded-lg border border-border px-3 py-2 text-xs">Bank</button></div>
+      {payout.payoutMethod==='upi' ? <input value={payout.upiId} onChange={(e)=>setPayout((p)=>({...p,upiId:e.target.value}))} placeholder="UPI ID" className="w-full rounded-lg border border-border px-3 py-2 text-xs" /> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><input value={payout.bankAccountName} onChange={(e)=>setPayout((p)=>({...p,bankAccountName:e.target.value}))} placeholder="Account name" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={payout.bankName} onChange={(e)=>setPayout((p)=>({...p,bankName:e.target.value}))} placeholder="Bank name" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={payout.bankAccountNo} onChange={(e)=>setPayout((p)=>({...p,bankAccountNo:e.target.value}))} placeholder="Account no" className="rounded-lg border border-border px-3 py-2 text-xs" /><input value={payout.bankIfsc} onChange={(e)=>setPayout((p)=>({...p,bankIfsc:e.target.value.toUpperCase()}))} placeholder="IFSC" className="rounded-lg border border-border px-3 py-2 text-xs" /></div>}
+      <button onClick={save} disabled={busy} className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white">{busy ? 'Saving…' : 'Save details'}</button>
+    </div>
+  </div>;
+}
+
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill';
+type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'settings';
 
 const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',  label: 'Overview',  icon: BarChart3    },
   { id: 'earnings',  label: 'Earnings',  icon: IndianRupee  },
   { id: 'flyers',    label: 'My flyers', icon: FileImage    },
   { id: 'voicebill', label: 'VoiceBill', icon: ShoppingCart },
+  { id: 'settings',  label: 'Offers & Payout', icon: Gift },
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
@@ -813,6 +861,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'voicebill' && (
             <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
               <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} />
+            </motion.div>
+          )}
+
+          {tab === 'settings' && (
+            <motion.div key="set" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <OffersAndPayoutSettings store={storeData} onSaved={(patch) => setStoreData((p) => ({ ...p, ...patch }))} />
             </motion.div>
           )}
 
