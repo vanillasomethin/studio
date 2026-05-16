@@ -11,6 +11,7 @@ import Pricing from '@/components/sections/pricing';
 import ClosingCta from '@/components/sections/closing-cta';
 import Footer from '@/components/sections/footer';
 import Brands from '@/components/sections/brands';
+import StoreMap from '@/components/sections/store-map';
 
 function AnimatedSection({ children }: { children: React.ReactNode }) {
   const ref = useRef(null);
@@ -36,6 +37,7 @@ export default function Home() {
         <AnimatedSection><HowItWorks /></AnimatedSection>
         <AnimatedSection><BeforeAfter /></AnimatedSection>
         <AnimatedSection><MarketProof /></AnimatedSection>
+        <StoreMap />
         <AnimatedSection><Testimonials /></AnimatedSection>
         <AnimatedSection><Pricing /></AnimatedSection>
         <AnimatedSection><ClosingCta /></AnimatedSection>
