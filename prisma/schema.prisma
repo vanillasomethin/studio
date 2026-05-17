@@ -107,6 +107,7 @@ model Store {
   bankName        String?
   payoutLastPaidAt DateTime?
   payoutNotes      String?
+  liveAt           DateTime?   // date admin marks store as live (earning starts from here)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -114,10 +115,34 @@ model Store {
   devices       Device[]
   bills         Bill[]
   offers        StoreOffer[]
+  storePayments StorePayment[]
 
   @@index([city])
   @@index([pincode])
   @@index([referralCode])
+}
+
+// ─── Store Payments ───────────────────────────────────────────────────────────
+
+model StorePayment {
+  id          String   @id @default(cuid())
+  storeId     String
+  month       String   // "2026-05" — YYYY-MM format
+  amountPaise Int      @default(50000) // ₹500 in paise
+  status      String   @default("pending") // pending | paid | skipped
+  paidAt      DateTime?
+  paidBy      String?  // admin user id or name
+  payRef      String?  // UPI reference or transaction ID
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, month])
+  @@index([storeId])
+  @@index([month])
+  @@index([status])
 }
 
 // ─── Brands ──────────────────────────────────────────────────────────────────

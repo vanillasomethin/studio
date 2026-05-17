@@ -43,6 +43,7 @@ type StoreInfo = {
   referralCode?: string;
   referredBy?:   string;
   agreedAt?:     string;
+  liveAt?:       string;
   payoutMethod?: string; upiId?: string; bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
 };
 
@@ -499,21 +500,58 @@ function StoreFlyers({ storeName }: { storeName: string }) {
 
 // ─── 12-month payment timeline ───────────────────────────────────────────────
 
-function PaymentTimeline({ onClaim }: { onClaim: () => void }) {
+type PaymentRecord = {
+  month: string; status: string; amountPaise: number; paidAt: string | null; payRef: string | null;
+};
+
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: () => void }) {
+  const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
+
+  useEffect(() => {
+    fetch('/api/stores/payments')
+      .then(r => r.ok ? r.json() as Promise<PaymentRecord[]> : Promise.resolve([]))
+      .then(setPaymentRecords)
+      .catch(() => setPaymentRecords([]));
+  }, []);
+
   const now = new Date();
 
-  const months = Array.from({ length: 12 }, (_, i) => {
-    const start   = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1);
-    const end     = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-    const isPast  = start < new Date(now.getFullYear(), now.getMonth(), 1);
-    const isCur   = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
-    const isFuture = !isPast && !isCur;
+  // Determine start month: liveAt → agreedAt → fallback to 4 months ago
+  const startDate = store.liveAt ?? store.agreedAt;
+  const startMonth = startDate
+    ? new Date(startDate)
+    : new Date(now.getFullYear(), now.getMonth() - 4, 1);
 
-    const mo  = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-    const yr  = start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  // Build months from startMonth to current month
+  const months: { label: string; range: string; isPast: boolean; isCur: boolean; isFuture: boolean; amount: string; monthKey: string }[] = [];
+  const cur = new Date(startMonth.getFullYear(), startMonth.getMonth(), 1);
+  const endCal = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    return { label: yr, range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture, amount: '₹500' };
-  });
+  // If no live date set, show a 12-month window centered on now
+  if (!startDate) {
+    for (let i = 0; i < 12; i++) {
+      const start = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1);
+      const end   = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      const isPast   = start < new Date(now.getFullYear(), now.getMonth(), 1);
+      const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
+      const mo = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      months.push({ label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture: !isPast && !isCur, amount: '₹500', monthKey: monthKey(start) });
+    }
+  } else {
+    while (cur <= endCal) {
+      const start = new Date(cur);
+      const end   = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      const isPast   = start < new Date(now.getFullYear(), now.getMonth(), 1);
+      const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
+      const mo = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      months.push({ label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture: !isPast && !isCur, amount: '₹500', monthKey: monthKey(start) });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
@@ -526,53 +564,71 @@ function PaymentTimeline({ onClaim }: { onClaim: () => void }) {
       </div>
 
       <div className="space-y-2">
-        {months.map((m, i) => (
-          <motion.div
-            key={m.label}
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] }}
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
-              m.isCur    ? 'border border-primary/30 bg-primary/5'  :
-              m.isPast   ? 'border border-border bg-muted/20'       :
-                           'border border-border/40 bg-transparent opacity-50'
-            }`}
-          >
-            {/* Status dot */}
-            <div className={`h-2 w-2 rounded-full shrink-0 ${
-              m.isCur  ? 'bg-primary animate-pulse' :
-              m.isPast ? 'bg-green-500'             :
-                         'bg-muted-foreground/20'
-            }`} />
+        {months.map((m, i) => {
+          const record = paymentRecords.find(p => p.month === m.monthKey);
+          const isPaid = record?.status === 'paid';
+          const isSkipped = record?.status === 'skipped';
 
-            {/* Month + range */}
-            <div className="flex-1 min-w-0">
-              <p className={`text-xs font-bold ${m.isCur ? 'text-primary' : m.isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
-                {m.label}
-              </p>
-              <p className="text-[10px] text-muted-foreground/60">{m.range}</p>
-            </div>
+          return (
+            <motion.div
+              key={m.label}
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.3, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] }}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+                m.isCur    ? 'border border-primary/30 bg-primary/5'  :
+                m.isPast   ? 'border border-border bg-muted/20'       :
+                             'border border-border/40 bg-transparent opacity-50'
+              }`}
+            >
+              {/* Status dot */}
+              <div className={`h-2 w-2 rounded-full shrink-0 ${
+                m.isCur    ? 'bg-primary animate-pulse' :
+                isPaid     ? 'bg-green-500'             :
+                isSkipped  ? 'bg-muted-foreground/30'   :
+                m.isPast   ? 'bg-amber-400'             :
+                             'bg-muted-foreground/20'
+              }`} />
 
-            {/* Amount + status */}
-            <div className="text-right shrink-0">
-              {m.isPast ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-green-600">{m.amount}</span>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                </div>
-              ) : m.isCur ? (
-                <button
-                  onClick={onClaim}
-                  className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
-                >
-                  <Download className="h-2.5 w-2.5" /> Claim
-                </button>
-              ) : (
-                <span className="text-[10px] text-muted-foreground/40 font-medium">Upcoming</span>
-              )}
-            </div>
-          </motion.div>
-        ))}
+              {/* Month + range */}
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-bold ${m.isCur ? 'text-primary' : m.isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {m.label}
+                </p>
+                <p className="text-[10px] text-muted-foreground/60">{m.range}</p>
+              </div>
+
+              {/* Amount + status */}
+              <div className="text-right shrink-0">
+                {isPaid ? (
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-green-600">₹{((record?.amountPaise ?? 50000) / 100).toLocaleString('en-IN')}</span>
+                      {record?.paidAt && <p className="text-[9px] text-green-600/60">{new Date(record.paidAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>}
+                    </div>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                  </div>
+                ) : isSkipped ? (
+                  <span className="text-[10px] text-muted-foreground/40 font-medium">Skipped</span>
+                ) : m.isCur ? (
+                  <button
+                    onClick={onClaim}
+                    className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
+                  >
+                    <Download className="h-2.5 w-2.5" /> Claim
+                  </button>
+                ) : m.isPast ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-amber-600">{m.amount}</span>
+                    <Clock className="h-3.5 w-3.5 text-amber-500" />
+                  </div>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/40 font-medium">Upcoming</span>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1016,7 +1072,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               </div>
 
               {/* 12-month timeline */}
-              <PaymentTimeline onClaim={() => setClaimOpen(true)} />
+              <PaymentTimeline store={storeData} onClaim={() => setClaimOpen(true)} />
 
             </motion.div>
           )}
@@ -1049,7 +1105,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 
           {tab === 'voicebill' && (
             <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
-              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} />
+              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} upiId={storeData.upiId} />
             </motion.div>
           )}
 
