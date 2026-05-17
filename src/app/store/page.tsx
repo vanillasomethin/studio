@@ -238,6 +238,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
       >
         {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</> : <><CheckCircle2 className="h-4 w-4" /> I agree — Register my store</>}
       </button>
+      {busy && (
+        <p className="text-center text-xs text-gray-400 mt-1">This can take up to 20 seconds on first try…</p>
+      )}
     </motion.div>
   );
 }
@@ -293,28 +296,49 @@ function RegistrationForm() {
       agreedAt:     new Date().toISOString(),
     };
     try {
-      const res = await fetch('/api/stores/save', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-      });
-      const data = await res.json() as { data?: { success?: boolean; error?: string; referralCode?: string }; success?: boolean; error?: string };
-      const payload2 = data.data ?? data;
-      if (!res.ok) { setErr(payload2.error ?? 'Registration failed.'); return; }
+      // 20-second timeout — Neon cold-start can take up to 15s
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 20000);
+      let res: Response;
+      try {
+        res = await fetch('/api/stores/save', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+          signal:  controller.signal,
+        });
+      } catch (fetchErr) {
+        const e = fetchErr as Error;
+        setErr(e.name === 'AbortError' ? 'Request timed out — the server is waking up. Please try again.' : 'Network error — check your connection and try again.');
+        return;
+      } finally { clearTimeout(tid); }
 
-      await signIn('phone-password', {
-        phone:    `+91${form.whatsapp}`,
-        password: form.password,
-        redirect: false,
-      });
+      // Safely parse JSON (server may return HTML on 500 crash)
+      let body: { data?: { success?: boolean; error?: string; referralCode?: string }; success?: boolean; error?: string };
+      try { body = await res.json(); } catch { body = {}; }
+      const payload2 = (body as { data?: { success?: boolean; error?: string } }).data ?? body as { success?: boolean; error?: string };
 
-      // Clear draft on success
+      if (!res.ok) {
+        setErr((payload2 as { error?: string }).error || `Registration failed (${res.status}). Please try again.`);
+        return;
+      }
+
+      // Auto sign-in — best-effort; if it fails user can log in manually
+      try {
+        await signIn('phone-password', {
+          phone:    `+91${form.whatsapp}`,
+          password: form.password,
+          redirect: false,
+        });
+      } catch { /* sign-in failure is non-fatal — user registered successfully */ }
+
       try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 
       setDone(true);
       setTimeout(() => router.push('/store-dashboard'), 1500);
     } catch (e) {
-      setErr((e as Error).message ?? 'Something went wrong.');
+      const msg = (e as Error)?.message;
+      setErr(msg && msg.length < 200 ? msg : 'Something went wrong. Please try again.');
     } finally { setBusy(false); }
   };
 
