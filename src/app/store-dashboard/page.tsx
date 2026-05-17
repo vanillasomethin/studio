@@ -1049,7 +1049,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 
           {tab === 'voicebill' && (
             <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
-              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} />
+              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} upiId={storeData.upiId} />
             </motion.div>
           )}
 

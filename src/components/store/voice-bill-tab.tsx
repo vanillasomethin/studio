@@ -21,6 +21,7 @@ type PayMethod = 'cash' | 'upi' | 'card' | 'khata';
 interface Props {
   storeId?:   string;
   storeName:  string;
+  upiId?:     string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ type AnySpeechRecognition = any;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function VoiceBillTab({ storeId, storeName }: Props) {
+export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
   const [billRef,       setBillRef]       = useState(() => genBillRef());
   const [billDate]                        = useState(() => new Date());
   const [items,         setItems]         = useState<Item[]>([]);
@@ -75,6 +76,14 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
     : `/bill/${billRef}`;
 
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(billUrl)}`;
+
+  // UPI payment QR — standard upi:// deep link that any UPI app can scan
+  const upiUrl = upiId && total > 0
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(storeName)}&am=${total}&tn=${encodeURIComponent(billRef)}&cu=INR`
+    : null;
+  const upiQrUrl = upiUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiUrl)}`
+    : null;
 
   // ─── Voice recording ────────────────────────────────────────────────────────
 
@@ -456,6 +465,34 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
               ))}
             </div>
           </div>
+
+          {/* UPI payment QR — shown when UPI is selected and total > 0 */}
+          {payMethod === 'upi' && (
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+              <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <QrCode className="h-4 w-4 text-primary" /> UPI Payment QR
+              </h2>
+              {upiQrUrl && total > 0 ? (
+                <div className="flex flex-col items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={upiQrUrl} alt="UPI QR" width={200} height={200} className="rounded-xl border border-border" />
+                  <div className="text-center space-y-0.5">
+                    <p className="text-base font-black text-foreground">{fmtINR(total)}</p>
+                    <p className="text-[10px] text-muted-foreground">Scan with any UPI app</p>
+                    <p className="text-[10px] font-mono text-muted-foreground/60">{upiId}</p>
+                  </div>
+                </div>
+              ) : !upiId ? (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Add your UPI ID in <span className="font-semibold">Payout settings</span> to enable UPI QR
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Add items to generate UPI QR
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Complete sale */}
           <div className="rounded-2xl border border-border bg-card p-5 space-y-3">

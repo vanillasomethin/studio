@@ -60,6 +60,17 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+
+async function checkRegistrationRateLimit(ip: string): Promise<boolean> {
+  const kv = getRedis();
+  if (!kv) return true;
+  const key   = `rl:register:${ip}`;
+  const count = await kv.incr(key);
+  if (count === 1) await kv.expire(key, 3600); // 1 attempt per IP per hour
+  return count <= 3;
+}
+
 // ─── POST — register a new store partner ─────────────────────────────────────
 
 type RegistrationBody = {
@@ -82,6 +93,13 @@ type RegistrationBody = {
 export async function POST(req: NextRequest) {
   const route = '/api/stores/save';
   const startedAtMs = Date.now();
+
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  if (!(await checkRegistrationRateLimit(ip))) {
+    const envelope = await respond({ error: 'Too many registrations from this IP. Try again in an hour.' }, { route, request: { ip }, outcome: 'unauthorized', policyFlags: ['rate_limit'], errorCategory: 'auth', startedAtMs });
+    return NextResponse.json(envelope, { status: 429 });
+  }
+
   try {
     const body = await req.json() as RegistrationBody;
 
