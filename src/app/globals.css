@@ -155,11 +155,16 @@
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{background:var(--bg);color:var(--ink);}
 html{scroll-behavior:smooth;}
-body{font-family:"Manrope",system-ui,sans-serif;font-weight:400;font-size:17px;line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased;cursor:none;}
+body{font-family:"Manrope",system-ui,sans-serif;font-weight:400;font-size:17px;line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
 @media(pointer:coarse){body{cursor:auto;}}
 ::selection{background:var(--red);color:#fff;}
 .mono{font-family:"DM Mono",ui-monospace,monospace;font-weight:400;letter-spacing:0.02em;}
-a,button{cursor:none;}
+/* Custom cursor only on the homepage — scoped via .use-custom-cursor on <body> */
+body.use-custom-cursor{cursor:none;}
+body.use-custom-cursor a,body.use-custom-cursor button{cursor:none;}
+body.use-custom-cursor .hctabtn{cursor:none;}
+body.use-custom-cursor .blist li{cursor:none;}
+body.use-custom-cursor .magnet{cursor:none;}
 
 /* Cursor */
 .cursor{position:fixed;top:0;left:0;width:8px;height:8px;border-radius:50%;background:var(--red);pointer-events:none;z-index:9999;transition:width .25s,height .25s;}
@@ -227,7 +232,7 @@ section{position:relative;padding:0 32px;}
 
 /* Hero CTAs */
 .hero-ctas{margin-top:28px;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--rule-cream);}
-.hctabtn{display:flex;align-items:center;justify-content:space-between;padding:16px 4px;border-bottom:1px solid var(--rule-cream);text-decoration:none;color:var(--ink);cursor:none;transition:padding-left .45s cubic-bezier(.76,0,.24,1),color .35s;position:relative;}
+.hctabtn{display:flex;align-items:center;justify-content:space-between;padding:16px 4px;border-bottom:1px solid var(--rule-cream);text-decoration:none;color:var(--ink);cursor:pointer;transition:padding-left .45s cubic-bezier(.76,0,.24,1),color .35s;position:relative;}
 .hctabtn::before{content:"";position:absolute;left:0;top:50%;width:0;height:1px;background:var(--red);transform:translateY(-50%);transition:width .45s cubic-bezier(.76,0,.24,1);}
 .hctabtn:hover,.hctabtn.is-active{padding-left:28px;color:var(--red);}
 .hctabtn:hover::before,.hctabtn.is-active::before{width:18px;}
@@ -296,11 +301,17 @@ img[data-nimg="fill"],img[data-nimg="1"]{opacity:1;}
 .img-wrap .badge{position:absolute;left:14px;bottom:12px;font-family:"DM Mono",monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#fff;background:rgba(10,10,10,.55);backdrop-filter:blur(6px);padding:6px 10px;border-radius:999px;font-weight:500;display:inline-flex;align-items:center;gap:6px;}
 .img-wrap .badge .dot{width:6px;height:6px;background:var(--red);border-radius:50%;/* static */}
 
-/* Reveal / fade */
+/* Reveal / fade / scroll animations */
 .reveal{clip-path:inset(0 0 100% 0);transition:clip-path 1.4s cubic-bezier(.76,0,.24,1);}
 .reveal.in{clip-path:inset(0 0 0 0);}
-.fade{opacity:0;transform:translateY(24px);transition:opacity 1s ease,transform 1s cubic-bezier(.2,.7,.2,1);}
+.fade{opacity:0;transform:translateY(28px);transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.2,1);transition-delay:var(--delay,0s);}
 .fade.in{opacity:1;transform:translateY(0);}
+.fade-left{opacity:0;transform:translateX(-40px);transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.2,1);transition-delay:var(--delay,0s);}
+.fade-left.in{opacity:1;transform:translateX(0);}
+.fade-right{opacity:0;transform:translateX(40px);transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.2,1);transition-delay:var(--delay,0s);}
+.fade-right.in{opacity:1;transform:translateX(0);}
+.zoom-in{opacity:0;transform:scale(0.92);transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.2,1);transition-delay:var(--delay,0s);}
+.zoom-in.in{opacity:1;transform:scale(1);}
 
 /* Marquee */
 .marquee-wrap{background:var(--paper);border-top:1px solid var(--rule-cream);border-bottom:1px solid var(--rule-cream);padding:28px 0;overflow:hidden;white-space:nowrap;margin:0;}
@@ -331,7 +342,7 @@ img[data-nimg="fill"],img[data-nimg="1"]{opacity:1;}
 .benefits-head h2 .lite{color:var(--muted);font-weight:300;}
 .benefits-head p{font-size:18px;color:var(--muted);max-width:42ch;line-height:1.65;}
 .blist{list-style:none;}
-.blist li{display:grid;grid-template-columns:70px 1.1fr 1.6fr 24px;align-items:center;gap:36px;padding:32px 0;border-top:1px solid var(--rule);cursor:none;transition:padding-left .5s cubic-bezier(.76,0,.24,1);position:relative;}
+.blist li{display:grid;grid-template-columns:70px 1.1fr 1.6fr 24px;align-items:center;gap:36px;padding:32px 0;border-top:1px solid var(--rule);cursor:default;transition:padding-left .5s cubic-bezier(.76,0,.24,1);position:relative;}
 .blist li:last-child{border-bottom:1px solid var(--rule);}
 .blist li:hover{padding-left:24px;}
 .blist li:hover .b-title{color:var(--red);}
@@ -374,7 +385,7 @@ img[data-nimg="fill"],img[data-nimg="1"]{opacity:1;}
 .join h2 .hdot{display:inline-block;width:.55em;height:.55em;border-radius:50%;background:var(--red);vertical-align:baseline;margin:0 .06em;transform:translateY(-.05em);}
 .join .row{position:relative;display:flex;justify-content:space-between;align-items:flex-end;gap:40px;margin-top:64px;padding-top:24px;border-top:1px solid rgba(255,255,255,.18);}
 .join .row p{max-width:38ch;opacity:.75;font-size:17px;line-height:1.6;}
-.magnet{display:inline-flex;align-items:center;gap:14px;padding:22px 36px;background:var(--gradient-red);border-radius:999px;font-family:"Manrope",sans-serif;font-size:14px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:#fff;text-decoration:none;cursor:none;position:relative;box-shadow:0 18px 40px -10px rgba(220,38,38,.55);transition:box-shadow .35s,transform .2s;}
+.magnet{display:inline-flex;align-items:center;gap:14px;padding:22px 36px;background:var(--gradient-red);border-radius:999px;font-family:"Manrope",sans-serif;font-size:14px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:#fff;text-decoration:none;cursor:pointer;position:relative;box-shadow:0 18px 40px -10px rgba(220,38,38,.55);transition:box-shadow .35s,transform .2s;}
 .magnet:hover{box-shadow:0 22px 50px -8px rgba(220,38,38,.75);}
 .magnet .dot{width:8px;height:8px;background:#fff;border-radius:50%;/* static */}
 
