@@ -6,9 +6,9 @@ import { Providers } from '@/components/providers';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
-  title: 'AliveNow - Turning Kirana Visits into Discovery Moments',
+  title: 'ALIVE — In-store advertising for Indian kirana stores',
   description:
-    'Alive connects small brands, big brands, kirana stores, and consumers—right where purchase decisions happen.',
+    'Alive connects brands, kirana stores, and consumers — right where purchase decisions happen.',
 };
 
 export default function RootLayout({
@@ -22,13 +22,13 @@ export default function RootLayout({
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
           <link
-            href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,500&family=JetBrains+Mono:wght@300;400;500;600&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap"
             rel="stylesheet"
           />
         </head>
         <body
           className={cn('min-h-screen bg-background font-sans antialiased')}
-          style={{ fontFamily: 'Poppins, sans-serif' }}
+          style={{ fontFamily: '"Manrope", system-ui, sans-serif' }}
         >
           <Providers>{children}</Providers>
           <Toaster />

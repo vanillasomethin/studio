@@ -4,9 +4,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 
-const StoreMap        = dynamic(() => import('@/components/sections/store-map'),                        { ssr: false });
-const AliveBeforeAfter = dynamic(() => import('@/components/interactive/alive-before-after'),           { ssr: false });
-const KiranaExplorer   = dynamic(() => import('@/components/interactive/kirana-store-explorer'),        { ssr: false });
+const AliveBeforeAfter = dynamic(() => import('@/components/interactive/alive-before-after'), { ssr: false });
+const ArcGISMap        = dynamic(() => import('@/components/sections/arcgis-map'),           { ssr: false });
 
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
@@ -161,7 +160,7 @@ export default function Home() {
       <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
         <a href="#" className="brand">alive<span className="dot" /></a>
         <ul>
-          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#network','Network'],['#voices','Voices']].map(([href,lbl]) => (
+          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#voices','Voices']].map(([href,lbl]) => (
             <li key={href}><a href={href}>{lbl}</a></li>
           ))}
         </ul>
@@ -337,29 +336,19 @@ export default function Home() {
         </ul>
       </section>
 
-      {/* EXPERIENCE ALIVE IN ACTION */}
-      <section id="experience" style={{ padding: '5rem 0', background: '#fafafa', borderTop: '1px solid #f0f0f0' }}>
+      {/* EXPERIENCE */}
+      <section id="experience" style={{ padding: '5rem 0', background: '#fafafa', borderTop: '1px solid var(--rule)' }}>
         <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0 1.5rem' }}>
-          <div style={{ marginBottom: '3rem', textAlign: 'center' }}>
-            <div className="idx" style={{ fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.45, marginBottom: '0.5rem' }}>03 / Experience</div>
-            <h2 className="fade" style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-0.03em', margin: '0 0 1rem' }}>
-              Experience Alive <span className="red">in Action</span>
+          <div style={{ marginBottom: '2.5rem' }}>
+            <div className="idx" style={{ fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.38, marginBottom: '0.5rem' }}>03 / Experience</div>
+            <h2 className="fade" style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 800, lineHeight: 1.08, letterSpacing: '-0.03em', margin: 0 }}>
+              The Alive <span className="red">effect.</span>
             </h2>
-            <p className="fade" style={{ maxWidth: '38rem', margin: '0 auto', fontSize: '0.95rem', lineHeight: 1.65, opacity: 0.65 }}>
-              Drag the slider to see how a single screen transforms an ordinary kirana counter into a live brand moment.
+            <p className="fade" style={{ marginTop: '0.75rem', maxWidth: '36rem', fontSize: '0.9rem', lineHeight: 1.65, opacity: 0.55 }}>
+              One screen above the counter. Drag to see what changes.
             </p>
           </div>
           <AliveBeforeAfter />
-
-          <div style={{ marginTop: '5rem', marginBottom: '2.5rem', textAlign: 'center' }}>
-            <h3 className="fade" style={{ fontSize: 'clamp(1.4rem, 3vw, 2.2rem)', fontWeight: 800, letterSpacing: '-0.02em', margin: '0 0 0.75rem' }}>
-              Find an <span className="red">ALIVE screen</span> near you
-            </h3>
-            <p className="fade" style={{ maxWidth: '32rem', margin: '0 auto', fontSize: '0.9rem', lineHeight: 1.65, opacity: 0.6 }}>
-              Select your city and neighbourhood to see how many partner stores are live in your area.
-            </p>
-          </div>
-          <KiranaExplorer />
         </div>
       </section>
 
@@ -384,20 +373,19 @@ export default function Home() {
         </div>
       </div>
 
-      {/* NETWORK MAP */}
-      <section id="network" style={{ padding: '5rem 0', background: 'var(--bg, #fff)' }}>
+      {/* NETWORK — ArcGIS live map */}
+      <section id="network" style={{ padding: '5rem 0', background: 'var(--bg)' }}>
         <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0 1.5rem' }}>
           <div style={{ marginBottom: '2.5rem' }}>
-            <div className="idx" style={{ fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.45, marginBottom: '0.5rem' }}>03.5 / Network</div>
-            <h2 className="fade" style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-0.03em', margin: 0 }}>
-              Live across <span className="red">Mangaluru</span><span className="hdot" /><br />
-              <span style={{ fontWeight: 400, fontStyle: 'italic', opacity: 0.55 }}>expanding city by city.</span>
+            <div className="idx" style={{ fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.38, marginBottom: '0.5rem' }}>04 / Network</div>
+            <h2 className="fade" style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 800, lineHeight: 1.08, letterSpacing: '-0.03em', margin: 0 }}>
+              Find an ALIVE screen <span className="red">near you.</span>
             </h2>
-            <p className="fade" style={{ marginTop: '1rem', maxWidth: '38rem', fontSize: '0.95rem', lineHeight: 1.65, opacity: 0.7 }}>
-              Every pin is a kirana partner. Every shaded ward has at least one Alive screen. Pick your neighbourhood — see how deep the network runs.
+            <p className="fade" style={{ marginTop: '0.75rem', maxWidth: '36rem', fontSize: '0.9rem', lineHeight: 1.65, opacity: 0.55 }}>
+              Live across Mangaluru — expanding city by city. Every pin is a partner store.
             </p>
           </div>
-          <StoreMap />
+          <ArcGISMap />
         </div>
       </section>
 
