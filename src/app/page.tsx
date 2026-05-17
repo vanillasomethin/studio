@@ -10,10 +10,10 @@ const StoreLocationsMap   = dynamic(() => import('@/components/sections/store-lo
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
 
-const HERO_STATES: { state: HeroState; img: string; cap: string; loc: string; corner: string; icon: string; audience: string; label: string }[] = [
-  { state: 'brand',    img: '/for-brands.jpg',          cap: 'Reach the shelf, not the feed.',     loc: 'Mumbai · BKC',         corner: 'N°01 · Brand',    icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
-  { state: 'kirana',   img: '/kirana-best-practice.jpg', cap: 'Earn more from your shelves.',       loc: 'Attavar · Mangalore',  corner: 'N°02 · Kirana',   icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
-  { state: 'consumer', img: '/india-street.jpg',         cap: 'Discover your next favorite.',       loc: 'Lajpat Nagar · Delhi', corner: 'N°03 · Consumer', icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
+const HERO_STATES: { state: HeroState; href: string; img: string; cap: string; loc: string; corner: string; icon: string; audience: string; label: string }[] = [
+  { state: 'brand',    href: '/brand-onboarding', img: '/for-brands.jpg',          cap: 'Reach the shelf, not the feed.',     loc: 'Mumbai · BKC',         corner: 'N°01 · Brand',    icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
+  { state: 'kirana',   href: '/store',             img: '/kirana-best-practice.jpg', cap: 'Earn more from your shelves.',       loc: 'Attavar · Mangalore',  corner: 'N°02 · Kirana',   icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
+  { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         cap: 'Discover your next favorite.',       loc: 'Lajpat Nagar · Delhi', corner: 'N°03 · Consumer', icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
 ];
 
 const CITIES = [
@@ -184,9 +184,9 @@ export default function Home() {
         <div className="hero-grid">
           <div className="hero-left">
             <h1>
-              <span className="line"><span className="word"><span className="red">Seen.</span></span></span>
-              <span className="line"><span className="word">Remembered.</span></span>
-              <span className="line"><span className="word">Bought.</span></span>
+              <span className="line"><span className="word"><span className={heroState === 'brand'    ? 'red' : 'ink-fade'}>Seen.</span></span></span>
+              <span className="line"><span className="word"><span className={heroState === 'kirana'   ? 'red' : 'ink-fade'}>Remembered.</span></span></span>
+              <span className="line"><span className="word"><span className={heroState === 'consumer' ? 'red' : 'ink-fade'}>Bought.</span></span></span>
             </h1>
 
             <div
@@ -197,11 +197,10 @@ export default function Home() {
               {HERO_STATES.map((h, i) => (
                 <a
                   key={h.state}
-                  href="#"
+                  href={h.href}
                   className={`hctabtn${heroState === h.state ? ' is-active' : ''}`}
                   onMouseEnter={() => setHeroState(h.state)}
                   onFocus={() => setHeroState(h.state)}
-                  onClick={e => e.preventDefault()}
                 >
                   <div className="hctabtn-left">
                     <span className="ico">
