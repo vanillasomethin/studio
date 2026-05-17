@@ -1141,16 +1141,33 @@ export default function StoreDashboardPage() {
   const { data: session, status } = useSession();
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
   const [storeLoading, setStoreLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchStore = useCallback(async () => {
     setStoreLoading(true);
+    setLoadError(null);
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 20000);
     try {
-      const res = await fetch('/api/stores/me');
+      const res = await fetch('/api/stores/me', { signal: controller.signal });
       if (res.ok) setStoreInfo(await res.json() as StoreInfo);
+      else setLoadError('Could not load your store. Please refresh.');
+    } catch (e) {
+      const err = e as Error;
+      setLoadError(err.name === 'AbortError' ? 'Taking too long — the server may be waking up. Tap to retry.' : 'Connection error. Tap to retry.');
     } finally {
+      clearTimeout(tid);
       setStoreLoading(false);
     }
   }, []);
+
+  // Timeout fallback for useSession staying stuck in 'loading'
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  useEffect(() => {
+    if (status !== 'loading') return;
+    const t = setTimeout(() => setSessionTimedOut(true), 20000);
+    return () => clearTimeout(t);
+  }, [status]);
 
   useEffect(() => {
     if (status === 'authenticated' && !storeInfo) fetchStore();
@@ -1161,10 +1178,36 @@ export default function StoreDashboardPage() {
     setStoreInfo(null);
   };
 
-  if (status === 'loading' || storeLoading) {
+  if (status === 'loading' && !sessionTimedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (sessionTimedOut && status === 'loading') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground">Session check is taking too long — the server may be waking up.</p>
+        <button onClick={() => window.location.reload()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white">Retry</button>
+      </div>
+    );
+  }
+
+  if (storeLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground">{loadError}</p>
+        <button onClick={() => void fetchStore()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white">Retry</button>
       </div>
     );
   }

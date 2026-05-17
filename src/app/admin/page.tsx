@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
@@ -299,37 +299,49 @@ function FlyersList({ refresh }: { refresh: number }) {
 // ─── Stores Panel ─────────────────────────────────────────────────────────────
 
 function StoresPanel() {
-  const [stores,  setStores]  = useState<StoreReg[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState('');
+  const [stores,   setStores]   = useState<StoreReg[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [search,   setSearch]   = useState('');
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     const pw = sessionStorage.getItem(SS_PW) ?? '';
     fetch('/api/stores/save', { headers: { 'admin-password': pw } })
-      .then((r) => r.json() as Promise<StoreReg[]>)
-      .then(setStores).catch(() => setStores([]))
+      .then((r) => r.json())
+      .then((body) => {
+        // unwrap envelope { data: [...] } or plain array
+        const arr = Array.isArray(body) ? body : (body?.data ?? []);
+        setStores(arr as StoreReg[]);
+      })
+      .catch(() => setStores([]))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => { load(); }, [load]);
+
   const saveStore = async (store: StoreReg) => {
     const pw = sessionStorage.getItem(SS_PW) ?? '';
-    const res = await fetch(`/api/stores/${store.id}`, {
+    const res = await fetch(`/api/admin/stores/${store.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'admin-password': pw },
       body: JSON.stringify({
         onboardingStage: store.onboardingStage,
         payoutStatus: store.payoutStatus,
-        payoutMethod: store.payoutMethod,
-        upiId: store.upiId,
-        bankAccountName: store.bankAccountName,
-        bankAccountNo: store.bankAccountNo,
-        bankIfsc: store.bankIfsc,
-        bankName: store.bankName,
-        payoutLastPaidAt: store.payoutLastPaidAt || null,
         payoutNotes: store.payoutNotes || null,
       }),
     });
     if (!res.ok) throw new Error('Save failed');
+  };
+
+  const deleteStore = async (id: string, name: string) => {
+    if (!confirm(`Permanently delete "${name}" and their account? This cannot be undone.`)) return;
+    setDeleting(id);
+    try {
+      const pw = sessionStorage.getItem(SS_PW) ?? '';
+      const res = await fetch(`/api/admin/stores/${id}`, { method: 'DELETE', headers: { 'admin-password': pw } });
+      if (!res.ok) { const b = await res.json() as { error?: string }; alert(b.error ?? 'Delete failed'); return; }
+      setStores((all) => all.filter((s) => s.id !== id));
+    } finally { setDeleting(null); }
   };
 
   const filtered = stores.filter((s) =>
@@ -340,15 +352,19 @@ function StoresPanel() {
     s.phone?.includes(search) || s.whatsapp?.includes(search),
   );
 
+  const active   = stores.filter((s) => s.onboardingStage === 'live').length;
+  const rejected = stores.filter((s) => s.onboardingStage === 'rejected').length;
+
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Total registrations', value: stores.length },
-          { label: 'This week',           value: stores.filter((s) => Date.now() - new Date(s.createdAt).getTime() < 7 * 86400000).length },
-          { label: 'Cities',              value: new Set(stores.map((s) => s.city)).size },
+          { label: 'Total',    value: stores.length },
+          { label: 'Live',     value: active },
+          { label: 'Rejected', value: rejected },
+          { label: 'Cities',   value: new Set(stores.map((s) => s.city)).size },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center">
             <p className="text-2xl font-bold text-foreground">{s.value}</p>
@@ -361,44 +377,64 @@ function StoresPanel() {
         <p className="text-sm text-muted-foreground text-center py-10">{search ? 'No stores match your search.' : 'No store registrations yet.'}</p>
       ) : (
         <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-2">
-          {filtered.map((s) => (
-            <motion.div key={s.id} variants={fadeIn} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary font-bold text-base">{s.storeName[0]?.toUpperCase()}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div><p className="text-sm font-semibold text-foreground">{s.storeName}</p><p className="text-xs text-muted-foreground">{s.ownerName}</p></div>
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0">{fmtDate(s.createdAt)}</span>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {s.phone || (s.whatsapp ? `+91 ${s.whatsapp}` : '—')}</span>
-                  <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {[s.address, s.locality, s.city, s.pincode].filter(Boolean).join(', ') || '—'}</span>
-                </div>
-                {(s.gstin || s.email) && (
-                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/70">
-                    {s.gstin && <span>GST: {s.gstin}</span>}
-                    {s.email && <span>{s.email}</span>}
+          {filtered.map((s) => {
+            const isRejected = s.onboardingStage === 'rejected';
+            return (
+              <motion.div key={s.id} variants={fadeIn} className={`flex items-start gap-3 rounded-xl border bg-card p-4 ${isRejected ? 'border-red-200 opacity-60' : 'border-border'}`}>
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold text-base ${isRejected ? 'bg-red-50 text-red-400' : 'bg-primary/10 text-primary'}`}>{s.storeName[0]?.toUpperCase()}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{s.storeName}</p>
+                      <p className="text-xs text-muted-foreground">{s.ownerName}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isRejected && <span className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">Rejected</span>}
+                      <span className="text-[10px] text-muted-foreground/50">{fmtDate(s.createdAt)}</span>
+                      <button
+                        type="button"
+                        onClick={() => void deleteStore(s.id, s.storeName)}
+                        disabled={deleting === s.id}
+                        title="Delete store"
+                        className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                      >
+                        {deleting === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      </button>
+                    </div>
                   </div>
-                )}
-
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  <select value={s.onboardingStage ?? 'new'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, onboardingStage: e.target.value } : x))} className={inp}>
-                    <option value="new">New</option><option value="physically_onboarded">Physically onboarded</option><option value="digitally_onboarded">Digitally onboarded</option><option value="live">Live</option>
-                  </select>
-                  <select value={s.payoutStatus ?? 'pending_setup'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutStatus: e.target.value } : x))} className={inp}>
-                    <option value="pending_setup">Payout setup pending</option><option value="ready">Ready for payout</option><option value="paid">Paid</option><option value="on_hold">On hold</option>
-                  </select>
-                  <input value={s.upiId ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, upiId: e.target.value, payoutMethod: 'upi' } : x))} placeholder="UPI ID" className={inp} />
-                  <input value={s.bankAccountNo ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, bankAccountNo: e.target.value, payoutMethod: 'bank' } : x))} placeholder="Bank account no" className={inp} />
-                  <input value={s.bankIfsc ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, bankIfsc: e.target.value.toUpperCase(), payoutMethod: 'bank' } : x))} placeholder="IFSC" className={inp} />
-                  <input type="date" value={s.payoutLastPaidAt ? String(s.payoutLastPaidAt).slice(0, 10) : ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutLastPaidAt: e.target.value || null } : x))} className={inp} />
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {s.phone || (s.whatsapp ? `+91 ${s.whatsapp}` : '—')}</span>
+                    <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {[s.address, s.locality, s.city, s.pincode].filter(Boolean).join(', ') || '—'}</span>
+                  </div>
+                  {(s.gstin || s.email) && (
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/70">
+                      {s.gstin && <span>GST: {s.gstin}</span>}
+                      {s.email && <span>{s.email}</span>}
+                    </div>
+                  )}
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <select value={s.onboardingStage ?? 'new'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, onboardingStage: e.target.value } : x))} className={inp}>
+                      <option value="new">New</option>
+                      <option value="physically_onboarded">Physically onboarded</option>
+                      <option value="digitally_onboarded">Digitally onboarded</option>
+                      <option value="live">Live</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    <select value={s.payoutStatus ?? 'pending_setup'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutStatus: e.target.value } : x))} className={inp}>
+                      <option value="pending_setup">Payout setup pending</option>
+                      <option value="ready">Ready for payout</option>
+                      <option value="paid">Paid</option>
+                      <option value="on_hold">On hold</option>
+                    </select>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <input value={s.payoutNotes ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutNotes: e.target.value } : x))} placeholder="Notes (rejection reason, payout notes…)" className={`${inp} flex-1`} />
+                    <button type="button" onClick={() => void saveStore(s)} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white">Save</button>
+                  </div>
                 </div>
-                <div className="mt-2 flex gap-2">
-                  <input value={s.payoutNotes ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutNotes: e.target.value } : x))} placeholder="Payout notes" className={inp} />
-                  <button type="button" onClick={() => void saveStore(s)} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white">Save</button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </motion.div>
       )}
     </div>
@@ -410,6 +446,7 @@ function StoresPanel() {
 function CampaignsPanel() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading,   setLoading]   = useState(true);
+  const [deleting,  setDeleting]  = useState<string | null>(null);
 
   useEffect(() => {
     const pw = sessionStorage.getItem(SS_PW) ?? '';
@@ -418,6 +455,17 @@ function CampaignsPanel() {
       .then(setCampaigns).catch(() => setCampaigns([]))
       .finally(() => setLoading(false));
   }, []);
+
+  const deleteCampaign = async (id: string, name: string) => {
+    if (!confirm(`Delete campaign for "${name}"? This cannot be undone.`)) return;
+    setDeleting(id);
+    try {
+      const pw = sessionStorage.getItem(SS_PW) ?? '';
+      const res = await fetch(`/api/admin/campaigns/${id}`, { method: 'DELETE', headers: { 'admin-password': pw } });
+      if (!res.ok) { const b = await res.json() as { error?: string }; alert(b.error ?? 'Delete failed'); return; }
+      setCampaigns((all) => all.filter((c) => c.id !== id));
+    } finally { setDeleting(null); }
+  };
 
   const total   = campaigns.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
   const paid    = campaigns.filter((c) => c.paymentId && c.paymentId !== 'pending').length;
@@ -447,7 +495,7 @@ function CampaignsPanel() {
         <div className="rounded-xl border border-border overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
-              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Date'].map((h) => (
+              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Date', ''].map((h) => (
                 <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
               ))}</tr>
             </thead>
@@ -467,6 +515,16 @@ function CampaignsPanel() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => void deleteCampaign(c.id, c.brandName || c.contactName || 'this campaign')}
+                        disabled={deleting === c.id}
+                        className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                      >
+                        {deleting === c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
