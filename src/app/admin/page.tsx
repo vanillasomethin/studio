@@ -7,7 +7,7 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X,
   IndianRupee, Eye,
   Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
-  Menu, ChevronRight, LogOut, LayoutDashboard,
+  Menu, ChevronRight, LogOut, LayoutDashboard, Images,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -18,6 +18,7 @@ const PlaylistsTab    = dynamic(() => import('@/components/admin/playlists-tab')
 const SchedulesTab    = dynamic(() => import('@/components/admin/schedules-tab'),     { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
 const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
+const SiteMediaTab     = dynamic(() => import('@/components/admin/site-media-tab'),     { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring' | 'media';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -72,6 +73,12 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'monitoring', label: 'Monitoring',  icon: Activity    },
     ],
   },
+  {
+    group: 'Site',
+    items: [
+      { id: 'media',      label: 'Media',       icon: Images      },
+    ],
+  },
 ];
 
 const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
@@ -86,6 +93,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   schedules:  { eyebrow: 'Content delivery',   title: 'Schedules'          },
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
+  media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -777,6 +785,7 @@ function Dashboard() {
               {tab === 'schedules'  && <SchedulesTab />}
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
+              {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}
             </motion.div>
           </AnimatePresence>
         </main>

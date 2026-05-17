@@ -37,9 +37,14 @@ const CITIES = [
   { name: 'Goa', live: true },
 ];
 
+function mediaUrl(slot: string, fallback: string, media: Record<string, string>) {
+  return media[slot] || fallback;
+}
+
 export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [ready, setReady] = useState(false);
+  const [siteMedia, setSiteMedia] = useState<Record<string, string>>({});
   const [scrolled, setScrolled] = useState(false);
   const [onDark, setOnDark] = useState(false);
   const [vcount, setVcount] = useState('00.00 %');
@@ -58,6 +63,11 @@ export default function Home() {
   useEffect(() => {
     const t = setTimeout(() => { setLoaded(true); setTimeout(() => setReady(true), 50); }, 1400);
     return () => clearTimeout(t);
+  }, []);
+
+  /* ─── Site media overrides ─── */
+  useEffect(() => {
+    fetch('/api/site-media').then(r => r.json()).then(setSiteMedia).catch(() => {});
   }, []);
 
   /* ─── Custom cursor ─── */
@@ -226,7 +236,7 @@ export default function Home() {
             <div className="screen">
               {HERO_STATES.map(h => (
                 <div key={h.state} className={`layer${heroState === h.state ? ' is-active' : ''}`}>
-                  <Image src={h.img} alt={h.label} fill style={{ objectFit: 'cover' }} sizes="360px" priority={h.state === 'brand'} />
+                  <Image src={mediaUrl(`hero-${h.state}`, h.img, siteMedia)} alt={h.label} fill style={{ objectFit: 'cover' }} sizes="360px" priority={h.state === 'brand'} />
                 </div>
               ))}
               <div className="corner">{activeHero.corner}</div>
@@ -264,7 +274,7 @@ export default function Home() {
             <p className="lede fade">India shops in person. Twelve million kiranas still anchor every neighbourhood, and three out of four purchase decisions happen at the shelf — not on a feed. The market knew this. The brands did not have a way to reach it.</p>
             <p className="lede fade">Alive places a small digital screen above the counter of every partner kirana. Brands run 8-second plays. Kirana owners earn a share. Consumers discover what's worth trying — right where they're already deciding.</p>
             <div className="img-wrap reveal" style={{ aspectRatio: '3/2', marginTop: 56 }}>
-              <Image src="/alive-product-shot.png" alt="Alive in-store screen above counter" fill style={{ objectFit: 'cover' }} sizes="50vw" />
+              <Image src={mediaUrl('product-shot', '/alive-product-shot.png', siteMedia)} alt="Alive in-store screen above counter" fill style={{ objectFit: 'cover' }} sizes="50vw" />
               <div className="badge"><span className="dot" />Live · Attavar, Mangalore</div>
             </div>
           </div>
@@ -286,13 +296,13 @@ export default function Home() {
         </div>
         <div className="vessels-grid">
           {[
-            { img: '/for-brands.jpg',          tag: 'Audience 01', title: 'Reach the shelf,', em: 'not the feed.', desc: 'Launch in-store campaigns in three steps. Pay for plays. Measure by uplift, not impressions.', num: 'N°01', icon: 'Package', alt: '' },
-            { img: '/kirana-shop.jpg',          tag: 'Audience 02', title: 'Earn more from', em: 'your shelves.',  desc: 'One screen. Zero investment. A new monthly revenue stream paid in cash or stock credit.',       num: 'N°02', icon: 'Store',   alt: '' },
-            { img: '/india-street.jpg',         tag: 'Audience 03', title: 'Discover your',  em: 'next favorite.', desc: 'Relevant. Hyper-local. Already in stock. No tracking, no scrolling — just a play above the counter.', num: 'N°03', icon: 'Bag',     alt: '' },
+            { imgKey: 'hero-brand',  img: '/for-brands.jpg',   tag: 'Audience 01', title: 'Reach the shelf,', em: 'not the feed.', desc: 'Launch in-store campaigns in three steps. Pay for plays. Measure by uplift, not impressions.', num: 'N°01', icon: 'Package', alt: '' },
+            { imgKey: 'kirana-shop', img: '/kirana-shop.jpg',  tag: 'Audience 02', title: 'Earn more from', em: 'your shelves.',  desc: 'One screen. Zero investment. A new monthly revenue stream paid in cash or stock credit.',       num: 'N°02', icon: 'Store',   alt: '' },
+            { imgKey: 'hero-consumer', img: '/india-street.jpg', tag: 'Audience 03', title: 'Discover your',  em: 'next favorite.', desc: 'Relevant. Hyper-local. Already in stock. No tracking, no scrolling — just a play above the counter.', num: 'N°03', icon: 'Bag',     alt: '' },
           ].map((v, i) => (
             <article key={v.tag} className="vessel">
               <div className="pic img-wrap reveal" style={{ aspectRatio: '4/5', position: 'relative' }}>
-                <Image src={v.img} alt={v.alt} fill style={{ objectFit: 'cover' }} sizes="33vw" />
+                <Image src={mediaUrl(v.imgKey, v.img, siteMedia)} alt={v.alt} fill style={{ objectFit: 'cover' }} sizes="33vw" />
                 <div className="pic-cta">{v.icon} {v.tag.replace('Audience ','For ').replace('01','Brands').replace('02','Kiranas').replace('03','Consumers')}</div>
               </div>
               <div className="meta">
@@ -399,14 +409,14 @@ export default function Home() {
         </div>
         <div className="stewards-grid">
           {[
-            { img: '/kirana-best-practice.jpg', quote: 'My shop earned ₹6,400 last month doing nothing extra. The screen runs. The customers watch. I count the cash.', nm: 'Ramesh Kumar', role: 'Kirana Owner · Lajpat Nagar' },
-            { img: '/store-shelf.jpg',          quote: "We moved the launch SKU two times faster in Alive pincodes. The control set didn't budge. That's the cleanest read we've had in years.", nm: 'Priya Menon', role: 'Brand Manager · FMCG Top-10' },
-            { img: '/store-aisle.jpg',          quote: "I saw the chai mix on the screen above Suresh's counter. Picked it up the same trip. Honestly, better than scrolling Instagram.", nm: 'Aanya Sharma', role: 'Shopper · Bengaluru' },
-            { img: '/alive-after.png',          quote: 'Onboarding the kirana took fifteen minutes. The hardware came in a single box. The first play went live the next morning.', nm: 'Vikram Patel', role: 'Field Lead · Alive Network' },
+            { imgKey: 'hero-kirana',  img: '/kirana-best-practice.jpg', quote: 'My shop earned ₹6,400 last month doing nothing extra. The screen runs. The customers watch. I count the cash.', nm: 'Ramesh Kumar', role: 'Kirana Owner · Lajpat Nagar' },
+            { imgKey: 'store-shelf',  img: '/store-shelf.jpg',          quote: "We moved the launch SKU two times faster in Alive pincodes. The control set didn't budge. That's the cleanest read we've had in years.", nm: 'Priya Menon', role: 'Brand Manager · FMCG Top-10' },
+            { imgKey: 'store-aisle',  img: '/store-aisle.jpg',          quote: "I saw the chai mix on the screen above Suresh's counter. Picked it up the same trip. Honestly, better than scrolling Instagram.", nm: 'Aanya Sharma', role: 'Shopper · Bengaluru' },
+            { imgKey: 'alive-after',  img: '/alive-after.png',          quote: 'Onboarding the kirana took fifteen minutes. The hardware came in a single box. The first play went live the next morning.', nm: 'Vikram Patel', role: 'Field Lead · Alive Network' },
           ].map(t => (
             <article key={t.nm} className="steward">
               <div className="pic img-wrap reveal" style={{ position: 'relative' }}>
-                <Image src={t.img} alt="" fill style={{ objectFit: 'cover' }} sizes="25vw" />
+                <Image src={mediaUrl(t.imgKey, t.img, siteMedia)} alt="" fill style={{ objectFit: 'cover' }} sizes="25vw" />
               </div>
               <p className="quote">{t.quote}</p>
               <div className="who">
