@@ -8,7 +8,7 @@ type StoreRow = {
   whatsapp: string; address: string | null; locality: string | null;
   city: string | null; pincode: string | null; lat: number | null; lng: number | null;
   gstin: string | null; referralCode: string; referredBy: string | null;
-  agreedAt: Date | null; createdAt: Date; updatedAt: Date;
+  agreedAt: Date | null; liveAt: Date | null; createdAt: Date; updatedAt: Date;
 };
 
 export async function GET() {
@@ -20,7 +20,7 @@ export async function GET() {
       SELECT
         s."id", s."userId", s."storeName", s."ownerName", s."whatsapp",
         s."address", s."locality", s."city", s."pincode", s."lat", s."lng",
-        s."gstin", s."referralCode", s."referredBy", s."agreedAt",
+        s."gstin", s."referralCode", s."referredBy", s."agreedAt", s."liveAt",
         s."createdAt", s."updatedAt",
         u."email", u."phone"
       FROM "Store" s
@@ -47,6 +47,7 @@ export async function GET() {
       referralCode: s.referralCode,
       referredBy:   s.referredBy,
       agreedAt:     s.agreedAt instanceof Date ? s.agreedAt.toISOString() : s.agreedAt,
+      liveAt:       s.liveAt instanceof Date ? s.liveAt.toISOString() : s.liveAt,
       createdAt:    s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
       // from User join
       email:        (s as unknown as { email?: string }).email ?? null,

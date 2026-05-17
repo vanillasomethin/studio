@@ -11,12 +11,13 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
-const ScreensTab    = dynamic(() => import('@/components/admin/screens-tab'),    { ssr: false });
-const ReportsTab    = dynamic(() => import('@/components/admin/reports-tab'),    { ssr: false });
-const ContentTab    = dynamic(() => import('@/components/admin/content-tab'),    { ssr: false });
-const PlaylistsTab  = dynamic(() => import('@/components/admin/playlists-tab'),  { ssr: false });
-const SchedulesTab  = dynamic(() => import('@/components/admin/schedules-tab'),  { ssr: false });
-const MonitoringTab = dynamic(() => import('@/components/admin/monitoring-tab'), { ssr: false });
+const ScreensTab      = dynamic(() => import('@/components/admin/screens-tab'),       { ssr: false });
+const ReportsTab      = dynamic(() => import('@/components/admin/reports-tab'),       { ssr: false });
+const ContentTab      = dynamic(() => import('@/components/admin/content-tab'),       { ssr: false });
+const PlaylistsTab    = dynamic(() => import('@/components/admin/playlists-tab'),     { ssr: false });
+const SchedulesTab    = dynamic(() => import('@/components/admin/schedules-tab'),     { ssr: false });
+const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
+const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -57,6 +58,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'flyers',     label: 'Flyers',      icon: FileImage   },
       { id: 'stores',     label: 'Stores',      icon: Store       },
       { id: 'campaigns',  label: 'Campaigns',   icon: BarChart3   },
+      { id: 'payments',   label: 'Payments',    icon: IndianRupee },
     ],
   },
   {
@@ -77,6 +79,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   flyers:     { eyebrow: 'Flyer management',   title: 'Published flyers'   },
   stores:     { eyebrow: 'Store partners',     title: 'Registered stores'  },
   campaigns:  { eyebrow: 'Brand campaigns',    title: 'All campaigns'      },
+  payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
   content:    { eyebrow: 'Media library',      title: 'Content'            },
   playlists:  { eyebrow: 'Screen programming', title: 'Playlists'          },
@@ -664,7 +667,12 @@ function Dashboard() {
   const [tab,        setTab]        = useState<Tab>('overview');
   const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [adminPw,    setAdminPw]    = useState('');
   const meta = PAGE_META[tab];
+
+  useEffect(() => {
+    setAdminPw(sessionStorage.getItem(SS_PW) ?? '');
+  }, []);
 
   const signOut = () => {
     sessionStorage.removeItem('alive_admin');
@@ -762,6 +770,7 @@ function Dashboard() {
               )}
               {tab === 'stores'     && <StoresPanel />}
               {tab === 'campaigns'  && <CampaignsPanel />}
+              {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'playlists'  && <PlaylistsTab />}
