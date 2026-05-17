@@ -4,6 +4,8 @@ import '../bones/registry';
 import { Toaster } from '@/components/ui/toaster';
 import { Providers } from '@/components/providers';
 import { cn } from '@/lib/utils';
+import { NetworkBanner } from '@/components/errors/network-banner';
+import { SessionExpiredModal } from '@/components/errors/session-expired-modal';
 
 export const metadata: Metadata = {
   title: 'ALIVE — In-store advertising for Indian kirana stores',
@@ -30,6 +32,8 @@ export default function RootLayout({
           className={cn('min-h-screen bg-background font-sans antialiased')}
           style={{ fontFamily: '"Manrope", system-ui, sans-serif' }}
         >
+          <NetworkBanner />
+          <SessionExpiredModal />
           <Providers>{children}</Providers>
           <Toaster />
         </body>
