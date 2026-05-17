@@ -246,6 +246,9 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Content stack slides over sticky hero ── */}
+      <div className="content-stack">
+
       {/* STORY */}
       <section className="philosophy" id="story">
         <div className="sec-h">
@@ -506,6 +509,8 @@ export default function Home() {
           <span className="word">alive<span className="megadot" /></span>
         </div>
       </footer>
+
+      </div>{/* /content-stack */}
 
       </div>
     </>
