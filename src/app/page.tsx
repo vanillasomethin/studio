@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 
-const AliveBeforeAfter = dynamic(() => import('@/components/interactive/alive-before-after'), { ssr: false });
-const ArcGISMap        = dynamic(() => import('@/components/sections/arcgis-map'),           { ssr: false });
+const AliveBeforeAfter    = dynamic(() => import('@/components/interactive/alive-before-after'),    { ssr: false });
+const StoreLocationsMap   = dynamic(() => import('@/components/sections/store-locations-map'),   { ssr: false });
 
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
@@ -385,7 +385,7 @@ export default function Home() {
               Live across Mangaluru — expanding city by city. Every pin is a partner store.
             </p>
           </div>
-          <ArcGISMap />
+          <StoreLocationsMap />
         </div>
       </section>
 
@@ -422,23 +422,37 @@ export default function Home() {
           Be <span className="red">Alive</span><span className="hdot" /><br />
           <span className="out">with us.</span>
         </h2>
-        <div className="row">
-          <p>Brands ship pilots in two weeks. Kiranas onboard in fifteen minutes. The 2026 network expands across every major Indian city by Q4 — join now, lock the geography.</p>
-          <a
-            href="#"
-            className="magnet"
-            onClick={e => e.preventDefault()}
-            onMouseMove={e => {
-              const el = e.currentTarget;
-              const r = el.getBoundingClientRect();
-              const x = e.clientX - (r.left + r.width / 2);
-              const y = e.clientY - (r.top + r.height / 2);
-              el.style.transform = `translate(${x * 0.25}px,${y * 0.4}px)`;
-            }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ''; }}
-          >
-            <span className="dot" />Get Started
-          </a>
+        <div className="join-cards">
+          {/* Brands */}
+          <div className="join-card primary">
+            <div className="jc-tag">Audience 01 · Brands</div>
+            <div className="jc-title">Launch in-store campaigns that move product.</div>
+            <p className="jc-desc">Three steps. Pay per verified play. Real uplift data against a matched control group — not impressions.</p>
+            <a href="/brand-onboarding" className="jc-btn">
+              Start a campaign
+              <svg className="jc-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+          </div>
+          {/* Kiranas */}
+          <div className="join-card">
+            <div className="jc-tag">Audience 02 · Kiranas</div>
+            <div className="jc-title">Earn ₹500 every month from one screen.</div>
+            <p className="jc-desc">Zero investment. We install, we maintain. You get paid — by the 10th of every month via UPI or NEFT.</p>
+            <a href="/store" className="jc-btn">
+              Register as a partner
+              <svg className="jc-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+          </div>
+          {/* Consumers */}
+          <div className="join-card">
+            <div className="jc-tag">Audience 03 · Consumers</div>
+            <div className="jc-title">See local deals at your kirana store.</div>
+            <p className="jc-desc">Weekly offers from the brands you already buy. Discover, compare, and save — right where you shop.</p>
+            <a href="/deals" className="jc-btn">
+              Browse local deals
+              <svg className="jc-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+          </div>
         </div>
       </section>
 
