@@ -117,10 +117,10 @@ export default function StoreLocationsMap() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (L as any).polygon(pts, {
           color: '#dc2626',
-          weight: 1.5,
-          opacity: 0.45,
+          weight: 1,
+          opacity: 0.35,
           fillColor: '#dc2626',
-          fillOpacity: 0.06,
+          fillOpacity: 0.04,
           interactive: false,
         }).addTo(map);
       });
@@ -129,8 +129,8 @@ export default function StoreLocationsMap() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (L as any).polyline(pts, {
           color: '#dc2626',
-          weight: 1.5,
-          opacity: 0.4,
+          weight: 1,
+          opacity: 0.3,
           interactive: false,
         }).addTo(map);
       });
