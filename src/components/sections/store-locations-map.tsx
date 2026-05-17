@@ -10,10 +10,12 @@ type StorePin = {
   lng: number;
 };
 
-// Parse KML text → array of Leaflet-compatible latlng arrays for polygons + polylines
-function parseKML(kmlText: string): { polygons: [number, number][][]; lines: [number, number][][] } {
+type NamedPolygon = { pts: [number, number][]; name: string };
+
+// Parse KML text → named polygons + polylines
+function parseKML(kmlText: string): { polygons: NamedPolygon[]; lines: [number, number][][] } {
   const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
-  const polygons: [number, number][][] = [];
+  const polygons: NamedPolygon[] = [];
   const lines: [number, number][][] = [];
 
   const toLatLngs = (coordsText: string): [number, number][] =>
@@ -23,17 +25,14 @@ function parseKML(kmlText: string): { polygons: [number, number][][]; lines: [nu
     });
 
   doc.querySelectorAll('Placemark').forEach(pm => {
-    pm.querySelectorAll('Polygon outerBoundaryIs LinearRing coordinates').forEach(el => {
+    const name = pm.querySelector('name')?.textContent?.trim() ?? '';
+    pm.querySelectorAll('Polygon outerBoundaryIs LinearRing coordinates, MultiGeometry Polygon outerBoundaryIs LinearRing coordinates').forEach(el => {
       const pts = toLatLngs(el.textContent ?? '');
-      if (pts.length > 2) polygons.push(pts);
+      if (pts.length > 2) polygons.push({ pts, name });
     });
     pm.querySelectorAll('LineString coordinates').forEach(el => {
       const pts = toLatLngs(el.textContent ?? '');
       if (pts.length > 1) lines.push(pts);
-    });
-    pm.querySelectorAll('MultiGeometry Polygon outerBoundaryIs LinearRing coordinates').forEach(el => {
-      const pts = toLatLngs(el.textContent ?? '');
-      if (pts.length > 2) polygons.push(pts);
     });
   });
 
@@ -113,24 +112,42 @@ export default function StoreLocationsMap() {
       const kml = await res.text();
       const { polygons, lines } = parseKML(kml);
 
-      polygons.forEach(pts => {
+      polygons.forEach(({ pts, name }) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (L as any).polygon(pts, {
+        const poly = (L as any).polygon(pts, {
           color: '#dc2626',
-          weight: 1,
-          opacity: 0.35,
+          weight: 1.5,
+          opacity: 0.45,
           fillColor: '#dc2626',
-          fillOpacity: 0.04,
-          interactive: false,
+          fillOpacity: 0.05,
+          interactive: !!name,
         }).addTo(map);
+
+        if (name) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const tip = (L as any).tooltip({
+            permanent: false,
+            direction: 'center',
+            className: 'alive-area-tooltip',
+            opacity: 1,
+          }).setContent(`<span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;color:#dc2626;">${name}</span>`);
+
+          poly.bindTooltip(tip);
+          poly.on('mouseover', () => {
+            poly.setStyle({ fillOpacity: 0.14, opacity: 0.7 });
+          });
+          poly.on('mouseout', () => {
+            poly.setStyle({ fillOpacity: 0.05, opacity: 0.45 });
+          });
+        }
       });
 
       lines.forEach(pts => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (L as any).polyline(pts, {
           color: '#dc2626',
-          weight: 1,
-          opacity: 0.3,
+          weight: 1.5,
+          opacity: 0.4,
           interactive: false,
         }).addTo(map);
       });

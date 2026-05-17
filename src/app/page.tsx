@@ -70,6 +70,12 @@ export default function Home() {
     fetch('/api/site-media').then(r => r.json()).then(setSiteMedia).catch(() => {});
   }, []);
 
+  /* ─── Scope custom cursor to homepage only ─── */
+  useEffect(() => {
+    document.body.classList.add('use-custom-cursor');
+    return () => document.body.classList.remove('use-custom-cursor');
+  }, []);
+
   /* ─── Custom cursor ─── */
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -110,22 +116,26 @@ export default function Home() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  /* ─── IntersectionObserver for reveal / fade ─── */
+  /* ─── IntersectionObserver for reveal / fade / slide / zoom ─── */
   useEffect(() => {
     if (!ready) return;
     const io = new IntersectionObserver(entries => {
       entries.forEach(e => { if (e.isIntersecting) { (e.target as HTMLElement).classList.add('in'); io.unobserve(e.target); } });
-    }, { threshold: 0.12 });
-    document.querySelectorAll('.reveal, .fade').forEach(el => io.observe(el));
+    }, { threshold: 0.10 });
+    document.querySelectorAll('.reveal, .fade, .fade-left, .fade-right, .zoom-in').forEach(el => io.observe(el));
     return () => io.disconnect();
   }, [ready]);
 
-  /* ─── Hero auto-cycle ─── */
+  /* ─── Hero auto-cycle — ping-pong: 0→1→2→1→0→1→2… ─── */
   const states: HeroState[] = ['brand', 'kirana', 'consumer'];
+  const pingPongDirRef = useRef<1 | -1>(1);
   const startAuto = useCallback(() => {
     if (autoTimerRef.current) clearInterval(autoTimerRef.current);
     autoTimerRef.current = setInterval(() => {
-      autoIdxRef.current = (autoIdxRef.current + 1) % states.length;
+      const next = autoIdxRef.current + pingPongDirRef.current;
+      if (next >= states.length - 1) pingPongDirRef.current = -1;
+      if (next <= 0) pingPongDirRef.current = 1;
+      autoIdxRef.current = Math.max(0, Math.min(states.length - 1, next));
       setHeroState(states[autoIdxRef.current]);
     }, 3200);
   }, []);
@@ -267,12 +277,12 @@ export default function Home() {
         </div>
         <div className="philosophy-grid">
           <div>
-            <h2 className="fade">We saw <span className="lite">disconnected</span><br />players in a<br /><span className="red">single</span> ecosystem.<br />So we built<br />the bridge.</h2>
+            <h2 className="fade-left">We saw <span className="lite">disconnected</span><br />players in a<br /><span className="red">single</span> ecosystem.<br />So we built<br />the bridge.</h2>
             <div className="sig">— Founding Note · AliveNow · 2026</div>
           </div>
           <div>
-            <p className="lede fade">India shops in person. Twelve million kiranas still anchor every neighbourhood, and three out of four purchase decisions happen at the shelf — not on a feed. The market knew this. The brands did not have a way to reach it.</p>
-            <p className="lede fade">Alive places a small digital screen above the counter of every partner kirana. Brands run 8-second plays. Kirana owners earn a share. Consumers discover what's worth trying — right where they're already deciding.</p>
+            <p className="lede fade" style={{ '--delay': '0.1s' } as React.CSSProperties}>India shops in person. Twelve million kiranas still anchor every neighbourhood, and three out of four purchase decisions happen at the shelf — not on a feed. The market knew this. The brands did not have a way to reach it.</p>
+            <p className="lede fade" style={{ '--delay': '0.2s' } as React.CSSProperties}>Alive places a small digital screen above the counter of every partner kirana. Brands run 8-second plays. Kirana owners earn a share. Consumers discover what's worth trying — right where they're already deciding.</p>
             <div className="img-wrap reveal" style={{ aspectRatio: '3/2', marginTop: 56 }}>
               <Image src={mediaUrl('product-shot', '/alive-product-shot.png', siteMedia)} alt="Alive in-store screen above counter" fill style={{ objectFit: 'cover' }} sizes="50vw" />
               <div className="badge"><span className="dot" />Live · Attavar, Mangalore</div>
@@ -322,7 +332,7 @@ export default function Home() {
       <section className="benefits" id="how">
         <div className="sec-h">
           <div className="idx">03 / How It Works</div>
-          <div className="lbl">The Five Acts</div>
+          <div className="lbl">Three Steps</div>
         </div>
         <div className="benefits-head">
           <h2 className="fade"><span className="red">Launch</span><br />in three<br />simple steps. <span className="lite">Measure</span><br />in one.</h2>
@@ -330,13 +340,11 @@ export default function Home() {
         </div>
         <ul className="blist">
           {[
-            { n:'01', tag:'Onboard', title:'Upload your creative.',  desc:'8-second portrait MP4 or a still. Auto-resized, auto-localised in 11 languages. Live in 48 hours.' },
-            { n:'02', tag:'Target',  title:'Pick your geography.',   desc:'Filter by city, neighbourhood, kirana category, even monthly footfall. Down to a single PIN code.' },
+            { n:'01', tag:'Onboard', title:'Upload your creative.',     desc:'8-second portrait MP4 or a still. Auto-resized, auto-localised. Live in 48 hours.' },
+            { n:'02', tag:'Target',  title:'Pick your geography.',      desc:'Filter by city, neighbourhood, kirana category, even monthly footfall. Down to a single PIN code.' },
             { n:'03', tag:'Run',     title:'Plays start the same day.', desc:'Up to 144 plays per screen per day, between 7 AM and 9 PM. Pause, swap, or A/B a creative live.' },
-            { n:'04', tag:'Measure', title:'Uplift, not impressions.', desc:'Weekly sales-lift report against a control set of matched kiranas. Pay only for verified plays.' },
-            { n:'05', tag:'Reinvest',title:'Compound the winners.',  desc:'Push budget toward the SKUs and PIN codes where the lift was largest. Re-run in one click.' },
-          ].map(b => (
-            <li key={b.n}
+          ].map((b, i) => (
+            <li key={b.n} className="fade" style={{ '--delay': `${i * 0.1}s` } as React.CSSProperties}
                 onMouseEnter={() => setHovering(true)}
                 onMouseLeave={() => setHovering(false)}>
               <span className="b-num">{b.n}</span>
@@ -346,6 +354,19 @@ export default function Home() {
             </li>
           ))}
         </ul>
+        {/* Measure + Reinvest — after the 3 launch steps */}
+        <div style={{ borderTop: '1px solid var(--rule)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+          {[
+            { tag:'Measure', title:'Uplift, not impressions.', desc:'Weekly sales-lift report against a matched kirana control set. Pay only for verified plays.' },
+            { tag:'Reinvest',title:'Compound the winners.',    desc:'Push budget toward SKUs and PIN codes where lift was highest. Re-run in one click.' },
+          ].map((b, i) => (
+            <div key={b.tag} className="fade" style={{ '--delay': `${i * 0.12}s`, padding: '40px 48px', borderLeft: i === 1 ? '1px solid var(--rule)' : 'none' } as React.CSSProperties}>
+              <span className="tag" style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--red)', fontWeight: 600 }}>{b.tag}</span>
+              <p style={{ fontWeight: 700, fontSize: 'clamp(15px,1.4vw,19px)', letterSpacing: '-0.02em', margin: '8px 0 10px', lineHeight: 1.25 }}>{b.title}</p>
+              <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--ink-2)' }}>{b.desc}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* EXPERIENCE */}
@@ -376,8 +397,8 @@ export default function Home() {
             { n: '2',   u: '×', l: 'Stock movement velocity', s: 'vs. non-Alive shelves' },
             { n: '74',  u: '%', l: 'Aided brand recall', s: 'vs. 29% on print & OOH' },
             { n: '4,320',u: '',  l: 'Monthly views per screen', s: 'at the point of purchase' },
-          ].map(s => (
-            <div key={s.l} className="stat">
+          ].map((s, i) => (
+            <div key={s.l} className="stat zoom-in" style={{ '--delay': `${i * 0.08}s` } as React.CSSProperties}>
               <div className="n">{s.n}{s.u && <span className="u">{s.u}</span>}</div>
               <div className="l">{s.l}<span>{s.s}</span></div>
             </div>

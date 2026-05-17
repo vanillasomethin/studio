@@ -1143,17 +1143,33 @@ export default function StoreDashboardPage() {
   const [storeLoading, setStoreLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const fetchStore = useCallback(async () => {
+  const fetchStore = useCallback(async (attempt = 0) => {
     setStoreLoading(true);
     setLoadError(null);
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), 20000);
     try {
       const res = await fetch('/api/stores/me', { signal: controller.signal });
-      if (res.ok) setStoreInfo(await res.json() as StoreInfo);
-      else setLoadError('Could not load your store. Please refresh.');
+      if (res.ok) {
+        setStoreInfo(await res.json() as StoreInfo);
+        return;
+      }
+      // Retry once after 3s on first failure (common right after registration when DB wakes)
+      if (attempt === 0) {
+        clearTimeout(tid);
+        setStoreLoading(false);
+        await new Promise(r => setTimeout(r, 3000));
+        return fetchStore(1);
+      }
+      setLoadError('Could not load your store. Please tap retry.');
     } catch (e) {
       const err = e as Error;
+      if (attempt === 0) {
+        clearTimeout(tid);
+        setStoreLoading(false);
+        await new Promise(r => setTimeout(r, 3000));
+        return fetchStore(1);
+      }
       setLoadError(err.name === 'AbortError' ? 'Taking too long — the server may be waking up. Tap to retry.' : 'Connection error. Tap to retry.');
     } finally {
       clearTimeout(tid);
