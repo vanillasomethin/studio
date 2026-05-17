@@ -44,10 +44,13 @@ export default function ReportsTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
-  const totalPlays = events.length;
-  const totalMs    = events.reduce((s, e) => s + e.durationMs, 0);
-  const uniqueDevices = new Set(events.map((e) => e.deviceId)).size;
-  const uniqueTags    = new Set(events.map((e) => e.tag).filter(Boolean)).size;
+  const totalPlays       = events.length;
+  const totalMs          = events.reduce((s, e) => s + e.durationMs, 0);
+  const uniqueDevices    = new Set(events.map((e) => e.deviceId)).size;
+  const uniqueTags       = new Set(events.map((e) => e.tag).filter(Boolean)).size;
+  const totalImpressions = events.reduce((s, e) => s + (e.impressions ?? 1), 0);
+  const totalRevPaise    = events.reduce((s, e) => s + (e.costPaise ?? 0), 0);
+  const totalRevRupees   = (totalRevPaise / 100).toFixed(2);
 
   const csvUrl = getEventsExportUrl({
     ...(deviceFilter ? { deviceId: deviceFilter } : {}),
@@ -69,12 +72,14 @@ export default function ReportsTab() {
   return (
     <div className="space-y-4">
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
           { label: 'Total plays',     value: totalPlays,                   color: 'text-blue-500'   },
           { label: 'Watch time',      value: fmtDuration(totalMs),         color: 'text-purple-500' },
           { label: 'Active screens',  value: uniqueDevices,                color: 'text-green-500'  },
           { label: 'Campaigns',       value: uniqueTags,                   color: 'text-orange-500' },
+          { label: 'Impressions',     value: totalImpressions.toLocaleString('en-IN'), color: 'text-pink-500' },
+          { label: 'Est. Revenue',    value: `₹${totalRevRupees}`,         color: 'text-emerald-600' },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4">
             <PlayCircle className={`h-4 w-4 ${s.color} mb-2`} />
@@ -125,7 +130,7 @@ export default function ReportsTab() {
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
               <tr>
-                {['Device', 'Media ID', 'Campaign', 'Started', 'Duration', 'Layout'].map((h) => (
+                {['Device', 'Media ID', 'Campaign', 'Started', 'Duration', 'Impressions', 'Layout'].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{h}</th>
                 ))}
               </tr>
@@ -143,6 +148,7 @@ export default function ReportsTab() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{fmtDate(ev.startedAt)}</td>
                   <td className="px-4 py-3 text-muted-foreground font-semibold">{fmtDuration(ev.durationMs)}</td>
+                  <td className="px-4 py-3 text-muted-foreground font-semibold">{(ev.impressions ?? 1).toLocaleString('en-IN')}</td>
                   <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground/60">{ev.layoutId?.slice(0, 10) ?? '—'}</td>
                 </tr>
               ))}

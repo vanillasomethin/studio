@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           ev.tag ?? null, chainHash,
         );
 
-        await db.playEvent.upsert({
+        const created = await db.playEvent.upsert({
           where:  { id: ev.id },
           update: {}, // already accepted — no-op
           create: {
@@ -104,6 +104,27 @@ export async function POST(req: NextRequest) {
             durationMs: ev.durationMs,
             prevHash:   chainHash,
             rowHash,
+          },
+          select: { id: true, startedAt: true, durationMs: true, campaignId: true },
+        });
+
+        // Upsert hourly POP aggregation bucket
+        const hour = new Date(created.startedAt);
+        hour.setUTCMinutes(0, 0, 0);
+        await db.hourlyPop.upsert({
+          where:  { deviceId_hour: { deviceId: device.id, hour } },
+          create: {
+            deviceId:    device.id,
+            hour,
+            playCount:   1,
+            totalMs:     created.durationMs,
+            campaignIds: ev.campaignId ? [ev.campaignId] : [],
+          },
+          update: {
+            playCount: { increment: 1 },
+            totalMs:   { increment: created.durationMs },
+            ...(ev.campaignId ? { campaignIds: { push: ev.campaignId } } : {}),
+            updatedAt: new Date(),
           },
         });
 

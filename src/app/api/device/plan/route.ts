@@ -3,7 +3,10 @@
 //
 // GET /api/device/plan
 // Auth: Authorization: Bearer <device-jwt>
-// Returns: { planHash, validUntil, items: [{ contentId, objectKey, md5, type, durationMs, order }] }
+// Returns: { planHash, validUntil, scheduleId, items: [...], timeline: [...] }
+//
+// Schedule priority enforcement: when two schedules overlap in time, the higher-priority
+// schedule wins for the overlapping window. resolveConflicts() implements this logic.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -38,6 +41,72 @@ async function authenticate(req: NextRequest) {
   }
 }
 
+// ── Schedule conflict resolution ─────────────────────────────────────────────
+// Given a list of schedules with overlapping time windows, produce a non-overlapping
+// timeline where higher priority always wins. Equal priority: earlier startAt wins.
+type ScheduleWindow = {
+  scheduleId: string;
+  priority:   number;
+  startAt:    Date;
+  endAt:      Date;
+};
+
+type ResolvedSlot = ScheduleWindow;
+
+/**
+ * Resolves conflicts between overlapping schedules.
+ * Returns a list of non-overlapping slots in chronological order.
+ * Higher `priority` value wins over lower; ties are broken by earlier `startAt`.
+ */
+function resolveConflicts(schedules: ScheduleWindow[]): ResolvedSlot[] {
+  if (schedules.length === 0) return [];
+
+  // Collect all boundary timestamps
+  const boundaries = new Set<number>();
+  for (const s of schedules) {
+    boundaries.add(s.startAt.getTime());
+    boundaries.add(s.endAt.getTime());
+  }
+  const times = Array.from(boundaries).sort((a, b) => a - b);
+
+  const slots: ResolvedSlot[] = [];
+
+  // For each adjacent pair of timestamps, find the highest-priority active schedule
+  for (let i = 0; i < times.length - 1; i++) {
+    const slotStart = times[i];
+    const slotEnd   = times[i + 1];
+
+    // Find schedules that cover this sub-interval
+    const active = schedules.filter(
+      (s) => s.startAt.getTime() <= slotStart && s.endAt.getTime() >= slotEnd,
+    );
+    if (active.length === 0) continue;
+
+    // Pick the winner: highest priority, then earliest startAt as tiebreak
+    active.sort((a, b) =>
+      b.priority !== a.priority
+        ? b.priority - a.priority
+        : a.startAt.getTime() - b.startAt.getTime(),
+    );
+    const winner = active[0];
+
+    // Merge with previous slot if same schedule and contiguous
+    const prev = slots[slots.length - 1];
+    if (prev && prev.scheduleId === winner.scheduleId && prev.endAt.getTime() === slotStart) {
+      prev.endAt = new Date(slotEnd);
+    } else {
+      slots.push({
+        scheduleId: winner.scheduleId,
+        priority:   winner.priority,
+        startAt:    new Date(slotStart),
+        endAt:      new Date(slotEnd),
+      });
+    }
+  }
+
+  return slots;
+}
+
 export async function GET(req: NextRequest) {
   const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
   const route = '/api/device/plan';
@@ -48,7 +117,7 @@ export async function GET(req: NextRequest) {
   const windowEnd = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
   try {
-    // Find schedules active in the next 72-hr window for this device or its group
+    // Find all schedules active in the next 72-hr window for this device or its group
     const schedules = await db.schedule.findMany({
       where: {
         startAt: { lte: windowEnd },
@@ -69,10 +138,27 @@ export async function GET(req: NextRequest) {
         },
       },
       orderBy: [{ priority: 'desc' }, { startAt: 'asc' }],
-      take: 1, // highest-priority schedule wins (Xibo pattern)
     });
 
-    const schedule = schedules[0];
+    // Resolve priority conflicts across the 72-hr window
+    const windows: ScheduleWindow[] = schedules.map((s) => ({
+      scheduleId: s.id,
+      priority:   s.priority,
+      startAt:    s.startAt,
+      endAt:      s.endAt,
+    }));
+    const resolvedSlots = resolveConflicts(windows);
+
+    // Build a map for quick lookup of schedule data
+    const scheduleMap = new Map(schedules.map((s) => [s.id, s]));
+
+    // For backward-compat: primary schedule is the one active right now (or first upcoming)
+    const nowMs = now.getTime();
+    const currentSlot = resolvedSlots.find(
+      (sl) => sl.startAt.getTime() <= nowMs && sl.endAt.getTime() > nowMs,
+    ) ?? resolvedSlots[0];
+    const schedule = currentSlot ? scheduleMap.get(currentSlot.scheduleId) : undefined;
+
     const items = schedule?.playlist.items.map((item) => ({
       contentId:  item.content.id,
       objectKey:  item.content.objectKey,
@@ -83,10 +169,23 @@ export async function GET(req: NextRequest) {
       order:      item.order,
     })) ?? [];
 
+    // Build the full timeline for the 72-hr window
+    const timeline = resolvedSlots.map((slot) => {
+      const s = scheduleMap.get(slot.scheduleId);
+      return {
+        scheduleId: slot.scheduleId,
+        priority:   slot.priority,
+        startAt:    slot.startAt.toISOString(),
+        endAt:      slot.endAt.toISOString(),
+        playlistId: s?.playlistId ?? null,
+        name:       s?.name ?? null,
+      };
+    });
+
     // Hash the plan so the player can detect changes without re-downloading
     const planHash = crypto
       .createHash('md5')
-      .update(JSON.stringify(items))
+      .update(JSON.stringify({ items, timeline }))
       .digest('hex');
 
     // Update device heartbeat
@@ -100,6 +199,7 @@ export async function GET(req: NextRequest) {
       scheduleId: schedule?.id ?? null,
       validUntil: windowEnd.toISOString(),
       items,
+      timeline,
     });
   } catch (e) {
     const error = e as Error;

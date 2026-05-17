@@ -23,14 +23,17 @@ export type Device = {
 };
 
 export type PlayEvent = {
-  id:         string;
-  deviceId:   string;
-  mediaId:    string;
-  layoutId?:  string;
-  startedAt:  string;
-  endedAt:    string;
-  durationMs: number;
-  tag?:       string;
+  id:          string;
+  deviceId:    string;
+  mediaId:     string;
+  layoutId?:   string;
+  campaignId?: string;
+  startedAt:   string;
+  endedAt:     string;
+  durationMs:  number;
+  tag?:        string;
+  impressions: number;
+  costPaise:   number;
 };
 
 export type Content = {

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { Upload, RotateCcw, Image as ImageIcon } from 'lucide-react';
+import { Upload, RotateCcw } from 'lucide-react';
 
 const MEDIA_SLOTS = [
   { key: 'hero-brand',    label: 'Hero — Brands',     hint: '/for-brands.jpg' },
@@ -103,11 +103,16 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
                     <img src={currentUrl} alt={slot.label} className="w-full h-full object-cover" />
                   )
                 ) : (
-                  <div className="text-center">
-                    <ImageIcon className="h-6 w-6 text-muted-foreground/30 mx-auto mb-1" />
-                    <p className="text-[10px] text-muted-foreground/40 font-mono">{slot.hint}</p>
-                  </div>
+                  // Show the current default image from /public/
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={slot.hint} alt={slot.label} className="w-full h-full object-cover" />
                 )}
+                {/* Status badge */}
+                <span className={`absolute top-2 left-2 text-[9px] px-1.5 py-0.5 rounded font-mono uppercase font-semibold ${
+                  currentUrl ? 'bg-green-600 text-white' : 'bg-black/40 text-white/80'
+                }`}>
+                  {currentUrl ? 'custom' : 'default'}
+                </span>
                 {isUploading && (
                   <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
                     <div className="text-xs text-muted-foreground">Uploading…</div>

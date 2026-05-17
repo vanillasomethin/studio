@@ -391,6 +391,9 @@ model PlayEvent {
   endedAt    DateTime
   durationMs Int
   tag        String?   // free-form: brand/campaign external ID for billing attribution
+  // Audience impressions + cost for CPI billing model (T2)
+  impressions Int      @default(1)
+  costPaise   Int      @default(0)
   // Tamper-evident chain (T2 — sign each row with prev hash)
   prevHash   String?
   rowHash    String?
@@ -491,6 +494,23 @@ model StoreOffer {
   @@index([storeId])
   @@index([active])
   @@index([validUntil])
+}
+
+// ─── Hourly POP aggregation ───────────────────────────────────────────────────
+
+model HourlyPop {
+  id          String   @id @default(cuid())
+  deviceId    String
+  hour        DateTime // truncated to top of hour (UTC)
+  playCount   Int      @default(0)
+  totalMs     Int      @default(0) // total duration in ms
+  campaignIds String[] // distinct campaign IDs played that hour
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([deviceId, hour])
+  @@index([deviceId])
+  @@index([hour])
 }
 
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────

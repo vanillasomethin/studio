@@ -4,6 +4,8 @@ import '../bones/registry';
 import { Toaster } from '@/components/ui/toaster';
 import { Providers } from '@/components/providers';
 import { cn } from '@/lib/utils';
+import { NetworkBanner } from '@/components/errors/network-banner';
+import { SessionExpiredModal } from '@/components/errors/session-expired-modal';
 
 export const metadata: Metadata = {
   title: 'ALIVE — In-store advertising for Indian kirana stores',
@@ -22,7 +24,7 @@ export default function RootLayout({
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
           <link
-            href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800;900&family=Manrope:wght@200..800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap"
             rel="stylesheet"
           />
         </head>
@@ -30,6 +32,8 @@ export default function RootLayout({
           className={cn('min-h-screen bg-background font-sans antialiased')}
           style={{ fontFamily: '"Manrope", system-ui, sans-serif' }}
         >
+          <NetworkBanner />
+          <SessionExpiredModal />
           <Providers>{children}</Providers>
           <Toaster />
         </body>
