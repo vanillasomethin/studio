@@ -10,34 +10,6 @@ type StorePin = {
   lng: number;
 };
 
-type NamedPolygon = { pts: [number, number][]; name: string };
-
-// Parse KML text → named polygons + polylines
-function parseKML(kmlText: string): { polygons: NamedPolygon[]; lines: [number, number][][] } {
-  const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
-  const polygons: NamedPolygon[] = [];
-  const lines: [number, number][][] = [];
-
-  const toLatLngs = (coordsText: string): [number, number][] =>
-    coordsText.trim().split(/\s+/).flatMap(coord => {
-      const [lng, lat] = coord.split(',').map(Number);
-      return isNaN(lat) || isNaN(lng) ? [] : [[lat, lng] as [number, number]];
-    });
-
-  doc.querySelectorAll('Placemark').forEach(pm => {
-    const name = pm.querySelector('name')?.textContent?.trim() ?? '';
-    pm.querySelectorAll('Polygon outerBoundaryIs LinearRing coordinates, MultiGeometry Polygon outerBoundaryIs LinearRing coordinates').forEach(el => {
-      const pts = toLatLngs(el.textContent ?? '');
-      if (pts.length > 2) polygons.push({ pts, name });
-    });
-    pm.querySelectorAll('LineString coordinates').forEach(el => {
-      const pts = toLatLngs(el.textContent ?? '');
-      if (pts.length > 1) lines.push(pts);
-    });
-  });
-
-  return { polygons, lines };
-}
 
 export default function StoreLocationsMap() {
   const mapRef        = useRef<HTMLDivElement>(null);
@@ -74,7 +46,7 @@ export default function StoreLocationsMap() {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const map = (L as any).map(mapRef.current!, {
-        center: [12.89, 74.85],
+        center: [12.9377, 74.8543],
         zoom: 12,
         zoomControl: false,
         attributionControl: false,
@@ -93,66 +65,46 @@ export default function StoreLocationsMap() {
 
       mapInstanceRef.current = map;
 
-      // Load KML ward/area boundaries from Google My Maps (via proxy)
-      loadBoundaries(L, map);
+      // Load GeoJSON ward boundaries
+      loadWards(L, map);
     }
 
     init();
   }, []);
 
-  async function loadBoundaries(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    L: any, map: any
-  ) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function loadWards(L: any, map: any) {
     if (boundariesLoaded.current) return;
     boundariesLoaded.current = true;
     try {
-      const res = await fetch('/api/proxy/mymaps');
-      if (!res.ok) return;
-      const kml = await res.text();
-      const { polygons, lines } = parseKML(kml);
+      const res = await fetch('/mangaluru-wards.geojson');
+      const geojson = await res.json();
 
-      polygons.forEach(({ pts, name }) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const poly = (L as any).polygon(pts, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (L as any).geoJSON(geojson, {
+        style: {
           color: '#dc2626',
           weight: 1.5,
-          opacity: 0.45,
+          opacity: 0.5,
           fillColor: '#dc2626',
-          fillOpacity: 0.05,
-          interactive: !!name,
-        }).addTo(map);
-
-        if (name) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const tip = (L as any).tooltip({
-            permanent: false,
-            direction: 'center',
-            className: 'alive-area-tooltip',
-            opacity: 1,
-          }).setContent(`<span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;color:#dc2626;">${name}</span>`);
-
-          poly.bindTooltip(tip);
-          poly.on('mouseover', () => {
-            poly.setStyle({ fillOpacity: 0.14, opacity: 0.7 });
-          });
-          poly.on('mouseout', () => {
-            poly.setStyle({ fillOpacity: 0.05, opacity: 0.45 });
-          });
-        }
-      });
-
-      lines.forEach(pts => {
+          fillOpacity: 0.04,
+        },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (L as any).polyline(pts, {
-          color: '#dc2626',
-          weight: 1.5,
-          opacity: 0.4,
-          interactive: false,
-        }).addTo(map);
-      });
+        onEachFeature: (feature: any, layer: any) => {
+          const name = feature.properties?.ward_name ?? '';
+          const no   = feature.properties?.ward_no ?? '';
+          if (name) {
+            layer.bindTooltip(
+              `<span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;color:#dc2626;">${name} · Ward ${no}</span>`,
+              { permanent: false, direction: 'center', opacity: 1 }
+            );
+            layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.14, opacity: 0.75 }));
+            layer.on('mouseout',  () => layer.setStyle({ fillOpacity: 0.04, opacity: 0.5  }));
+          }
+        },
+      }).addTo(map);
     } catch {
-      // boundaries are decorative — fail silently
+      // decorative — fail silently
     }
   }
 
