@@ -37,14 +37,65 @@ export async function GET(req: NextRequest) {
         uptimePctD30: true,
       },
     });
-    const devices = rows.map((d) => ({
-      ...d,
-      storeName: d.name,
-      status:    effectiveStatus(d.lastSeen, d.status),
-      uptimePct: d.uptimePctD30,
-      lastSeen:  d.lastSeen?.toISOString() ?? null,
-      claimedAt: d.claimedAt.toISOString(),
-    }));
+
+    const now = new Date();
+
+    // Fetch active schedules for all devices/groups in one query
+    const deviceIds   = rows.map((d) => d.id);
+    const groupNames  = [...new Set(rows.map((d) => d.groupName).filter(Boolean))] as string[];
+
+    const activeSchedules = await db.schedule.findMany({
+      where: {
+        startAt: { lte: now },
+        endAt:   { gte: now },
+        OR: [
+          ...(deviceIds.length  ? [{ deviceIds: { hasSome: deviceIds } }]  : []),
+          ...(groupNames.length ? [{ groupName: { in: groupNames } }]       : []),
+        ],
+      },
+      include: { playlist: { select: { name: true } } },
+      orderBy: [{ priority: 'desc' }, { startAt: 'asc' }],
+    });
+
+    // Fetch last play event per device
+    const lastEvents = await db.playEvent.groupBy({
+      by:      ['deviceId'],
+      where:   { deviceId: { in: deviceIds } },
+      _max:    { startedAt: true },
+    });
+    const lastPlayMap = new Map(lastEvents.map((e) => [e.deviceId, e._max.startedAt]));
+
+    // Build per-device current schedule lookup
+    function currentScheduleFor(deviceId: string, groupName: string | null) {
+      return activeSchedules.find(
+        (s) =>
+          (s.deviceIds as string[]).includes(deviceId) ||
+          (groupName && s.groupName === groupName),
+      ) ?? null;
+    }
+
+    const devices = rows.map((d) => {
+      const sched = currentScheduleFor(d.id, d.groupName);
+      return {
+        id:         d.id,
+        hardwareKey: d.hardwareKey,
+        storeName:  d.name,
+        storeId:    d.storeId,
+        groupName:  d.groupName,
+        status:     effectiveStatus(d.lastSeen, d.status),
+        uptimePct:  d.uptimePctD30,
+        lastSeen:   d.lastSeen?.toISOString() ?? null,
+        lastPlayAt: lastPlayMap.get(d.id)?.toISOString() ?? null,
+        claimedAt:  d.claimedAt.toISOString(),
+        currentSchedule: sched ? {
+          id:           sched.id,
+          name:         sched.name,
+          playlistName: sched.playlist?.name ?? null,
+          endsAt:       sched.endAt.toISOString(),
+        } : null,
+      };
+    });
+
     return NextResponse.json({ devices });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

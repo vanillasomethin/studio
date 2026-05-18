@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
+import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays } from 'lucide-react';
 import { getDevices, type Device } from '@/lib/backend-api';
 
 // ─── Play Store / APK config ─────────────────────────────────────────────────
@@ -249,42 +249,93 @@ export default function ScreensTab() {
               {search ? 'No devices match your search.' : 'No screens registered yet — expand "Register a new screen" above to get started.'}
             </p>
           ) : (
-            <div className="rounded-xl border border-border overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50">
-                  <tr>
-                    {['Store', 'Hardware key', 'Status', 'Last seen', 'Uptime (30d)', 'Claimed'].map((h) => (
-                      <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filtered.map((d) => {
-                    const StatusIcon = STATUS_ICONS[d.status];
-                    return (
-                      <tr key={d.id} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{d.storeName}</td>
-                        <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{d.hardwareKey.slice(0, 16)}&hellip;</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
-                            <StatusIcon className="h-2.5 w-2.5" />
-                            {d.status}
+            <div className="space-y-2">
+              {filtered.map((d) => {
+                const StatusIcon = STATUS_ICONS[d.status];
+                const sched = d.currentSchedule;
+                return (
+                  <div key={d.id} className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/30 transition-colors">
+                    {/* Top row — store + status + last seen */}
+                    <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Tv2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-foreground truncate">{d.storeName}</p>
+                          <p className="text-[10px] font-mono text-muted-foreground/70 truncate">{d.hardwareKey.slice(0, 20)}&hellip;</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
+                          <StatusIcon className="h-2.5 w-2.5" />
+                          {d.status}
+                        </span>
+                        {d.uptimePct != null && (
+                          <span className={`text-[10px] font-semibold ${d.uptimePct >= 98 ? 'text-green-600' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}`}>
+                            {d.uptimePct.toFixed(1)}% up
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{d.lastSeen ? timeSince(d.lastSeen) : '—'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {d.uptimePct != null ? (
-                            <span className={d.uptimePct >= 98 ? 'text-green-600 font-semibold' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}>
-                              {d.uptimePct.toFixed(1)}%
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(d.claimedAt)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom row — working details */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/60">
+                      {/* Now playing / schedule */}
+                      <div className="px-4 py-2.5">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1">
+                          <CalendarDays className="h-2.5 w-2.5" />
+                          Schedule
+                        </p>
+                        {sched ? (
+                          <>
+                            <p className="text-[11px] font-semibold text-foreground truncate">{sched.name}</p>
+                            {sched.playlistName && (
+                              <p className="text-[10px] text-muted-foreground truncate">{sched.playlistName}</p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground/50 italic">No active schedule</p>
+                        )}
+                      </div>
+
+                      {/* Schedule end time */}
+                      <div className="px-4 py-2.5">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1">
+                          <Clock className="h-2.5 w-2.5" />
+                          Ends at
+                        </p>
+                        <p className="text-[11px] text-foreground">
+                          {sched ? fmtDate(sched.endsAt) : '—'}
+                        </p>
+                      </div>
+
+                      {/* Last play event */}
+                      <div className="px-4 py-2.5">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1">
+                          <Play className="h-2.5 w-2.5" />
+                          Last play
+                        </p>
+                        <p className="text-[11px] text-foreground">
+                          {d.lastPlayAt ? timeSince(d.lastPlayAt) : '—'}
+                        </p>
+                      </div>
+
+                      {/* Last seen / heartbeat */}
+                      <div className="px-4 py-2.5">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1">
+                          <Wifi className="h-2.5 w-2.5" />
+                          Heartbeat
+                        </p>
+                        <p className="text-[11px] text-foreground">
+                          {d.lastSeen ? timeSince(d.lastSeen) : 'Never'}
+                        </p>
+                        {d.groupName && (
+                          <p className="text-[10px] text-muted-foreground/70">Group: {d.groupName}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </>
