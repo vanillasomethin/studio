@@ -21,6 +21,8 @@ export default function RootLayout({
   return (
       <html lang="en">
         <head>
+          {/* ELU Analytics */}
+          <script async src="https://elu.dev/v1/elu_pk_live_K1L6QWGkeB5UyhEp3HiP6sc70C.js" />
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
           <link

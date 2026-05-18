@@ -17,13 +17,19 @@ export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const rows    = await db.content.findMany({ orderBy: { uploadedAt: 'desc' } });
+    const totalBytes = rows.reduce((s, c) => s + Number(c.sizeBytes), 0);
     const content = rows.map((c) => ({
-      ...c,
-      type:      c.type.toLowerCase() as 'image' | 'video',
-      url:       publicUrl(c.objectKey),
-      createdAt: c.uploadedAt.toISOString(),
+      id:         c.id,
+      name:       c.name,
+      type:       c.type.toLowerCase() as 'image' | 'video',
+      objectKey:  c.objectKey,
+      url:        publicUrl(c.objectKey),
+      md5:        c.md5,
+      sizeBytes:  Number(c.sizeBytes),
+      durationMs: c.durationMs ?? undefined,
+      createdAt:  c.uploadedAt.toISOString(),
     }));
-    return NextResponse.json({ content });
+    return NextResponse.json({ content, totalBytes });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays } from 'lucide-react';
-import { getDevices, type Device } from '@/lib/backend-api';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil } from 'lucide-react';
+import { getDevices, updateDevice, type Device } from '@/lib/backend-api';
 
 // ─── Play Store / APK config ─────────────────────────────────────────────────
 // Update PLAY_STORE_URL once the app is published.
@@ -175,6 +175,54 @@ function AddScreenCard() {
   );
 }
 
+// ─── Inline rename ────────────────────────────────────────────────────────────
+function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) => void }) {
+  const [editing,  setEditing]  = useState(false);
+  const [name,     setName]     = useState(device.storeName);
+  const [group,    setGroup]    = useState(device.groupName ?? '');
+  const [saving,   setSaving]   = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const open = () => { setName(device.storeName); setGroup(device.groupName ?? ''); setEditing(true); setTimeout(() => inputRef.current?.focus(), 50); };
+  const cancel = () => setEditing(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await updateDevice(device.id, { storeName: name, groupName: group });
+      onSave(updated);
+      setEditing(false);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) return (
+    <button onClick={open} className="flex items-center gap-1.5 group/rename" title="Rename screen">
+      <p className="text-sm font-bold text-foreground truncate">{device.storeName}</p>
+      <Pencil className="h-3 w-3 text-muted-foreground/30 group-hover/rename:text-primary/60 transition-colors shrink-0" />
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <input ref={inputRef} value={name} onChange={(e) => setName(e.target.value)}
+        placeholder="Screen name"
+        className="rounded-lg border border-primary/40 bg-background px-2 py-1 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 w-48"
+      />
+      <input value={group} onChange={(e) => setGroup(e.target.value)}
+        placeholder="Group name (optional)"
+        className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/20 w-48"
+      />
+      <div className="flex gap-1.5">
+        <button onClick={save} disabled={saving || !name.trim()}
+          className="rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white disabled:opacity-40 hover:bg-primary/90 transition-colors flex items-center gap-1">
+          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+        </button>
+        <button onClick={cancel} className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main tab ────────────────────────────────────────────────────────────────
 export default function ScreensTab() {
   const [devices,  setDevices]  = useState<Device[]>([]);
@@ -260,7 +308,7 @@ export default function ScreensTab() {
                       <div className="flex items-center gap-3 min-w-0">
                         <Tv2 className="h-4 w-4 text-muted-foreground shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-sm font-bold text-foreground truncate">{d.storeName}</p>
+                          <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />
                           <p className="text-[10px] font-mono text-muted-foreground/70 truncate">{d.hardwareKey.slice(0, 20)}&hellip;</p>
                         </div>
                       </div>

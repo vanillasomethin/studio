@@ -107,6 +107,10 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 export const getDevices = () =>
   apiFetch<{ devices: Device[] }>('/api/devices').then((r) => r.devices);
 
+export const updateDevice = (id: string, body: { storeName?: string; groupName?: string }) =>
+  apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.device);
+
 // ─── Play Events (POP) ────────────────────────────────────────────────────────
 
 export const getEvents = (params?: Record<string, string>) => {
@@ -126,7 +130,7 @@ export function getEventsExportUrl(params?: Record<string, string>): string {
 // ─── Content ─────────────────────────────────────────────────────────────────
 
 export const getContent = () =>
-  apiFetch<{ content: Content[] }>('/api/content').then((r) => r.content);
+  apiFetch<{ content: Content[]; totalBytes: number }>('/api/content').then((r) => r);
 
 export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });

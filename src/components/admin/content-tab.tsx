@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2 } from 'lucide-react';
+import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive } from 'lucide-react';
 import { getContent, deleteContent, initiateUpload, type Content } from '@/lib/backend-api';
 
 function fmtBytes(b: number): string {
@@ -29,16 +29,17 @@ async function md5Hex(file: File): Promise<string> {
 type UploadState = { name: string; progress: number; done: boolean; error?: string };
 
 export default function ContentTab() {
-  const [content,  setContent]  = useState<Content[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [uploads,  setUploads]  = useState<UploadState[]>([]);
+  const [content,    setContent]    = useState<Content[]>([]);
+  const [totalBytes, setTotalBytes] = useState<number>(0);
+  const [loading,    setLoading]    = useState(true);
+  const [deleting,   setDeleting]   = useState<string | null>(null);
+  const [uploads,    setUploads]    = useState<UploadState[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reload = () => {
     setLoading(true);
     getContent()
-      .then(setContent)
+      .then((r) => { setContent(r.content); setTotalBytes(r.totalBytes); })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -122,16 +123,18 @@ export default function ContentTab() {
 
   const images   = content.filter((c) => c.type === 'image').length;
   const videos   = content.filter((c) => c.type === 'video').length;
-  const totalMB  = content.reduce((s, c) => s + c.sizeBytes, 0) / (1024 * 1024);
+  const usedMB   = totalBytes / (1024 * 1024);
+  const limitGB  = 10; // R2 free tier
+  const usedPct  = Math.min((usedMB / (limitGB * 1024)) * 100, 100);
 
   return (
     <div className="space-y-4">
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Images',  value: images,                    icon: ImageIcon, color: 'text-blue-500'   },
-          { label: 'Videos',  value: videos,                    icon: Film,      color: 'text-purple-500' },
-          { label: 'Storage', value: `${totalMB.toFixed(1)} MB`, icon: Film,     color: 'text-orange-500' },
+          { label: 'Images',  value: images, icon: ImageIcon,  color: 'text-blue-500'   },
+          { label: 'Videos',  value: videos, icon: Film,        color: 'text-purple-500' },
+          { label: 'Storage', value: `${usedMB.toFixed(1)} MB`, icon: HardDrive, color: 'text-orange-500' },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4">
             <s.icon className={`h-4 w-4 ${s.color} mb-2`} />
@@ -139,6 +142,16 @@ export default function ContentTab() {
             <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
           </div>
         ))}
+      </div>
+      {/* Storage bar */}
+      <div className="rounded-xl border border-border bg-card px-4 py-3">
+        <div className="flex justify-between items-center mb-1.5">
+          <p className="text-[11px] font-semibold text-foreground">R2 storage</p>
+          <p className="text-[10px] text-muted-foreground">{usedMB.toFixed(1)} MB / {limitGB} GB</p>
+        </div>
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${usedPct > 80 ? 'bg-red-500' : usedPct > 50 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${usedPct}%` }} />
+        </div>
       </div>
 
       {/* Upload dropzone */}
