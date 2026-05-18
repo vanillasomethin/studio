@@ -1,22 +1,16 @@
 // POST /api/voicebill/parse
-// Body: { text: string }
+// Body: { text: string; storeId?: string }
 // Returns: { items: { name: string; qty: number; unit: string; price: number }[] }
-// Auth: store session required
+// Open endpoint — store partners use localStorage auth, not next-auth
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { ai } from '@/ai/genkit';
 import { withApiHandler } from '@/lib/with-api-handler';
 
 export const runtime = 'nodejs';
 
 export const POST = withApiHandler('/api/voicebill/parse', 'user', async (req: NextRequest) => {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const { text } = await req.json() as { text: string };
+  const { text, storeId } = await req.json() as { text: string; storeId?: string };
   if (!text?.trim()) return NextResponse.json({ items: [] });
 
   const prompt = `You are a kirana store bill parser. Extract purchased items from the shopkeeper's spoken or typed text.

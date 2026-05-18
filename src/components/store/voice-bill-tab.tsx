@@ -128,7 +128,7 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
       const res  = await fetch('/api/voicebill/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, storeId }),
       });
       const data = await res.json() as { items?: { name: string; qty: number; unit: string; price: number }[] };
       const parsed = data.items ?? [];
