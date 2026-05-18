@@ -32,7 +32,7 @@ export default function PlaylistsTab() {
 
   const load = useCallback(() => {
     Promise.all([getPlaylists(), getContent()])
-      .then(([pl, ct]) => { setPlaylists(pl); setContent(ct); })
+      .then(([pl, ct]) => { setPlaylists(pl); setContent(ct.content); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);

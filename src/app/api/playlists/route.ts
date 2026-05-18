@@ -20,10 +20,15 @@ function normalizePlaylist(pl: any) {
     items: (pl.items ?? []).map((item: any) => ({
       ...item,
       content: {
-        ...item.content,
-        type:      (item.content.type as string).toLowerCase() as 'image' | 'video',
-        url:       publicUrl(item.content.objectKey as string),
-        createdAt: (item.content.uploadedAt as Date).toISOString(),
+        id:         item.content.id,
+        name:       item.content.name,
+        type:       (item.content.type as string).toLowerCase() as 'image' | 'video',
+        objectKey:  item.content.objectKey,
+        url:        publicUrl(item.content.objectKey as string),
+        md5:        item.content.md5,
+        sizeBytes:  Number(item.content.sizeBytes),
+        durationMs: item.content.durationMs ?? undefined,
+        createdAt:  (item.content.uploadedAt as Date).toISOString(),
       },
     })),
   };
