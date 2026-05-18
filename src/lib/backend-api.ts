@@ -17,9 +17,16 @@ export type Device = {
   storeId?:    string | null;
   status:      'ONLINE' | 'OFFLINE' | 'PENDING';
   lastSeen?:   string | null;
+  lastPlayAt?: string | null;
   groupName?:  string | null;
   uptimePct?:  number | null;
   claimedAt:   string;
+  currentSchedule?: {
+    id:           string;
+    name:         string;
+    playlistName: string | null;
+    endsAt:       string;
+  } | null;
 };
 
 export type PlayEvent = {

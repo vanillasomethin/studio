@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { CheckCircle2, Clock, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 
 type StorePayment = {
   id: string; storeId: string; month: string; amountPaise: number;
@@ -44,6 +44,7 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
   const [markModal, setMarkModal] = useState<{ storeId: string; month: string; storeName: string } | null>(null);
   const [markForm, setMarkForm] = useState({ payRef: '', note: '', paidAt: new Date().toISOString().slice(0, 10) });
   const [saving, setSaving] = useState(false);
+  const [paying, setPaying] = useState<string | null>(null); // `${storeId}-${month}` while payout in flight
   const [liveAtModal, setLiveAtModal] = useState<{ storeId: string; storeName: string; current: string | null } | null>(null);
   const [liveAtDate, setLiveAtDate] = useState('');
   const [savingLiveAt, setSavingLiveAt] = useState(false);
@@ -100,6 +101,34 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
       setLiveAtModal(null);
       await load();
     } finally { setSavingLiveAt(false); }
+  };
+
+  const payNow = async (store: StoreSummary, month: string) => {
+    const key = `${store.id}-${month}`;
+    setPaying(key);
+    try {
+      const res = await fetch('/api/admin/payout', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          storeId: store.id,
+          month,
+          mode: store.upiId ? 'upi' : 'neft',
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; upiLink?: string | null; payRef?: string | null; message?: string; error?: string };
+      if (!res.ok) {
+        alert(`Payout failed: ${data.error ?? 'Unknown error'}`);
+        return;
+      }
+      // Open UPI deep link if present (opens UPI app on mobile / shows QR on desktop)
+      if (data.upiLink) {
+        window.open(data.upiLink, '_blank');
+      }
+      await load();
+    } finally {
+      setPaying(null);
+    }
   };
 
   const filtered = stores.filter(s =>
@@ -216,6 +245,23 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
                           )}
                           {/* Actions */}
                           <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Pay Now button */}
+                            {status === 'paid' ? (
+                              <span className="text-[10px] px-2 py-1 rounded bg-green-500/10 text-green-600 font-semibold">Paid ✓</span>
+                            ) : !store.upiId && !store.payoutMethod ? (
+                              <span className="text-[10px] px-2 py-1 rounded bg-muted text-muted-foreground italic">Setup payout details first</span>
+                            ) : (
+                              <button
+                                onClick={() => void payNow(store, month)}
+                                disabled={paying === `${store.id}-${month}`}
+                                className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-semibold flex items-center gap-1 disabled:opacity-60"
+                              >
+                                {paying === `${store.id}-${month}`
+                                  ? <><Loader2 className="h-2.5 w-2.5 animate-spin" />Paying…</>
+                                  : `Pay ₹${Math.round((payment?.amountPaise ?? 50000) / 100).toLocaleString('en-IN')}`
+                                }
+                              </button>
+                            )}
                             {status !== 'paid' && (
                               <button
                                 onClick={() => {
