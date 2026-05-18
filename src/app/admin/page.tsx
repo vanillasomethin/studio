@@ -546,7 +546,52 @@ function CampaignsPanel() {
 
 // ─── Overview / Dashboard ────────────────────────────────────────────────────
 
+type OpsStats = {
+  screens:        { online: number; offline: number; pending: number; total: number };
+  schedules:      { active: number; total: number };
+  content:        { count: number; totalMB: number };
+  stores:         { total: number; live: number };
+  campaigns:      { total: number; paid: number };
+};
+
 function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
+  const [stats,   setStats]   = useState<OpsStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    const h  = { 'admin-password': pw };
+    const now = new Date().toISOString();
+    Promise.all([
+      fetch('/api/devices',   { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
+      fetch('/api/schedules', { headers: h }).then((r) => r.ok ? r.json() : { schedules: [] }),
+      fetch('/api/content',   { headers: h }).then((r) => r.ok ? r.json() : { content: [], totalBytes: 0 }),
+      fetch('/api/stores/save', { headers: h }).then((r) => r.ok ? r.json() : []),
+      fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+    ]).then(([devR, schR, ctR, stR, cmR]) => {
+      const devs = (devR.devices ?? []) as { status: string }[];
+      const schs = (schR.schedules ?? []) as { startAt: string; endAt: string }[];
+      const cts  = (ctR.content ?? []) as unknown[];
+      const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as { onboardingStage?: string }[];
+      const cms  = Array.isArray(cmR) ? cmR : [] as { paymentId?: string }[];
+      setStats({
+        screens:   {
+          online:  devs.filter((d) => d.status === 'ONLINE').length,
+          offline: devs.filter((d) => d.status === 'OFFLINE').length,
+          pending: devs.filter((d) => d.status === 'PENDING').length,
+          total:   devs.length,
+        },
+        schedules: {
+          active: schs.filter((s) => s.startAt <= now && s.endAt >= now).length,
+          total:  schs.length,
+        },
+        content:   { count: cts.length, totalMB: ctR.totalBytes ? ctR.totalBytes / (1024 * 1024) : 0 },
+        stores:    { total: sts.length, live: sts.filter((s) => s.onboardingStage === 'live').length },
+        campaigns: { total: cms.length, paid: cms.filter((c) => c.paymentId && c.paymentId !== 'pending').length },
+      });
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
   const quickActions: { label: string; sub: string; tab: Tab; icon: React.ElementType; color: string }[] = [
     { label: 'Screens',    sub: 'View fleet status',       tab: 'screens',    icon: Tv2,          color: 'bg-blue-500/10 text-blue-600'    },
     { label: 'Content',    sub: 'Upload media',            tab: 'content',    icon: ImageIcon,    color: 'bg-purple-500/10 text-purple-600' },
@@ -554,17 +599,6 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
     { label: 'Schedules',  sub: 'Push to screens',         tab: 'schedules',  icon: CalendarClock,color: 'bg-orange-500/10 text-orange-600' },
     { label: 'Reports',    sub: 'Proof of play',           tab: 'reports',    icon: FileBarChart2,color: 'bg-green-500/10 text-green-600'   },
     { label: 'Monitoring', sub: 'Live heartbeat grid',     tab: 'monitoring', icon: Activity,     color: 'bg-red-500/10 text-red-600'       },
-  ];
-
-  const platformFeatures = [
-    { label: 'Schedule priority',       status: 'planned',  desc: 'Higher-priority schedules override lower ones (Xibo-style)' },
-    { label: 'POP audit hash chain',    status: 'planned',  desc: 'Tamper-evident SHA-256 chain on play_events for billing integrity' },
-    { label: 'Hourly POP aggregation',  status: 'planned',  desc: 'Pre-aggregate plays/hour per device for fast billing queries' },
-    { label: 'Audience impressions',    status: 'planned',  desc: 'Cost-per-play and impressions model (Xibo Audience Reporting)' },
-    { label: 'MD5 content integrity',   status: 'live',     desc: 'Player verifies MD5 before skipping re-download' },
-    { label: 'Group-based scheduling',  status: 'live',     desc: 'Assign schedules to store groups, not individual screens' },
-    { label: '72-hour plan polling',    status: 'live',     desc: 'Xibo-style offline-safe plan window for Android player' },
-    { label: 'Referral attribution',    status: 'live',     desc: 'tag field on play_events traces campaign → brand' },
   ];
 
   return (
@@ -577,6 +611,63 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
         </div>
         <h2 className="text-2xl font-bold text-foreground">ALIVE Admin Console</h2>
         <p className="text-sm text-muted-foreground mt-1">Kirana store digital advertising network · Mangaluru, Karnataka</p>
+      </div>
+
+      {/* Live operations status */}
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Operations status</p>
+        {loading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+        ) : stats ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {/* Screens */}
+            <button onClick={() => onNav('screens')}
+              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
+              <Tv2 className="h-4 w-4 text-blue-500 mb-2" />
+              <p className="text-xl font-bold text-foreground">{stats.screens.total}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Screens</p>
+              <div className="flex gap-2 mt-1.5">
+                <span className="text-[9px] font-bold text-green-600 bg-green-500/10 rounded px-1">{stats.screens.online} online</span>
+                {stats.screens.offline > 0 && <span className="text-[9px] font-bold text-red-500 bg-red-500/10 rounded px-1">{stats.screens.offline} offline</span>}
+                {stats.screens.pending > 0 && <span className="text-[9px] font-bold text-yellow-600 bg-yellow-500/10 rounded px-1">{stats.screens.pending} pending</span>}
+              </div>
+            </button>
+            {/* Active schedules */}
+            <button onClick={() => onNav('schedules')}
+              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
+              <CalendarClock className="h-4 w-4 text-orange-500 mb-2" />
+              <p className="text-xl font-bold text-foreground">{stats.schedules.active}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Active schedules</p>
+              <p className="text-[9px] text-muted-foreground/50 mt-0.5">{stats.schedules.total} total</p>
+            </button>
+            {/* Content */}
+            <button onClick={() => onNav('content')}
+              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
+              <ImageIcon className="h-4 w-4 text-purple-500 mb-2" />
+              <p className="text-xl font-bold text-foreground">{stats.content.count}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Content items</p>
+              <p className="text-[9px] text-muted-foreground/50 mt-0.5">{stats.content.totalMB.toFixed(1)} MB used</p>
+            </button>
+            {/* Stores */}
+            <button onClick={() => onNav('stores')}
+              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
+              <Store className="h-4 w-4 text-green-500 mb-2" />
+              <p className="text-xl font-bold text-foreground">{stats.stores.total}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Store partners</p>
+              <p className="text-[9px] text-green-600 mt-0.5 font-semibold">{stats.stores.live} live</p>
+            </button>
+            {/* Campaigns */}
+            <button onClick={() => onNav('campaigns')}
+              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
+              <BarChart3 className="h-4 w-4 text-indigo-500 mb-2" />
+              <p className="text-xl font-bold text-foreground">{stats.campaigns.total}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Campaigns</p>
+              <p className="text-[9px] text-muted-foreground/50 mt-0.5">{stats.campaigns.paid} paid</p>
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground py-4 text-center">Could not load stats</p>
+        )}
       </div>
 
       {/* Quick-access grid */}
@@ -599,35 +690,16 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
         </div>
       </div>
 
-      {/* Platform features roadmap — Xibo/Screenly-inspired */}
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Platform features</p>
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Feature</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden sm:table-cell">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {platformFeatures.map((f) => (
-                <tr key={f.label} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-3 font-semibold text-foreground">{f.label}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      f.status === 'live' ? 'bg-green-500/10 text-green-600' : 'bg-yellow-500/10 text-yellow-700'
-                    }`}>
-                      {f.status === 'live' ? '● Live' : '○ Planned'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground/70 hidden sm:table-cell">{f.desc}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Platform map link */}
+      <div className="rounded-xl border border-border bg-card px-5 py-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Platform Map</p>
+          <p className="text-xs text-muted-foreground mt-0.5">54-item build tracker — features, APIs, Android player, T2 roadmap</p>
         </div>
+        <button onClick={() => onNav('roadmap')}
+          className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-xs font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-colors shrink-0">
+          View map <ChevronRight className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   );

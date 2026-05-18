@@ -365,12 +365,14 @@ model Schedule {
   groupName   String?
   startAt     DateTime
   endAt       DateTime
-  recurrence  Recurrence @default(ONCE)
+  recurrence   Recurrence @default(ONCE)
+  orientation  String     @default("landscape")  // landscape | portrait | any
+  intervalMins Int?                               // null = continuous loop; N = play at most once per N minutes
   // Optional dayparting window (HH:mm). If null, runs all hours within startAt..endAt.
-  dailyStart  String?
-  dailyEnd    String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  dailyStart   String?
+  dailyEnd     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   playlist    Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 

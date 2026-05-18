@@ -71,18 +71,21 @@ export type Playlist = {
 };
 
 export type Schedule = {
-  id:          string;
-  name:        string;
-  playlistId:  string;
-  playlist?:   { name: string };
-  deviceIds?:  string[];
-  groupName?:  string;
-  startAt:     string;
-  endAt:       string;
-  recurrence:  'once' | 'daily' | 'weekly';
-  dailyStart?: string;
-  dailyEnd?:   string;
-  createdAt:   string;
+  id:           string;
+  name:         string;
+  playlistId:   string;
+  playlist?:    { name: string };
+  deviceIds?:   string[];
+  groupName?:   string;
+  startAt:      string;
+  endAt:        string;
+  recurrence:   'once' | 'daily' | 'weekly';
+  dailyStart?:  string;
+  dailyEnd?:    string;
+  orientation:  'landscape' | 'portrait' | 'any';
+  intervalMins: number | null;
+  priority:     number;
+  createdAt:    string;
 };
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -164,7 +167,7 @@ export const deletePlaylist = (id: string) =>
 export const getSchedules = () =>
   apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => r.schedules);
 
-export const createSchedule = (body: Omit<Schedule, 'id' | 'createdAt' | 'playlist'>) =>
+export const createSchedule = (body: Omit<Schedule, 'id' | 'createdAt' | 'playlist' | 'priority'> & { priority?: number }) =>
   apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
     .then((r) => r.schedule);
 
