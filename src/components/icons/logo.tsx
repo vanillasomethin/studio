@@ -1,25 +1,25 @@
-import type { SVGProps } from 'react';
-
-export function Logo(props: SVGProps<SVGSVGElement>) {
+export function Logo({ className }: { className?: string }) {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 120 30"
-      width="120"
-      height="30"
-      {...props}
+    <span
+      className={className}
+      style={{
+        fontFamily: '"Poppins", sans-serif',
+        fontWeight: 800,
+        fontSize: 22,
+        letterSpacing: '-0.02em',
+        display: 'inline-flex',
+        alignItems: 'center',
+        color: 'inherit',
+        textRendering: 'optimizeLegibility',
+        lineHeight: 1,
+      }}
     >
-      <text
-        x="0"
-        y="22"
-        fontFamily="var(--font-headline), sans-serif"
-        fontSize="28"
-        fontWeight="bold"
-        className="fill-current"
-      >
-        alive
-      </text>
-      <circle cx="80" cy="15" r="5" fill="hsl(var(--primary))" />
-    </svg>
+      alive
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%', background: '#dc2626',
+        marginLeft: 2, display: 'inline-block', flexShrink: 0,
+        transform: 'translateY(1px)',
+      }} />
+    </span>
   );
 }
