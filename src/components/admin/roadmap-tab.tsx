@@ -526,9 +526,9 @@ Task: [DESCRIBE YOUR CHANGE — e.g. "Add a local kirana market pricing index: s
   },
   {
     id: 'job-whatsapp', cluster: 'Background Jobs', label: 'WhatsApp Alerts', sub: 'Device offline → notify admin',
-    status: 'in-progress', path: 'src/lib/notify.ts',
-    description: 'notifyAdminWA(message) function exists in src/lib/notify.ts. Sends WhatsApp to the admin number from ADMIN_WHATSAPP env var via Twilio or WhatsApp Business API. Not yet called from health cron.',
-    notes: ['Function exists: notifyAdminWA(msg: string): Promise<void>', 'Env var: ADMIN_WHATSAPP (admin phone), TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN (or Meta API token)', 'Currently not called anywhere in production flow'],
+    status: 'built', path: 'src/lib/notify.ts',
+    description: 'notifyAdminWA() wired in health cron after ticket creation. Sends WhatsApp via Twilio to ADMIN_WHATSAPP env var. No-op gracefully if TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN not set. Add env vars in Vercel to activate.',
+    notes: ['Env vars needed in Vercel: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, ADMIN_WHATSAPP', 'Code is fully wired — adding env vars is all that\'s needed to go live', 'Also has notifyAdminEmail() via Resend if RESEND_API_KEY set'],
     claudePrompt: `Context: notifyAdminWA() exists at src/lib/notify.ts but is not being called. The device health cron at src/app/api/cron/device-health/route.ts creates RemediationTickets but doesn't trigger alerts.
 
 Task: Wire WhatsApp alerts into the health cron AND add a test endpoint.
@@ -542,8 +542,8 @@ Check src/lib/notify.ts to see what env vars are needed and whether the WhatsApp
   },
   {
     id: 'job-remediation', cluster: 'Background Jobs', label: 'Auto Remediation', sub: 'AI proposes fixes for issues',
-    status: 'in-progress',
-    description: 'POST /api/agent/remediate exists and generates AI-proposed fix steps for a RemediationTicket. Not yet auto-triggered from health cron. Proposals stored in RemediationProposal model.',
+    status: 'built',
+    description: 'POST /api/agent/remediate wired and auto-triggered from health cron after ticket creation (fire-and-forget fetch). Proposals stored in RemediationProposal model. Monitoring tab shows open tickets.',
     claudePrompt: `Context: /api/agent/remediate exists and generates AI fix proposals for device issues. The health cron (src/app/api/cron/device-health/route.ts) creates RemediationTickets but doesn't call this endpoint.
 
 Task: Complete the auto-remediation pipeline.
