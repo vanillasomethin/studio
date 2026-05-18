@@ -38,17 +38,20 @@ export async function POST(req: NextRequest) {
       name, playlistId, groupName, deviceIds,
       startAt, endAt, recurrence,
       dailyStart, dailyEnd, priority,
+      orientation, intervalMins,
     } = await req.json() as {
-      name:        string;
-      playlistId:  string;
-      groupName?:  string;
-      deviceIds?:  string[];
-      startAt:     string;
-      endAt:       string;
-      recurrence:  'once' | 'daily' | 'weekly';
-      dailyStart?: string;
-      dailyEnd?:   string;
-      priority?:   number;
+      name:          string;
+      playlistId:    string;
+      groupName?:    string;
+      deviceIds?:    string[];
+      startAt:       string;
+      endAt:         string;
+      recurrence:    'once' | 'daily' | 'weekly';
+      dailyStart?:   string;
+      dailyEnd?:     string;
+      priority?:     number;
+      orientation?:  'landscape' | 'portrait' | 'any';
+      intervalMins?: number | null;
     };
 
     if (!name || !playlistId || !startAt || !endAt) {
@@ -59,14 +62,16 @@ export async function POST(req: NextRequest) {
       data: {
         name,
         playlistId,
-        priority:   priority   ?? 0,
-        groupName:  groupName  ?? null,
-        deviceIds:  deviceIds  ?? [],
-        startAt:    new Date(startAt),
-        endAt:      new Date(endAt),
-        recurrence: (recurrence?.toUpperCase() ?? 'ONCE') as 'ONCE' | 'DAILY' | 'WEEKLY',
-        dailyStart: dailyStart ?? null,
-        dailyEnd:   dailyEnd   ?? null,
+        priority:     priority     ?? 0,
+        groupName:    groupName    ?? null,
+        deviceIds:    deviceIds    ?? [],
+        startAt:      new Date(startAt),
+        endAt:        new Date(endAt),
+        recurrence:   (recurrence?.toUpperCase() ?? 'ONCE') as 'ONCE' | 'DAILY' | 'WEEKLY',
+        dailyStart:   dailyStart   ?? null,
+        dailyEnd:     dailyEnd     ?? null,
+        orientation:  orientation  ?? 'landscape',
+        intervalMins: intervalMins ?? null,
       },
       include: { playlist: { select: { name: true } } },
     });
