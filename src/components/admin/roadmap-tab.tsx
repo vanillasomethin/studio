@@ -76,6 +76,17 @@ src/lib/telemetry.ts — recordError(), correlation IDs
 src/lib/backend-api.ts — typed fetch wrappers for all internal APIs
 prisma/schema.prisma — full DB schema
 ALIVE_PLAYER_API.md — Android player integration guide (all 3 endpoints, Kotlin examples)
+
+## MANDATORY FINAL STEP — Platform Map self-update
+After every implementation task, you MUST update the Platform Map to reflect the new status.
+The map lives at: src/components/admin/roadmap-tab.tsx
+In the ITEMS array, find the entry whose \`id\` matches the task's Item ID (specified below each task header).
+Change its \`status\` field to \`'built'\` (or \`'in-progress'\` if partially done).
+Commit this change in the same commit as your implementation, or as an immediately following commit.
+Commit message format: "mark [label] as built in platform map"
+
+This is how the admin at wearealive.in/admin (Platform Map tab) knows the feature shipped.
+If you skip this step, the map will show the item as planned/in-progress forever.
 `;
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -1224,15 +1235,35 @@ export default function RoadmapTab() {
 
   const copyPrompt = useCallback(() => {
     if (!selected?.claudePrompt) return;
+    const selfUpdate = [
+      '',
+      '---',
+      '## REQUIRED: Update Platform Map after implementing',
+      `File to edit: src/components/admin/roadmap-tab.tsx`,
+      `Find the ITEMS array entry with \`id: '${selected.id}'\``,
+      `Change its \`status\` from \`'${selected.status}'\` to \`'built'\``,
+      `Commit message: "mark ${selected.label} as built in platform map"`,
+      '',
+      '## Verification before marking built',
+      '1. Run: npx tsc --noEmit — must pass with zero errors',
+      '2. Run: npm run build — must complete without errors',
+      selected.path ? `3. Open ${selected.path} and confirm the feature renders correctly` : '3. Confirm the feature is reachable and renders without errors',
+      '4. Git push to branch claude/build-alive-advertising-platform-tlG96',
+      '5. Check wearealive.in/admin → Platform Map tab — item should show green "Built" badge',
+    ].join('\n');
+
     const full = [
       PLATFORM_CONTEXT,
       '---',
-      `# Item: ${selected.label} (${selected.cluster})`,
-      `Status: ${STATUS_CONFIG[selected.status].label}`,
-      selected.path ? `File: ${selected.path}` : '',
+      `# Task: ${selected.label}`,
+      `Item ID: ${selected.id}`,
+      `Cluster: ${selected.cluster}`,
+      `Current status: ${STATUS_CONFIG[selected.status].label}`,
+      selected.path ? `Primary file: ${selected.path}` : '',
       '',
       selected.claudePrompt,
-      notes[selected.id] ? `\n## Admin note:\n${notes[selected.id]}` : '',
+      notes[selected.id] ? `\n## Admin note (added context):\n${notes[selected.id]}` : '',
+      selfUpdate,
     ].filter(Boolean).join('\n');
     void navigator.clipboard.writeText(full).then(() => {
       setCopiedPrompt(true);
@@ -1290,6 +1321,7 @@ export default function RoadmapTab() {
       planned    ? `\n## T1 Planned (not yet started):\n${planned}` : '',
       withNotes  ? `\n## Admin notes on specific items:\n${withNotes}` : '',
       '\n## Where to start:\nLook at the "In Progress" items first — these are partially built and need wiring. Then tackle "Planned T1" in RICE score order: NTPSyncManager > POPEmitter > PlaybackEngine > SyncManager > WatchdogService > SystemLauncher.',
+      '\n## MANDATORY: After implementing any item\nUpdate src/components/admin/roadmap-tab.tsx — find the ITEMS entry by id and change its status to \'built\'. This is how the Platform Map at wearealive.in/admin stays accurate. Commit the status change in the same commit or immediately after.',
     ].filter(Boolean).join('\n');
     void navigator.clipboard.writeText(full).then(() => {
       setCopiedCtx(true);
@@ -1367,11 +1399,12 @@ export default function RoadmapTab() {
         </button>
         {showCtx && (
           <div className="px-4 pb-4 space-y-3 text-xs text-muted-foreground leading-relaxed border-t border-border pt-3">
-            <p><strong className="text-foreground">For a fresh Claude session:</strong> Click <strong className="text-primary">Copy Platform Starter</strong> above. Paste it at the start of your message. Claude gets the full stack context, what&apos;s built, what&apos;s pending, and where to look.</p>
-            <p><strong className="text-foreground">For a specific feature:</strong> Click any item in this map → click <strong className="text-primary">Copy Claude Prompt</strong> in the panel. This includes full platform context + exact implementation instructions for that item.</p>
-            <p><strong className="text-foreground">For items marked In Progress:</strong> The prompt explains exactly what&apos;s already partially built and what the missing wiring is. Start with <strong>WhatsApp Alerts</strong> and <strong>Auto Remediation</strong> — both are 80% done.</p>
-            <p><strong className="text-foreground">Android Player build order:</strong> NTPSyncManager → ContentCache → SyncManager → PlaybackEngine → POPEmitter → WatchdogService → TelemetryAgent → SystemLauncher → APK Distribution.</p>
-            <p><strong className="text-foreground">Add a note:</strong> Click any item and add a note in the panel — your notes are included in every copy action for that item.</p>
+            <p><strong className="text-foreground">Step 1 — Copy prompt:</strong> Click any item → <strong className="text-primary">Copy Claude Prompt</strong>. This copies full platform context + implementation instructions + item ID + verification checklist in one block.</p>
+            <p><strong className="text-foreground">Step 2 — Run in Claude:</strong> Paste into a new Claude session. Claude implements the feature, runs <code className="bg-muted px-1 rounded text-[10px]">npx tsc --noEmit</code> + <code className="bg-muted px-1 rounded text-[10px]">npm run build</code>, commits, and pushes to the branch.</p>
+            <p><strong className="text-foreground">Step 3 — Map updates itself:</strong> The prompt tells Claude to edit <code className="bg-muted px-1 rounded text-[10px]">roadmap-tab.tsx</code> and change the item&apos;s status to <span className="text-green-600 font-semibold">&apos;built&apos;</span> in the same commit. When Vercel deploys, this tab reflects the new state automatically.</p>
+            <p><strong className="text-foreground">Step 4 — Verify here:</strong> Refresh this page after deploy. The item should show a green dot. If it still shows planned/in-progress, Claude skipped the self-update step — run the prompt again and ask Claude to only do the roadmap update.</p>
+            <p><strong className="text-foreground">For a fresh session:</strong> Use <strong className="text-primary">Copy Platform Starter</strong> to give Claude full context without targeting a specific item.</p>
+            <p><strong className="text-foreground">In Progress items:</strong> Start with <strong>WhatsApp Alerts</strong> and <strong>Auto Remediation</strong> — both are 80% wired, the prompts have exact line-level instructions.</p>
           </div>
         )}
       </div>
