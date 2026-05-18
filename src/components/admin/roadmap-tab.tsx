@@ -161,7 +161,7 @@ Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a search/filter bar at the top th
   },
   {
     id: 'voicebill', cluster: 'Marketing Site', label: 'VoiceBill POS', sub: 'AI-powered billing + public receipt + customer dashboard',
-    status: 'planned',
+    status: 'built',
     description: 'Full VoiceBill POS flow: voice/text input → Gemini AI parses items → bill saved to DB → QR links to public receipt → customer registers phone to claim bill → /customer-dashboard shows purchase history. Three new Prisma models: Bill, BillItem, Customer.',
     notes: ['Bill model uses billRef "ALIVE-XXXXXX" human-readable ID', 'Customer auth is token-based (randomUUID), saved to localStorage alive_customer', 'QR code via api.qrserver.com (no new packages)', 'Speech recognition via Web Speech API lang:en-IN'],
     claudePrompt: `Context: VoiceBill POS is planned but not yet built. The plan doc has full spec. Here's what needs to be created:
