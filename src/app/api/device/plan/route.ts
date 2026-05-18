@@ -117,7 +117,8 @@ export async function GET(req: NextRequest) {
   const windowEnd = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
   try {
-    // Find all schedules active in the next 72-hr window for this device or its group
+    // Find all schedules active in the next 72-hr window for this device or its group.
+    // Explicit select avoids failing on columns added in pending migrations (orientation, intervalMins).
     const schedules = await db.schedule.findMany({
       where: {
         startAt: { lte: windowEnd },
@@ -127,11 +128,32 @@ export async function GET(req: NextRequest) {
           ...(device.groupName ? [{ groupName: device.groupName }] : []),
         ],
       },
-      include: {
+      select: {
+        id:         true,
+        name:       true,
+        playlistId: true,
+        priority:   true,
+        deviceIds:  true,
+        groupName:  true,
+        startAt:    true,
+        endAt:      true,
+        recurrence: true,
         playlist: {
-          include: {
+          select: {
             items: {
-              include: { content: true },
+              select: {
+                durationMs: true,
+                order:      true,
+                content: {
+                  select: {
+                    id:         true,
+                    objectKey:  true,
+                    md5:        true,
+                    type:       true,
+                    durationMs: true,
+                  },
+                },
+              },
               orderBy: { order: 'asc' },
             },
           },

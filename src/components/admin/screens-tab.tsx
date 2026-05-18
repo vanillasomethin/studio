@@ -1,8 +1,184 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X, ExternalLink, CheckCircle2, TriangleAlert, Film, ImageIcon } from 'lucide-react';
 import { getDevices, updateDevice, type Device } from '@/lib/backend-api';
+
+// ─── Diagnostic types ─────────────────────────────────────────────────────────
+type DiagIssue = { level: 'ok' | 'warn' | 'error'; message: string };
+type PlanPreview = {
+  device:      { id: string; name: string; hardwareKey: string; groupName: string | null; status: string; lastSeen: string | null };
+  plan:        { planHash: string; scheduleId: string | null; scheduleName: string | null; playlistName: string | null; items: { name: string; url: string; type: string; durationMs: number; order: number }[]; scheduleCount: number; validUntil: string };
+  diagnostics: { issues: DiagIssue[] };
+  curl:        string;
+};
+
+// ─── Diagnostic panel ─────────────────────────────────────────────────────────
+function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
+  const [data,    setData]    = useState<PlanPreview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const [copied,  setCopied]  = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true); setError(null);
+    const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
+    fetch(`/api/admin/devices/${deviceId}/plan-preview`, { headers: { 'admin-password': pw } })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error as string);
+        setData(d as PlanPreview);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [deviceId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const copyCurl = () => {
+    if (!data?.curl) return;
+    navigator.clipboard.writeText(data.curl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  const levelIcon = (level: DiagIssue['level']) => {
+    if (level === 'ok')    return <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" />;
+    if (level === 'warn')  return <TriangleAlert className="h-3.5 w-3.5 text-yellow-500 shrink-0 mt-0.5" />;
+    return <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-card shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Stethoscope className="h-4 w-4 text-primary" />
+            <p className="text-sm font-bold text-foreground">Plan diagnostic</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={load} disabled={loading} className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">
+              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Refresh'}
+            </button>
+            <button onClick={onClose} className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          {loading && <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
+          {error && <p className="text-xs text-red-500 bg-red-500/5 border border-red-500/20 rounded-xl px-3 py-2">{error}</p>}
+
+          {data && (
+            <>
+              {/* Diagnostics */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Checklist</p>
+                <div className="space-y-2">
+                  {data.diagnostics.issues.map((issue, i) => (
+                    <div key={i} className={`flex gap-2 rounded-xl px-3 py-2.5 text-xs ${
+                      issue.level === 'ok'   ? 'bg-green-500/5 border border-green-500/15 text-green-800' :
+                      issue.level === 'warn' ? 'bg-yellow-500/5 border border-yellow-500/20 text-yellow-800' :
+                                              'bg-red-500/5 border border-red-500/20 text-red-700'
+                    }`}>
+                      {levelIcon(issue.level)}
+                      <span>{issue.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Plan summary */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">What this device receives now</p>
+                <div className="rounded-xl border border-border bg-background p-3 space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Schedule</span>
+                    <span className="font-semibold text-foreground">{data.plan.scheduleName ?? <span className="text-muted-foreground/50 font-normal italic">none</span>}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Playlist</span>
+                    <span className="font-semibold text-foreground">{data.plan.playlistName ?? <span className="text-muted-foreground/50 font-normal italic">none</span>}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Content items</span>
+                    <span className="font-semibold text-foreground">{data.plan.items.length}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Schedules in window</span>
+                    <span className="font-semibold text-foreground">{data.plan.scheduleCount}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Plan hash</span>
+                    <span className="font-mono text-[10px] text-muted-foreground/60">{data.plan.planHash.slice(0, 12)}…</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content list */}
+              {data.plan.items.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Content in active playlist</p>
+                  <div className="space-y-1.5">
+                    {data.plan.items.map((item, i) => (
+                      <div key={i} className="flex items-center gap-2.5 rounded-xl border border-border bg-background px-3 py-2">
+                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${item.type === 'VIDEO' ? 'bg-purple-500/10' : 'bg-blue-500/10'}`}>
+                          {item.type === 'VIDEO'
+                            ? <Film className="h-3.5 w-3.5 text-purple-600" />
+                            : <ImageIcon className="h-3.5 w-3.5 text-blue-600" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-foreground truncate">{item.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{(item.durationMs / 1000).toFixed(0)}s · {item.type.toLowerCase()}</p>
+                        </div>
+                        <a href={item.url} target="_blank" rel="noopener noreferrer"
+                          className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                          title="Open content URL (test if R2 is accessible)">
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1.5">↗ Click the link icon to test if the media file is accessible from R2.</p>
+                </div>
+              )}
+
+              {/* curl test */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Test from terminal</p>
+                <div className="rounded-xl bg-muted/50 border border-border px-3 py-2.5 flex items-start gap-2">
+                  <code className="flex-1 text-[10px] font-mono text-muted-foreground break-all leading-relaxed">{data.curl}</code>
+                  <button onClick={copyCurl} className="shrink-0 rounded-lg border border-border bg-background p-1.5 hover:bg-muted/50 transition-colors">
+                    {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 mt-1.5">Replace &lt;device-token&gt; with the JWT from /api/device/claim.</p>
+              </div>
+
+              {/* Sync guide */}
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 space-y-2">
+                <p className="text-[11px] font-bold text-foreground">Player sync checklist</p>
+                <ul className="space-y-1.5 text-[10px] text-muted-foreground">
+                  {[
+                    ['1', 'ALIVE Player APK installed and running on Android TV'],
+                    ['2', 'App has called POST /api/device/claim — device appears in this list'],
+                    ['3', 'App polls GET /api/device/plan every 5 minutes'],
+                    ['4', 'Schedule has deviceIds including this device, OR groupName matches'],
+                    ['5', 'Schedule startAt is in the past and endAt is in the future'],
+                    ['6', 'Playlist has at least 1 content item'],
+                    ['7', 'Content files are accessible on R2 (test links above)'],
+                  ].map(([n, t]) => (
+                    <li key={n} className="flex gap-2"><span className="font-bold text-primary/70 shrink-0">{n}.</span><span>{t}</span></li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Play Store / APK config ─────────────────────────────────────────────────
 // Update PLAY_STORE_URL once the app is published.
@@ -229,6 +405,7 @@ export default function ScreensTab() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
   const [search,   setSearch]   = useState('');
+  const [diagId,   setDiagId]   = useState<string | null>(null);
 
   useEffect(() => {
     getDevices()
@@ -250,6 +427,8 @@ export default function ScreensTab() {
 
   return (
     <div className="space-y-4">
+      {/* Diagnostic modal */}
+      {diagId && <DiagPanel deviceId={diagId} onClose={() => setDiagId(null)} />}
 
       {/* Add screen onboarding */}
       <AddScreenCard />
@@ -312,7 +491,14 @@ export default function ScreensTab() {
                           <p className="text-[10px] font-mono text-muted-foreground/70 truncate">{d.hardwareKey.slice(0, 20)}&hellip;</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setDiagId(d.id)}
+                          className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+                          title="Diagnose — check what plan this screen receives"
+                        >
+                          <Stethoscope className="h-3 w-3" /> Diagnose
+                        </button>
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
                           <StatusIcon className="h-2.5 w-2.5" />
                           {d.status}
