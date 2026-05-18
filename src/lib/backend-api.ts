@@ -148,6 +148,10 @@ export const createPlaylist = (body: { name: string; items?: { contentId: string
   apiFetch<{ playlist: Playlist }>('/api/playlists', { method: 'POST', body: JSON.stringify(body) })
     .then((r) => r.playlist);
 
+export const updatePlaylist = (id: string, body: { name?: string; items?: { contentId: string; durationMs: number }[] }) =>
+  apiFetch<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.playlist);
+
 export const deletePlaylist = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/playlists/${id}`, { method: 'DELETE' });
 

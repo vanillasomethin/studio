@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, CalendarClock, Plus, Trash2, AlertCircle } from 'lucide-react';
-import { getSchedules, getPlaylists, createSchedule, deleteSchedule, type Schedule, type Playlist } from '@/lib/backend-api';
+import { Loader2, CalendarClock, Plus, Trash2, AlertCircle, Monitor } from 'lucide-react';
+import { getSchedules, getPlaylists, getDevices, createSchedule, deleteSchedule, type Schedule, type Playlist, type Device } from '@/lib/backend-api';
 
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
@@ -13,31 +13,40 @@ const inp = 'w-full rounded-xl border border-border bg-background px-4 py-2.5 te
 const lbl = 'block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1';
 
 const RECURRENCE_LABELS: Record<Schedule['recurrence'], string> = {
-  once:   'One-time',
-  daily:  'Daily',
-  weekly: 'Weekly',
+  once: 'One-time', daily: 'Daily', weekly: 'Weekly',
 };
 
 export default function SchedulesTab() {
-  const [schedules,  setSchedules]  = useState<Schedule[]>([]);
-  const [playlists,  setPlaylists]  = useState<Playlist[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState<string | null>(null);
-  const [deleting,   setDeleting]   = useState<string | null>(null);
-  const [showForm,   setShowForm]   = useState(false);
-  const [saving,     setSaving]     = useState(false);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [devices,   setDevices]   = useState<Device[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [deleting,  setDeleting]  = useState<string | null>(null);
+  const [showForm,  setShowForm]  = useState(false);
+  const [saving,    setSaving]    = useState(false);
 
   const [form, setForm] = useState({
     name: '', playlistId: '', groupName: '',
+    selectedDevices: [] as string[],
     startAt: '', endAt: '', recurrence: 'once' as Schedule['recurrence'],
   });
 
   useEffect(() => {
-    Promise.all([getSchedules(), getPlaylists()])
-      .then(([s, p]) => { setSchedules(s); setPlaylists(p); })
+    Promise.all([getSchedules(), getPlaylists(), getDevices()])
+      .then(([s, p, d]) => { setSchedules(s); setPlaylists(p); setDevices(d); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const toggleDevice = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      selectedDevices: f.selectedDevices.includes(id)
+        ? f.selectedDevices.filter((d) => d !== id)
+        : [...f.selectedDevices, id],
+    }));
+  };
 
   const del = async (id: string) => {
     if (!confirm('Delete this schedule?')) return;
@@ -55,31 +64,28 @@ export default function SchedulesTab() {
     setSaving(true);
     try {
       const sch = await createSchedule({
-        name:        form.name,
-        playlistId:  form.playlistId,
-        groupName:   form.groupName || undefined,
-        startAt:     new Date(form.startAt).toISOString(),
-        endAt:       new Date(form.endAt).toISOString(),
-        recurrence:  form.recurrence,
+        name:       form.name,
+        playlistId: form.playlistId,
+        groupName:  form.groupName || undefined,
+        deviceIds:  form.selectedDevices.length ? form.selectedDevices : undefined,
+        startAt:    new Date(form.startAt).toISOString(),
+        endAt:      new Date(form.endAt).toISOString(),
+        recurrence: form.recurrence,
       });
       setSchedules((s) => [sch, ...s]);
-      setForm({ name: '', playlistId: '', groupName: '', startAt: '', endAt: '', recurrence: 'once' });
+      setForm({ name: '', playlistId: '', groupName: '', selectedDevices: [], startAt: '', endAt: '', recurrence: 'once' });
       setShowForm(false);
     } catch { /* ignore */ }
     finally { setSaving(false); }
   };
 
-  if (error) return (
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (error)   return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-      <div>
-        <p className="text-sm font-semibold text-foreground">Could not load schedules</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
-      </div>
+      <div><p className="text-sm font-semibold text-foreground">Could not load schedules</p><p className="text-xs text-muted-foreground mt-0.5">{error}</p></div>
     </div>
   );
-
-  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
@@ -92,11 +98,10 @@ export default function SchedulesTab() {
         </button>
       </div>
 
-      {/* Create form */}
       {showForm && (
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4">Schedule details</h2>
-          <form onSubmit={save} className="space-y-3">
+          <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={lbl}>Name</label>
@@ -106,12 +111,8 @@ export default function SchedulesTab() {
                 <label className={lbl}>Playlist</label>
                 <select required value={form.playlistId} onChange={(e) => setForm((f) => ({ ...f, playlistId: e.target.value }))} className={inp}>
                   <option value="">Select a playlist</option>
-                  {playlists.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {playlists.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.items.length} items)</option>)}
                 </select>
-              </div>
-              <div>
-                <label className={lbl}>Store group <span className="normal-case font-normal text-muted-foreground/60">(optional)</span></label>
-                <input type="text" value={form.groupName} onChange={(e) => setForm((f) => ({ ...f, groupName: e.target.value }))} placeholder="Mangaluru North" className={inp} />
               </div>
               <div>
                 <label className={lbl}>Recurrence</label>
@@ -122,6 +123,10 @@ export default function SchedulesTab() {
                 </select>
               </div>
               <div>
+                <label className={lbl}>Group name <span className="normal-case font-normal text-muted-foreground/60">(optional)</span></label>
+                <input type="text" value={form.groupName} onChange={(e) => setForm((f) => ({ ...f, groupName: e.target.value }))} placeholder="Mangaluru North" className={inp} />
+              </div>
+              <div>
                 <label className={lbl}>Start</label>
                 <input type="datetime-local" required value={form.startAt} onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))} className={inp} />
               </div>
@@ -130,6 +135,56 @@ export default function SchedulesTab() {
                 <input type="datetime-local" required value={form.endAt} onChange={(e) => setForm((f) => ({ ...f, endAt: e.target.value }))} className={inp} />
               </div>
             </div>
+
+            {/* Screen picker */}
+            <div>
+              <label className={lbl}>
+                Assign to screens
+                <span className="normal-case font-normal text-muted-foreground/60 ml-1">
+                  — {form.selectedDevices.length ? `${form.selectedDevices.length} selected` : 'none (all screens in group)'}
+                </span>
+              </label>
+              {!devices.length ? (
+                <p className="text-xs text-muted-foreground py-2">No screens registered yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-1">
+                  {devices.map((d) => {
+                    const checked = form.selectedDevices.includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => toggleDevice(d.id)}
+                        className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+                          checked ? 'border-primary/50 bg-primary/5' : 'border-border bg-background hover:border-primary/20'
+                        }`}
+                      >
+                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                          d.status === 'ONLINE' ? 'bg-green-500/10' : 'bg-muted'
+                        }`}>
+                          <Monitor className={`h-4 w-4 ${d.status === 'ONLINE' ? 'text-green-600' : 'text-muted-foreground/40'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-foreground truncate">{d.storeName}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className={`h-1.5 w-1.5 rounded-full ${
+                              d.status === 'ONLINE' ? 'bg-green-500' : d.status === 'OFFLINE' ? 'bg-red-400' : 'bg-yellow-400'
+                            }`} />
+                            <span className="text-[10px] text-muted-foreground capitalize">{d.status.toLowerCase()}</span>
+                          </div>
+                        </div>
+                        <div className={`h-4 w-4 rounded border-2 shrink-0 flex items-center justify-center ${
+                          checked ? 'border-primary bg-primary' : 'border-border'
+                        }`}>
+                          {checked && <div className="h-2 w-2 rounded-sm bg-white" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-2 pt-1">
               <button type="submit" disabled={saving} className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 disabled:opacity-40 transition-colors">
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save schedule'}
@@ -143,13 +198,13 @@ export default function SchedulesTab() {
       )}
 
       {!schedules.length ? (
-        <p className="text-sm text-muted-foreground text-center py-10">No schedules yet. Create one to start pushing content to screens.</p>
+        <p className="text-sm text-muted-foreground text-center py-10">No schedules yet. Create one to push content to screens.</p>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
               <tr>
-                {['Name', 'Playlist', 'Group', 'Start', 'End', 'Recurrence'].map((h) => (
+                {['Name', 'Playlist', 'Screens', 'Start', 'End', 'Recurrence'].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{h}</th>
                 ))}
                 <th className="px-4 py-2.5" />
@@ -158,11 +213,14 @@ export default function SchedulesTab() {
             <tbody className="divide-y divide-border">
               {schedules.map((s) => {
                 const pl = playlists.find((p) => p.id === s.playlistId);
+                const screenCount = s.deviceIds?.length ?? 0;
                 return (
                   <tr key={s.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3 font-semibold text-foreground">{s.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{pl?.name ?? s.playlistId.slice(0, 8) + '…'}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.groupName ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{pl?.name ?? s.playlist?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {screenCount > 0 ? `${screenCount} screen${screenCount > 1 ? 's' : ''}` : s.groupName ? `Group: ${s.groupName}` : 'All'}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">{fmtDate(s.startAt)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{fmtDate(s.endAt)}</td>
                     <td className="px-4 py-3">

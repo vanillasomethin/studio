@@ -1,12 +1,72 @@
-// DELETE /api/playlists/[id]
+// PATCH /api/playlists/[id]  — replace items (full replace, ordered)
+// DELETE /api/playlists/[id] — delete playlist
 // Auth: admin-password header
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { publicUrl } from '@/lib/r2';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
   return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizePlaylist(pl: any) {
+  return {
+    ...pl,
+    createdAt: (pl.createdAt as Date).toISOString(),
+    items: (pl.items ?? []).map((item: any) => ({
+      ...item,
+      content: {
+        ...item.content,
+        type:      (item.content.type as string).toLowerCase() as 'image' | 'video',
+        url:       publicUrl(item.content.objectKey as string),
+        createdAt: (item.content.uploadedAt as Date).toISOString(),
+      },
+    })),
+  };
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await params;
+  try {
+    const { name, items } = await req.json() as {
+      name?:  string;
+      items?: { contentId: string; durationMs: number }[];
+    };
+
+    await db.$transaction(async (tx) => {
+      if (name?.trim()) {
+        await tx.playlist.update({ where: { id }, data: { name: name.trim() } });
+      }
+      if (items !== undefined) {
+        await tx.playlistItem.deleteMany({ where: { playlistId: id } });
+        if (items.length) {
+          await tx.playlistItem.createMany({
+            data: items.map((item, idx) => ({
+              playlistId: id,
+              contentId:  item.contentId,
+              durationMs: item.durationMs,
+              order:      idx,
+            })),
+          });
+        }
+      }
+    });
+
+    const updated = await db.playlist.findUnique({
+      where:   { id },
+      include: { items: { include: { content: true }, orderBy: { order: 'asc' } } },
+    });
+    return NextResponse.json({ playlist: updated ? normalizePlaylist(updated) : null });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
 }
 
 export async function DELETE(
