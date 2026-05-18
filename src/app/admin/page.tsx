@@ -7,7 +7,7 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X,
   IndianRupee, Eye,
   Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
-  Menu, ChevronRight, LogOut, LayoutDashboard, Images,
+  Menu, ChevronRight, LogOut, LayoutDashboard, Images, Map,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -19,6 +19,7 @@ const SchedulesTab    = dynamic(() => import('@/components/admin/schedules-tab')
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
 const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
 const SiteMediaTab     = dynamic(() => import('@/components/admin/site-media-tab'),     { ssr: false });
+const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),        { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring' | 'media';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring' | 'media' | 'roadmap';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -79,6 +80,12 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'media',      label: 'Media',       icon: Images      },
     ],
   },
+  {
+    group: 'Platform',
+    items: [
+      { id: 'roadmap',    label: 'Platform Map', icon: Map        },
+    ],
+  },
 ];
 
 const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
@@ -94,6 +101,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
+  roadmap:    { eyebrow: 'ALIVE PLATFORM',     title: 'Platform Roadmap'   },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -844,6 +852,7 @@ function Dashboard() {
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
               {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}
+              {tab === 'roadmap'    && <RoadmapTab />}
             </motion.div>
           </AnimatePresence>
         </main>
