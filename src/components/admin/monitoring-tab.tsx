@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw, Bell } from 'lucide-react';
 import { getDevices, type Device } from '@/lib/backend-api';
 
 function timeSince(iso: string): string {
@@ -12,10 +12,21 @@ function timeSince(iso: string): string {
 }
 
 export default function MonitoringTab() {
-  const [devices,   setDevices]   = useState<Device[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState<string | null>(null);
-  const [lastFetch, setLastFetch] = useState<Date | null>(null);
+  const [devices,    setDevices]    = useState<Device[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
+  const [lastFetch,  setLastFetch]  = useState<Date | null>(null);
+  const [alertState, setAlertState] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
+
+  const sendTestAlert = useCallback(async () => {
+    setAlertState('sending');
+    const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
+    try {
+      const res = await fetch('/api/admin/test-alert', { method: 'POST', headers: pw ? { 'admin-password': pw } : {} });
+      setAlertState(res.ok ? 'ok' : 'err');
+    } catch { setAlertState('err'); }
+    setTimeout(() => setAlertState('idle'), 3000);
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
@@ -56,6 +67,18 @@ export default function MonitoringTab() {
         </div>
         <div className="flex items-center gap-2">
           {lastFetch && <span className="text-[10px] text-muted-foreground/50">Updated {lastFetch.toLocaleTimeString('en-IN')}</span>}
+          <button
+            onClick={sendTestAlert}
+            disabled={alertState === 'sending'}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
+              alertState === 'ok'  ? 'border-green-500/30 bg-green-500/10 text-green-700' :
+              alertState === 'err' ? 'border-red-500/30 bg-red-500/10 text-red-600'       :
+                                     'border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {alertState === 'sending' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bell className="h-3 w-3" />}
+            {alertState === 'ok' ? 'Sent!' : alertState === 'err' ? 'Failed' : 'Test alert'}
+          </button>
           <button onClick={load} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
             <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
