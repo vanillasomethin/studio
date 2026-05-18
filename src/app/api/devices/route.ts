@@ -53,7 +53,18 @@ export async function GET(req: NextRequest) {
           ...(groupNames.length ? [{ groupName: { in: groupNames } }]       : []),
         ],
       },
-      include: { playlist: { select: { name: true } } },
+      // Explicit select — excludes orientation/intervalMins so this works before migration
+      select: {
+        id:        true,
+        name:      true,
+        playlistId: true,
+        priority:  true,
+        deviceIds: true,
+        groupName: true,
+        startAt:   true,
+        endAt:     true,
+        playlist: { select: { name: true } },
+      },
       orderBy: [{ priority: 'desc' }, { startAt: 'asc' }],
     });
 

@@ -15,19 +15,66 @@ export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const rows = await db.schedule.findMany({
-      include: { playlist: { select: { name: true } } },
+      select: {
+        id:          true,
+        name:        true,
+        playlistId:  true,
+        priority:    true,
+        deviceIds:   true,
+        groupName:   true,
+        startAt:     true,
+        endAt:       true,
+        recurrence:  true,
+        dailyStart:  true,
+        dailyEnd:    true,
+        createdAt:   true,
+        // New columns — may not exist before migration; Prisma will include them
+        // if they exist, undefined otherwise (caught below).
+        orientation:  true,
+        intervalMins: true,
+        playlist: { select: { name: true } },
+      },
       orderBy: { startAt: 'desc' },
     });
     const schedules = rows.map((s) => ({
       ...s,
-      recurrence: s.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
-      startAt:    s.startAt.toISOString(),
-      endAt:      s.endAt.toISOString(),
-      createdAt:  s.createdAt.toISOString(),
+      orientation:  (s as { orientation?: string }).orientation  ?? 'landscape',
+      intervalMins: (s as { intervalMins?: number | null }).intervalMins ?? null,
+      recurrence:   s.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
+      startAt:      s.startAt.toISOString(),
+      endAt:        s.endAt.toISOString(),
+      createdAt:    s.createdAt.toISOString(),
     }));
     return NextResponse.json({ schedules });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const msg = (e as Error).message ?? '';
+    // If new columns don't exist yet (migration pending), fall back to core fields only
+    if (msg.includes('orientation') || msg.includes('intervalMins') || msg.includes('column')) {
+      try {
+        const rows = await db.schedule.findMany({
+          select: {
+            id: true, name: true, playlistId: true, priority: true,
+            deviceIds: true, groupName: true, startAt: true, endAt: true,
+            recurrence: true, dailyStart: true, dailyEnd: true, createdAt: true,
+            playlist: { select: { name: true } },
+          },
+          orderBy: { startAt: 'desc' },
+        });
+        const schedules = rows.map((s) => ({
+          ...s,
+          orientation:  'landscape' as const,
+          intervalMins: null,
+          recurrence:   s.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
+          startAt:      s.startAt.toISOString(),
+          endAt:        s.endAt.toISOString(),
+          createdAt:    s.createdAt.toISOString(),
+        }));
+        return NextResponse.json({ schedules });
+      } catch (e2) {
+        return NextResponse.json({ error: (e2 as Error).message }, { status: 500 });
+      }
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
