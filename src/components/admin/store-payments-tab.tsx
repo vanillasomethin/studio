@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { CheckCircle2, Clock, XCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
 
 type StorePayment = {
   id: string; storeId: string; month: string; amountPaise: number;
@@ -45,6 +45,10 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
   const [markForm, setMarkForm] = useState({ payRef: '', note: '', paidAt: new Date().toISOString().slice(0, 10) });
   const [saving, setSaving] = useState(false);
   const [paying, setPaying] = useState<string | null>(null); // `${storeId}-${month}` while payout in flight
+  const [upiModal, setUpiModal] = useState<{ store: StoreSummary; month: string } | null>(null);
+  const [utrInput, setUtrInput] = useState('');
+  const [noteInput, setNoteInput] = useState('');
+  const [confirming, setConfirming] = useState(false);
   const [liveAtModal, setLiveAtModal] = useState<{ storeId: string; storeName: string; current: string | null } | null>(null);
   const [liveAtDate, setLiveAtDate] = useState('');
   const [savingLiveAt, setSavingLiveAt] = useState(false);
@@ -103,30 +107,38 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
     } finally { setSavingLiveAt(false); }
   };
 
-  const payNow = async (store: StoreSummary, month: string) => {
-    const key = `${store.id}-${month}`;
+  const openUpiModal = (store: StoreSummary, month: string) => {
+    setUpiModal({ store, month });
+    setUtrInput('');
+    setNoteInput('');
+  };
+
+  const confirmPayment = async () => {
+    if (!upiModal) return;
+    setConfirming(true);
+    const key = `${upiModal.store.id}-${upiModal.month}`;
     setPaying(key);
     try {
       const res = await fetch('/api/admin/payout', {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          storeId: store.id,
-          month,
-          mode: store.upiId ? 'upi' : 'neft',
+          storeId: upiModal.store.id,
+          month: upiModal.month,
+          mode: 'upi',
+          payRef: utrInput || undefined,
+          note: noteInput || undefined,
         }),
       });
-      const data = await res.json() as { ok?: boolean; upiLink?: string | null; payRef?: string | null; message?: string; error?: string };
+      const data = await res.json() as { ok?: boolean; error?: string };
       if (!res.ok) {
         alert(`Payout failed: ${data.error ?? 'Unknown error'}`);
         return;
       }
-      // Open UPI deep link if present (opens UPI app on mobile / shows QR on desktop)
-      if (data.upiLink) {
-        window.open(data.upiLink, '_blank');
-      }
+      setUpiModal(null);
       await load();
     } finally {
+      setConfirming(false);
       setPaying(null);
     }
   };
@@ -252,7 +264,7 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
                               <span className="text-[10px] px-2 py-1 rounded bg-muted text-muted-foreground italic">Setup payout details first</span>
                             ) : (
                               <button
-                                onClick={() => void payNow(store, month)}
+                                onClick={() => openUpiModal(store, month)}
                                 disabled={paying === `${store.id}-${month}`}
                                 className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-semibold flex items-center gap-1 disabled:opacity-60"
                               >
@@ -302,6 +314,130 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
           )}
         </div>
       )}
+
+      {/* UPI Payment Modal */}
+      {upiModal && (() => {
+        const { store, month } = upiModal;
+        const hasUpi = !!store.upiId;
+        const upiLink = hasUpi
+          ? `upi://pay?pa=${encodeURIComponent(store.upiId!)}&pn=${encodeURIComponent(store.ownerName)}&am=500&tn=${encodeURIComponent('ALIVE ' + fmtMonth(month))}&cu=INR`
+          : '';
+        const qrUrl = hasUpi
+          ? `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(upiLink)}`
+          : '';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-card rounded-2xl border border-border w-full max-w-md mx-auto shadow-xl">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4 border-b border-border">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Pay ₹500 to {store.storeName}</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {fmtMonth(month)}
+                    {store.upiId ? ` · UPI to ${store.upiId}` : ' · No UPI on file'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setUpiModal(null)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted/60 transition-colors shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div className="px-5 py-4 space-y-4">
+                {hasUpi ? (
+                  /* QR + bank transfer side by side */
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* QR column */}
+                    <div className="rounded-xl border border-border bg-background p-3 flex flex-col items-center gap-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">UPI QR Code</p>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={qrUrl}
+                        alt="UPI QR code"
+                        width={160}
+                        height={160}
+                        className="rounded-lg border border-border"
+                      />
+                      <p className="text-[10px] text-muted-foreground">Scan to pay</p>
+                      <a
+                        href={upiLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-full text-center rounded-lg bg-primary/10 text-primary px-2 py-1.5 text-[10px] font-semibold hover:bg-primary/20 transition-colors"
+                      >
+                        Open UPI App ↗
+                      </a>
+                    </div>
+
+                    {/* Bank transfer info column */}
+                    <div className="rounded-xl border border-border bg-background p-3 space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Bank Transfer</p>
+                      {[
+                        { label: 'Name', value: store.ownerName },
+                        { label: 'UPI', value: store.upiId! },
+                        { label: 'Amount', value: '₹500' },
+                        { label: 'Note', value: `ALIVE ${fmtMonth(month)}` },
+                      ].map(r => (
+                        <div key={r.label}>
+                          <p className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">{r.label}</p>
+                          <p className="text-xs text-foreground font-medium break-all">{r.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  /* No UPI fallback */
+                  <div className="rounded-xl border border-border bg-amber-50 p-4 text-xs text-amber-800 space-y-1">
+                    <p className="font-semibold">No UPI ID on file</p>
+                    <p className="text-amber-700">Ask {store.ownerName} to add their UPI ID in the store dashboard for faster payments.</p>
+                    {store.payoutMethod && <p className="text-amber-700/80">Configured method: {store.payoutMethod}</p>}
+                  </div>
+                )}
+
+                {/* UTR input */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">After paying, enter reference</p>
+                  <input
+                    value={utrInput}
+                    onChange={e => setUtrInput(e.target.value)}
+                    placeholder="UTR / Transaction ID"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                  <input
+                    value={noteInput}
+                    onChange={e => setNoteInput(e.target.value)}
+                    placeholder="Note (optional)"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setUpiModal(null)}
+                    className="flex-1 rounded-xl border border-border py-2.5 text-xs text-muted-foreground hover:bg-muted/50 transition-colors font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void confirmPayment()}
+                    disabled={confirming}
+                    className="flex-1 rounded-xl bg-green-600 text-white py-2.5 text-xs font-bold hover:bg-green-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5"
+                  >
+                    {confirming ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" />Confirming…</>
+                    ) : (
+                      <><CheckCircle2 className="h-3.5 w-3.5" />Confirm Payment</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Mark Paid Modal */}
       {markModal && (
