@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { putObject, publicUrl } from '@/lib/r2';
 
+export const maxDuration = 60; // allow up to 60s for large file uploads
+
 function checkAdmin(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
   return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;

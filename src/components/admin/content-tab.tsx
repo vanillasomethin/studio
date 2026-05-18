@@ -58,17 +58,27 @@ export default function ContentTab() {
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
 
+    const MAX_MB = 200;
+    const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
+
     for (const file of Array.from(files)) {
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
       if (!isVideo && !isImage) continue;
+
+      if (file.size > MAX_MB * 1024 * 1024) {
+        setUploads((u) => [...u, { name: file.name, progress: 0, done: false, error: `File exceeds ${MAX_MB} MB limit` }]);
+        continue;
+      }
 
       const idx = uploads.length;
       setUploads((u) => [...u, { name: file.name, progress: 0, done: false }]);
 
       try {
         const hash = await md5Hex(file);
-        const { uploadUrl } = await initiateUpload({
+
+        // Step 1: create DB record + get objectKey
+        const { objectKey } = await initiateUpload({
           name:      file.name.replace(/\.[^.]+$/, ''),
           type:      isVideo ? 'video' : 'image',
           mimeType:  file.type || undefined,
@@ -76,7 +86,11 @@ export default function ContentTab() {
           md5:       hash,
         });
 
-        // Upload directly to R2 via signed PUT URL
+        // Step 2: server-side proxy upload to R2 (avoids CORS with direct R2 PUT)
+        const form = new FormData();
+        form.append('file', file);
+        form.append('key', objectKey);
+
         const xhr = new XMLHttpRequest();
         xhr.upload.onprogress = (ev) => {
           if (!ev.lengthComputable) return;
@@ -84,11 +98,17 @@ export default function ContentTab() {
           setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: pct } : x));
         };
         await new Promise<void>((resolve, reject) => {
-          xhr.onload  = () => (xhr.status < 300 ? resolve() : reject(new Error(`R2 ${xhr.status}`)));
-          xhr.onerror = () => reject(new Error('Network error'));
-          xhr.open('PUT', uploadUrl);
-          if (file.type) xhr.setRequestHeader('Content-Type', file.type);
-          xhr.send(file);
+          xhr.onload = () => {
+            if (xhr.status < 300) { resolve(); return; }
+            try {
+              const body = JSON.parse(xhr.responseText) as { error?: string };
+              reject(new Error(body.error ?? `Upload failed (${xhr.status})`));
+            } catch { reject(new Error(`Upload failed (${xhr.status})`)); }
+          };
+          xhr.onerror = () => reject(new Error('Upload failed — check network or try a smaller file'));
+          xhr.open('POST', '/api/admin/r2-upload');
+          if (pw) xhr.setRequestHeader('admin-password', pw);
+          xhr.send(form);
         });
 
         setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: 100, done: true } : x));
@@ -97,7 +117,6 @@ export default function ContentTab() {
       }
     }
 
-    // Reload library after all uploads finish
     setTimeout(reload, 800);
   };
 
