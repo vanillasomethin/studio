@@ -1,18 +1,12 @@
-// POST /api/bills  — create a bill (store auth required)
+// POST /api/bills  — create a bill (store auth: storeId must exist in DB)
 // Body: { billRef, storeName, storeId?, items[], totalAmount, payMethod }
 // Returns: { id, billRef }
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { withApiHandler } from '@/lib/with-api-handler';
 
 export const POST = withApiHandler('/api/bills', 'user', async (req: NextRequest) => {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   const { billRef, storeName, storeId, items, totalAmount, payMethod } = await req.json() as {
     billRef:     string;
     storeName:   string;
@@ -24,6 +18,12 @@ export const POST = withApiHandler('/api/bills', 'user', async (req: NextRequest
 
   if (!billRef || !storeName || !items?.length) {
     return NextResponse.json({ error: 'billRef, storeName, items required' }, { status: 400 });
+  }
+
+  // Validate storeId if provided — prevents anonymous bill creation
+  if (storeId) {
+    const store = await db.store.findUnique({ where: { id: storeId }, select: { id: true } });
+    if (!store) return NextResponse.json({ error: 'Invalid storeId' }, { status: 403 });
   }
 
   const bill = await db.$transaction(async (tx) => {
