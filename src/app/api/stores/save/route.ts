@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(envelope, { status: 401 });
   }
   try {
-    // Raw SQL — only selects columns that exist regardless of migration state
+    // Base columns always present
     const stores = await db.$queryRaw<Array<{
       id: string; storeName: string; ownerName: string; whatsapp: string;
       address: string | null; locality: string | null; city: string | null;
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
       gstin: string | null; referralCode: string; referredBy: string | null;
       agreedAt: Date | null; createdAt: Date; updatedAt: Date;
       phone: string | null; email: string | null;
+      deviceCount: number;
     }>>`
       SELECT
         s."id", s."storeName", s."ownerName", s."whatsapp",
@@ -39,18 +40,46 @@ export async function GET(req: NextRequest) {
         s."lat", s."lng", s."gstin",
         s."referralCode", s."referredBy", s."agreedAt",
         s."createdAt", s."updatedAt",
-        u."phone", u."email"
+        u."phone", u."email",
+        (SELECT COUNT(*) FROM "Device" d WHERE d."storeId" = s."id")::int AS "deviceCount"
       FROM "Store" s
       LEFT JOIN "User" u ON u."id" = s."userId"
       ORDER BY s."createdAt" DESC
     `;
 
-    const result = stores.map((s) => ({
-      ...s,
-      createdAt: s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
-      updatedAt: s.updatedAt instanceof Date ? s.updatedAt.toISOString() : s.updatedAt,
-      agreedAt:  s.agreedAt instanceof Date  ? s.agreedAt.toISOString()  : (s.agreedAt ?? null),
-    }));
+    // Optional columns added by migrations — fetched separately so base query never fails
+    type ExtraRow = {
+      id: string;
+      onboardingStage: string | null; payoutStatus: string | null;
+      payoutNotes: string | null; liveAt: Date | null;
+      upiId: string | null; payoutMethod: string | null;
+    };
+    let extraMap = new Map<string, ExtraRow>();
+    try {
+      const extraRows = await db.$queryRaw<ExtraRow[]>`
+        SELECT "id", "onboardingStage", "payoutStatus", "payoutNotes", "liveAt",
+               "upiId", "payoutMethod"
+        FROM "Store"
+      `;
+      extraMap = new Map(extraRows.map((r) => [r.id, r]));
+    } catch { /* columns not yet migrated — omit gracefully */ }
+
+    const result = stores.map((s) => {
+      const ex = extraMap.get(s.id);
+      return {
+        ...s,
+        createdAt:       s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
+        updatedAt:       s.updatedAt instanceof Date ? s.updatedAt.toISOString() : s.updatedAt,
+        agreedAt:        s.agreedAt instanceof Date  ? s.agreedAt.toISOString()  : (s.agreedAt ?? null),
+        onboardingStage: ex?.onboardingStage ?? null,
+        payoutStatus:    ex?.payoutStatus    ?? null,
+        payoutNotes:     ex?.payoutNotes     ?? null,
+        liveAt:          ex?.liveAt instanceof Date ? ex.liveAt.toISOString() : (ex?.liveAt ?? null),
+        upiId:           ex?.upiId           ?? null,
+        payoutMethod:    ex?.payoutMethod    ?? null,
+        deviceCount:     Number(s.deviceCount),
+      };
+    });
 
     const envelope = await respond(result, { route, request: { operation: 'list_stores' }, outcome: 'success', startedAtMs });
     return NextResponse.json(envelope);

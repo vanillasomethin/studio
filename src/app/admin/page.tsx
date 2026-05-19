@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
-  Phone, MapPin, CheckCircle2, Clock, X,
+  Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, Package,
   Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
   Menu, ChevronRight, LogOut, LayoutDashboard, Images, Map,
@@ -33,9 +33,11 @@ type StoreReg = {
   id: string; storeName: string; ownerName: string; phone: string;
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
   lat?: string; lng?: string; gstin?: string; email?: string; createdAt: string;
-  onboardingStage?: string; payoutStatus?: string; payoutMethod?: string; upiId?: string;
+  onboardingStage?: string | null; payoutStatus?: string | null; payoutMethod?: string | null; upiId?: string | null;
   bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
+  referralCode?: string; referredBy?: string | null; agreedAt?: string | null; liveAt?: string | null;
+  deviceCount?: number;
 };
 type Campaign = {
   id: string; brandName: string; contactName: string; email: string;
@@ -309,18 +311,46 @@ function FlyersList({ refresh }: { refresh: number }) {
 
 // ─── Stores Panel ─────────────────────────────────────────────────────────────
 
+const STAGE_LABELS: Record<string, string> = {
+  new: 'New', physically_onboarded: 'Physically onboarded',
+  digitally_onboarded: 'Digitally onboarded', live: 'Live', rejected: 'Rejected',
+};
+const STAGE_COLORS: Record<string, string> = {
+  new: 'bg-gray-100 text-gray-600', physically_onboarded: 'bg-blue-50 text-blue-600',
+  digitally_onboarded: 'bg-indigo-50 text-indigo-600', live: 'bg-green-50 text-green-700',
+  rejected: 'bg-red-50 text-red-500',
+};
+
+function openAsPartner(s: StoreReg) {
+  // Writes the store's session into localStorage then opens the partner dashboard.
+  // This lets admin see exactly what the store partner sees.
+  const session = {
+    storeName: s.storeName, ownerName: s.ownerName,
+    whatsapp: s.whatsapp, phone: s.phone || s.whatsapp,
+    address: s.address, locality: s.locality, city: s.city, pincode: s.pincode,
+    lat: s.lat, lng: s.lng, gstin: s.gstin || null,
+    referralCode: s.referralCode, referredBy: s.referredBy || null,
+    agreedAt: s.agreedAt || null, liveAt: s.liveAt || null,
+    upiId: s.upiId || null, payoutMethod: s.payoutMethod || null,
+    id: s.id,
+  };
+  localStorage.setItem('alive_store_session', JSON.stringify(session));
+  window.open('/store-dashboard', '_blank');
+}
+
 function StoresPanel() {
   const [stores,   setStores]   = useState<StoreReg[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [search,   setSearch]   = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [saving,   setSaving]   = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(() => {
     const pw = sessionStorage.getItem(SS_PW) ?? '';
     fetch('/api/stores/save', { headers: { 'admin-password': pw } })
       .then((r) => r.json())
       .then((body) => {
-        // unwrap envelope { data: [...] } or plain array
         const arr = Array.isArray(body) ? body : (body?.data ?? []);
         setStores(arr as StoreReg[]);
       })
@@ -331,17 +361,20 @@ function StoresPanel() {
   useEffect(() => { load(); }, [load]);
 
   const saveStore = async (store: StoreReg) => {
-    const pw = sessionStorage.getItem(SS_PW) ?? '';
-    const res = await fetch(`/api/admin/stores/${store.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'admin-password': pw },
-      body: JSON.stringify({
-        onboardingStage: store.onboardingStage,
-        payoutStatus: store.payoutStatus,
-        payoutNotes: store.payoutNotes || null,
-      }),
-    });
-    if (!res.ok) throw new Error('Save failed');
+    setSaving(store.id);
+    try {
+      const pw = sessionStorage.getItem(SS_PW) ?? '';
+      const res = await fetch(`/api/admin/stores/${store.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'admin-password': pw },
+        body: JSON.stringify({
+          onboardingStage: store.onboardingStage,
+          payoutStatus: store.payoutStatus,
+          payoutNotes: store.payoutNotes || null,
+        }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+    } finally { setSaving(null); }
   };
 
   const deleteStore = async (id: string, name: string) => {
@@ -355,27 +388,33 @@ function StoresPanel() {
     } finally { setDeleting(null); }
   };
 
+  const patchLocal = (id: string, patch: Partial<StoreReg>) =>
+    setStores((all) => all.map((x) => x.id === id ? { ...x, ...patch } : x));
+
   const filtered = stores.filter((s) =>
     !search ||
     s.storeName.toLowerCase().includes(search.toLowerCase()) ||
-    s.ownerName?.toLowerCase().includes(search.toLowerCase()) ||
-    s.city?.toLowerCase().includes(search.toLowerCase()) ||
-    s.phone?.includes(search) || s.whatsapp?.includes(search),
+    (s.ownerName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.city ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.phone ?? '').includes(search) || (s.whatsapp ?? '').includes(search) ||
+    (s.referralCode ?? '').toLowerCase().includes(search.toLowerCase()),
   );
 
-  const active   = stores.filter((s) => s.onboardingStage === 'live').length;
-  const rejected = stores.filter((s) => s.onboardingStage === 'rejected').length;
+  const live     = stores.filter((s) => s.onboardingStage === 'live').length;
+  const pending  = stores.filter((s) => !s.onboardingStage || s.onboardingStage === 'new').length;
+  const screened = stores.filter((s) => (s.deviceCount ?? 0) > 0).length;
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-3">
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total',    value: stores.length },
-          { label: 'Live',     value: active },
-          { label: 'Rejected', value: rejected },
-          { label: 'Cities',   value: new Set(stores.map((s) => s.city)).size },
+          { label: 'Registered',  value: stores.length },
+          { label: 'Live',        value: live },
+          { label: 'Pending',     value: pending },
+          { label: 'With screen', value: screened },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center">
             <p className="text-2xl font-bold text-foreground">{s.value}</p>
@@ -383,66 +422,132 @@ function StoresPanel() {
           </div>
         ))}
       </div>
-      <input type="search" placeholder="Search stores, owners, cities…" value={search} onChange={(e) => setSearch(e.target.value)} className={inp} />
+
+      <input type="search" placeholder="Search by name, owner, city, phone, referral code…" value={search} onChange={(e) => setSearch(e.target.value)} className={inp} />
+
       {!filtered.length ? (
-        <p className="text-sm text-muted-foreground text-center py-10">{search ? 'No stores match your search.' : 'No store registrations yet.'}</p>
+        <p className="text-sm text-muted-foreground text-center py-10">{search ? 'No stores match.' : 'No store registrations yet.'}</p>
       ) : (
         <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-2">
           {filtered.map((s) => {
-            const isRejected = s.onboardingStage === 'rejected';
+            const stage      = s.onboardingStage ?? 'new';
+            const isRejected = stage === 'rejected';
+            const isExpanded = expanded === s.id;
+            const phone      = s.phone || s.whatsapp;
+            const waNum      = (phone ?? '').replace(/\D/g, '').slice(-10);
             return (
-              <motion.div key={s.id} variants={fadeIn} className={`flex items-start gap-3 rounded-xl border bg-card p-4 ${isRejected ? 'border-red-200 opacity-60' : 'border-border'}`}>
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold text-base ${isRejected ? 'bg-red-50 text-red-400' : 'bg-primary/10 text-primary'}`}>{s.storeName[0]?.toUpperCase()}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{s.storeName}</p>
-                      <p className="text-xs text-muted-foreground">{s.ownerName}</p>
+              <motion.div key={s.id} variants={fadeIn} className={`rounded-xl border bg-card ${isRejected ? 'border-red-200 opacity-70' : 'border-border'}`}>
+                {/* Top row — always visible */}
+                <div className="flex items-start gap-3 p-4">
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold text-sm ${isRejected ? 'bg-red-50 text-red-400' : 'bg-primary/10 text-primary'}`}>
+                    {s.storeName[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{s.storeName}</p>
+                        <p className="text-xs text-muted-foreground">{s.ownerName}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Stage badge */}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STAGE_COLORS[stage] ?? 'bg-gray-100 text-gray-500'}`}>
+                          {STAGE_LABELS[stage] ?? stage}
+                        </span>
+                        {/* Device count badge */}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${(s.deviceCount ?? 0) > 0 ? 'bg-green-50 text-green-700' : 'bg-muted text-muted-foreground'}`}>
+                          {s.deviceCount ?? 0} screen{(s.deviceCount ?? 0) !== 1 ? 's' : ''}
+                        </span>
+                        {/* Registered date */}
+                        <span className="text-[10px] text-muted-foreground/50">{fmtDate(s.createdAt)}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isRejected && <span className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">Rejected</span>}
-                      <span className="text-[10px] text-muted-foreground/50">{fmtDate(s.createdAt)}</span>
+
+                    {/* Contact row */}
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{phone ? `+91 ${waNum}` : '—'}</span>
+                      <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{[s.locality, s.city].filter(Boolean).join(', ') || '—'}</span>
+                      {s.referralCode && <span className="flex items-center gap-1 font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">ref: {s.referralCode}</span>}
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {/* WhatsApp quick contact */}
+                      {waNum.length === 10 && (
+                        <a
+                          href={`https://wa.me/91${waNum}?text=${encodeURIComponent(`Hi ${s.ownerName}, this is the ALIVE team regarding your store ${s.storeName}.`)}`}
+                          target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1.5 rounded-lg border border-[#25D366]/30 bg-[#25D366]/8 px-2.5 py-1.5 text-[11px] font-semibold text-[#25D366] hover:bg-[#25D366]/15 transition-colors"
+                        >
+                          <MessageCircle className="h-3 w-3" /> WhatsApp
+                        </a>
+                      )}
+                      {/* Open as partner */}
+                      <button
+                        type="button"
+                        onClick={() => openAsPartner(s)}
+                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                        title="Open this store's dashboard in a new tab"
+                      >
+                        <ExternalLink className="h-3 w-3" /> View dashboard
+                      </button>
+                      {/* Expand / collapse */}
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(isExpanded ? null : s.id)}
+                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {isExpanded ? 'Less' : 'Edit'}
+                      </button>
+                      {/* Delete */}
                       <button
                         type="button"
                         onClick={() => void deleteStore(s.id, s.storeName)}
                         disabled={deleting === s.id}
-                        title="Delete store"
-                        className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                        className="ml-auto flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
                       >
                         {deleting === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                       </button>
                     </div>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {s.phone || (s.whatsapp ? `+91 ${s.whatsapp}` : '—')}</span>
-                    <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {[s.address, s.locality, s.city, s.pincode].filter(Boolean).join(', ') || '—'}</span>
-                  </div>
-                  {(s.gstin || s.email) && (
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/70">
-                      {s.gstin && <span>GST: {s.gstin}</span>}
-                      {s.email && <span>{s.email}</span>}
-                    </div>
-                  )}
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    <select value={s.onboardingStage ?? 'new'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, onboardingStage: e.target.value } : x))} className={inp}>
-                      <option value="new">New</option>
-                      <option value="physically_onboarded">Physically onboarded</option>
-                      <option value="digitally_onboarded">Digitally onboarded</option>
-                      <option value="live">Live</option>
-                      <option value="rejected">Rejected</option>
-                    </select>
-                    <select value={s.payoutStatus ?? 'pending_setup'} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutStatus: e.target.value } : x))} className={inp}>
-                      <option value="pending_setup">Payout setup pending</option>
-                      <option value="ready">Ready for payout</option>
-                      <option value="paid">Paid</option>
-                      <option value="on_hold">On hold</option>
-                    </select>
-                  </div>
-                  <div className="mt-2 flex gap-2">
-                    <input value={s.payoutNotes ?? ''} onChange={(e) => setStores((all) => all.map((x) => x.id === s.id ? { ...x, payoutNotes: e.target.value } : x))} placeholder="Notes (rejection reason, payout notes…)" className={`${inp} flex-1`} />
-                    <button type="button" onClick={() => void saveStore(s)} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white">Save</button>
-                  </div>
                 </div>
+
+                {/* Expandable edit section */}
+                {isExpanded && (
+                  <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
+                    {/* Extra detail chips */}
+                    <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                      {s.address && <span><span className="font-semibold text-foreground/60">Address:</span> {s.address}, {s.pincode}</span>}
+                      {s.gstin   && <span><span className="font-semibold text-foreground/60">GST:</span> {s.gstin}</span>}
+                      {s.email   && <span><span className="font-semibold text-foreground/60">Email:</span> {s.email}</span>}
+                      {s.upiId   && <span><span className="font-semibold text-foreground/60">UPI:</span> {s.upiId}</span>}
+                      {s.referredBy && <span><span className="font-semibold text-foreground/60">Referred by:</span> {s.referredBy}</span>}
+                      {s.liveAt  && <span><span className="font-semibold text-foreground/60">Live since:</span> {fmtDate(s.liveAt)}</span>}
+                      {s.agreedAt && <span><span className="font-semibold text-foreground/60">Agreed:</span> {fmtDate(s.agreedAt)}</span>}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
+                        <option value="new">New</option>
+                        <option value="physically_onboarded">Physically onboarded</option>
+                        <option value="digitally_onboarded">Digitally onboarded</option>
+                        <option value="live">Live</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
+                      <select value={s.payoutStatus ?? 'pending_setup'} onChange={(e) => patchLocal(s.id, { payoutStatus: e.target.value })} className={inp}>
+                        <option value="pending_setup">Payout setup pending</option>
+                        <option value="ready">Ready for payout</option>
+                        <option value="paid">Paid</option>
+                        <option value="on_hold">On hold</option>
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={s.payoutNotes ?? ''} onChange={(e) => patchLocal(s.id, { payoutNotes: e.target.value })} placeholder="Notes (rejection reason, payout notes…)" className={`${inp} flex-1`} />
+                      <button type="button" disabled={saving === s.id} onClick={() => void saveStore(s)} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                        {saving === s.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             );
           })}

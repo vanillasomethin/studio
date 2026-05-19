@@ -51,11 +51,25 @@ export async function PATCH(
     if (orientation  !== undefined) data.orientation  = orientation;
     if (intervalMins !== undefined) data.intervalMins = intervalMins ?? null;
 
-    const updated = await db.schedule.update({
-      where: { id },
-      data,
-      include: { playlist: { select: { name: true } } },
-    });
+    let updated;
+    try {
+      updated = await db.schedule.update({
+        where: { id },
+        data,
+        include: { playlist: { select: { name: true } } },
+      });
+    } catch (e1) {
+      const msg1 = (e1 as Error).message ?? '';
+      if (!msg1.includes('orientation') && !msg1.includes('intervalMins') && !msg1.includes('column')) throw e1;
+      // orientation/intervalMins columns not yet migrated — update without them
+      const { orientation: _o, intervalMins: _i, ...safeData } = data;
+      void _o; void _i;
+      updated = await db.schedule.update({
+        where: { id },
+        data:  safeData,
+        include: { playlist: { select: { name: true } } },
+      });
+    }
 
     const norm = {
       ...updated,
