@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Loader2, Plus, Trash2, Tag, TrendingDown, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Loader2, Plus, Trash2, Tag, TrendingDown, AlertCircle, Search, CheckCircle2 } from 'lucide-react';
 
 type Offer = {
   id:          string;
@@ -11,6 +11,15 @@ type Offer = {
   offerPrice:  number;
   validUntil:  string | null;
   createdAt:   string;
+  productId?:  string | null;
+};
+
+type ProductMatch = {
+  confidence: number;
+  product: {
+    id: string; productName: string; brand: string;
+    category: string; sizeVariant: string; mrp: number | null; imageUrl: string | null;
+  };
 };
 
 type FormState = {
@@ -19,9 +28,10 @@ type FormState = {
   mrp:         string;
   offerPrice:  string;
   validUntil:  string;
+  productId:   string | null;
 };
 
-const EMPTY_FORM: FormState = { productName: '', weight: '', mrp: '', offerPrice: '', validUntil: '' };
+const EMPTY_FORM: FormState = { productName: '', weight: '', mrp: '', offerPrice: '', validUntil: '', productId: null };
 
 function savings(mrp: number, offer: number) {
   return Math.round(((mrp - offer) / mrp) * 100);
@@ -35,12 +45,19 @@ function fmtDate(iso: string) {
 const UNIT_SUGGESTIONS = ['250 g', '500 g', '1 kg', '2 kg', '5 kg', '100 ml', '200 ml', '500 ml', '1 L', '1 pcs', '6 pcs', '12 pcs', '1 pack'];
 
 export default function OffersTab() {
-  const [offers,  setOffers]  = useState<Offer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [form,    setForm]    = useState<FormState>(EMPTY_FORM);
-  const [saving,  setSaving]  = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [offers,   setOffers]   = useState<Offer[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [form,     setForm]     = useState<FormState>(EMPTY_FORM);
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Product search state
+  const [matches,    setMatches]    = useState<ProductMatch[]>([]);
+  const [searching,  setSearching]  = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
 
   const fetchOffers = useCallback(async () => {
     setLoading(true);
@@ -52,7 +69,44 @@ export default function OffersTab() {
 
   useEffect(() => { void fetchOffers(); }, [fetchOffers]);
 
-  const set = (k: keyof FormState, v: string) => setForm((p) => ({ ...p, [k]: v }));
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setShowDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((p) => ({ ...p, [k]: v }));
+
+  // Fuzzy search products as user types
+  const handleNameChange = (v: string) => {
+    set('productName', v);
+    set('productId', null); // clear any previous match
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (v.trim().length < 2) { setMatches([]); setShowDropdown(false); return; }
+    searchTimer.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(v)}&size=${encodeURIComponent(form.weight)}`);
+        if (res.ok) {
+          const data = await res.json() as { results: ProductMatch[] };
+          setMatches(data.results.filter((r) => r.confidence > 0.15));
+          setShowDropdown(true);
+        }
+      } finally { setSearching(false); }
+    }, 350);
+  };
+
+  const selectProduct = (m: ProductMatch) => {
+    set('productName', m.product.productName);
+    set('productId', m.product.id);
+    set('weight', m.product.sizeVariant);
+    if (m.product.mrp && !form.mrp) set('mrp', String(m.product.mrp));
+    setShowDropdown(false);
+    setMatches([]);
+  };
 
   const mrpNum   = parseFloat(form.mrp)       || 0;
   const offerNum = parseFloat(form.offerPrice) || 0;
@@ -74,6 +128,7 @@ export default function OffersTab() {
           mrp:         mrpNum,
           offerPrice:  offerNum,
           validUntil:  form.validUntil || undefined,
+          productId:   form.productId || undefined,
         }),
       });
       if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error); }
@@ -92,6 +147,8 @@ export default function OffersTab() {
     } finally { setDeleting(null); }
   };
 
+  const inp = 'w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all';
+
   return (
     <div className="space-y-4">
 
@@ -103,17 +160,53 @@ export default function OffersTab() {
         </div>
 
         <form onSubmit={handleAdd} className="space-y-3">
-          {/* Product name + weight */}
+          {/* Product name with fuzzy search */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
+            <div className="space-y-1 relative" ref={dropRef}>
               <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Product name</label>
-              <input
-                type="text"
-                value={form.productName}
-                onChange={(e) => set('productName', e.target.value)}
-                placeholder="e.g. Aashirvaad Atta"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={form.productName}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  onFocus={() => matches.length > 0 && setShowDropdown(true)}
+                  placeholder="e.g. Aashirvaad Atta"
+                  className={inp}
+                />
+                {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                {form.productId && !searching && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-green-500" />}
+              </div>
+              {/* Product search dropdown */}
+              {showDropdown && matches.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-20 mt-1 rounded-xl border border-border bg-background shadow-lg overflow-hidden">
+                  {matches.map((m) => (
+                    <button key={m.product.id} type="button" onClick={() => selectProduct(m)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/60 transition-colors border-b border-border last:border-0">
+                      {m.product.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.product.imageUrl} alt="" className="h-8 w-8 rounded object-contain bg-muted shrink-0" />
+                      ) : (
+                        <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0">
+                          <Search className="h-3 w-3 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{m.product.productName}</p>
+                        <p className="text-xs text-muted-foreground">{m.product.brand} · {m.product.sizeVariant}</p>
+                      </div>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="font-mono text-[9px] text-primary font-semibold">{m.product.id}</span>
+                        <span className={`text-[9px] font-bold ${m.confidence >= 0.7 ? 'text-green-600' : 'text-amber-600'}`}>
+                          {Math.round(m.confidence * 100)}% match
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {form.productId && (
+                <p className="text-[10px] text-green-600 font-semibold mt-0.5">Linked to catalogue: <span className="font-mono">{form.productId}</span></p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Weight / qty</label>
@@ -123,7 +216,7 @@ export default function OffersTab() {
                 onChange={(e) => set('weight', e.target.value)}
                 placeholder="e.g. 1 kg"
                 list="weight-suggestions"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                className={inp}
               />
               <datalist id="weight-suggestions">
                 {UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}
@@ -137,32 +230,21 @@ export default function OffersTab() {
               <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground">MRP (₹)</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-semibold">₹</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.mrp}
-                  onChange={(e) => set('mrp', e.target.value)}
-                  placeholder="0"
-                  className="w-full rounded-xl border border-border bg-background pl-7 pr-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                />
+                <input type="number" min="1" value={form.mrp} onChange={(e) => set('mrp', e.target.value)}
+                  placeholder="0" className="w-full rounded-xl border border-border bg-background pl-7 pr-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
               </div>
             </div>
             <div className="space-y-1">
               <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Offer price (₹)</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-green-500 font-semibold">₹</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.offerPrice}
-                  onChange={(e) => set('offerPrice', e.target.value)}
+                <input type="number" min="1" value={form.offerPrice} onChange={(e) => set('offerPrice', e.target.value)}
                   placeholder="0"
                   className={`w-full rounded-xl border bg-background pl-7 pr-3 py-2.5 text-sm placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 transition-all ${
                     offerNum >= mrpNum && offerNum > 0
                       ? 'border-destructive focus:border-destructive focus:ring-destructive/20 text-destructive'
                       : 'border-border focus:border-primary focus:ring-primary/20 text-foreground'
-                  }`}
-                />
+                  }`} />
               </div>
             </div>
           </div>
@@ -187,13 +269,8 @@ export default function OffersTab() {
             <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Valid until <span className="normal-case font-normal text-muted-foreground/50">(optional)</span>
             </label>
-            <input
-              type="date"
-              value={form.validUntil}
-              min={new Date().toISOString().slice(0, 10)}
-              onChange={(e) => set('validUntil', e.target.value)}
-              className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-            />
+            <input type="date" value={form.validUntil} min={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => set('validUntil', e.target.value)} className={inp} />
           </div>
 
           {error && (
@@ -202,11 +279,8 @@ export default function OffersTab() {
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={!canSubmit || saving}
-            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.35)] hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-          >
+          <button type="submit" disabled={!canSubmit || saving}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.35)] hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {saving ? 'Saving…' : 'Add offer'}
           </button>
@@ -230,20 +304,16 @@ export default function OffersTab() {
         ) : (
           <div className="divide-y divide-border">
             {offers.map((offer) => {
-              const save = savings(offer.mrp, offer.offerPrice);
+              const save    = savings(offer.mrp, offer.offerPrice);
               const expired = offer.validUntil && new Date(offer.validUntil) < new Date();
               return (
                 <div key={offer.id} className={`flex items-center gap-3 px-5 py-4 ${expired ? 'opacity-50' : ''}`}>
-                  {/* Product info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-bold text-foreground">{offer.productName}</p>
-                      {offer.weight && (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{offer.weight}</span>
-                      )}
-                      {expired && (
-                        <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">Expired</span>
-                      )}
+                      {offer.weight && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{offer.weight}</span>}
+                      {offer.productId && <span className="font-mono text-[9px] text-primary/70 bg-primary/8 px-1.5 py-0.5 rounded">{offer.productId}</span>}
+                      {expired && <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">Expired</span>}
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-muted-foreground line-through">MRP ₹{offer.mrp}</span>
@@ -254,13 +324,8 @@ export default function OffersTab() {
                       <p className="text-[10px] text-muted-foreground/60 mt-0.5">Until {fmtDate(offer.validUntil)}</p>
                     )}
                   </div>
-
-                  {/* Delete */}
-                  <button
-                    onClick={() => handleDelete(offer.id)}
-                    disabled={deleting === offer.id}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/8 transition-all disabled:opacity-30"
-                  >
+                  <button onClick={() => handleDelete(offer.id)} disabled={deleting === offer.id}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/8 transition-all disabled:opacity-30">
                     {deleting === offer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
                 </div>
@@ -272,7 +337,7 @@ export default function OffersTab() {
         {offers.length > 0 && (
           <div className="border-t border-border px-5 py-2.5">
             <p className="text-[10px] text-muted-foreground/50">
-              Offers are shown to customers on the <a href="/deals" target="_blank" rel="noreferrer" className="text-primary hover:underline">deals page</a> and in the ALIVE customer app.
+              Offers show on the <a href="/deals" target="_blank" rel="noreferrer" className="text-primary hover:underline">deals page</a> and in the ALIVE app.
             </p>
           </div>
         )}

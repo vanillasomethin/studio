@@ -38,8 +38,8 @@ export const POST = withApiHandler('/api/stores/offers', 'user', async (req: Nex
   const store = await getStore(session.user.id);
   if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
 
-  const { productName, weight, mrp, offerPrice, validUntil } = await req.json() as {
-    productName: string; weight?: string;
+  const { productName, weight, mrp, offerPrice, validUntil, productId } = await req.json() as {
+    productName: string; weight?: string; productId?: string;
     mrp: number; offerPrice: number; validUntil?: string;
   };
 
@@ -55,6 +55,7 @@ export const POST = withApiHandler('/api/stores/offers', 'user', async (req: Nex
       mrp:         Math.round(mrp),
       offerPrice:  Math.round(offerPrice),
       validUntil:  validUntil ? new Date(validUntil) : null,
+      productId:   productId || null,
     },
   });
 

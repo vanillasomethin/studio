@@ -480,25 +480,55 @@ model BillItem {
   @@index([billId])
 }
 
+// ─── Product Catalogue ────────────────────────────────────────────────────────
+// product_id format: CAT-BRAND-SEQ  e.g. GRO-KC-001
+// group_id groups variants of the same product: GRO-KC (without SEQ)
+
+model Product {
+  id           String   @id               // CAT-BRAND-SEQ  e.g. GRO-KC-001
+  groupId      String                     // CAT-BRAND       e.g. GRO-KC
+  productName  String
+  brand        String
+  category     String                     // GRO|STA|CHL|HNB|NFD|HHD|BAK|TOY|LUG|HLN|FSH|DAI|FNV
+  sizeVariant  String                     // "1 Ltr", "500 ml", "30 Count"
+  unitType     String                     // ml|g|count|ltr|kg
+  mrp          Int?                       // national MRP in rupees (reference only)
+  imageUrl     String?                    // R2 public URL
+  barcodeEan   String?                    // EAN-13 if available
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  offers       StoreOffer[]
+
+  @@index([groupId])
+  @@index([category])
+  @@index([brand])
+  @@index([isActive])
+}
+
 // ─── Store Offers ─────────────────────────────────────────────────────────────
 
 model StoreOffer {
   id          String    @id @default(cuid())
   storeId     String
+  productId   String?                     // links to Product catalogue (optional — freeform still allowed)
   productName String
-  weight      String?               // e.g. "1 kg", "500 ml", "12 pcs"
-  mrp         Int                   // MRP in rupees
-  offerPrice  Int                   // offer price in rupees
+  weight      String?                     // e.g. "1 kg", "500 ml", "12 pcs"
+  mrp         Int                         // MRP in rupees
+  offerPrice  Int                         // offer price in rupees
   validUntil  DateTime?
   active      Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([storeId])
   @@index([active])
   @@index([validUntil])
+  @@index([productId])
 }
 
 // ─── Hourly POP aggregation ───────────────────────────────────────────────────
