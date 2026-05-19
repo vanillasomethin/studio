@@ -227,10 +227,10 @@ export default function FlyerTab({ storeName }: { storeName: string }) {
     setLoading(true);
     fetch('/api/stores/offers')
       .then((r) => r.json())
-      .then((data: Offer[]) => {
-        setOffers(data);
-        // pre-select up to 9
-        setSelected(new Set(data.slice(0, 9).map((o) => o.id)));
+      .then((data: unknown) => {
+        const list = Array.isArray(data) ? (data as Offer[]) : [];
+        setOffers(list);
+        setSelected(new Set(list.slice(0, 9).map((o) => o.id)));
       })
       .catch(() => {})
       .finally(() => setLoading(false));

@@ -64,9 +64,13 @@ export async function PATCH(
       }
     });
 
+    const CONTENT_SELECT = {
+      id: true, name: true, type: true, objectKey: true,
+      md5: true, sizeBytes: true, durationMs: true, uploadedAt: true,
+    };
     const updated = await db.playlist.findUnique({
       where:   { id },
-      include: { items: { include: { content: true }, orderBy: { order: 'asc' } } },
+      include: { items: { include: { content: { select: CONTENT_SELECT } }, orderBy: { order: 'asc' } } },
     });
     return NextResponse.json({ playlist: updated ? normalizePlaylist(updated) : null });
   } catch (e) {
