@@ -182,10 +182,15 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
 }
 
 // ─── Play Store / APK config ─────────────────────────────────────────────────
-// Update PLAY_STORE_URL once the app is published.
-const PLAY_STORE_URL   = 'https://play.google.com/store/apps/details?id=in.wearealive.player';
-const APK_DIRECT_URL   = 'https://pub-7a9bd7006a434f6c84ea68e69b323918.r2.dev/alive-player-latest.apk';
-const CLAIM_ENDPOINT   = '/api/device/claim';
+// Set NEXT_PUBLIC_APK_DIRECT_URL and/or NEXT_PUBLIC_PLAY_STORE_URL in .env.local
+// to override these defaults without touching source code.
+const PLAY_STORE_URL =
+  process.env.NEXT_PUBLIC_PLAY_STORE_URL ??
+  'https://play.google.com/store/apps/details?id=in.wearealive.player';
+const APK_DIRECT_URL =
+  process.env.NEXT_PUBLIC_APK_DIRECT_URL ??
+  'https://pub-7a9bd7006a434f6c84ea68e69b323918.r2.dev/alive-player-latest.apk';
+const CLAIM_ENDPOINT = '/api/device/claim';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtDate(iso: string) {
@@ -218,9 +223,10 @@ function AddScreenCard() {
   const [open,    setOpen]    = useState(false);
   const [copied,  setCopied]  = useState(false);
 
-  const baseUrl   = typeof window !== 'undefined' ? window.location.origin : 'https://wearealive.in';
-  const claimUrl  = `${baseUrl}${CLAIM_ENDPOINT}`;
-  const qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(PLAY_STORE_URL)}`;
+  const baseUrl      = typeof window !== 'undefined' ? window.location.origin : 'https://wearealive.in';
+  const claimUrl     = `${baseUrl}${CLAIM_ENDPOINT}`;
+  const playStoreQr  = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(PLAY_STORE_URL)}`;
+  const apkQr        = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(APK_DIRECT_URL)}`;
 
   const copy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
@@ -255,30 +261,37 @@ function AddScreenCard() {
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px] font-black shrink-0">1</span>
                 <p className="text-xs font-bold text-foreground">Install ALIVE Player</p>
               </div>
-              <div className="flex flex-col items-center gap-3">
-                {/* QR Code */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={qrDataUrl} alt="Play Store QR" className="rounded-xl border border-border" width={120} height={120} />
-                <p className="text-[10px] text-muted-foreground text-center">Scan to open Play Store on Android TV</p>
+              {/* Two QR codes side-by-side */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col items-center gap-1.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={playStoreQr} alt="Play Store QR" className="rounded-xl border border-border" width={100} height={100} />
+                  <p className="text-[9px] text-muted-foreground text-center leading-tight">Play Store<br/><span className="text-[8px] opacity-60">(needs Google account)</span></p>
+                </div>
+                <div className="flex flex-col items-center gap-1.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={apkQr} alt="Direct APK QR" className="rounded-xl border border-border" width={100} height={100} />
+                  <p className="text-[9px] text-muted-foreground text-center leading-tight">Direct APK<br/><span className="text-[8px] opacity-60">(Fire Stick / sideload)</span></p>
+                </div>
               </div>
-              <a
-                href={PLAY_STORE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 transition-colors"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Get on Play Store
-              </a>
-              <a
-                href={APK_DIRECT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/30 transition-colors"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Direct APK download
-              </a>
+              <div className="flex flex-col gap-1.5 w-full">
+                <a
+                  href={PLAY_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary/90 transition-colors"
+                >
+                  <Download className="h-3.5 w-3.5" /> Play Store
+                </a>
+                <a
+                  href={APK_DIRECT_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/30 transition-colors"
+                >
+                  <Download className="h-3.5 w-3.5" /> Direct APK (sideload)
+                </a>
+              </div>
             </div>
 
             {/* Step 2 */}
