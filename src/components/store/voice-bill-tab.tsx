@@ -244,6 +244,20 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
               <Mic className="h-4 w-4 text-primary" /> Voice / Text input
             </h2>
 
+            {/* How-to hint */}
+            <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">How to use</p>
+              <p className="text-xs text-foreground/70 leading-relaxed">
+                Tap the mic and say each item naturally:
+              </p>
+              <p className="text-xs font-mono bg-background rounded-lg border border-border px-2.5 py-1.5 text-foreground/80 leading-relaxed">
+                &ldquo;2 Maggi at 14 rupees, 1 kg sugar 45, Parle-G 10 rupees&rdquo;
+              </p>
+              <p className="text-[10px] text-muted-foreground/60">
+                Say product name + price (and optionally quantity). The AI fills in the bill automatically.
+              </p>
+            </div>
+
             {/* Mic button */}
             <div className="flex flex-col items-center gap-3">
               <button

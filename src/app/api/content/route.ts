@@ -14,32 +14,58 @@ function adminGuard(req: NextRequest) {
   return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
 }
 
+const BASE_CONTENT_SELECT = {
+  id: true, name: true, type: true, objectKey: true,
+  md5: true, sizeBytes: true, durationMs: true, uploadedAt: true,
+};
+
 export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const folder = req.nextUrl.searchParams.get('folder');
     const tag    = req.nextUrl.searchParams.get('tag');
+
+    // Fetch base rows without tags/folder (columns may not exist yet in DB)
     const rows = await db.content.findMany({
-      where: {
-        ...(folder ? { folder } : {}),
-        ...(tag    ? { tags: { has: tag } } : {}),
-      },
+      select: BASE_CONTENT_SELECT,
       orderBy: { uploadedAt: 'desc' },
     });
-    const totalBytes = rows.reduce((s, c) => s + Number(c.sizeBytes), 0);
-    const content = rows.map((c) => ({
-      id:         c.id,
-      name:       c.name,
-      type:       c.type.toLowerCase() as 'image' | 'video',
-      objectKey:  c.objectKey,
-      url:        publicUrl(c.objectKey),
-      md5:        c.md5,
-      sizeBytes:  Number(c.sizeBytes),
-      durationMs: c.durationMs ?? undefined,
-      createdAt:  c.uploadedAt.toISOString(),
-      tags:       c.tags,
-      folder:     c.folder ?? undefined,
-    }));
+
+    // Attempt to fetch tags/folder separately — safe to fail
+    type TagRow = { id: string; tags: string[]; folder: string | null };
+    let tagMap = new Map<string, TagRow>();
+    try {
+      const tagRows = await db.$queryRaw<TagRow[]>`
+        SELECT id, tags, folder FROM "Content"
+      `;
+      tagMap = new Map(tagRows.map((r) => [r.id, r]));
+    } catch { /* columns not yet migrated — tags/folder will be empty */ }
+
+    // Filter by folder/tag if requested (post-query, since WHERE may fail without columns)
+    const filtered = rows.filter((c) => {
+      const extra = tagMap.get(c.id);
+      if (folder && extra?.folder !== folder) return false;
+      if (tag    && !(extra?.tags ?? []).includes(tag)) return false;
+      return true;
+    });
+
+    const totalBytes = filtered.reduce((s, c) => s + Number(c.sizeBytes), 0);
+    const content = filtered.map((c) => {
+      const extra = tagMap.get(c.id);
+      return {
+        id:         c.id,
+        name:       c.name,
+        type:       c.type.toLowerCase() as 'image' | 'video',
+        objectKey:  c.objectKey,
+        url:        publicUrl(c.objectKey),
+        md5:        c.md5,
+        sizeBytes:  Number(c.sizeBytes),
+        durationMs: c.durationMs ?? undefined,
+        createdAt:  c.uploadedAt.toISOString(),
+        tags:       extra?.tags ?? [],
+        folder:     extra?.folder ?? undefined,
+      };
+    });
     return NextResponse.json({ content, totalBytes });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -87,14 +113,25 @@ export async function PATCH(req: NextRequest) {
   try {
     const { id, tags, folder } = await req.json() as { id: string; tags?: string[]; folder?: string | null };
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-    const updated = await db.content.update({
-      where: { id },
-      data: {
-        ...(tags   !== undefined ? { tags }   : {}),
-        ...(folder !== undefined ? { folder } : {}),
-      },
-    });
-    return NextResponse.json({ id: updated.id, tags: updated.tags, folder: updated.folder });
+    try {
+      const updated = await db.content.update({
+        where: { id },
+        data: {
+          ...(tags   !== undefined ? { tags }   : {}),
+          ...(folder !== undefined ? { folder } : {}),
+        },
+      });
+      return NextResponse.json({ id: updated.id, tags: (updated as { tags?: string[] }).tags ?? [], folder: (updated as { folder?: string | null }).folder ?? null });
+    } catch {
+      // Fallback: update via raw SQL if ORM fails on missing column
+      if (tags !== undefined) {
+        await db.$executeRaw`UPDATE "Content" SET tags = ${tags}::text[] WHERE id = ${id}`;
+      }
+      if (folder !== undefined) {
+        await db.$executeRaw`UPDATE "Content" SET folder = ${folder} WHERE id = ${id}`;
+      }
+      return NextResponse.json({ id, tags: tags ?? [], folder: folder ?? null });
+    }
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
