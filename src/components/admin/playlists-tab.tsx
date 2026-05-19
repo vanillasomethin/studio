@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2, ListVideo, Plus, Trash2, AlertCircle, Film, ImageIcon, GripVertical, X, Check } from 'lucide-react';
 import { getPlaylists, createPlaylist, updatePlaylist, deletePlaylist, getContent, type Playlist, type Content } from '@/lib/backend-api';
+import { toast } from '@/hooks/use-toast';
 
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
@@ -29,6 +30,11 @@ export default function PlaylistsTab() {
   const [saving,     setSaving]     = useState(false);
   const [draft,      setDraft]      = useState<DraftItem[]>([]);
   const [saved,      setSaved]      = useState(false);
+
+  // Drag-to-reorder refs
+  const dragIdx     = useRef<number | null>(null);
+  const dragOverIdx = useRef<number | null>(null);
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
 
   const load = useCallback(() => {
     Promise.all([getPlaylists(), getContent()])
@@ -60,8 +66,12 @@ export default function PlaylistsTab() {
       setPlaylists((p) => [pl, ...p]);
       setNewName('');
       selectPlaylist(pl);
-    } catch { /* ignore */ }
-    finally { setCreating(false); }
+      toast({ title: 'Playlist created', description: pl.name });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Could not create playlist', description: (err as Error).message });
+    } finally {
+      setCreating(false);
+    }
   };
 
   const addContent = (c: Content) => {
@@ -86,6 +96,17 @@ export default function PlaylistsTab() {
     setSaved(false);
   };
 
+  // ── Drag reorder ────────────────────────────────────────────────────────────
+  const reorder = () => {
+    if (dragIdx.current === null || dragOverIdx.current === null) return;
+    if (dragIdx.current === dragOverIdx.current) return;
+    const next = [...draft];
+    const [item] = next.splice(dragIdx.current, 1);
+    next.splice(dragOverIdx.current, 0, item);
+    setDraft(next);
+    setSaved(false);
+  };
+
   const save = async () => {
     if (!selected) return;
     setSaving(true);
@@ -95,8 +116,12 @@ export default function PlaylistsTab() {
       });
       setPlaylists((p) => p.map((pl) => pl.id === selected ? updated : pl));
       setSaved(true);
-    } catch { /* ignore */ }
-    finally { setSaving(false); }
+      toast({ title: 'Playlist saved ✓' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Save failed', description: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const del = async (id: string) => {
@@ -106,8 +131,12 @@ export default function PlaylistsTab() {
       await deletePlaylist(id);
       setPlaylists((p) => p.filter((x) => x.id !== id));
       if (selected === id) { setSelected(null); setDraft([]); }
-    } catch { /* ignore */ }
-    finally { setDeleting(null); }
+      toast({ title: 'Playlist deleted' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Delete failed', description: (err as Error).message });
+    } finally {
+      setDeleting(null);
+    }
   };
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
@@ -189,7 +218,7 @@ export default function PlaylistsTab() {
             <div className="flex items-center justify-between px-5 py-3 border-b border-border">
               <div>
                 <p className="text-sm font-bold text-foreground">{activePl?.name}</p>
-                <p className="text-[10px] text-muted-foreground">{draft.length} items · {fmtMs(draft.reduce((s, i) => s + i.durationMs, 0))} total</p>
+                <p className="text-[10px] text-muted-foreground">{draft.length} items · {fmtMs(draft.reduce((s, i) => s + i.durationMs, 0))} total · drag to reorder</p>
               </div>
               <button
                 onClick={save}
@@ -208,8 +237,25 @@ export default function PlaylistsTab() {
             ) : (
               <div className="divide-y divide-border">
                 {draft.map((item, idx) => (
-                  <div key={item.contentId} className="flex items-center gap-3 px-5 py-3">
-                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+                  <div
+                    key={item.contentId}
+                    draggable
+                    onDragStart={(e) => {
+                      dragIdx.current = idx;
+                      setDraggingIdx(idx);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragEnter={() => { dragOverIdx.current = idx; }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnd={() => {
+                      reorder();
+                      setDraggingIdx(null);
+                      dragIdx.current = null;
+                      dragOverIdx.current = null;
+                    }}
+                    className={`flex items-center gap-3 px-5 py-3 transition-opacity ${draggingIdx === idx ? 'opacity-40' : 'opacity-100'}`}
+                  >
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 cursor-grab active:cursor-grabbing" />
                     <span className="text-[10px] text-muted-foreground/50 w-4">{idx + 1}</span>
                     {item.type === 'image' ? (
                       // eslint-disable-next-line @next/next/no-img-element

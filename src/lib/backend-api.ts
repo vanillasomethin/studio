@@ -171,5 +171,9 @@ export const createSchedule = (body: Omit<Schedule, 'id' | 'createdAt' | 'playli
   apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
     .then((r) => r.schedule);
 
+export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | 'createdAt' | 'playlist'>>) =>
+  apiFetch<{ schedule: Schedule }>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.schedule);
+
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });

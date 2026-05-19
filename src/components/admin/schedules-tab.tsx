@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import {
   Loader2, CalendarClock, Plus, Trash2, AlertCircle, Monitor,
-  Zap, Clock3, CalendarDays, RotateCcw, Tv2, Smartphone,
+  Zap, Clock3, CalendarDays, RotateCcw, Tv2, Smartphone, Pencil, CheckCircle2,
 } from 'lucide-react';
 import {
   getSchedules, getPlaylists, getDevices,
-  createSchedule, deleteSchedule,
+  createSchedule, updateSchedule, deleteSchedule,
   type Schedule, type Playlist, type Device,
 } from '@/lib/backend-api';
+import { toast } from '@/hooks/use-toast';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,15 @@ function localPlusDays(days: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Convert ISO → datetime-local value ("YYYY-MM-DDTHH:mm")
+function isoToLocal(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch { return ''; }
+}
+
 const FAR_FUTURE = '2099-12-31T23:59';
 
 const INTERVAL_MARKS = [
@@ -55,6 +65,20 @@ const lbl = 'block text-[10px] font-bold uppercase tracking-widest text-muted-fo
 
 type TimingMode = 'scheduled' | 'now_indefinite' | 'now_until';
 
+const BLANK_FORM = {
+  name:            '',
+  playlistId:      '',
+  groupName:       '',
+  selectedDevices: [] as string[],
+  timingMode:      'scheduled' as TimingMode,
+  startAt:         '',
+  endAt:           '',
+  recurrence:      'daily' as Schedule['recurrence'],
+  orientation:     'landscape' as 'landscape' | 'portrait' | 'any',
+  intervalMins:    0,
+  priority:        0,
+};
+
 // ─── Orientation icon ─────────────────────────────────────────────────────────
 function OrientationIcon({ o, size = 14 }: { o: 'landscape' | 'portrait' | 'any'; size?: number }) {
   if (o === 'landscape') return <Tv2 style={{ width: size, height: size }} />;
@@ -72,22 +96,11 @@ export default function SchedulesTab() {
   const [deleting,  setDeleting]  = useState<string | null>(null);
   const [showForm,  setShowForm]  = useState(false);
   const [saving,    setSaving]    = useState(false);
+  const [editId,    setEditId]    = useState<string | null>(null);
 
   const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const [form, setForm] = useState({
-    name:            '',
-    playlistId:      '',
-    groupName:       '',
-    selectedDevices: [] as string[],
-    timingMode:      'scheduled' as TimingMode,
-    startAt:         '',
-    endAt:           '',
-    recurrence:      'daily' as Schedule['recurrence'],
-    orientation:     'landscape' as 'landscape' | 'portrait' | 'any',
-    intervalMins:    0,   // 0 = continuous
-    priority:        0,
-  });
+  const [form, setForm] = useState({ ...BLANK_FORM, startAt: '', endAt: '' });
 
   useEffect(() => {
     Promise.all([getSchedules(), getPlaylists(), getDevices()])
@@ -96,9 +109,36 @@ export default function SchedulesTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  const openForm = () => {
-    setForm((f) => ({ ...f, startAt: nowLocal(), endAt: localPlusDays(7) }));
+  const openNew = () => {
+    setForm({ ...BLANK_FORM, startAt: nowLocal(), endAt: localPlusDays(7) });
+    setEditId(null);
     setShowForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+  };
+
+  const openEdit = (s: Schedule) => {
+    const isIndefinite = s.endAt > '2090-01-01';
+    setForm({
+      name:            s.name,
+      playlistId:      s.playlistId,
+      groupName:       s.groupName ?? '',
+      selectedDevices: s.deviceIds ?? [],
+      timingMode:      'scheduled',
+      startAt:         isoToLocal(s.startAt),
+      endAt:           isIndefinite ? localPlusDays(30) : isoToLocal(s.endAt),
+      recurrence:      s.recurrence,
+      orientation:     (s.orientation as 'landscape' | 'portrait' | 'any') ?? 'landscape',
+      intervalMins:    s.intervalMins ?? 0,
+      priority:        s.priority ?? 0,
+    });
+    setEditId(s.id);
+    setShowForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditId(null);
   };
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
@@ -118,8 +158,12 @@ export default function SchedulesTab() {
     try {
       await deleteSchedule(id);
       setSchedules((s) => s.filter((x) => x.id !== id));
-    } catch { /* ignore */ }
-    finally { setDeleting(null); }
+      toast({ title: 'Schedule deleted' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Delete failed', description: (e as Error).message });
+    } finally {
+      setDeleting(null);
+    }
   };
 
   const resolveTimings = () => {
@@ -140,7 +184,7 @@ export default function SchedulesTab() {
     setSaving(true);
     try {
       const { startAt, endAt } = resolveTimings();
-      const sch = await createSchedule({
+      const payload = {
         name:         form.name,
         playlistId:   form.playlistId,
         groupName:    form.groupName || undefined,
@@ -151,16 +195,25 @@ export default function SchedulesTab() {
         orientation:  form.orientation,
         intervalMins: form.intervalMins > 0 ? form.intervalMins : null,
         priority:     form.priority,
-      });
-      setSchedules((s) => [sch, ...s]);
-      setForm({
-        name: '', playlistId: '', groupName: '', selectedDevices: [],
-        timingMode: 'scheduled', startAt: nowLocal(), endAt: localPlusDays(7),
-        recurrence: 'daily', orientation: 'landscape', intervalMins: 0, priority: 0,
-      });
-      setShowForm(false);
-    } catch { /* ignore */ }
-    finally { setSaving(false); }
+      };
+
+      if (editId) {
+        const updated = await updateSchedule(editId, payload);
+        setSchedules((s) => s.map((x) => x.id === editId ? updated : x));
+        toast({ title: 'Schedule updated ✓', description: 'Changes will reach screens at next poll.' });
+      } else {
+        const created = await createSchedule(payload);
+        setSchedules((s) => [created, ...s]);
+        toast({ title: 'Schedule created ✓', description: 'Content will start playing as scheduled.' });
+      }
+
+      setForm({ ...BLANK_FORM, startAt: nowLocal(), endAt: localPlusDays(7) });
+      closeForm();
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) return (
@@ -187,7 +240,7 @@ export default function SchedulesTab() {
       <div className="flex items-center justify-between">
         <p className="text-[10px] text-muted-foreground">Timezone: <span className="font-semibold text-foreground">{userTz}</span></p>
         <button
-          onClick={showForm ? () => setShowForm(false) : openForm}
+          onClick={showForm ? closeForm : openNew}
           className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary/90 transition-colors"
         >
           <Plus className="h-3.5 w-3.5" /> New schedule
@@ -196,7 +249,16 @@ export default function SchedulesTab() {
 
       {showForm && (
         <div className="rounded-xl border border-border bg-card p-5 space-y-5">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">New schedule</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              {editId ? 'Edit schedule' : 'New schedule'}
+            </h2>
+            {editId && (
+              <span className="flex items-center gap-1.5 text-[11px] text-primary bg-primary/10 rounded-full px-2.5 py-1 font-semibold">
+                <Pencil className="h-3 w-3" /> Editing
+              </span>
+            )}
+          </div>
           <form onSubmit={save} className="space-y-5">
 
             {/* Name + Playlist row */}
@@ -224,9 +286,9 @@ export default function SchedulesTab() {
               <label className={lbl}>When to run</label>
               <div className="grid grid-cols-3 gap-2">
                 {([
-                  { id: 'scheduled',     label: 'Scheduled',          icon: CalendarDays, desc: 'Pick start & end date/time' },
-                  { id: 'now_indefinite',label: 'Start now · Always on', icon: Zap,       desc: 'Runs immediately, never expires' },
-                  { id: 'now_until',     label: 'Start now · Until…',  icon: Clock3,      desc: 'Starts now, you pick end time' },
+                  { id: 'scheduled',      label: 'Scheduled',            icon: CalendarDays, desc: 'Pick start & end date/time' },
+                  { id: 'now_indefinite', label: 'Start now · Always on', icon: Zap,         desc: 'Runs immediately, never expires' },
+                  { id: 'now_until',      label: 'Start now · Until…',    icon: Clock3,       desc: 'Starts now, you pick end time' },
                 ] as { id: TimingMode; label: string; icon: React.ElementType; desc: string }[]).map((opt) => {
                   const active = form.timingMode === opt.id;
                   return (
@@ -412,10 +474,15 @@ export default function SchedulesTab() {
 
             <div className="flex gap-2 pt-1">
               <button type="submit" disabled={saving}
-                className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 disabled:opacity-40 transition-colors">
-                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save schedule'}
+                className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-white hover:bg-primary/90 disabled:opacity-40 transition-colors">
+                {saving
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+                  : editId
+                    ? <><CheckCircle2 className="h-3.5 w-3.5" /> Update schedule</>
+                    : 'Save schedule'
+                }
               </button>
-              <button type="button" onClick={() => setShowForm(false)}
+              <button type="button" onClick={closeForm}
                 className="rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
                 Cancel
               </button>
@@ -426,7 +493,11 @@ export default function SchedulesTab() {
 
       {/* Schedule list */}
       {!schedules.length ? (
-        <p className="text-sm text-muted-foreground text-center py-10">No schedules yet. Create one to push content to screens.</p>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 py-16">
+          <CalendarClock className="h-8 w-8 text-muted-foreground/30 mb-2" />
+          <p className="text-sm text-muted-foreground">No schedules yet</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">Create one to push content to your screens.</p>
+        </div>
       ) : (
         <div className="rounded-xl border border-border overflow-x-auto">
           <table className="w-full text-xs">
@@ -441,9 +512,10 @@ export default function SchedulesTab() {
               {schedules.map((s) => {
                 const pl = playlists.find((p) => p.id === s.playlistId);
                 const screenCount = s.deviceIds?.length ?? 0;
-                const isAlwaysOn = s.endAt > '2090-01-01';
+                const isAlwaysOnRow = s.endAt > '2090-01-01';
+                const isEditing = editId === s.id;
                 return (
-                  <tr key={s.id} className="hover:bg-muted/20 transition-colors">
+                  <tr key={s.id} className={`transition-colors ${isEditing ? 'bg-primary/5' : 'hover:bg-muted/20'}`}>
                     <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">
                       {s.name}
                       {s.priority > 0 && (
@@ -457,10 +529,10 @@ export default function SchedulesTab() {
                         : s.groupName ? `Group: ${s.groupName}` : 'All'}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                      {isAlwaysOn ? <span className="text-green-600 font-semibold">Now</span> : fmtDateTime(s.startAt)}
+                      {isAlwaysOnRow ? <span className="text-green-600 font-semibold">Now</span> : fmtDateTime(s.startAt)}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                      {isAlwaysOn ? <span className="text-muted-foreground/40 italic text-[10px]">Indefinite</span> : fmtDateTime(s.endAt)}
+                      {isAlwaysOnRow ? <span className="text-muted-foreground/40 italic text-[10px]">Indefinite</span> : fmtDateTime(s.endAt)}
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary whitespace-nowrap">
@@ -477,10 +549,20 @@ export default function SchedulesTab() {
                       {s.intervalMins ? `Every ${s.intervalMins}m` : '∞ Loop'}
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => del(s.id)} disabled={deleting === s.id}
-                        className="flex items-center gap-1 rounded-lg border border-destructive/30 bg-destructive/5 px-2 py-1 text-[10px] font-semibold text-destructive hover:bg-destructive/15 transition-colors disabled:opacity-40">
-                        {deleting === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => openEdit(s)}
+                          className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                            isEditing
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-blue-500/30 bg-blue-500/5 text-blue-600 hover:bg-blue-500/15'
+                          }`}>
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button onClick={() => del(s.id)} disabled={deleting === s.id}
+                          className="flex items-center gap-1 rounded-lg border border-destructive/30 bg-destructive/5 px-2 py-1 text-[10px] font-semibold text-destructive hover:bg-destructive/15 transition-colors disabled:opacity-40">
+                          {deleting === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
