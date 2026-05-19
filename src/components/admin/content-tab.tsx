@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive } from 'lucide-react';
 import { getContent, deleteContent, initiateUpload, type Content } from '@/lib/backend-api';
+import { toast } from '@/hooks/use-toast';
 
 function fmtBytes(b: number): string {
   if (b < 1024)         return `${b} B`;
@@ -52,8 +53,12 @@ export default function ContentTab() {
     try {
       await deleteContent(id);
       setContent((c) => c.filter((x) => x.id !== id));
-    } catch { /* ignore */ }
-    finally { setDeleting(null); }
+      toast({ title: 'Content deleted' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Delete failed', description: (err as Error).message });
+    } finally {
+      setDeleting(null);
+    }
   };
 
   const handleFiles = async (files: FileList | null) => {
@@ -113,8 +118,11 @@ export default function ContentTab() {
         });
 
         setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: 100, done: true } : x));
+        toast({ title: `${file.name} uploaded ✓` });
       } catch (err) {
-        setUploads((u) => u.map((x, i) => i === idx ? { ...x, error: (err as Error).message } : x));
+        const msg = (err as Error).message;
+        setUploads((u) => u.map((x, i) => i === idx ? { ...x, error: msg } : x));
+        toast({ variant: 'destructive', title: 'Upload failed', description: msg });
       }
     }
 
