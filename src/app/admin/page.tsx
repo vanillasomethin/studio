@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X,
-  IndianRupee, Eye,
+  IndianRupee, Eye, Package,
   Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
   Menu, ChevronRight, LogOut, LayoutDashboard, Images, Map,
 } from 'lucide-react';
@@ -20,6 +20,7 @@ const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'
 const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
 const SiteMediaTab     = dynamic(() => import('@/components/admin/site-media-tab'),     { ssr: false });
 const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),        { ssr: false });
+const ProductsTab      = dynamic(() => import('@/components/admin/products-tab'),       { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -45,7 +46,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring' | 'media' | 'roadmap';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -59,6 +60,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
     items: [
       { id: 'flyers',     label: 'Flyers',      icon: FileImage   },
       { id: 'stores',     label: 'Stores',      icon: Store       },
+      { id: 'products',   label: 'Products',    icon: Package     },
       { id: 'campaigns',  label: 'Campaigns',   icon: BarChart3   },
       { id: 'payments',   label: 'Payments',    icon: IndianRupee },
     ],
@@ -101,6 +103,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
+  products:   { eyebrow: 'Product catalogue',  title: 'Master Products'    },
   roadmap:    { eyebrow: 'ALIVE PLATFORM',     title: 'Platform Roadmap'   },
 };
 
@@ -924,6 +927,7 @@ function Dashboard() {
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
               {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}
+              {tab === 'products'   && <ProductsTab adminPw={adminPw} />}
               {tab === 'roadmap'    && <RoadmapTab />}
             </motion.div>
           </AnimatePresence>
