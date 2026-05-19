@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 
-// Only columns guaranteed to exist from the init migration
+// Base columns guaranteed from init migration — no optional columns here
 type StoreRow = {
   id: string; userId: string; storeName: string; ownerName: string;
   whatsapp: string; address: string | null; locality: string | null;
   city: string | null; pincode: string | null; lat: number | null; lng: number | null;
   gstin: string | null; referralCode: string; referredBy: string | null;
-  agreedAt: Date | null; liveAt: Date | null; createdAt: Date; updatedAt: Date;
+  agreedAt: Date | null; createdAt: Date; updatedAt: Date;
 };
 
 export async function GET() {
@@ -16,11 +16,13 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
+    // Select only base columns that exist in the init migration.
+    // liveAt is fetched separately so a missing column never breaks dashboard load.
     const rows = await db.$queryRaw<StoreRow[]>`
       SELECT
         s."id", s."userId", s."storeName", s."ownerName", s."whatsapp",
         s."address", s."locality", s."city", s."pincode", s."lat", s."lng",
-        s."gstin", s."referralCode", s."referredBy", s."agreedAt", s."liveAt",
+        s."gstin", s."referralCode", s."referredBy", s."agreedAt",
         s."createdAt", s."updatedAt",
         u."email", u."phone"
       FROM "Store" s
@@ -30,6 +32,16 @@ export async function GET() {
     `;
 
     if (!rows.length) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+
+    // Attempt to read liveAt separately — column may not exist on older DBs
+    let liveAt: string | null = null;
+    try {
+      const live = await db.$queryRaw<{ liveAt: Date | null }[]>`
+        SELECT "liveAt" FROM "Store" WHERE "userId" = ${session.user.id} LIMIT 1
+      `;
+      const v = live[0]?.liveAt;
+      liveAt = v instanceof Date ? v.toISOString() : (v ?? null);
+    } catch { /* column not yet migrated — safe default null */ }
 
     const s = rows[0];
     return NextResponse.json({
@@ -47,7 +59,7 @@ export async function GET() {
       referralCode: s.referralCode,
       referredBy:   s.referredBy,
       agreedAt:     s.agreedAt instanceof Date ? s.agreedAt.toISOString() : s.agreedAt,
-      liveAt:       s.liveAt instanceof Date ? s.liveAt.toISOString() : s.liveAt,
+      liveAt,
       createdAt:    s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
       // from User join
       email:        (s as unknown as { email?: string }).email ?? null,

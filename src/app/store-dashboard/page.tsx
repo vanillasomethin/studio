@@ -96,7 +96,15 @@ function PhoneLogin() {
     setBusy(true); setError(null);
     try {
       const result = await signIn('phone-password', { phone: `+91${phone}`, password, redirect: false });
-      if (result?.error) setError('Incorrect number or password. Please try again.');
+      if (result?.error) { setError('Incorrect number or password. Please try again.'); return; }
+      // Fetch and cache store data after successful login
+      try {
+        const res = await fetch('/api/stores/me');
+        if (res.ok) {
+          const data = await res.json() as StoreInfo;
+          localStorage.setItem(LS_SESSION_KEY, JSON.stringify(data));
+        }
+      } catch { /* non-fatal — session will load on next render */ }
     } catch {
       setError('Could not connect. Check your internet and try again.');
     } finally {
@@ -1137,11 +1145,30 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+const LS_SESSION_KEY = 'alive_store_session';
+
+function readLocalSession(): StoreInfo | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoreInfo;
+  } catch { return null; }
+}
+
 export default function StoreDashboardPage() {
   const { data: session, status } = useSession();
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
   const [storeLoading, setStoreLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // On first render, try to populate from localStorage immediately.
+  // This ensures the dashboard is usable right after registration even if
+  // the next-auth session or /api/stores/me isn't established yet.
+  useEffect(() => {
+    if (storeInfo) return;
+    const local = readLocalSession();
+    if (local?.storeName) setStoreInfo(local);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchStore = useCallback(async (attempt = 0) => {
     setStoreLoading(true);
@@ -1151,17 +1178,20 @@ export default function StoreDashboardPage() {
     try {
       const res = await fetch('/api/stores/me', { signal: controller.signal });
       if (res.ok) {
-        setStoreInfo(await res.json() as StoreInfo);
+        const data = await res.json() as StoreInfo;
+        setStoreInfo(data);
+        // Keep localStorage in sync with server data
+        try { localStorage.setItem(LS_SESSION_KEY, JSON.stringify(data)); } catch { /* ignore */ }
         return;
       }
-      // Retry once after 3s on first failure (common right after registration when DB wakes)
       if (attempt === 0) {
         clearTimeout(tid);
         setStoreLoading(false);
         await new Promise(r => setTimeout(r, 3000));
         return fetchStore(1);
       }
-      setLoadError('Could not load your store. Please tap retry.');
+      // API failed but we might still have localStorage data — don't show error if we do
+      if (!readLocalSession()) setLoadError('Could not load your store. Please tap retry.');
     } catch (e) {
       const err = e as Error;
       if (attempt === 0) {
@@ -1170,14 +1200,15 @@ export default function StoreDashboardPage() {
         await new Promise(r => setTimeout(r, 3000));
         return fetchStore(1);
       }
-      setLoadError(err.name === 'AbortError' ? 'Taking too long — the server may be waking up. Tap to retry.' : 'Connection error. Tap to retry.');
+      if (!readLocalSession()) {
+        setLoadError(err.name === 'AbortError' ? 'Taking too long — the server may be waking up. Tap to retry.' : 'Connection error. Tap to retry.');
+      }
     } finally {
       clearTimeout(tid);
       setStoreLoading(false);
     }
   }, []);
 
-  // Timeout fallback for useSession staying stuck in 'loading'
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   useEffect(() => {
     if (status !== 'loading') return;
@@ -1187,12 +1218,19 @@ export default function StoreDashboardPage() {
 
   useEffect(() => {
     if (status === 'authenticated' && !storeInfo) fetchStore();
-  }, [status, storeInfo, fetchStore]);
+    // If already have localStorage data, still refresh from API in background
+    if (status === 'authenticated' && storeInfo) fetchStore();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   const handleLogout = async () => {
     await signOut({ redirect: false });
+    try { localStorage.removeItem(LS_SESSION_KEY); } catch { /* ignore */ }
     setStoreInfo(null);
   };
+
+  // If localStorage gave us store data, skip all loading/error screens
+  if (storeInfo) return <MainDashboard store={storeInfo} onLogout={handleLogout} />;
 
   if (status === 'loading' && !sessionTimedOut) {
     return (
@@ -1230,13 +1268,9 @@ export default function StoreDashboardPage() {
 
   if (status === 'unauthenticated' || !session) return <PhoneLogin />;
 
-  if (!storeInfo) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  return <MainDashboard store={storeInfo} onLogout={handleLogout} />;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  );
 }
