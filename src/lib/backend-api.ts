@@ -21,6 +21,10 @@ export type Device = {
   groupName?:  string | null;
   uptimePct?:  number | null;
   claimedAt:   string;
+  lat?:        number | null;
+  lng?:        number | null;
+  city?:       string | null;
+  locality?:   string | null;
   currentSchedule?: {
     id:           string;
     name:         string;
@@ -53,6 +57,8 @@ export type Content = {
   sizeBytes:   number;
   durationMs?: number;
   createdAt:   string;
+  tags:        string[];
+  folder?:     string;
 };
 
 export type PlaylistItem = {
@@ -114,6 +120,9 @@ export const updateDevice = (id: string, body: { storeName?: string; groupName?:
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
     .then((r) => r.device);
 
+export const bulkUpdateDevices = (body: { ids: string[]; action: 'group' | 'delete'; groupName?: string }) =>
+  apiFetch<{ updated?: number; deleted?: number }>('/api/devices/bulk', { method: 'POST', body: JSON.stringify(body) });
+
 // ─── Play Events (POP) ────────────────────────────────────────────────────────
 
 export const getEvents = (params?: Record<string, string>) => {
@@ -137,6 +146,12 @@ export const getContent = () =>
 
 export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
+
+export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: string | null }) =>
+  apiFetch<{ id: string; tags: string[]; folder?: string | null }>('/api/content', {
+    method: 'PATCH',
+    body:   JSON.stringify({ id, ...body }),
+  });
 
 export const initiateUpload = (body: {
   name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; mimeType?: string; durationMs?: number;

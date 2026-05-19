@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw, Bell } from 'lucide-react';
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw, Bell, LayoutGrid, Map } from 'lucide-react';
 import { getDevices, type Device } from '@/lib/backend-api';
+
+const FleetMap = lazy(() => import('./fleet-map'));
 
 function timeSince(iso: string): string {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -11,12 +13,15 @@ function timeSince(iso: string): string {
   return `${Math.floor(secs / 3600)}h`;
 }
 
+type View = 'grid' | 'map';
+
 export default function MonitoringTab() {
   const [devices,    setDevices]    = useState<Device[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [lastFetch,  setLastFetch]  = useState<Date | null>(null);
   const [alertState, setAlertState] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
+  const [view,       setView]       = useState<View>('grid');
 
   const sendTestAlert = useCallback(async () => {
     setAlertState('sending');
@@ -59,13 +64,29 @@ export default function MonitoringTab() {
   return (
     <div className="space-y-4">
       {/* Header row */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" />{online} online</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" />{offline} offline</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-yellow-500 inline-block" />{pending} pending</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            {(['grid', 'map'] as View[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                  view === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {v === 'grid' ? <LayoutGrid className="h-3 w-3" /> : <Map className="h-3 w-3" />}
+                {v === 'grid' ? 'Grid' : 'Map'}
+              </button>
+            ))}
+          </div>
+
           {lastFetch && <span className="text-[10px] text-muted-foreground/50">Updated {lastFetch.toLocaleTimeString('en-IN')}</span>}
           <button
             onClick={sendTestAlert}
@@ -85,11 +106,17 @@ export default function MonitoringTab() {
         </div>
       </div>
 
-      {/* Grid */}
       {loading && !devices.length ? (
         <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
       ) : !devices.length ? (
         <p className="text-sm text-muted-foreground text-center py-10">No screens registered yet.</p>
+      ) : view === 'map' ? (
+        <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+          <FleetMap devices={devices} />
+          <p className="text-[10px] text-muted-foreground/50 text-center">
+            Showing {devices.filter((d) => d.lat != null).length} of {devices.length} screens with known locations. Pin colour: green = online, red = offline, yellow = pending.
+          </p>
+        </Suspense>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {devices.map((d) => {
@@ -123,6 +150,7 @@ export default function MonitoringTab() {
                       </span>
                     </p>
                   )}
+                  {d.locality && <p className="text-[10px] text-muted-foreground/60">{d.locality}</p>}
                   <p className="text-[10px] font-mono text-muted-foreground/40">{d.id.slice(0, 8)}…</p>
                 </div>
               </div>

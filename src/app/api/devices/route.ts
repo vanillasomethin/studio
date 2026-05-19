@@ -35,6 +35,9 @@ export async function GET(req: NextRequest) {
         groupName:    true,
         claimedAt:    true,
         uptimePctD30: true,
+        store: {
+          select: { lat: true, lng: true, city: true, locality: true },
+        },
       },
     });
 
@@ -98,6 +101,10 @@ export async function GET(req: NextRequest) {
         lastSeen:   d.lastSeen?.toISOString() ?? null,
         lastPlayAt: lastPlayMap.get(d.id)?.toISOString() ?? null,
         claimedAt:  d.claimedAt.toISOString(),
+        lat:        d.store?.lat ?? null,
+        lng:        d.store?.lng ?? null,
+        city:       d.store?.city ?? null,
+        locality:   d.store?.locality ?? null,
         currentSchedule: sched ? {
           id:           sched.id,
           name:         sched.name,
