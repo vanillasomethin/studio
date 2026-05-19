@@ -7,12 +7,13 @@ import {
   IndianRupee, CheckCircle2, Clock, BarChart3, Phone,
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag,
+  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag, ImageIcon,
   KeyRound, Eye, EyeOff, ArrowLeft,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
+import FlyerTab from '@/components/store/flyer-tab';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
 
@@ -884,7 +885,7 @@ function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'settings';
+type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'flyergen' | 'settings';
 
 const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',  label: 'Overview',       icon: BarChart3    },
@@ -892,6 +893,7 @@ const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
   { id: 'flyers',    label: 'My flyers',      icon: FileImage    },
   { id: 'voicebill', label: 'VoiceBill',      icon: ShoppingCart },
   { id: 'offers',    label: 'Offers',         icon: Tag          },
+  { id: 'flyergen',  label: 'Flyer',          icon: ImageIcon    },
   { id: 'settings',  label: 'Payout',         icon: Gift         },
 ];
 
@@ -1120,6 +1122,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'offers' && (
             <motion.div key="offers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
               <OffersTab />
+            </motion.div>
+          )}
+
+          {tab === 'flyergen' && (
+            <motion.div key="flyergen" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <FlyerTab storeName={storeData.storeName} />
             </motion.div>
           )}
 

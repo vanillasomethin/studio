@@ -55,6 +55,7 @@
     "firebase": "^11.9.1",
     "framer-motion": "^11.3.18",
     "genkit": "^1.14.1",
+    "html2canvas": "^1.4.1",
     "jose": "^6.2.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.475.0",
