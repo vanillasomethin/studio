@@ -12,6 +12,7 @@ type Offer = {
   validUntil:  string | null;
   createdAt:   string;
   productId?:  string | null;
+  imageUrl?:   string | null;
 };
 
 type ProductMatch = {
