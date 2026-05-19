@@ -323,14 +323,36 @@ function RegistrationForm() {
         return;
       }
 
-      // Auto sign-in — best-effort; if it fails user can log in manually
+      // Persist store session to localStorage immediately so the dashboard
+      // loads without depending on the next-auth session being established.
+      try {
+        const referralCode = (payload2 as { referralCode?: string }).referralCode ?? code;
+        localStorage.setItem('alive_store_session', JSON.stringify({
+          storeName:    form.storeName,
+          ownerName:    form.ownerName,
+          whatsapp:     form.whatsapp,
+          phone:        form.whatsapp,
+          address:      form.address,
+          locality:     form.locality,
+          city:         form.city,
+          pincode:      form.pincode,
+          lat:          form.lat,
+          lng:          form.lng,
+          gstin:        form.gstin || null,
+          referralCode,
+          referredBy:   form.referredBy || null,
+          agreedAt:     new Date().toISOString(),
+        }));
+      } catch { /* localStorage unavailable — dashboard will fall back to API */ }
+
+      // Auto sign-in — best-effort; if it fails, dashboard uses localStorage session
       try {
         await signIn('phone-password', {
           phone:    `+91${form.whatsapp}`,
           password: form.password,
           redirect: false,
         });
-      } catch { /* sign-in failure is non-fatal — user registered successfully */ }
+      } catch { /* non-fatal */ }
 
       try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 
