@@ -105,30 +105,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'name, playlistId, startAt, endAt required' }, { status: 400 });
     }
 
-    const schedule = await db.schedule.create({
-      data: {
-        name,
-        playlistId,
-        priority:     priority     ?? 0,
-        groupName:    groupName    ?? null,
-        deviceIds:    deviceIds    ?? [],
-        startAt:      new Date(startAt),
-        endAt:        new Date(endAt),
-        recurrence:   (recurrence?.toUpperCase() ?? 'ONCE') as 'ONCE' | 'DAILY' | 'WEEKLY',
-        dailyStart:   dailyStart   ?? null,
-        dailyEnd:     dailyEnd     ?? null,
-        orientation:  orientation  ?? 'landscape',
-        intervalMins: intervalMins ?? null,
-      },
-      include: { playlist: { select: { name: true } } },
-    });
+    const baseData = {
+      name,
+      playlistId,
+      priority:   priority   ?? 0,
+      groupName:  groupName  ?? null,
+      deviceIds:  deviceIds  ?? [],
+      startAt:    new Date(startAt),
+      endAt:      new Date(endAt),
+      recurrence: (recurrence?.toUpperCase() ?? 'ONCE') as 'ONCE' | 'DAILY' | 'WEEKLY',
+      dailyStart: dailyStart ?? null,
+      dailyEnd:   dailyEnd   ?? null,
+    };
+
+    let schedule;
+    try {
+      schedule = await db.schedule.create({
+        data: { ...baseData, orientation: orientation ?? 'landscape', intervalMins: intervalMins ?? null },
+        include: { playlist: { select: { name: true } } },
+      });
+    } catch (e1) {
+      const msg1 = (e1 as Error).message ?? '';
+      if (!msg1.includes('orientation') && !msg1.includes('intervalMins') && !msg1.includes('column')) throw e1;
+      // orientation/intervalMins columns not yet migrated — create without them
+      schedule = await db.schedule.create({
+        data: baseData,
+        include: { playlist: { select: { name: true } } },
+      });
+    }
 
     const norm = {
       ...schedule,
-      recurrence: schedule.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
-      startAt:    schedule.startAt.toISOString(),
-      endAt:      schedule.endAt.toISOString(),
-      createdAt:  schedule.createdAt.toISOString(),
+      orientation:  (schedule as { orientation?: string }).orientation  ?? 'landscape',
+      intervalMins: (schedule as { intervalMins?: number | null }).intervalMins ?? null,
+      recurrence:   schedule.recurrence.toLowerCase() as 'once' | 'daily' | 'weekly',
+      startAt:      schedule.startAt.toISOString(),
+      endAt:        schedule.endAt.toISOString(),
+      createdAt:    schedule.createdAt.toISOString(),
     };
     return NextResponse.json({ schedule: norm });
   } catch (e) {
