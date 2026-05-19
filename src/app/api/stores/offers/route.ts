@@ -21,10 +21,12 @@ export const GET = withApiHandler('/api/stores/offers', 'user', async () => {
   const offers = await db.storeOffer.findMany({
     where:   { storeId: store.id, active: true },
     orderBy: { createdAt: 'desc' },
+    include: { product: { select: { imageUrl: true, id: true } } },
   });
 
   return NextResponse.json(offers.map((o) => ({
     ...o,
+    imageUrl:   o.product?.imageUrl ?? null,
     createdAt:  o.createdAt.toISOString(),
     updatedAt:  o.updatedAt.toISOString(),
     validUntil: o.validUntil?.toISOString() ?? null,

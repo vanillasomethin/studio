@@ -6,7 +6,7 @@ import { Download, Loader2, RefreshCw, Printer, Tag, ChevronDown, ChevronUp } fr
 type Offer = {
   id: string; productName: string; weight: string | null;
   mrp: number; offerPrice: number; validUntil: string | null;
-  productId?: string | null;
+  productId?: string | null; imageUrl?: string | null;
 };
 
 function discount(mrp: number, offer: number) { return Math.round(((mrp - offer) / mrp) * 100); }
@@ -167,14 +167,25 @@ function ProductCard({ offer }: { offer: Offer | null }) {
         <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', textDecoration: 'line-through' }}>₹{offer.mrp}</span>
       </div>
 
-      {/* Product image placeholder — grey square with first letter */}
+      {/* Product image — catalogue image if linked, letter placeholder otherwise */}
       <div style={{
         width: 70, height: 70, borderRadius: 8, background: '#2e2e45',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 28, fontWeight: 900, color: 'rgba(255,255,255,0.15)',
-        marginBottom: 6, flexShrink: 0,
+        marginBottom: 6, flexShrink: 0, overflow: 'hidden',
       }}>
-        {offer.productName.charAt(0).toUpperCase()}
+        {offer.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={offer.imageUrl}
+            alt={offer.productName}
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <span style={{ fontSize: 28, fontWeight: 900, color: 'rgba(255,255,255,0.15)' }}>
+            {offer.productName.charAt(0).toUpperCase()}
+          </span>
+        )}
       </div>
 
       {/* Offer price */}
