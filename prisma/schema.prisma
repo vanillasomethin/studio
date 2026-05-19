@@ -319,10 +319,13 @@ model Content {
   height       Int?
   uploadedById String?
   uploadedAt   DateTime       @default(now())
+  tags         String[]       @default([])
+  folder       String?
 
   items        PlaylistItem[]
 
   @@index([uploadedById])
+  @@index([folder])
 }
 
 model Playlist {

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive } from 'lucide-react';
-import { getContent, deleteContent, initiateUpload, type Content } from '@/lib/backend-api';
+import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus } from 'lucide-react';
+import { getContent, deleteContent, initiateUpload, updateContentMeta, type Content } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 
 function fmtBytes(b: number): string {
@@ -35,6 +35,11 @@ export default function ContentTab() {
   const [loading,    setLoading]    = useState(true);
   const [deleting,   setDeleting]   = useState<string | null>(null);
   const [uploads,    setUploads]    = useState<UploadState[]>([]);
+  const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [activeTag,    setActiveTag]    = useState<string | null>(null);
+  const [editTagId,    setEditTagId]    = useState<string | null>(null);
+  const [tagInput,     setTagInput]     = useState('');
+  const [folderInput,  setFolderInput]  = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reload = () => {
@@ -46,6 +51,34 @@ export default function ContentTab() {
   };
 
   useEffect(() => { reload(); }, []);
+
+  // Derived lists for sidebar
+  const allFolders = [...new Set(content.map((c) => c.folder).filter(Boolean))] as string[];
+  const allTags    = [...new Set(content.flatMap((c) => c.tags ?? []))].sort();
+
+  const filtered = content.filter((c) => {
+    if (activeFolder && c.folder !== activeFolder) return false;
+    if (activeTag    && !(c.tags ?? []).includes(activeTag)) return false;
+    return true;
+  });
+
+  const openTagEdit = (c: Content) => {
+    setEditTagId(c.id);
+    setTagInput((c.tags ?? []).join(', '));
+    setFolderInput(c.folder ?? '');
+  };
+
+  const saveTagEdit = async (id: string) => {
+    const tags   = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
+    const folder = folderInput.trim() || null;
+    try {
+      await updateContentMeta(id, { tags, folder });
+      setContent((prev) => prev.map((c) => c.id === id ? { ...c, tags, folder: folder ?? undefined } : c));
+      toast({ title: 'Tags saved ✓' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
+    } finally { setEditTagId(null); }
+  };
 
   const del = async (id: string) => {
     if (!confirm('Delete this content item?')) return;
@@ -216,24 +249,55 @@ export default function ContentTab() {
         </div>
       )}
 
+      {/* Folder / tag filters */}
+      {(allFolders.length > 0 || allTags.length > 0) && (
+        <div className="flex flex-wrap gap-2 items-center">
+          {allFolders.length > 0 && (
+            <>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> Folders:</span>
+              {allFolders.map((f) => (
+                <button key={f} onClick={() => setActiveFolder(activeFolder === f ? null : f)}
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors ${activeFolder === f ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                >{f}</button>
+              ))}
+              {activeFolder && <button onClick={() => setActiveFolder(null)} className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors ml-1">Clear</button>}
+            </>
+          )}
+          {allFolders.length > 0 && allTags.length > 0 && <span className="text-border">|</span>}
+          {allTags.length > 0 && (
+            <>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1"><Tag className="h-3 w-3" /> Tags:</span>
+              {allTags.map((t) => (
+                <button key={t} onClick={() => setActiveTag(activeTag === t ? null : t)}
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors ${activeTag === t ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                >{t}</button>
+              ))}
+              {activeTag && <button onClick={() => setActiveTag(null)} className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors ml-1">Clear</button>}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Library */}
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
       ) : !content.length ? (
         <p className="text-sm text-muted-foreground text-center py-10">No content yet. Upload images or videos above.</p>
+      ) : !filtered.length ? (
+        <p className="text-sm text-muted-foreground text-center py-10">No content matches the current filter.</p>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
               <tr>
-                {['', 'Name', 'Type', 'Size', 'Added'].map((h) => (
+                {['', 'Name', 'Type', 'Size', 'Added', 'Tags / Folder'].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{h}</th>
                 ))}
                 <th className="px-4 py-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {content.map((c) => (
+              {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-3 w-10">
                     {c.type === 'image' ? (
@@ -256,6 +320,38 @@ export default function ContentTab() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{fmtBytes(c.sizeBytes)}</td>
                   <td className="px-4 py-3 text-muted-foreground/60">{fmtDate(c.createdAt)}</td>
+                  <td className="px-4 py-3 max-w-[200px]">
+                    {editTagId === c.id ? (
+                      <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          placeholder="Tags (comma-separated)"
+                          className="w-full rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:border-primary focus:outline-none"
+                        />
+                        <input
+                          value={folderInput}
+                          onChange={(e) => setFolderInput(e.target.value)}
+                          placeholder="Folder (optional)"
+                          className="w-full rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:border-primary focus:outline-none"
+                        />
+                        <div className="flex gap-1">
+                          <button onClick={() => saveTagEdit(c.id)} className="rounded-lg bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">Save</button>
+                          <button onClick={() => setEditTagId(null)} className="rounded-lg border border-border px-2 py-0.5 text-[10px] text-muted-foreground">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1 items-center">
+                        {(c.tags ?? []).map((t) => (
+                          <span key={t} className="rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-semibold">{t}</span>
+                        ))}
+                        {c.folder && <span className="rounded-full bg-orange-500/10 text-orange-600 px-1.5 py-0.5 text-[10px] font-semibold flex items-center gap-0.5"><FolderOpen className="h-2.5 w-2.5" />{c.folder}</span>}
+                        <button onClick={() => openTagEdit(c)} className="rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-colors flex items-center gap-0.5">
+                          <Plus className="h-2 w-2" /> tag
+                        </button>
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => del(c.id)}

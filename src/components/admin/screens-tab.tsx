@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X, ExternalLink, CheckCircle2, TriangleAlert, Film, ImageIcon } from 'lucide-react';
-import { getDevices, updateDevice, type Device } from '@/lib/backend-api';
+import { Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode, ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X, ExternalLink, CheckCircle2, TriangleAlert, Film, ImageIcon, Layers, Trash2 } from 'lucide-react';
+import { getDevices, updateDevice, bulkUpdateDevices, type Device } from '@/lib/backend-api';
+import { toast } from '@/hooks/use-toast';
 
 // ─── Diagnostic types ─────────────────────────────────────────────────────────
 type DiagIssue = { level: 'ok' | 'warn' | 'error'; message: string };
@@ -401,11 +402,15 @@ function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) =
 
 // ─── Main tab ────────────────────────────────────────────────────────────────
 export default function ScreensTab() {
-  const [devices,  setDevices]  = useState<Device[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [search,   setSearch]   = useState('');
-  const [diagId,   setDiagId]   = useState<string | null>(null);
+  const [devices,   setDevices]   = useState<Device[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [search,    setSearch]    = useState('');
+  const [diagId,    setDiagId]    = useState<string | null>(null);
+  const [selected,  setSelected]  = useState<Set<string>>(new Set());
+  const [bulking,   setBulking]   = useState(false);
+  const [groupInput, setGroupInput] = useState('');
+  const [showGroup,  setShowGroup] = useState(false);
 
   useEffect(() => {
     getDevices()
@@ -413,6 +418,37 @@ export default function ScreensTab() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const toggleAll = (ids: string[]) =>
+    setSelected((prev) => prev.size === ids.length && ids.every((id) => prev.has(id)) ? new Set() : new Set(ids));
+
+  const doBulkGroup = async () => {
+    setBulking(true);
+    try {
+      await bulkUpdateDevices({ ids: [...selected], action: 'group', groupName: groupInput.trim() || undefined });
+      setDevices((prev) => prev.map((d) => selected.has(d.id) ? { ...d, groupName: groupInput.trim() || null } : d));
+      toast({ title: `${selected.size} screen${selected.size > 1 ? 's' : ''} moved to group "${groupInput.trim() || 'none'}" ✓` });
+      setSelected(new Set()); setShowGroup(false); setGroupInput('');
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Bulk group failed', description: (e as Error).message });
+    } finally { setBulking(false); }
+  };
+
+  const doBulkDelete = async () => {
+    if (!confirm(`Delete ${selected.size} screen${selected.size > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setBulking(true);
+    try {
+      await bulkUpdateDevices({ ids: [...selected], action: 'delete' });
+      setDevices((prev) => prev.filter((d) => !selected.has(d.id)));
+      toast({ title: `${selected.size} screen${selected.size > 1 ? 's' : ''} deleted` });
+      setSelected(new Set());
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Bulk delete failed', description: (e as Error).message });
+    } finally { setBulking(false); }
+  };
 
   const filtered = devices.filter((d) =>
     !search ||
@@ -463,13 +499,58 @@ export default function ScreensTab() {
         </div>
       ) : (
         <>
-          <input
-            type="search"
-            placeholder="Search by store name, device ID or hardware key…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-          />
+          <div className="flex gap-2">
+            <input
+              type="search"
+              placeholder="Search by store name, device ID or hardware key…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+            />
+            {filtered.length > 0 && (
+              <button
+                onClick={() => toggleAll(filtered.map((d) => d.id))}
+                className="rounded-xl border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+              >
+                {selected.size === filtered.length ? 'Deselect all' : 'Select all'}
+              </button>
+            )}
+          </div>
+
+          {/* Bulk action bar */}
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+              <span className="text-xs font-semibold text-primary">{selected.size} selected</span>
+              <div className="flex-1" />
+
+              {showGroup ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={groupInput}
+                    onChange={(e) => setGroupInput(e.target.value)}
+                    placeholder="Group name (blank = remove)"
+                    className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-all w-48"
+                    onKeyDown={(e) => { if (e.key === 'Enter') doBulkGroup(); if (e.key === 'Escape') setShowGroup(false); }}
+                    autoFocus
+                  />
+                  <button onClick={doBulkGroup} disabled={bulking} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">
+                    {bulking ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Apply'}
+                  </button>
+                  <button onClick={() => setShowGroup(false)} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowGroup(true)} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                  <Layers className="h-3 w-3" /> Assign group
+                </button>
+              )}
+
+              <button onClick={doBulkDelete} disabled={bulking} className="flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/15 transition-colors disabled:opacity-50">
+                {bulking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                Delete
+              </button>
+              <button onClick={() => setSelected(new Set())} className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground ml-1 transition-colors">Clear</button>
+            </div>
+          )}
 
           {!filtered.length ? (
             <p className="text-sm text-muted-foreground text-center py-10">
@@ -481,10 +562,16 @@ export default function ScreensTab() {
                 const StatusIcon = STATUS_ICONS[d.status];
                 const sched = d.currentSchedule;
                 return (
-                  <div key={d.id} className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/30 transition-colors">
+                  <div key={d.id} className={`rounded-xl border bg-card overflow-hidden hover:border-primary/30 transition-colors ${selected.has(d.id) ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
                     {/* Top row — store + status + last seen */}
                     <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
                       <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(d.id)}
+                          onChange={() => toggleSelect(d.id)}
+                          className="h-3.5 w-3.5 rounded accent-primary cursor-pointer shrink-0"
+                        />
                         <Tv2 className="h-4 w-4 text-muted-foreground shrink-0" />
                         <div className="min-w-0">
                           <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />

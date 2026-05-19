@@ -1,9 +1,12 @@
 'use client';
 
+'use client';
+
 import { useEffect, useState } from 'react';
 import {
   Loader2, CalendarClock, Plus, Trash2, AlertCircle, Monitor,
   Zap, Clock3, CalendarDays, RotateCcw, Tv2, Smartphone, Pencil, CheckCircle2,
+  LayoutList, CalendarRange,
 } from 'lucide-react';
 import {
   getSchedules, getPlaylists, getDevices,
@@ -11,6 +14,7 @@ import {
   type Schedule, type Playlist, type Device,
 } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
+import ScheduleCalendar from './schedule-calendar';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -97,6 +101,7 @@ export default function SchedulesTab() {
   const [showForm,  setShowForm]  = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [editId,    setEditId]    = useState<string | null>(null);
+  const [listView,  setListView]  = useState<'list' | 'calendar'>('list');
 
   const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -492,11 +497,35 @@ export default function SchedulesTab() {
       )}
 
       {/* Schedule list */}
+      {schedules.length > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] text-muted-foreground">{schedules.length} schedule{schedules.length !== 1 ? 's' : ''}</p>
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setListView('list')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${listView === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <LayoutList className="h-3 w-3" /> List
+            </button>
+            <button
+              onClick={() => setListView('calendar')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${listView === 'calendar' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <CalendarRange className="h-3 w-3" /> Calendar
+            </button>
+          </div>
+        </div>
+      )}
+
       {!schedules.length ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 py-16">
           <CalendarClock className="h-8 w-8 text-muted-foreground/30 mb-2" />
           <p className="text-sm text-muted-foreground">No schedules yet</p>
           <p className="text-xs text-muted-foreground/60 mt-1">Create one to push content to your screens.</p>
+        </div>
+      ) : listView === 'calendar' ? (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <ScheduleCalendar schedules={schedules} />
         </div>
       ) : (
         <div className="rounded-xl border border-border overflow-x-auto">
