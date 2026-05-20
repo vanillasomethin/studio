@@ -70,10 +70,10 @@ export default function Home() {
     fetch('/api/site-media').then(r => r.json()).then(setSiteMedia).catch(() => {});
   }, []);
 
-  /* ─── Scope custom cursor to homepage only ─── */
+  /* ─── Scope homepage body classes ─── */
   useEffect(() => {
-    document.body.classList.add('use-custom-cursor');
-    return () => document.body.classList.remove('use-custom-cursor');
+    document.body.classList.add('use-custom-cursor', 'home-page');
+    return () => document.body.classList.remove('use-custom-cursor', 'home-page');
   }, []);
 
   /* ─── Custom cursor ─── */
