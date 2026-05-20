@@ -1,4 +1,4 @@
-// PATCH /api/devices/[id] — update storeName / groupName
+// PATCH /api/devices/[id] — update storeName / groupName / storeId (link to a Store)
 // Auth: admin-password header
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,10 +16,20 @@ export async function PATCH(
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
   try {
-    const { storeName, groupName } = await req.json() as { storeName?: string; groupName?: string };
-    const data: Record<string, string | null> = {};
-    if (storeName?.trim()) data.name = storeName.trim();
-    if (groupName !== undefined) data.groupName = groupName?.trim() || null;
+    const body = await req.json() as {
+      storeName?: string;
+      groupName?: string;
+      storeId?:   string | null;
+    };
+
+    const data: Record<string, unknown> = {};
+    if (body.storeName?.trim()) data.name = body.storeName.trim();
+    if (body.groupName !== undefined) data.groupName = body.groupName?.trim() || null;
+    if ('storeId' in body) {
+      data.storeId = body.storeId ?? null;
+      // stamp linkedAt when attaching a store; clear when detaching
+      data.linkedAt = body.storeId ? new Date() : null;
+    }
 
     const raw    = await db.device.update({ where: { id }, data });
     const device = { ...raw, storeName: raw.name };

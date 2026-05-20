@@ -36,7 +36,7 @@ export default function MonitoringTab() {
   const load = useCallback(() => {
     setLoading(true); setError(null);
     getDevices()
-      .then((d) => { setDevices(d); setLastFetch(new Date()); })
+      .then((r) => { setDevices(r.devices); setLastFetch(new Date()); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);

@@ -15,14 +15,22 @@ export async function POST(req: NextRequest) {
   const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
   const route = '/api/device/claim';
   try {
-    const { hardwareKey, name, groupName } = await req.json() as {
-      hardwareKey: string;
-      name?:       string;
-      groupName?:  string;
+    const { hardwareKey, name, groupName, storeReferralCode } = await req.json() as {
+      hardwareKey:        string;
+      name?:              string;
+      groupName?:         string;
+      storeReferralCode?: string;
     };
 
     if (!hardwareKey?.trim()) {
       return NextResponse.json({ error: 'hardwareKey is required' }, { status: 400 });
+    }
+
+    // Resolve store from referral code if provided
+    let storeId: string | null = null;
+    if (storeReferralCode?.trim()) {
+      const store = await db.store.findFirst({ where: { referralCode: storeReferralCode.trim() }, select: { id: true } });
+      if (store) storeId = store.id;
     }
 
     // Idempotent — return existing device token if already claimed
@@ -37,7 +45,14 @@ export async function POST(req: NextRequest) {
           groupName: groupName ?? null,
           jwtSecret,
           status:    'PENDING',
+          ...(storeId ? { storeId, linkedAt: new Date() } : {}),
         },
+      });
+    } else if (storeId && !device.storeId) {
+      // Auto-link if code provided on re-claim and device not yet linked
+      device = await db.device.update({
+        where: { id: device.id },
+        data:  { storeId, linkedAt: new Date() },
       });
     }
 

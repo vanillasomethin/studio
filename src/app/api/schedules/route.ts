@@ -22,14 +22,14 @@ export async function GET(req: NextRequest) {
         priority:    true,
         deviceIds:   true,
         groupName:   true,
+        storeIds:    true,
+        cityFilter:  true,
         startAt:     true,
         endAt:       true,
         recurrence:  true,
         dailyStart:  true,
         dailyEnd:    true,
         createdAt:   true,
-        // New columns — may not exist before migration; Prisma will include them
-        // if they exist, undefined otherwise (caught below).
         orientation:  true,
         intervalMins: true,
         playlist: { select: { name: true } },
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const {
-      name, playlistId, groupName, deviceIds,
+      name, playlistId, groupName, deviceIds, storeIds, cityFilter,
       startAt, endAt, recurrence,
       dailyStart, dailyEnd, priority,
       orientation, intervalMins,
@@ -91,6 +91,8 @@ export async function POST(req: NextRequest) {
       playlistId:    string;
       groupName?:    string;
       deviceIds?:    string[];
+      storeIds?:     string[];
+      cityFilter?:   string | null;
       startAt:       string;
       endAt:         string;
       recurrence:    'once' | 'daily' | 'weekly';
@@ -111,6 +113,8 @@ export async function POST(req: NextRequest) {
       priority:   priority   ?? 0,
       groupName:  groupName  ?? null,
       deviceIds:  deviceIds  ?? [],
+      storeIds:   storeIds   ?? [],
+      cityFilter: cityFilter ?? null,
       startAt:    new Date(startAt),
       endAt:      new Date(endAt),
       recurrence: (recurrence?.toUpperCase() ?? 'ONCE') as 'ONCE' | 'DAILY' | 'WEEKLY',
