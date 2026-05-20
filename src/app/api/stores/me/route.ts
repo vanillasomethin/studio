@@ -33,15 +33,27 @@ export async function GET() {
 
     if (!rows.length) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
 
-    // Attempt to read liveAt separately — column may not exist on older DBs
+    // Attempt to read optional columns separately — may not exist on older DBs
     let liveAt: string | null = null;
+    let onboardingStage: string | null = null;
+    let deviceCount = 0;
     try {
-      const live = await db.$queryRaw<{ liveAt: Date | null }[]>`
-        SELECT "liveAt" FROM "Store" WHERE "userId" = ${session.user.id} LIMIT 1
+      const extra = await db.$queryRaw<{ liveAt: Date | null; onboardingStage: string | null }[]>`
+        SELECT "liveAt", "onboardingStage" FROM "Store" WHERE "userId" = ${session.user.id} LIMIT 1
       `;
-      const v = live[0]?.liveAt;
+      const v = extra[0]?.liveAt;
       liveAt = v instanceof Date ? v.toISOString() : (v ?? null);
+      onboardingStage = extra[0]?.onboardingStage ?? null;
     } catch { /* column not yet migrated — safe default null */ }
+
+    // Count linked devices for store overview
+    try {
+      const storeRow = rows[0];
+      const devCount = await db.$queryRaw<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count FROM "Device" WHERE "storeId" = ${storeRow.id}
+      `;
+      deviceCount = Number(devCount[0]?.count ?? 0);
+    } catch { /* Device.storeId may not exist yet */ }
 
     const s = rows[0];
     return NextResponse.json({
@@ -58,9 +70,11 @@ export async function GET() {
       gstin:        s.gstin,
       referralCode: s.referralCode,
       referredBy:   s.referredBy,
-      agreedAt:     s.agreedAt instanceof Date ? s.agreedAt.toISOString() : s.agreedAt,
+      agreedAt:        s.agreedAt instanceof Date ? s.agreedAt.toISOString() : s.agreedAt,
       liveAt,
-      createdAt:    s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
+      onboardingStage,
+      deviceCount,
+      createdAt:       s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
       // from User join
       email:        (s as unknown as { email?: string }).email ?? null,
       phone:        (s as unknown as { phone?: string }).phone ?? null,

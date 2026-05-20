@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, Plus, Trash2, Tag, TrendingDown, AlertCircle, Search, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
+import { Loader2, Plus, Trash2, Tag, TrendingDown, AlertCircle, Search, CheckCircle2, ImagePlus, X } from 'lucide-react';
 
 type Offer = {
   id:          string;
@@ -30,9 +30,10 @@ type FormState = {
   offerPrice:  string;
   validUntil:  string;
   productId:   string | null;
+  imageUrl:    string | null;
 };
 
-const EMPTY_FORM: FormState = { productName: '', weight: '', mrp: '', offerPrice: '', validUntil: '', productId: null };
+const EMPTY_FORM: FormState = { productName: '', weight: '', mrp: '', offerPrice: '', validUntil: '', productId: null, imageUrl: null };
 
 function savings(mrp: number, offer: number) {
   return Math.round(((mrp - offer) / mrp) * 100);
@@ -51,7 +52,10 @@ export default function OffersTab() {
   const [form,     setForm]     = useState<FormState>(EMPTY_FORM);
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleting,    setDeleting]    = useState<string | null>(null);
+  const [imgUploading, setImgUploading] = useState(false);
+  const [imgDragOver,  setImgDragOver]  = useState(false);
+  const imgInputRef = useRef<HTMLInputElement>(null);
 
   // Product search state
   const [matches,    setMatches]    = useState<ProductMatch[]>([]);
@@ -105,9 +109,48 @@ export default function OffersTab() {
     set('productId', m.product.id);
     set('weight', m.product.sizeVariant);
     if (m.product.mrp && !form.mrp) set('mrp', String(m.product.mrp));
+    if (m.product.imageUrl) set('imageUrl', m.product.imageUrl);
     setShowDropdown(false);
     setMatches([]);
   };
+
+  const uploadImage = async (file: File) => {
+    if (!file.type.startsWith('image/')) { setError('Only image files allowed.'); return; }
+    if (file.size > 4 * 1024 * 1024)   { setError('Image too large — keep under 4 MB. Try TinyPNG to compress.'); return; }
+    setImgUploading(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/stores/upload', { method: 'POST', body: fd });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      set('imageUrl', data.url ?? null);
+    } catch (e) { setError((e as Error).message); }
+    finally { setImgUploading(false); }
+  };
+
+  const handleImgDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); setImgDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void uploadImage(file);
+  };
+
+  const handlePaste = useCallback((e: ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) { void uploadImage(file); break; }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [handlePaste]);
 
   const mrpNum   = parseFloat(form.mrp)       || 0;
   const offerNum = parseFloat(form.offerPrice) || 0;
@@ -130,6 +173,7 @@ export default function OffersTab() {
           offerPrice:  offerNum,
           validUntil:  form.validUntil || undefined,
           productId:   form.productId || undefined,
+          imageUrl:    form.imageUrl  || undefined,
         }),
       });
       if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error); }
@@ -274,6 +318,44 @@ export default function OffersTab() {
               onChange={(e) => set('validUntil', e.target.value)} className={inp} />
           </div>
 
+          {/* Product image upload */}
+          <div className="space-y-1">
+            <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+              Product photo <span className="normal-case font-normal text-muted-foreground/50">(optional · drag-drop or paste)</span>
+            </label>
+            {form.imageUrl ? (
+              <div className="relative w-20 h-20">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.imageUrl} alt="Product" className="w-20 h-20 rounded-xl object-cover border border-border" />
+                <button type="button" onClick={() => set('imageUrl', null)}
+                  className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setImgDragOver(true); }}
+                onDragLeave={() => setImgDragOver(false)}
+                onDrop={handleImgDrop}
+                onClick={() => imgInputRef.current?.click()}
+                className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed cursor-pointer py-5 transition-colors ${
+                  imgDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40 hover:bg-muted/30'
+                }`}
+              >
+                {imgUploading ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <>
+                    <ImagePlus className="h-5 w-5 text-muted-foreground/50" />
+                    <p className="text-[10px] text-muted-foreground/50">Drop image, paste, or click</p>
+                  </>
+                )}
+              </div>
+            )}
+            <input ref={imgInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f); }} />
+          </div>
+
           {error && (
             <p className="flex items-center gap-1.5 text-xs text-destructive rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
@@ -309,6 +391,14 @@ export default function OffersTab() {
               const expired = offer.validUntil && new Date(offer.validUntil) < new Date();
               return (
                 <div key={offer.id} className={`flex items-center gap-3 px-5 py-4 ${expired ? 'opacity-50' : ''}`}>
+                  {offer.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={offer.imageUrl} alt={offer.productName} className="h-12 w-12 rounded-lg object-cover border border-border shrink-0" />
+                  ) : (
+                    <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      <Tag className="h-4 w-4 text-muted-foreground/30" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-bold text-foreground">{offer.productName}</p>
