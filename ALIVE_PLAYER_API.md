@@ -55,6 +55,7 @@ Content-Type: application/json
 | `hardwareKey` | `string` | Yes | `Settings.Secure.ANDROID_ID` |
 | `name` | `string` | No | Human-readable screen label (e.g. "Sharma Kirana - Counter") |
 | `groupName` | `string` | No | Group tag for schedule targeting (e.g. "mangaluru-zone-1") |
+| `storeReferralCode` | `string` | No | If set on first boot, the device is auto-linked to the store with this referral code. Recommended: show a one-time setup screen on the APK asking the staff to type their 6-char store referral code printed on the partner sticker. If unknown, omit the field — admin can link via the dashboard later. |
 
 **curl example**
 
@@ -130,6 +131,7 @@ curl https://wearealive.in/api/device/plan \
   "planHash": "sha256-abc123def456",
   "scheduleId": "clx7k2m0f0000sch1234abcd",
   "validUntil": "2026-05-25T18:30:00.000Z",
+  "forceSyncAt": "2026-05-20T11:42:30.000Z",
   "items": [
     {
       "contentId": "clx7k2m0f0000cnt1234abcd",
@@ -159,6 +161,28 @@ curl https://wearealive.in/api/device/plan \
       "playlistId": "clx7k2m0f0000pls1234abcd",
       "name": "Weekday Daytime"
     }
+  ],
+  "overlays": [
+    {
+      "id": "clx7k2m0f0000ovr1234abcd",
+      "name": "BBC News ticker",
+      "type": "NEWS_TICKER",
+      "text": null,
+      "feedUrl": "https://feeds.bbci.co.uk/news/rss.xml",
+      "imageUrl": null,
+      "feedItems": [
+        { "title": "Headline 1", "link": "https://...", "pubDate": "2026-05-20T..." }
+      ],
+      "position": "BOTTOM",
+      "bgColor": "#000000",
+      "fgColor": "#ffffff",
+      "speedPxSec": 60,
+      "heightPct": 8,
+      "dailyStart": null,
+      "dailyEnd": null,
+      "requireWifi": true,
+      "priority": 0
+    }
   ]
 }
 ```
@@ -170,8 +194,10 @@ curl https://wearealive.in/api/device/plan \
 | `planHash` | `string` | SHA-256 fingerprint of the full plan. Cache locally; skip processing if unchanged. |
 | `scheduleId` | `string \| null` | Active schedule ID, or `null` if no schedule is assigned. |
 | `validUntil` | `string` (ISO 8601) | Hint for when to re-poll. |
+| `forceSyncAt` | `string \| null` | Admin-triggered cache-bust timestamp. If the player's last cached `forceSyncAt` differs (or is older), invalidate the local content cache and re-download. |
 | `items` | `ContentItem[]` | Ordered list of content to download and play. Empty if no schedule. |
 | `timeline` | `TimelineSlot[]` | Schedule windows with dayparting boundaries. |
+| `overlays` | `Overlay[]` | Active overlays (tickers / banners / news feeds) to render on top of content. May be empty. |
 
 **ContentItem fields**
 
@@ -195,6 +221,38 @@ curl https://wearealive.in/api/device/plan \
 | `endAt` | `string` (ISO 8601) | UTC end of this schedule window |
 | `playlistId` | `string` | Playlist driving this window |
 | `name` | `string` | Human-readable schedule name |
+
+**Overlay fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Overlay ID |
+| `name` | `string` | Admin-defined name (logging only) |
+| `type` | `"TICKER" \| "NEWS_TICKER" \| "BANNER" \| "INFO_BAR"` | Render mode |
+| `text` | `string \| null` | Used by `TICKER` and `INFO_BAR` |
+| `feedUrl` | `string \| null` | Used by `NEWS_TICKER` (informational — items are pre-fetched server-side into `feedItems`) |
+| `imageUrl` | `string \| null` | Used by `BANNER` |
+| `feedItems` | `{ title, link, pubDate }[] \| null` | Pre-fetched headlines (cached 5 min server-side). Scroll concatenated titles. |
+| `position` | `"TOP" \| "BOTTOM" \| "LEFT" \| "RIGHT"` | Where the strip renders |
+| `bgColor`/`fgColor` | `string \| null` | Hex colours. Fall back to black bg / white fg if null. |
+| `speedPxSec` | `number` | Scroll speed for tickers (px/sec) |
+| `heightPct` | `number` | Strip thickness as % of screen height (TOP/BOTTOM) or width (LEFT/RIGHT) |
+| `dailyStart`/`dailyEnd` | `string \| null` | Optional "HH:MM" dayparting in device local time |
+| `requireWifi` | `boolean` | If true, hide overlay when device isn't on WiFi |
+| `priority` | `number` | If multiple overlays compete for the same edge, higher wins; remaining ones stack along available edges or skip |
+
+**Player rendering notes for overlays:**
+- `TICKER` / `NEWS_TICKER` — render a single-line marquee scrolling right-to-left at `speedPxSec`. For `NEWS_TICKER`, join `feedItems[].title` with `   •   `.
+- `BANNER` — render `imageUrl` as object-fit:cover within the strip box.
+- `INFO_BAR` — render `text` centred, no scrolling.
+- Don't render overlays while the player is in setup/onboarding state.
+- Respect `dailyStart`/`dailyEnd` in **device local time**, not UTC.
+- Cache `feedItems` locally between polls — they're already cached server-side so a stale value for up to 5 min is expected.
+
+**Force sync behaviour:**
+- Each plan response now includes `forceSyncAt`. Cache it alongside the plan.
+- On every plan fetch, compare the new `forceSyncAt` against the cached one. If the new value is **strictly newer** (or the cached one is missing), invalidate the local content cache (purge MD5-keyed files) and re-download everything from scratch.
+- This lets admins force a refresh from the Screens tab when content was updated mid-cycle.
 
 **Side effects:** calling this endpoint updates the device's `lastSeen` timestamp and sets status to `ONLINE`.
 

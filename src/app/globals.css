@@ -155,7 +155,7 @@
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
 body{overflow-x:hidden;-webkit-font-smoothing:antialiased;}
-@media(pointer:coarse){body{cursor:auto;}}
+@media(pointer:coarse){body{cursor:auto;}.cursor,.cursor-ring{display:none !important;}}
 ::selection{background:var(--red);color:#fff;}
 .mono{font-family:"DM Mono",ui-monospace,monospace;font-weight:400;letter-spacing:0.02em;}
 /* Custom cursor only on the homepage — scoped via .use-custom-cursor on <body> */

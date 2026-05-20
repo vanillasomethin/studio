@@ -8,12 +8,13 @@ import {
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
   Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag, ImageIcon,
-  KeyRound, Eye, EyeOff, ArrowLeft,
+  KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
+import KycTab from '@/components/store/kyc-tab';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
@@ -42,10 +43,12 @@ type StoreInfo = {
   address?:      string;
   gstin?:        string;
   email?:        string;
-  referralCode?: string;
-  referredBy?:   string;
-  agreedAt?:     string;
-  liveAt?:       string;
+  referralCode?:     string;
+  referredBy?:       string;
+  agreedAt?:         string;
+  liveAt?:           string;
+  onboardingStage?:  string;
+  deviceCount?:      number;
   payoutMethod?: string; upiId?: string; bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
 };
 
@@ -518,7 +521,18 @@ function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: () => void }) {
+// Pro-rate ₹500 for the first partial month based on onboarding date.
+// Returns amount in paise for consistency with PaymentRecord.
+function proRateFirstMonth(onboardedAt: Date, monthStart: Date): number {
+  const monthEnd   = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+  const totalDays  = (monthEnd.getTime() - monthStart.getTime()) / 86400000;
+  // Days from onboarding date to end of month (inclusive of onboarding day)
+  const daysActive = (monthEnd.getTime() - onboardedAt.getTime()) / 86400000;
+  const fraction   = Math.min(1, Math.max(0, daysActive / totalDays));
+  return Math.round(500 * fraction * 100); // in paise
+}
+
+function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: (monthKey: string, amountPaise: number) => void }) {
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
 
   useEffect(() => {
@@ -529,38 +543,44 @@ function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: () => 
   }, []);
 
   const now = new Date();
+  // A month is claimable only after it has fully ended (i.e., today >= 1st of next month)
+  const claimableBeforeMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
   // Determine start month: liveAt → agreedAt → fallback to 4 months ago
-  const startDate = store.liveAt ?? store.agreedAt;
-  const startMonth = startDate
-    ? new Date(startDate)
+  const onboardDate = store.liveAt ?? store.agreedAt;
+  const onboardedAt = onboardDate ? new Date(onboardDate) : null;
+  const startMonth  = onboardedAt
+    ? new Date(onboardedAt.getFullYear(), onboardedAt.getMonth(), 1)
     : new Date(now.getFullYear(), now.getMonth() - 4, 1);
 
   // Build months from startMonth to current month
-  const months: { label: string; range: string; isPast: boolean; isCur: boolean; isFuture: boolean; amount: string; monthKey: string }[] = [];
+  const months: { label: string; range: string; isPast: boolean; isCur: boolean; isFuture: boolean; amountPaise: number; monthKey: string; isFirstMonth: boolean }[] = [];
   const cur = new Date(startMonth.getFullYear(), startMonth.getMonth(), 1);
   const endCal = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  // If no live date set, show a 12-month window centered on now
-  if (!startDate) {
-    for (let i = 0; i < 12; i++) {
-      const start = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1);
-      const end   = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      const isPast   = start < new Date(now.getFullYear(), now.getMonth(), 1);
-      const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
-      const mo = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-      months.push({ label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture: !isPast && !isCur, amount: '₹500', monthKey: monthKey(start) });
-    }
-  } else {
-    while (cur <= endCal) {
-      const start = new Date(cur);
-      const end   = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      const isPast   = start < new Date(now.getFullYear(), now.getMonth(), 1);
-      const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
-      const mo = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-      months.push({ label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture: !isPast && !isCur, amount: '₹500', monthKey: monthKey(start) });
-      cur.setMonth(cur.getMonth() + 1);
-    }
+  let firstMonthProcessed = false;
+  while (cur <= endCal) {
+    const start    = new Date(cur);
+    const end      = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    const isPast   = start.getTime() < claimableBeforeMs;
+    const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
+    const mo       = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const isFirst  = !firstMonthProcessed;
+    // Pro-rate first month; full ₹500 (50000 paise) for subsequent months
+    const amountPaise = (isFirst && onboardedAt)
+      ? proRateFirstMonth(onboardedAt, start)
+      : 50000;
+    if (isFirst) firstMonthProcessed = true;
+    months.push({
+      label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+      range: `${mo(start)} – ${mo(end)}`,
+      isPast, isCur,
+      isFuture: !isPast && !isCur,
+      amountPaise,
+      monthKey: monthKey(start),
+      isFirstMonth: isFirst,
+    });
+    cur.setMonth(cur.getMonth() + 1);
   }
 
   return (
@@ -613,7 +633,7 @@ function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: () => 
                 {isPaid ? (
                   <div className="flex items-center gap-1.5">
                     <div className="text-right">
-                      <span className="text-xs font-bold text-green-600">₹{((record?.amountPaise ?? 50000) / 100).toLocaleString('en-IN')}</span>
+                      <span className="text-xs font-bold text-green-600">₹{((record?.amountPaise ?? m.amountPaise) / 100).toLocaleString('en-IN')}</span>
                       {record?.paidAt && <p className="text-[9px] text-green-600/60">{new Date(record.paidAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>}
                     </div>
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
@@ -621,17 +641,19 @@ function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: () => 
                 ) : isSkipped ? (
                   <span className="text-[10px] text-muted-foreground/40 font-medium">Skipped</span>
                 ) : m.isCur ? (
-                  <button
-                    onClick={onClaim}
-                    className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
-                  >
-                    <Download className="h-2.5 w-2.5" /> Claim
-                  </button>
-                ) : m.isPast ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-amber-600">{m.amount}</span>
-                    <Clock className="h-3.5 w-3.5 text-amber-500" />
+                  // Current month — not yet claimable; show in-progress amount
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-primary">₹{(m.amountPaise / 100).toLocaleString('en-IN')}</span>
+                    <p className="text-[9px] text-primary/50 mt-0.5">In progress</p>
                   </div>
+                ) : m.isPast ? (
+                  // Past month, unpaid — show Claim button
+                  <button
+                    onClick={() => onClaim(m.monthKey, m.amountPaise)}
+                    className="flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
+                  >
+                    <Download className="h-2.5 w-2.5" /> Claim ₹{(m.amountPaise / 100).toLocaleString('en-IN')}
+                  </button>
                 ) : (
                   <span className="text-[10px] text-muted-foreground/40 font-medium">Upcoming</span>
                 )}
@@ -680,11 +702,17 @@ function ReferralCard({ store }: { store: StoreInfo }) {
 
 // ─── Claim payout modal ───────────────────────────────────────────────────────
 
-function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void }) {
+function ClaimModal({ store, onClose, claimMonthKey, claimAmountPaise }: {
+  store: StoreInfo; onClose: () => void;
+  claimMonthKey: string; claimAmountPaise: number;
+}) {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState<string | null>(null);
-  const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  // claimMonthKey is "YYYY-MM"; display as e.g. "March 2025"
+  const [year, mo] = claimMonthKey.split('-');
+  const month = new Date(Number(year), Number(mo) - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const amountRs = (claimAmountPaise / 100).toLocaleString('en-IN');
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -723,7 +751,7 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Amount</span>
-                <span className="font-bold text-green-600">₹500 + electricity</span>
+                <span className="font-bold text-green-600">₹{amountRs} + electricity</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">UPI / WhatsApp</span>
@@ -745,7 +773,7 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
                     const res = await fetch('/api/payout-claim', {
                       method:  'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body:    JSON.stringify({ month }),
+                      body:    JSON.stringify({ month: claimMonthKey, amountPaise: claimAmountPaise }),
                     });
                     if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error); }
                     setSent(true);
@@ -836,12 +864,20 @@ const EARNING_TABLE = [
   { screens: 3, monthly: 1500, annual: 18000 },
 ];
 
-const TIMELINE = [
-  { label: 'Registration received',   desc: 'Your details are saved successfully.',               done: true  },
-  { label: 'Team verification',       desc: 'Our team will call you within 24 hours.',             active: true  },
-  { label: 'Site visit & install',    desc: 'Free screen installed at your store.',               done: false },
-  { label: 'Screen goes live',        desc: 'Ads start running — you start earning!',             done: false },
-];
+function buildTimeline(store: StoreInfo) {
+  const stage = store.onboardingStage ?? 'new';
+  const isContacted = ['contacted', 'visited', 'installed', 'live', 'rejected'].includes(stage);
+  const isVisited   = ['visited', 'installed', 'live'].includes(stage);
+  const isInstalled = ['installed', 'live'].includes(stage) || (store.deviceCount ?? 0) > 0;
+  const isLive      = stage === 'live' || !!store.liveAt;
+
+  return [
+    { label: 'Registration received', desc: 'Your details are saved successfully.', done: true, active: false },
+    { label: 'Team verification',     desc: 'Our team will call you within 24 hours.', done: isContacted, active: !isContacted },
+    { label: 'Site visit & install',  desc: 'Free screen installed at your store.', done: isInstalled, active: isContacted && !isInstalled },
+    { label: 'Screen goes live',      desc: 'Ads start running — you start earning!', done: isLive, active: isInstalled && !isLive },
+  ];
+}
 
 
 
@@ -886,25 +922,27 @@ function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'flyergen' | 'settings';
+type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'flyergen' | 'settings' | 'kyc';
 
 const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
-  { id: 'overview',  label: 'Overview',       icon: BarChart3    },
-  { id: 'earnings',  label: 'Earnings',       icon: IndianRupee  },
-  { id: 'flyers',    label: 'My flyers',      icon: FileImage    },
-  { id: 'voicebill', label: 'VoiceBill',      icon: ShoppingCart },
-  { id: 'offers',    label: 'Offers',         icon: Tag          },
-  { id: 'flyergen',  label: 'Flyer',          icon: ImageIcon    },
-  { id: 'settings',  label: 'Payout',         icon: Gift         },
+  { id: 'overview',  label: 'Overview',   icon: BarChart3    },
+  { id: 'earnings',  label: 'Earnings',   icon: IndianRupee  },
+  { id: 'flyers',    label: 'My flyers',  icon: FileImage    },
+  { id: 'voicebill', label: 'VoiceBill',  icon: ShoppingCart },
+  { id: 'offers',    label: 'Offers',     icon: Tag          },
+  { id: 'flyergen',  label: 'Flyer',      icon: ImageIcon    },
+  { id: 'settings',  label: 'Payout',     icon: Gift         },
+  { id: 'kyc',       label: 'KYC',        icon: ShieldCheck  },
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
   const [tab,       setTab]      = useState<DashTab>('overview');
   const [storeData, setStoreData] = useState<StoreInfo>(store);
   const [claimOpen, setClaimOpen] = useState(false);
+  const [claimMonthKey,    setClaimMonthKey]    = useState('');
+  const [claimAmountPaise, setClaimAmountPaise] = useState(50000);
 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
-  const earning     = EARNING_TABLE[0]; // 1 screen per store
 
   const saveEmail = (email: string) => {
     setStoreData((prev) => ({ ...prev, email }));
@@ -951,17 +989,35 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 <p className="text-base font-bold text-white">₹500</p>
                 <p className="text-[9px] text-white/40">/month</p>
               </div>
-              <div className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-center">
-                <p className="text-base font-bold text-primary">48h</p>
-                <p className="text-[9px] text-primary/60">To live</p>
-              </div>
+              {storeData.liveAt ? (
+                <div className="rounded-xl border border-green-500/40 bg-green-500/10 px-3 py-2.5 text-center">
+                  <p className="text-base font-bold text-green-400">Live</p>
+                  <p className="text-[9px] text-green-500/60">{(storeData.deviceCount ?? 0)} screen{(storeData.deviceCount ?? 1) !== 1 ? 's' : ''}</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-center">
+                  <p className="text-base font-bold text-primary">48h</p>
+                  <p className="text-[9px] text-primary/60">To live</p>
+                </div>
+              )}
             </div>
           </div>
           <div className="border-t border-white/10 px-5 sm:px-6 py-2.5 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
-            <p className="text-xs text-white/50">
-              <span className="text-white/80 font-semibold">Registration received</span> — our team will call +91 {storeData.whatsapp} within 24 hours.
-            </p>
+            {storeData.liveAt ? (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
+                <p className="text-xs text-white/50">
+                  <span className="text-white/80 font-semibold">Screen is live</span> — ads are running and you&apos;re earning.
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                <p className="text-xs text-white/50">
+                  <span className="text-white/80 font-semibold">Registration received</span> — our team will call +91 {storeData.whatsapp} within 24 hours.
+                </p>
+              </>
+            )}
           </div>
         </motion.div>
 
@@ -993,33 +1049,44 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'overview' && (
             <motion.div key="ov" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
-              {/* Timeline */}
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-sm font-bold text-foreground">What happens next</h2>
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">Step 1 of 4</span>
-                </div>
-                <div className="space-y-0">
-                  {TIMELINE.map((item, i) => (
-                    <div key={item.label} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                          item.done   ? 'bg-primary text-white' :
-                          item.active ? 'border-2 border-primary bg-primary/10 text-primary' :
-                                        'border-2 border-border bg-background text-muted-foreground'
-                        }`}>
-                          {item.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.active ? <Clock className="h-3.5 w-3.5" /> : <span>{i+1}</span>}
-                        </div>
-                        {i < TIMELINE.length - 1 && <div className={`w-px flex-1 min-h-[24px] mt-1 mb-1 ${item.done ? 'bg-primary/30' : 'bg-border'}`} />}
-                      </div>
-                      <div className="pb-4">
-                        <p className={`text-sm font-semibold ${item.done ? 'text-foreground' : item.active ? 'text-primary' : 'text-muted-foreground'}`}>{item.label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
-                      </div>
+              {/* Timeline — dynamic based on onboardingStage + deviceCount */}
+              {(() => {
+                const timeline = buildTimeline(storeData);
+                const stepDone = timeline.filter(t => t.done).length;
+                const stepLabel = stepDone >= 4 ? 'Live ✓' : `Step ${stepDone} of 4`;
+                return (
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-sm font-bold text-foreground">
+                        {stepDone >= 4 ? 'Your store is live!' : 'What happens next'}
+                      </h2>
+                      <span className={`text-xs bg-muted px-2 py-1 rounded-full ${stepDone >= 4 ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                        {stepLabel}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div className="space-y-0">
+                      {timeline.map((item, i) => (
+                        <div key={item.label} className="flex gap-3">
+                          <div className="flex flex-col items-center">
+                            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              item.done   ? 'bg-primary text-white' :
+                              item.active ? 'border-2 border-primary bg-primary/10 text-primary' :
+                                            'border-2 border-border bg-background text-muted-foreground'
+                            }`}>
+                              {item.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.active ? <Clock className="h-3.5 w-3.5" /> : <span>{i+1}</span>}
+                            </div>
+                            {i < timeline.length - 1 && <div className={`w-px flex-1 min-h-[24px] mt-1 mb-1 ${item.done ? 'bg-primary/30' : 'bg-border'}`} />}
+                          </div>
+                          <div className="pb-4">
+                            <p className={`text-sm font-semibold ${item.done ? 'text-foreground' : item.active ? 'text-primary' : 'text-muted-foreground'}`}>{item.label}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Referral */}
               <ReferralCard store={storeData} />
@@ -1083,7 +1150,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               </div>
 
               {/* 12-month timeline */}
-              <PaymentTimeline store={storeData} onClaim={() => setClaimOpen(true)} />
+              <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 
             </motion.div>
           )}
@@ -1138,6 +1205,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
             </motion.div>
           )}
 
+          {tab === 'kyc' && (
+            <motion.div key="kyc" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <KycTab />
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </main>
 
@@ -1146,7 +1219,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
       </footer>
 
       <AnimatePresence>
-        {claimOpen && <ClaimModal store={storeData} onClose={() => setClaimOpen(false)} />}
+        {claimOpen && <ClaimModal store={storeData} onClose={() => setClaimOpen(false)} claimMonthKey={claimMonthKey} claimAmountPaise={claimAmountPaise} />}
       </AnimatePresence>
 
       <PwaInstallBanner />
