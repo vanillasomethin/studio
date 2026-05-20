@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import {
   getDevices, updateDevice, bulkUpdateDevices, bulkPushSchedule, getDeviceGroups, getPlaylists,
-  searchStores,
+  searchStores, forceSyncDevice,
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
@@ -473,12 +473,20 @@ export default function ScreensTab() {
   const [bulking,      setBulking]       = useState(false);
   const [showGroup,    setShowGroup]    = useState(false);
   const [groupInput,   setGroupInput]   = useState('');
+  const [groupMode,    setGroupMode]    = useState<'existing' | 'new'>('existing');
+  const [allGroups,    setAllGroups]    = useState<DeviceGroup[]>([]);
   const [showGroups,   setShowGroups]   = useState(false);
   const [linkIds,      setLinkIds]      = useState<string[] | null>(null);
   const [pushIds,      setPushIds]      = useState<string[] | null>(null);
   const [showFilters,  setShowFilters]  = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadGroups = useCallback(() => {
+    getDeviceGroups().then(setAllGroups).catch(() => {});
+  }, []);
+
+  useEffect(() => { loadGroups(); }, [loadGroups]);
 
   const fetchPage = useCallback((cursor?: string, isPrev = false) => {
     setLoading(true); setError(null);
@@ -522,13 +530,36 @@ export default function ScreensTab() {
 
   const doBulkGroup = async () => {
     setBulking(true);
+    const name = groupInput.trim();
     try {
-      await bulkUpdateDevices({ ids: [...selected], action: 'group', groupName: groupInput.trim() || undefined });
-      setDevices((prev) => prev.map((d) => selected.has(d.id) ? { ...d, groupName: groupInput.trim() || null } : d));
-      toast({ title: `${selected.size} screen${selected.size > 1 ? 's' : ''} moved to group "${groupInput.trim() || 'none'}" ✓` });
-      setSelected(new Set()); setShowGroup(false); setGroupInput('');
+      await bulkUpdateDevices({ ids: [...selected], action: 'group', groupName: name || undefined });
+      setDevices((prev) => prev.map((d) => selected.has(d.id) ? { ...d, groupName: name || null } : d));
+      toast({ title: `${selected.size} screen${selected.size > 1 ? 's' : ''} moved to group "${name || 'none'}" ✓` });
+      setSelected(new Set()); setShowGroup(false); setGroupInput(''); setGroupMode('existing');
+      loadGroups();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Bulk group failed', description: (e as Error).message });
+    } finally { setBulking(false); }
+  };
+
+  const doForceSync = async (id: string) => {
+    try {
+      await forceSyncDevice(id);
+      toast({ title: 'Sync triggered ✓', description: 'Player will refresh on next poll (within 1–5 min depending on its cadence).' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Force sync failed', description: (e as Error).message });
+    }
+  };
+
+  const doBulkForceSync = async () => {
+    setBulking(true);
+    try {
+      const ids = [...selected];
+      await Promise.all(ids.map((id) => forceSyncDevice(id)));
+      toast({ title: `${ids.length} screen${ids.length > 1 ? 's' : ''} flagged for re-sync ✓`, description: 'Each player will refresh on its next poll.' });
+      setSelected(new Set());
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Bulk force sync failed', description: (e as Error).message });
     } finally { setBulking(false); }
   };
 
@@ -680,24 +711,48 @@ export default function ScreensTab() {
                 <Link2 className="h-3 w-3" /> Link store
               </button>
               {showGroup ? (
-                <div className="flex items-center gap-2">
-                  <input value={groupInput} onChange={(e) => setGroupInput(e.target.value)}
-                    placeholder="Group name (blank = remove)"
-                    className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-all w-44"
-                    onKeyDown={(e) => { if (e.key === 'Enter') doBulkGroup(); if (e.key === 'Escape') setShowGroup(false); }}
-                    autoFocus />
+                <div className="flex items-center gap-2 flex-wrap">
+                  {groupMode === 'existing' ? (
+                    <select
+                      value={groupInput}
+                      onChange={(e) => {
+                        if (e.target.value === '__new__') { setGroupMode('new'); setGroupInput(''); }
+                        else setGroupInput(e.target.value);
+                      }}
+                      className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs focus:outline-none focus:border-primary transition-all"
+                      autoFocus
+                    >
+                      <option value="">— Remove from group —</option>
+                      {allGroups.map((g) => (
+                        <option key={g.name} value={g.name}>{g.name} ({g.total} screen{g.total !== 1 ? 's' : ''})</option>
+                      ))}
+                      <option value="__new__">＋ Create new group…</option>
+                    </select>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <input value={groupInput} onChange={(e) => setGroupInput(e.target.value)}
+                        placeholder="New group name"
+                        className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-all w-40"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && groupInput.trim()) doBulkGroup(); if (e.key === 'Escape') setShowGroup(false); }}
+                        autoFocus />
+                      <button type="button" onClick={() => { setGroupMode('existing'); setGroupInput(''); }} className="text-[10px] text-muted-foreground hover:text-foreground underline">back</button>
+                    </div>
+                  )}
                   <button onClick={doBulkGroup} disabled={bulking} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">
                     {bulking ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Apply'}
                   </button>
-                  <button onClick={() => setShowGroup(false)} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                  <button onClick={() => { setShowGroup(false); setGroupMode('existing'); setGroupInput(''); }} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
                 </div>
               ) : (
-                <button onClick={() => setShowGroup(true)} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => { setShowGroup(true); setGroupMode('existing'); setGroupInput(''); }} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
                   <Layers className="h-3 w-3" /> Assign group
                 </button>
               )}
               <button onClick={() => setPushIds([...selected])} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
                 <Play className="h-3 w-3" /> Push playlist
+              </button>
+              <button onClick={doBulkForceSync} disabled={bulking} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
+                <RefreshCw className={`h-3 w-3 ${bulking ? 'animate-spin' : ''}`} /> Force sync
               </button>
               <button onClick={doBulkDelete} disabled={bulking} className="flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/15 transition-colors disabled:opacity-50">
                 {bulking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />} Delete
@@ -797,6 +852,9 @@ export default function ScreensTab() {
                         </button>
                         <button onClick={() => setDiagId(d.id)} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
                           <Stethoscope className="h-3 w-3" /> Diag
+                        </button>
+                        <button onClick={() => doForceSync(d.id)} title="Force this screen to re-fetch its plan on next poll" className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
+                          <RefreshCw className="h-3 w-3" /> Sync
                         </button>
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
                           <StatusIcon className="h-2.5 w-2.5" />{d.status}

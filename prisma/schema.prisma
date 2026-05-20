@@ -209,6 +209,7 @@ model Device {
   uptimePctD30 Float?
   claimedAt    DateTime      @default(now())
   linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
+  forceSyncAt  DateTime?                     // admin-triggered cache bust — player re-fetches when > lastSyncAt
   updatedAt    DateTime      @updatedAt
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
@@ -621,4 +622,51 @@ model ContextDocument {
   @@unique([sourceType, sourceId])
   @@index([timestamp])
   @@index([serviceArea])
+}
+
+// ─── Overlays (on-screen layouts: tickers, banners, news feeds) ──────────────
+// Rendered by ALIVE Player as a layer on top of the playlist content.
+// Same targeting model as Schedule: deviceIds / groupName / storeIds / cityFilter / "all"
+model Overlay {
+  id           String   @id @default(cuid())
+  name         String
+  type         String   // 'TICKER' | 'NEWS_TICKER' | 'BANNER' | 'INFO_BAR'
+  enabled      Boolean  @default(true)
+
+  // Content (use depends on type)
+  text         String?  // TICKER, INFO_BAR — plain text
+  feedUrl      String?  // NEWS_TICKER — RSS / JSON URL (server fetches & caches)
+  imageUrl     String?  // BANNER — image URL (R2 or external)
+  feedItems    Json?    // cached news items: [{ title, link, pubDate }]
+  feedFetchedAt DateTime?
+
+  // Visual
+  position     String   @default("BOTTOM")  // TOP | BOTTOM | LEFT | RIGHT
+  bgColor      String?
+  fgColor      String?
+  speedPxSec   Int      @default(60)        // for tickers
+  heightPct    Int      @default(8)         // % of screen height (TOP/BOTTOM) or width (LEFT/RIGHT)
+
+  // Targeting
+  deviceIds    String[] @default([])
+  groupName    String?
+  storeIds     String[] @default([])
+  cityFilter   String?
+
+  // Time window
+  startAt      DateTime?
+  endAt        DateTime?
+  dailyStart   String?                       // "HH:MM"
+  dailyEnd     String?                       // "HH:MM"
+
+  // Player constraints
+  requireWifi  Boolean  @default(false)      // only render when player reports WiFi
+  priority     Int      @default(0)          // ties broken by createdAt asc
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([enabled])
+  @@index([cityFilter])
+  @@index([groupName])
 }

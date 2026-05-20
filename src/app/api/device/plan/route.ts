@@ -213,10 +213,58 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // ── Resolve active overlays for this device ─────────────────────────────
+    const overlayOrConditions: Record<string, unknown>[] = [
+      { deviceIds: { has: device.id } },
+    ];
+    if (device.groupName)      overlayOrConditions.push({ groupName:  device.groupName });
+    if (device.storeId)        overlayOrConditions.push({ storeIds:   { has: device.storeId } });
+    if (deviceWithStore?.city) overlayOrConditions.push({ cityFilter: deviceWithStore.city });
+    // "all screens" overlays — none of the targeting fields set
+    overlayOrConditions.push({
+      AND: [
+        { deviceIds: { isEmpty: true } },
+        { groupName: null },
+        { storeIds:  { isEmpty: true } },
+        { cityFilter: null },
+      ],
+    });
+
+    const overlaysRaw = await db.overlay.findMany({
+      where: {
+        enabled: true,
+        OR: overlayOrConditions,
+        AND: [
+          { OR: [{ startAt: null }, { startAt: { lte: now } }] },
+          { OR: [{ endAt:   null }, { endAt:   { gte: now } }] },
+        ],
+      },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    const overlays = overlaysRaw.map((o) => ({
+      id:          o.id,
+      name:        o.name,
+      type:        o.type,
+      text:        o.text,
+      feedUrl:     o.feedUrl,
+      imageUrl:    o.imageUrl,
+      feedItems:   o.feedItems,
+      position:    o.position,
+      bgColor:     o.bgColor,
+      fgColor:     o.fgColor,
+      speedPxSec:  o.speedPxSec,
+      heightPct:   o.heightPct,
+      dailyStart:  o.dailyStart,
+      dailyEnd:    o.dailyEnd,
+      requireWifi: o.requireWifi,
+      priority:    o.priority,
+    }));
+
     // Hash the plan so the player can detect changes without re-downloading
     const planHash = crypto
       .createHash('md5')
-      .update(JSON.stringify({ items, timeline }))
+      .update(JSON.stringify({ items, timeline, overlays, forceSyncAt: device.forceSyncAt?.toISOString() ?? null }))
       .digest('hex');
 
     // Update device heartbeat
@@ -229,8 +277,10 @@ export async function GET(req: NextRequest) {
       planHash,
       scheduleId: schedule?.id ?? null,
       validUntil: windowEnd.toISOString(),
+      forceSyncAt: device.forceSyncAt?.toISOString() ?? null,
       items,
       timeline,
+      overlays,
     });
   } catch (e) {
     const error = e as Error;

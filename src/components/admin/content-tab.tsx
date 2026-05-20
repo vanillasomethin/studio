@@ -97,16 +97,26 @@ export default function ContentTab() {
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
 
-    const MAX_MB = 200;
+    // Vercel serverless body limit is ~4.5 MB. Anything over fails with 413.
+    const MAX_MB = 4;
     const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
 
     for (const file of Array.from(files)) {
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
-      if (!isVideo && !isImage) continue;
+      if (!isVideo && !isImage) {
+        setUploads((u) => [...u, { name: file.name, progress: 0, done: false, error: 'Only image or video files are supported.' }]);
+        continue;
+      }
 
       if (file.size > MAX_MB * 1024 * 1024) {
-        setUploads((u) => [...u, { name: file.name, progress: 0, done: false, error: `File exceeds ${MAX_MB} MB limit` }]);
+        const mb = (file.size / (1024 * 1024)).toFixed(1);
+        setUploads((u) => [...u, {
+          name:     file.name,
+          progress: 0,
+          done:     false,
+          error:    `Too large (${mb} MB). Compress to under ${MAX_MB} MB — try HandBrake (video) or TinyPNG (image).`,
+        }]);
         continue;
       }
 
@@ -139,12 +149,20 @@ export default function ContentTab() {
         await new Promise<void>((resolve, reject) => {
           xhr.onload = () => {
             if (xhr.status < 300) { resolve(); return; }
+            const mb = (file.size / (1024 * 1024)).toFixed(1);
+            if (xhr.status === 413) {
+              reject(new Error(`File too large (${mb} MB). Server allows up to ~4.5 MB per upload on this plan. Compress the video or try a smaller file.`));
+              return;
+            }
+            if (xhr.status === 401) { reject(new Error('Session expired — please reload the admin page and sign in again.')); return; }
+            if (xhr.status === 504 || xhr.status === 502) { reject(new Error(`Upload timed out (${mb} MB). Try a smaller file or check your internet connection.`)); return; }
             try {
               const body = JSON.parse(xhr.responseText) as { error?: string };
-              reject(new Error(body.error ?? `Upload failed (${xhr.status})`));
-            } catch { reject(new Error(`Upload failed (${xhr.status})`)); }
+              reject(new Error(body.error ?? `Couldn't upload "${file.name}" (server returned ${xhr.status}).`));
+            } catch { reject(new Error(`Couldn't upload "${file.name}" (server returned ${xhr.status}).`)); }
           };
-          xhr.onerror = () => reject(new Error('Upload failed — check network or try a smaller file'));
+          xhr.onerror = () => reject(new Error('Upload failed — check your internet connection or try a smaller file.'));
+          xhr.onabort = () => reject(new Error('Upload cancelled.'));
           xhr.open('POST', '/api/admin/r2-upload');
           if (pw) xhr.setRequestHeader('admin-password', pw);
           xhr.send(form);
@@ -204,7 +222,8 @@ export default function ContentTab() {
       >
         <Upload className="h-7 w-7 mx-auto mb-2 text-muted-foreground/50 group-hover:text-primary/70 transition-colors" />
         <p className="text-sm font-semibold text-foreground">Drop files here or click to upload</p>
-        <p className="text-xs text-muted-foreground/60 mt-1">MP4 video · JPG / PNG / WebP image · Max 500 MB</p>
+        <p className="text-xs text-muted-foreground/60 mt-1">MP4 video · JPG / PNG / WebP image · Max 4 MB per file</p>
+        <p className="text-[10px] text-muted-foreground/50 mt-0.5">Larger videos? Compress with HandBrake to ~3 MB at 720p first.</p>
         <input
           ref={fileRef}
           type="file"

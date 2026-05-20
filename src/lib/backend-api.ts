@@ -228,3 +228,59 @@ export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | '
 
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });
+
+// ─── Force sync ───────────────────────────────────────────────────────────────
+
+export const forceSyncDevice = (id: string) =>
+  apiFetch<{ ok: boolean; forceSyncAt: string | null }>(`/api/devices/${id}/force-sync`, { method: 'POST' });
+
+// ─── Overlays (on-screen layouts) ─────────────────────────────────────────────
+
+export type OverlayType     = 'TICKER' | 'NEWS_TICKER' | 'BANNER' | 'INFO_BAR';
+export type OverlayPosition = 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT';
+
+export type Overlay = {
+  id:            string;
+  name:          string;
+  type:          OverlayType;
+  enabled:       boolean;
+  text:          string | null;
+  feedUrl:       string | null;
+  imageUrl:      string | null;
+  feedItems:     unknown;
+  feedFetchedAt: string | null;
+  position:      OverlayPosition;
+  bgColor:       string | null;
+  fgColor:       string | null;
+  speedPxSec:    number;
+  heightPct:     number;
+  deviceIds:     string[];
+  groupName:     string | null;
+  storeIds:      string[];
+  cityFilter:    string | null;
+  startAt:       string | null;
+  endAt:         string | null;
+  dailyStart:    string | null;
+  dailyEnd:      string | null;
+  requireWifi:   boolean;
+  priority:      number;
+  createdAt:     string;
+  updatedAt:     string;
+};
+
+export const getOverlays = () =>
+  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => r.overlays);
+
+export const createOverlay = (body: Partial<Overlay> & { name: string; type: OverlayType }) =>
+  apiFetch<{ overlay: Overlay }>('/api/overlays', { method: 'POST', body: JSON.stringify(body) })
+    .then((r) => r.overlay);
+
+export const updateOverlay = (id: string, body: Partial<Overlay>) =>
+  apiFetch<{ overlay: Overlay }>(`/api/overlays/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.overlay);
+
+export const deleteOverlay = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/overlays/${id}`, { method: 'DELETE' });
+
+export const previewFeed = (url: string) =>
+  apiFetch<{ items: { title: string; link: string; pubDate: string | null }[]; cached: boolean }>(`/api/feed/proxy?url=${encodeURIComponent(url)}`);
