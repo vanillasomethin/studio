@@ -18,7 +18,7 @@ export async function PATCH(
   const { id } = await params;
   try {
     const {
-      name, playlistId, groupName, deviceIds,
+      name, playlistId, groupName, deviceIds, storeIds, cityFilter,
       startAt, endAt, recurrence,
       dailyStart, dailyEnd, priority,
       orientation, intervalMins,
@@ -27,6 +27,8 @@ export async function PATCH(
       playlistId?:   string;
       groupName?:    string | null;
       deviceIds?:    string[];
+      storeIds?:     string[];
+      cityFilter?:   string | null;
       startAt?:      string;
       endAt?:        string;
       recurrence?:   'once' | 'daily' | 'weekly';
@@ -42,6 +44,8 @@ export async function PATCH(
     if (playlistId   !== undefined) data.playlistId   = playlistId;
     if (groupName    !== undefined) data.groupName    = groupName ?? null;
     if (deviceIds    !== undefined) data.deviceIds    = deviceIds;
+    if (storeIds     !== undefined) data.storeIds     = storeIds;
+    if (cityFilter   !== undefined) data.cityFilter   = cityFilter ?? null;
     if (startAt      !== undefined) data.startAt      = new Date(startAt);
     if (endAt        !== undefined) data.endAt        = new Date(endAt);
     if (recurrence   !== undefined) data.recurrence   = recurrence.toUpperCase() as 'ONCE' | 'DAILY' | 'WEEKLY';

@@ -208,6 +208,7 @@ model Device {
   lastSeen     DateTime?
   uptimePctD30 Float?
   claimedAt    DateTime      @default(now())
+  linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
   updatedAt    DateTime      @updatedAt
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
@@ -363,13 +364,15 @@ model Schedule {
   name        String
   playlistId  String
   priority    Int        @default(0)
-  // Either deviceIds OR groupName — group-based scheduling preferred at scale (Xibo pattern)
+  // Either deviceIds OR groupName OR storeIds OR cityFilter — targeting modes
   deviceIds   String[]   @default([])
   groupName   String?
+  storeIds    String[]   @default([])   // target all devices linked to these stores
+  cityFilter  String?                   // target all devices whose Store.city matches
   startAt     DateTime
   endAt       DateTime
   recurrence   Recurrence @default(ONCE)
-  orientation  String     @default("landscape")  // landscape | portrait | any
+  orientation  String     @default("portrait")  // landscape | portrait | any
   intervalMins Int?                               // null = continuous loop; N = play at most once per N minutes
   // Optional dayparting window (HH:mm). If null, runs all hours within startAt..endAt.
   dailyStart   String?
@@ -381,6 +384,7 @@ model Schedule {
 
   @@index([playlistId])
   @@index([groupName])
+  @@index([cityFilter])
   @@index([startAt, endAt])
 }
 

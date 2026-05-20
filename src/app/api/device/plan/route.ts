@@ -117,16 +117,23 @@ export async function GET(req: NextRequest) {
   const windowEnd = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
   try {
-    // Find all schedules active in the next 72-hr window for this device or its group.
-    // Explicit select avoids failing on columns added in pending migrations (orientation, intervalMins).
+    // Load device's store info for city/store targeting
+    const deviceWithStore = device.storeId
+      ? await db.store.findUnique({ where: { id: device.storeId }, select: { id: true, city: true } })
+      : null;
+
+    // Find all schedules active in the next 72-hr window for this device, group, store, or city.
+    const scheduleOrConditions = [
+      { deviceIds: { has: device.id } },
+      ...(device.groupName       ? [{ groupName:  device.groupName }]              : []),
+      ...(device.storeId         ? [{ storeIds:   { has: device.storeId } }]       : []),
+      ...(deviceWithStore?.city  ? [{ cityFilter:  deviceWithStore.city }]          : []),
+    ];
     const schedules = await db.schedule.findMany({
       where: {
         startAt: { lte: windowEnd },
         endAt:   { gte: now },
-        OR: [
-          { deviceIds: { has: device.id } },
-          ...(device.groupName ? [{ groupName: device.groupName }] : []),
-        ],
+        OR: scheduleOrConditions,
       },
       select: {
         id:         true,
@@ -135,6 +142,8 @@ export async function GET(req: NextRequest) {
         priority:   true,
         deviceIds:  true,
         groupName:  true,
+        storeIds:   true,
+        cityFilter: true,
         startAt:    true,
         endAt:      true,
         recurrence: true,

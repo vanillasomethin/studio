@@ -11,26 +11,44 @@ function adminHeaders(): Record<string, string> {
 }
 
 export type Device = {
-  id:          string;
-  hardwareKey: string;
-  storeName:   string;
-  storeId?:    string | null;
-  status:      'ONLINE' | 'OFFLINE' | 'PENDING';
-  lastSeen?:   string | null;
-  lastPlayAt?: string | null;
-  groupName?:  string | null;
-  uptimePct?:  number | null;
-  claimedAt:   string;
-  lat?:        number | null;
-  lng?:        number | null;
-  city?:       string | null;
-  locality?:   string | null;
+  id:               string;
+  hardwareKey:      string;
+  storeName:        string;
+  storeId?:         string | null;
+  linkedAt?:        string | null;
+  linkedStoreName?: string | null;
+  status:           'ONLINE' | 'OFFLINE' | 'PENDING';
+  lastSeen?:        string | null;
+  lastPlayAt?:      string | null;
+  groupName?:       string | null;
+  uptimePct?:       number | null;
+  claimedAt:        string;
+  lat?:             number | null;
+  lng?:             number | null;
+  city?:            string | null;
+  locality?:        string | null;
   currentSchedule?: {
     id:           string;
     name:         string;
     playlistName: string | null;
     endsAt:       string;
   } | null;
+};
+
+export type DeviceGroup = {
+  name:    string;
+  total:   number;
+  online:  number;
+  offline: number;
+  pending: number;
+};
+
+export type StoreSearchResult = {
+  id:          string;
+  storeName:   string;
+  city:        string | null;
+  locality:    string | null;
+  screenCount: number;
 };
 
 export type PlayEvent = {
@@ -82,7 +100,9 @@ export type Schedule = {
   playlistId:   string;
   playlist?:    { name: string };
   deviceIds?:   string[];
-  groupName?:   string;
+  groupName?:   string | null;
+  storeIds?:    string[];
+  cityFilter?:  string | null;
   startAt:      string;
   endAt:        string;
   recurrence:   'once' | 'daily' | 'weekly';
@@ -113,15 +133,31 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
-export const getDevices = () =>
-  apiFetch<{ devices: Device[] }>('/api/devices').then((r) => r.devices);
+export type DevicesResponse = { devices: Device[]; nextCursor: string | null; total: number };
 
-export const updateDevice = (id: string, body: { storeName?: string; groupName?: string }) =>
+export const getDevices = (params?: Record<string, string>) => {
+  const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+  return apiFetch<DevicesResponse>(`/api/devices${qs}`);
+};
+
+export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
     .then((r) => r.device);
 
 export const bulkUpdateDevices = (body: { ids: string[]; action: 'group' | 'delete'; groupName?: string }) =>
   apiFetch<{ updated?: number; deleted?: number }>('/api/devices/bulk', { method: 'POST', body: JSON.stringify(body) });
+
+export const bulkPushSchedule = (body: { deviceIds: string[]; playlistId: string; durationMins: number; name?: string }) =>
+  apiFetch<{ schedule: { id: string; name: string; endsAt: string } }>('/api/devices/bulk-schedule', { method: 'POST', body: JSON.stringify(body) });
+
+export const getDeviceGroups = () =>
+  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => r.groups);
+
+export const searchStores = (params?: { q?: string; city?: string }) => {
+  const qs = params && Object.keys(params).filter(k => params[k as keyof typeof params]).length
+    ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+  return apiFetch<{ stores: StoreSearchResult[]; cities: string[] }>(`/api/stores/search${qs}`);
+};
 
 // ─── Play Events (POP) ────────────────────────────────────────────────────────
 

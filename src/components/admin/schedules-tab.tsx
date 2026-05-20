@@ -1,17 +1,15 @@
 'use client';
 
-'use client';
-
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Loader2, CalendarClock, Plus, Trash2, AlertCircle, Monitor,
   Zap, Clock3, CalendarDays, RotateCcw, Tv2, Smartphone, Pencil, CheckCircle2,
-  LayoutList, CalendarRange,
+  LayoutList, CalendarRange, Users, Store, MapPin, Globe, Search, X, ChevronDown,
 } from 'lucide-react';
 import {
-  getSchedules, getPlaylists, getDevices,
+  getSchedules, getPlaylists, getDevices, getDeviceGroups, searchStores,
   createSchedule, updateSchedule, deleteSchedule,
-  type Schedule, type Playlist, type Device,
+  type Schedule, type Playlist, type Device, type DeviceGroup, type StoreSearchResult,
 } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 import ScheduleCalendar from './schedule-calendar';
@@ -39,7 +37,6 @@ function localPlusDays(days: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Convert ISO → datetime-local value ("YYYY-MM-DDTHH:mm")
 function isoToLocal(iso: string): string {
   try {
     const d = new Date(iso);
@@ -68,12 +65,24 @@ const inp = 'w-full rounded-xl border border-border bg-background px-4 py-2.5 te
 const lbl = 'block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1';
 
 type TimingMode = 'scheduled' | 'now_indefinite' | 'now_until';
+type TargetMode = 'device' | 'group' | 'store' | 'city' | 'all';
+
+const TARGET_MODES: { id: TargetMode; label: string; icon: React.ElementType; desc: string }[] = [
+  { id: 'device', label: 'Specific screens', icon: Monitor,  desc: 'Choose individual screens' },
+  { id: 'group',  label: 'Group',            icon: Users,    desc: 'All screens in a group' },
+  { id: 'store',  label: 'Store',            icon: Store,    desc: 'All screens in chosen stores' },
+  { id: 'city',   label: 'City',             icon: MapPin,   desc: 'All screens in a city' },
+  { id: 'all',    label: 'All screens',      icon: Globe,    desc: 'Every registered screen' },
+];
 
 const BLANK_FORM = {
   name:            '',
   playlistId:      '',
-  groupName:       '',
+  targetMode:      'device' as TargetMode,
   selectedDevices: [] as string[],
+  groupName:       '',
+  storeIds:        [] as string[],
+  cityFilter:      '',
   timingMode:      'scheduled' as TimingMode,
   startAt:         '',
   endAt:           '',
@@ -90,11 +99,76 @@ function OrientationIcon({ o, size = 14 }: { o: 'landscape' | 'portrait' | 'any'
   return <RotateCcw style={{ width: size, height: size }} />;
 }
 
+// ─── Targeting preview helper ─────────────────────────────────────────────────
+function TargetingPreview({
+  targetMode, selectedDevices, groupName, storeIds, cityFilter,
+  devices, groups, selectedStores,
+}: {
+  targetMode: TargetMode;
+  selectedDevices: string[];
+  groupName: string;
+  storeIds: string[];
+  cityFilter: string;
+  devices: Device[];
+  groups: DeviceGroup[];
+  selectedStores: StoreSearchResult[];
+}) {
+  if (targetMode === 'all') {
+    return (
+      <p className="text-[11px] text-amber-700 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
+        Will push to <strong>all registered screens</strong>. Make sure this is intentional.
+      </p>
+    );
+  }
+  if (targetMode === 'device') {
+    if (!selectedDevices.length) return null;
+    return (
+      <p className="text-[11px] text-green-700 bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
+        Will affect <strong>{selectedDevices.length} screen{selectedDevices.length !== 1 ? 's' : ''}</strong> directly.
+      </p>
+    );
+  }
+  if (targetMode === 'group') {
+    if (!groupName) return null;
+    const g = groups.find((x) => x.name === groupName);
+    if (!g) return <p className="text-[11px] text-muted-foreground">Group &quot;{groupName}&quot; — new group, no screens yet.</p>;
+    return (
+      <p className="text-[11px] text-green-700 bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
+        Will affect <strong>{g.total} screen{g.total !== 1 ? 's' : ''}</strong> in group &quot;{g.name}&quot;
+        {' '}({g.online} online, {g.offline} offline{g.pending ? `, ${g.pending} pending` : ''}).
+      </p>
+    );
+  }
+  if (targetMode === 'store') {
+    if (!storeIds.length) return null;
+    const total = selectedStores.reduce((s, x) => s + x.screenCount, 0);
+    return (
+      <p className="text-[11px] text-green-700 bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
+        Will affect <strong>~{total} screen{total !== 1 ? 's' : ''}</strong> across {storeIds.length} store{storeIds.length !== 1 ? 's' : ''}.
+      </p>
+    );
+  }
+  if (targetMode === 'city') {
+    if (!cityFilter) return null;
+    const matching = devices.filter((d) => d.city === cityFilter || (d.locality ?? '').includes(cityFilter));
+    return (
+      <p className="text-[11px] text-green-700 bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
+        Will affect screens in <strong>{cityFilter}</strong>
+        {matching.length > 0 ? ` (~${matching.length} loaded)` : ''}.
+        New screens in this city auto-pick up this schedule.
+      </p>
+    );
+  }
+  return null;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function SchedulesTab() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [devices,   setDevices]   = useState<Device[]>([]);
+  const [groups,    setGroups]    = useState<DeviceGroup[]>([]);
+  const [cities,    setCities]    = useState<string[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [deleting,  setDeleting]  = useState<string | null>(null);
@@ -103,31 +177,79 @@ export default function SchedulesTab() {
   const [editId,    setEditId]    = useState<string | null>(null);
   const [listView,  setListView]  = useState<'list' | 'calendar'>('list');
 
+  // Device search within picker
+  const [deviceSearch, setDeviceSearch] = useState('');
+  // Group autocomplete
+  const [groupSearch,  setGroupSearch]  = useState('');
+  const [groupOpen,    setGroupOpen]    = useState(false);
+  // Store search
+  const [storeQuery,   setStoreQuery]   = useState('');
+  const [storeResults, setStoreResults] = useState<StoreSearchResult[]>([]);
+  const [storeLoading, setStoreLoading] = useState(false);
+  const [selectedStores, setSelectedStores] = useState<StoreSearchResult[]>([]);
+
+  const storeSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const [form, setForm] = useState({ ...BLANK_FORM, startAt: '', endAt: '' });
 
   useEffect(() => {
-    Promise.all([getSchedules(), getPlaylists(), getDevices()])
-      .then(([s, p, d]) => { setSchedules(s); setPlaylists(p); setDevices(d); })
+    Promise.all([getSchedules(), getPlaylists(), getDevices(), getDeviceGroups(), searchStores()])
+      .then(([s, p, r, g, sr]) => {
+        setSchedules(s);
+        setPlaylists(p);
+        setDevices(r.devices);
+        setGroups(g);
+        setCities(sr.cities);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
+  // Debounced store search
+  const doStoreSearch = useCallback((q: string) => {
+    setStoreLoading(true);
+    searchStores({ q })
+      .then((r) => { setStoreResults(r.stores); setCities(r.cities); })
+      .catch(() => {})
+      .finally(() => setStoreLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (storeSearchTimer.current) clearTimeout(storeSearchTimer.current);
+    storeSearchTimer.current = setTimeout(() => doStoreSearch(storeQuery), 300);
+    return () => { if (storeSearchTimer.current) clearTimeout(storeSearchTimer.current); };
+  }, [storeQuery, doStoreSearch]);
+
   const openNew = () => {
     setForm({ ...BLANK_FORM, startAt: nowLocal(), endAt: localPlusDays(7) });
     setEditId(null);
+    setDeviceSearch('');
+    setGroupSearch('');
+    setStoreQuery('');
+    setSelectedStores([]);
     setShowForm(true);
     setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
   };
 
   const openEdit = (s: Schedule) => {
+    // Detect target mode from saved schedule
+    let targetMode: TargetMode = 'all';
+    if (s.deviceIds?.length)  targetMode = 'device';
+    else if (s.groupName)     targetMode = 'group';
+    else if (s.storeIds?.length) targetMode = 'store';
+    else if (s.cityFilter)    targetMode = 'city';
+
     const isIndefinite = s.endAt > '2090-01-01';
     setForm({
       name:            s.name,
       playlistId:      s.playlistId,
-      groupName:       s.groupName ?? '',
+      targetMode,
       selectedDevices: s.deviceIds ?? [],
+      groupName:       s.groupName ?? '',
+      storeIds:        s.storeIds ?? [],
+      cityFilter:      s.cityFilter ?? '',
       timingMode:      'scheduled',
       startAt:         isoToLocal(s.startAt),
       endAt:           isIndefinite ? localPlusDays(30) : isoToLocal(s.endAt),
@@ -136,6 +258,12 @@ export default function SchedulesTab() {
       intervalMins:    s.intervalMins ?? 0,
       priority:        s.priority ?? 0,
     });
+    setGroupSearch(s.groupName ?? '');
+    // Pre-populate selected stores if editing store-targeted schedule
+    if (s.storeIds?.length) {
+      setStoreQuery('');
+      doStoreSearch('');
+    }
     setEditId(s.id);
     setShowForm(true);
     setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
@@ -156,6 +284,17 @@ export default function SchedulesTab() {
         ? f.selectedDevices.filter((d) => d !== id)
         : [...f.selectedDevices, id],
     }));
+
+  const toggleStore = (store: StoreSearchResult) => {
+    setForm((f) => {
+      const has = f.storeIds.includes(store.id);
+      return { ...f, storeIds: has ? f.storeIds.filter((id) => id !== store.id) : [...f.storeIds, store.id] };
+    });
+    setSelectedStores((prev) => {
+      const has = prev.some((s) => s.id === store.id);
+      return has ? prev.filter((s) => s.id !== store.id) : [...prev, store];
+    });
+  };
 
   const del = async (id: string) => {
     if (!confirm('Delete this schedule?')) return;
@@ -189,17 +328,20 @@ export default function SchedulesTab() {
     setSaving(true);
     try {
       const { startAt, endAt } = resolveTimings();
-      const payload = {
+      const payload: Parameters<typeof createSchedule>[0] = {
         name:         form.name,
         playlistId:   form.playlistId,
-        groupName:    form.groupName || undefined,
-        deviceIds:    form.selectedDevices.length ? form.selectedDevices : undefined,
         startAt,
         endAt,
         recurrence:   form.recurrence,
         orientation:  form.orientation,
         intervalMins: form.intervalMins > 0 ? form.intervalMins : null,
         priority:     form.priority,
+        // targeting — only set the relevant field, clear others
+        groupName:    form.targetMode === 'group'  ? (form.groupName || undefined) : null,
+        deviceIds:    form.targetMode === 'device' ? form.selectedDevices : [],
+        storeIds:     form.targetMode === 'store'  ? form.storeIds : [],
+        cityFilter:   form.targetMode === 'city'   ? (form.cityFilter || null) : null,
       };
 
       if (editId) {
@@ -213,6 +355,7 @@ export default function SchedulesTab() {
       }
 
       setForm({ ...BLANK_FORM, startAt: nowLocal(), endAt: localPlusDays(7) });
+      setSelectedStores([]);
       closeForm();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
@@ -239,6 +382,18 @@ export default function SchedulesTab() {
   const intervalLabel = INTERVAL_MARKS.find((m) => m.value === form.intervalMins)?.label
     ?? `Every ${form.intervalMins} min`;
   const isAlwaysOn = form.timingMode === 'now_indefinite';
+
+  const filteredDevices = deviceSearch
+    ? devices.filter((d) =>
+        d.storeName.toLowerCase().includes(deviceSearch.toLowerCase()) ||
+        d.id.toLowerCase().includes(deviceSearch.toLowerCase()) ||
+        (d.locality ?? '').toLowerCase().includes(deviceSearch.toLowerCase())
+      )
+    : devices;
+
+  const filteredGroups = groups.filter((g) =>
+    g.name.toLowerCase().includes(groupSearch.toLowerCase())
+  );
 
   return (
     <div className="space-y-4">
@@ -382,7 +537,6 @@ export default function SchedulesTab() {
                   );
                 })}
               </div>
-              {/* Rotation identification tip */}
               <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Identifying rotation direction</p>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
@@ -435,57 +589,244 @@ export default function SchedulesTab() {
               </div>
             </div>
 
-            {/* ── Group / target ───────────────────────────────────────── */}
-            <div>
-              <label className={lbl}>Group name <span className="normal-case font-normal text-muted-foreground/60">(optional — targets all screens in this group)</span></label>
-              <input type="text" value={form.groupName}
-                onChange={(e) => set('groupName', e.target.value)}
-                placeholder="Mangaluru North" className={inp} />
-            </div>
+            {/* ── Targeting ─────────────────────────────────────────────── */}
+            <div className="space-y-3">
+              <label className={lbl}>Targeting</label>
 
-            {/* Screen picker */}
-            <div>
-              <label className={lbl}>
-                Assign to specific screens
-                <span className="normal-case font-normal text-muted-foreground/60 ml-1">
-                  — {form.selectedDevices.length ? `${form.selectedDevices.length} selected` : 'none (use group name above)'}
-                </span>
-              </label>
-              {!devices.length ? (
-                <p className="text-xs text-muted-foreground py-2">No screens registered yet.</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-1">
-                  {devices.map((d) => {
-                    const checked = form.selectedDevices.includes(d.id);
-                    return (
-                      <button key={d.id} type="button" onClick={() => toggleDevice(d.id)}
-                        className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
-                          checked ? 'border-primary/50 bg-primary/5' : 'border-border bg-background hover:border-primary/20'
-                        }`}>
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                          d.status === 'ONLINE' ? 'bg-green-500/10' : 'bg-muted'
-                        }`}>
-                          <Monitor className={`h-4 w-4 ${d.status === 'ONLINE' ? 'text-green-600' : 'text-muted-foreground/40'}`} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-foreground truncate">{d.storeName}</p>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className={`h-1.5 w-1.5 rounded-full ${
-                              d.status === 'ONLINE' ? 'bg-green-500' : d.status === 'OFFLINE' ? 'bg-red-400' : 'bg-yellow-400'
-                            }`} />
-                            <span className="text-[10px] text-muted-foreground capitalize">{d.status.toLowerCase()}</span>
-                          </div>
-                        </div>
-                        <div className={`h-4 w-4 rounded border-2 shrink-0 flex items-center justify-center ${
-                          checked ? 'border-primary bg-primary' : 'border-border'
-                        }`}>
-                          {checked && <div className="h-2 w-2 rounded-sm bg-white" />}
-                        </div>
+              {/* Mode tabs */}
+              <div className="flex flex-wrap gap-1.5">
+                {TARGET_MODES.map((mode) => {
+                  const active = form.targetMode === mode.id;
+                  return (
+                    <button key={mode.id} type="button"
+                      onClick={() => set('targetMode', mode.id)}
+                      title={mode.desc}
+                      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                        active
+                          ? 'border-primary/50 bg-primary/5 text-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/20'
+                      }`}>
+                      <mode.icon className="h-3 w-3" />
+                      {mode.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Device mode ─────────────────────────────────────────── */}
+              {form.targetMode === 'device' && (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                    <input
+                      type="text"
+                      placeholder="Search screens by name or location…"
+                      value={deviceSearch}
+                      onChange={(e) => setDeviceSearch(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-background pl-9 pr-4 py-2.5 text-sm placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                    />
+                    {deviceSearch && (
+                      <button type="button" onClick={() => setDeviceSearch('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
+                        <X className="h-3.5 w-3.5" />
                       </button>
-                    );
-                  })}
+                    )}
+                  </div>
+                  {form.selectedDevices.length > 0 && (
+                    <p className="text-[10px] text-primary font-semibold">
+                      {form.selectedDevices.length} screen{form.selectedDevices.length !== 1 ? 's' : ''} selected
+                      {' '}·{' '}
+                      <button type="button" className="underline" onClick={() => set('selectedDevices', [])}>
+                        Clear all
+                      </button>
+                    </p>
+                  )}
+                  {!devices.length ? (
+                    <p className="text-xs text-muted-foreground py-2">No screens registered yet.</p>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto rounded-xl border border-border divide-y divide-border">
+                      {filteredDevices.length === 0 ? (
+                        <p className="text-xs text-muted-foreground px-4 py-3">No screens match &quot;{deviceSearch}&quot;</p>
+                      ) : filteredDevices.map((d) => {
+                        const checked = form.selectedDevices.includes(d.id);
+                        return (
+                          <button key={d.id} type="button" onClick={() => toggleDevice(d.id)}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                              checked ? 'bg-primary/5' : 'hover:bg-muted/30'
+                            }`}>
+                            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                              d.status === 'ONLINE' ? 'bg-green-500/10' : 'bg-muted'
+                            }`}>
+                              <Monitor className={`h-3.5 w-3.5 ${d.status === 'ONLINE' ? 'text-green-600' : 'text-muted-foreground/40'}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-foreground truncate">{d.storeName}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className={`h-1.5 w-1.5 rounded-full ${
+                                  d.status === 'ONLINE' ? 'bg-green-500' : d.status === 'OFFLINE' ? 'bg-red-400' : 'bg-yellow-400'
+                                }`} />
+                                <span className="text-[10px] text-muted-foreground capitalize">{d.status.toLowerCase()}</span>
+                                {d.locality && <span className="text-[10px] text-muted-foreground/50">{d.locality}</span>}
+                              </div>
+                            </div>
+                            <div className={`h-4 w-4 rounded border-2 shrink-0 flex items-center justify-center ${
+                              checked ? 'border-primary bg-primary' : 'border-border'
+                            }`}>
+                              {checked && <div className="h-2 w-2 rounded-sm bg-white" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* ── Group mode ───────────────────────────────────────────── */}
+              {form.targetMode === 'group' && (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Type group name…"
+                      value={groupSearch}
+                      onChange={(e) => { setGroupSearch(e.target.value); set('groupName', e.target.value); setGroupOpen(true); }}
+                      onFocus={() => setGroupOpen(true)}
+                      onBlur={() => setTimeout(() => setGroupOpen(false), 150)}
+                      className={inp}
+                    />
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none" />
+                    {groupOpen && filteredGroups.length > 0 && (
+                      <div className="absolute z-10 top-full mt-1 w-full rounded-xl border border-border bg-background shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+                        {filteredGroups.map((g) => (
+                          <button key={g.name} type="button"
+                            onMouseDown={() => {
+                              set('groupName', g.name);
+                              setGroupSearch(g.name);
+                              setGroupOpen(false);
+                            }}
+                            className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-muted/40 transition-colors">
+                            <div>
+                              <p className="text-xs font-semibold text-foreground">{g.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{g.total} screen{g.total !== 1 ? 's' : ''}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] text-green-600 font-semibold">{g.online} on</span>
+                              {g.offline > 0 && <span className="text-[10px] text-red-500 font-semibold">{g.offline} off</span>}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {groups.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">No groups yet — type a new group name and assign screens from the Screens tab first.</p>
+                  )}
+                </div>
+              )}
+
+              {/* ── Store mode ───────────────────────────────────────────── */}
+              {form.targetMode === 'store' && (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                    <input
+                      type="text"
+                      placeholder="Search stores by name, locality or city…"
+                      value={storeQuery}
+                      onChange={(e) => setStoreQuery(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-background pl-9 pr-4 py-2.5 text-sm placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                    />
+                    {storeLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground/50" />}
+                  </div>
+                  {/* Selected stores chips */}
+                  {selectedStores.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedStores.map((s) => (
+                        <span key={s.id} className="flex items-center gap-1 bg-primary/10 text-primary text-[11px] font-semibold rounded-full px-2.5 py-1">
+                          {s.storeName}
+                          <button type="button" onClick={() => toggleStore(s)} className="ml-0.5 hover:text-primary/70">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Store results */}
+                  {storeResults.length > 0 && (
+                    <div className="max-h-56 overflow-y-auto rounded-xl border border-border divide-y divide-border">
+                      {storeResults.map((s) => {
+                        const checked = form.storeIds.includes(s.id);
+                        return (
+                          <button key={s.id} type="button" onClick={() => toggleStore(s)}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                              checked ? 'bg-primary/5' : 'hover:bg-muted/30'
+                            }`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-foreground truncate">{s.storeName}</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {[s.locality, s.city].filter(Boolean).join(', ')}
+                                {' · '}{s.screenCount} screen{s.screenCount !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <div className={`h-4 w-4 rounded border-2 shrink-0 flex items-center justify-center ${
+                              checked ? 'border-primary bg-primary' : 'border-border'
+                            }`}>
+                              {checked && <div className="h-2 w-2 rounded-sm bg-white" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {!storeLoading && storeResults.length === 0 && storeQuery && (
+                    <p className="text-xs text-muted-foreground px-1">No stores found for &quot;{storeQuery}&quot;</p>
+                  )}
+                </div>
+              )}
+
+              {/* ── City mode ────────────────────────────────────────────── */}
+              {form.targetMode === 'city' && (
+                <div className="space-y-2">
+                  {cities.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No cities found — link screens to stores first.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {cities.map((city) => {
+                        const active = form.cityFilter === city;
+                        return (
+                          <button key={city} type="button"
+                            onClick={() => set('cityFilter', active ? '' : city)}
+                            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                              active
+                                ? 'border-primary/50 bg-primary/5 text-primary'
+                                : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/20'
+                            }`}>
+                            {city}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {form.cityFilter && (
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Dynamically targets all screens whose store is in <strong className="text-foreground">{form.cityFilter}</strong>. New screens auto-included.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Live targeting preview */}
+              <TargetingPreview
+                targetMode={form.targetMode}
+                selectedDevices={form.selectedDevices}
+                groupName={form.groupName}
+                storeIds={form.storeIds}
+                cityFilter={form.cityFilter}
+                devices={devices}
+                groups={groups}
+                selectedStores={selectedStores}
+              />
             </div>
 
             <div className="flex gap-2 pt-1">
@@ -543,7 +884,7 @@ export default function SchedulesTab() {
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
               <tr>
-                {['Name', 'Playlist', 'Screens', 'Start', 'End', 'Recurrence', 'Orientation', 'Frequency', ''].map((h) => (
+                {['Name', 'Playlist', 'Targeting', 'Start', 'End', 'Recurrence', 'Orientation', 'Frequency', ''].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -551,9 +892,27 @@ export default function SchedulesTab() {
             <tbody className="divide-y divide-border">
               {schedules.map((s) => {
                 const pl = playlists.find((p) => p.id === s.playlistId);
-                const screenCount = s.deviceIds?.length ?? 0;
                 const isAlwaysOnRow = s.endAt > '2090-01-01';
                 const isEditing = editId === s.id;
+
+                // Build targeting label
+                let targetingLabel: React.ReactNode = 'All screens';
+                let targetingIcon: React.ElementType = Globe;
+                if (s.deviceIds?.length) {
+                  targetingLabel = `${s.deviceIds.length} screen${s.deviceIds.length !== 1 ? 's' : ''}`;
+                  targetingIcon = Monitor;
+                } else if (s.groupName) {
+                  targetingLabel = `Group: ${s.groupName}`;
+                  targetingIcon = Users;
+                } else if (s.storeIds?.length) {
+                  targetingLabel = `${s.storeIds.length} store${s.storeIds.length !== 1 ? 's' : ''}`;
+                  targetingIcon = Store;
+                } else if (s.cityFilter) {
+                  targetingLabel = s.cityFilter;
+                  targetingIcon = MapPin;
+                }
+                const TargetIcon = targetingIcon;
+
                 return (
                   <tr key={s.id} className={`transition-colors ${isEditing ? 'bg-primary/5' : 'hover:bg-muted/20'}`}>
                     <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">
@@ -563,10 +922,11 @@ export default function SchedulesTab() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{pl?.name ?? s.playlist?.name ?? '—'}</td>
-                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                      {screenCount > 0
-                        ? `${screenCount} screen${screenCount > 1 ? 's' : ''}`
-                        : s.groupName ? `Group: ${s.groupName}` : 'All'}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <TargetIcon className="h-3 w-3" />
+                        {targetingLabel}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                       {isAlwaysOnRow ? <span className="text-green-600 font-semibold">Now</span> : fmtDateTime(s.startAt)}
@@ -581,7 +941,7 @@ export default function SchedulesTab() {
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <OrientationIcon o={(s.orientation as 'landscape' | 'portrait' | 'any') ?? 'landscape'} size={12} />
+                        <OrientationIcon o={(s.orientation as 'landscape' | 'portrait' | 'any') ?? 'portrait'} size={12} />
                         <span className="capitalize">{s.orientation ?? 'portrait'}</span>
                       </span>
                     </td>
