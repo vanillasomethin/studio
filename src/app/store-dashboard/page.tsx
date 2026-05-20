@@ -8,12 +8,13 @@ import {
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
   Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag, ImageIcon,
-  KeyRound, Eye, EyeOff, ArrowLeft,
+  KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
+import KycTab from '@/components/store/kyc-tab';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
@@ -921,16 +922,17 @@ function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'flyergen' | 'settings';
+type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'flyergen' | 'settings' | 'kyc';
 
 const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
-  { id: 'overview',  label: 'Overview',       icon: BarChart3    },
-  { id: 'earnings',  label: 'Earnings',       icon: IndianRupee  },
-  { id: 'flyers',    label: 'My flyers',      icon: FileImage    },
-  { id: 'voicebill', label: 'VoiceBill',      icon: ShoppingCart },
-  { id: 'offers',    label: 'Offers',         icon: Tag          },
-  { id: 'flyergen',  label: 'Flyer',          icon: ImageIcon    },
-  { id: 'settings',  label: 'Payout',         icon: Gift         },
+  { id: 'overview',  label: 'Overview',   icon: BarChart3    },
+  { id: 'earnings',  label: 'Earnings',   icon: IndianRupee  },
+  { id: 'flyers',    label: 'My flyers',  icon: FileImage    },
+  { id: 'voicebill', label: 'VoiceBill',  icon: ShoppingCart },
+  { id: 'offers',    label: 'Offers',     icon: Tag          },
+  { id: 'flyergen',  label: 'Flyer',      icon: ImageIcon    },
+  { id: 'settings',  label: 'Payout',     icon: Gift         },
+  { id: 'kyc',       label: 'KYC',        icon: ShieldCheck  },
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
@@ -1200,6 +1202,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'settings' && (
             <motion.div key="set" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
               <OffersAndPayoutSettings store={storeData} onSaved={(patch) => setStoreData((p) => ({ ...p, ...patch }))} />
+            </motion.div>
+          )}
+
+          {tab === 'kyc' && (
+            <motion.div key="kyc" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <KycTab />
             </motion.div>
           )}
 

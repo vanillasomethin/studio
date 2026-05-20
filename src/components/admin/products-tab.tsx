@@ -1,9 +1,37 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check, FileSpreadsheet, Lightbulb, ChevronDown, ChevronUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORY_OPTIONS, UNIT_TYPES } from '@/lib/product-id';
+
+// Columns expected in CSV/paste import (header row optional, detected by content)
+// productName, brand, category, sizeVariant, unitType, mrp (optional), barcodeEan (optional)
+type CsvRow = { productName: string; brand: string; category: string; sizeVariant: string; unitType: string; mrp?: number; barcodeEan?: string };
+
+function parseCsvText(text: string): CsvRow[] {
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return [];
+  const rows: CsvRow[] = [];
+  // Detect if first row is a header (contains "product" or "brand" case-insensitive)
+  const first = lines[0].toLowerCase();
+  const startIdx = first.includes('product') || first.includes('brand') ? 1 : 0;
+  for (let i = startIdx; i < lines.length; i++) {
+    const cols = lines[i].split(/\t|,/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    if (cols.length < 4) continue;
+    const [productName, brand, category, sizeVariant, unitType, mrpStr, barcodeEan] = cols;
+    if (!productName || !brand) continue;
+    rows.push({
+      productName, brand,
+      category:    (category ?? 'GRO').toUpperCase(),
+      sizeVariant: sizeVariant ?? '',
+      unitType:    unitType ?? 'g',
+      mrp:         mrpStr ? (parseFloat(mrpStr) || undefined) : undefined,
+      barcodeEan:  barcodeEan?.trim() || undefined,
+    });
+  }
+  return rows;
+}
 
 type Product = {
   id: string; groupId: string; productName: string; brand: string;
@@ -30,6 +58,18 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
   const [form,       setForm]       = useState({ ...BLANK });
   const [saving,     setSaving]     = useState(false);
   const [imgUploading, setImgUploading] = useState(false);
+
+  // Bulk import state
+  const [importRows,    setImportRows]    = useState<CsvRow[]>([]);
+  const [importing,     setImporting]     = useState(false);
+  const [importDone,    setImportDone]    = useState(0);
+  const [importDragOver, setImportDragOver] = useState(false);
+  const [showImport,    setShowImport]    = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  // Offer suggestions: store-submitted products with no productId (unrecognized)
+  const [suggestions,   setSuggestions]   = useState<{ productName: string; weight: string | null; count: number }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const headers = { 'admin-password': adminPw, 'Content-Type': 'application/json' };
 
@@ -97,15 +137,17 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
   const uploadImage = async (id: string, file: File) => {
     setImgUploading(true);
     try {
-      const fd = new FormData();
+      const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const key  = `products/${id}/image.${ext}`;
+      const fd   = new FormData();
       fd.append('file', file);
-      fd.append('folder', 'products');
+      fd.append('key',  key);
       const up  = await fetch('/api/admin/r2-upload', { method: 'POST', headers: { 'admin-password': adminPw }, body: fd });
       if (!up.ok) throw new Error('Upload failed');
-      const { url } = await up.json() as { url: string };
+      const { publicUrl } = await up.json() as { publicUrl: string };
       await fetch(`/api/admin/products/${id}`, {
         method: 'PATCH', headers,
-        body: JSON.stringify({ imageUrl: url }),
+        body: JSON.stringify({ imageUrl: publicUrl }),
       });
       toast({ title: 'Image uploaded ✓' });
       void load(page);
@@ -114,21 +156,180 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
     } finally { setImgUploading(false); }
   };
 
+  // Load unrecognized offer product names (no productId set)
+  const loadSuggestions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/products/suggestions', { headers: { 'admin-password': adminPw } });
+      if (res.ok) setSuggestions((await res.json() as { suggestions: typeof suggestions }).suggestions ?? []);
+    } catch { /* non-fatal */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminPw]);
+
+  useEffect(() => { void loadSuggestions(); }, [loadSuggestions]);
+
+  const parseCsvFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      setImportRows(parseCsvText(text));
+      setShowImport(true);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleCsvDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); setImportDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) parseCsvFile(file);
+  };
+
+  const bulkImport = async () => {
+    setImporting(true); setImportDone(0);
+    let done = 0;
+    for (const row of importRows) {
+      try {
+        await fetch('/api/admin/products', {
+          method: 'POST', headers,
+          body: JSON.stringify(row),
+        });
+        done++;
+        setImportDone(done);
+      } catch { /* continue on row error */ }
+    }
+    toast({ title: `Imported ${done} of ${importRows.length} products` });
+    setImportRows([]); setShowImport(false);
+    setImporting(false);
+    void load(1);
+  };
+
+  // Pre-fill form from a suggestion
+  const fillFromSuggestion = (s: typeof suggestions[0]) => {
+    setEditId(null);
+    setForm({
+      ...BLANK,
+      productName: s.productName,
+      sizeVariant: s.weight ?? '',
+    });
+    setShowForm(true);
+  };
+
   const inp = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20';
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Product Catalogue</p>
           <p className="text-sm text-muted-foreground">{total} products · IDs: CAT-BRAND-SEQ</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90">
-          <Plus className="h-4 w-4" /> Add Product
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowImport((v) => !v)}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all">
+            <FileSpreadsheet className="h-4 w-4" /> Bulk import
+          </button>
+          <button onClick={openNew} className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90">
+            <Plus className="h-4 w-4" /> Add Product
+          </button>
+        </div>
       </div>
+
+      {/* Bulk CSV import panel */}
+      {showImport && (
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-foreground flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-primary" /> Bulk import from CSV / spreadsheet</p>
+            <button onClick={() => { setShowImport(false); setImportRows([]); }}><X className="h-4 w-4 text-muted-foreground" /></button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Columns (header optional): <span className="font-mono font-semibold">productName, brand, category, sizeVariant, unitType, mrp, barcodeEan</span>
+            <br />Drag a .csv/.tsv file, paste a spreadsheet selection, or pick a file.
+          </p>
+          {importRows.length === 0 ? (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setImportDragOver(true); }}
+              onDragLeave={() => setImportDragOver(false)}
+              onDrop={handleCsvDrop}
+              onClick={() => csvInputRef.current?.click()}
+              className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer py-8 transition-colors ${
+                importDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+              }`}
+            >
+              <FileSpreadsheet className="h-6 w-6 text-muted-foreground/40" />
+              <p className="text-xs text-muted-foreground/50">Drop CSV/TSV here or click to pick</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{importRows.length} rows ready to import</p>
+              <div className="rounded-lg border border-border overflow-auto max-h-48">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50 sticky top-0">
+                    <tr>{['Name','Brand','Cat','Size','Unit','MRP'].map(h => <th key={h} className="text-left px-3 py-1.5 font-semibold text-muted-foreground">{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {importRows.map((r, i) => (
+                      <tr key={i} className="border-t border-border">
+                        <td className="px-3 py-1.5">{r.productName}</td>
+                        <td className="px-3 py-1.5">{r.brand}</td>
+                        <td className="px-3 py-1.5">{r.category}</td>
+                        <td className="px-3 py-1.5">{r.sizeVariant}</td>
+                        <td className="px-3 py-1.5">{r.unitType}</td>
+                        <td className="px-3 py-1.5">{r.mrp ? `₹${r.mrp}` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {importing && (
+                <p className="text-xs text-primary font-semibold">{importDone} / {importRows.length} imported…</p>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => setImportRows([])} className="flex-1 rounded-lg border border-border py-2 text-xs font-semibold text-muted-foreground">Clear</button>
+                <button onClick={bulkImport} disabled={importing}
+                  className="flex-1 rounded-lg bg-primary py-2 text-xs font-semibold text-white disabled:opacity-50">
+                  {importing ? `Importing ${importDone}/${importRows.length}…` : `Import ${importRows.length} products`}
+                </button>
+              </div>
+            </div>
+          )}
+          <input ref={csvInputRef} type="file" accept=".csv,.tsv,.txt" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) parseCsvFile(f); }} />
+        </div>
+      )}
+
+      {/* Store partner product suggestions */}
+      {suggestions.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+          <button
+            onClick={() => setShowSuggestions((v) => !v)}
+            className="flex items-center justify-between w-full"
+          >
+            <div className="flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-amber-500" />
+              <p className="text-sm font-bold text-amber-800">{suggestions.length} new product{suggestions.length !== 1 ? 's' : ''} from store offers not in catalogue</p>
+            </div>
+            {showSuggestions ? <ChevronUp className="h-4 w-4 text-amber-500" /> : <ChevronDown className="h-4 w-4 text-amber-500" />}
+          </button>
+          {showSuggestions && (
+            <div className="mt-3 space-y-1.5">
+              {suggestions.map((s, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 rounded-lg bg-white border border-amber-100 px-3 py-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">{s.productName}</p>
+                    {s.weight && <p className="text-[10px] text-muted-foreground">{s.weight}</p>}
+                    <p className="text-[10px] text-muted-foreground/60">{s.count} store{s.count !== 1 ? 's' : ''} listed this</p>
+                  </div>
+                  <button onClick={() => fillFromSuggestion(s)}
+                    className="flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-amber-600 shrink-0">
+                    <Plus className="h-3 w-3" /> Add to catalogue
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
