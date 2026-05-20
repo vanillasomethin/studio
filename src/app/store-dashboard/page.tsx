@@ -14,6 +14,7 @@ import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
+import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
 
@@ -1147,6 +1148,8 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
       <AnimatePresence>
         {claimOpen && <ClaimModal store={storeData} onClose={() => setClaimOpen(false)} />}
       </AnimatePresence>
+
+      <PwaInstallBanner />
     </div>
   );
 }
