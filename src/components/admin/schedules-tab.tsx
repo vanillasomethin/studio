@@ -78,7 +78,7 @@ const BLANK_FORM = {
   startAt:         '',
   endAt:           '',
   recurrence:      'daily' as Schedule['recurrence'],
-  orientation:     'landscape' as 'landscape' | 'portrait' | 'any',
+  orientation:     'portrait' as 'landscape' | 'portrait' | 'any',
   intervalMins:    0,
   priority:        0,
 };
@@ -132,7 +132,7 @@ export default function SchedulesTab() {
       startAt:         isoToLocal(s.startAt),
       endAt:           isIndefinite ? localPlusDays(30) : isoToLocal(s.endAt),
       recurrence:      s.recurrence,
-      orientation:     (s.orientation as 'landscape' | 'portrait' | 'any') ?? 'landscape',
+      orientation:     (s.orientation as 'landscape' | 'portrait' | 'any') ?? 'portrait',
       intervalMins:    s.intervalMins ?? 0,
       priority:        s.priority ?? 0,
     });
@@ -359,11 +359,15 @@ export default function SchedulesTab() {
             </div>
 
             {/* ── Orientation ───────────────────────────────────────────── */}
-            <div>
+            <div className="space-y-2">
               <label className={lbl}>Screen orientation</label>
               <div className="grid grid-cols-3 gap-2">
-                {(['landscape', 'portrait', 'any'] as const).map((o) => {
-                  const labels = { landscape: 'Landscape (TV)', portrait: 'Portrait (vertical)', any: 'Any orientation' };
+                {(['portrait', 'landscape', 'any'] as const).map((o) => {
+                  const labels = {
+                    portrait:  'Portrait (default)',
+                    landscape: 'Landscape (TV)',
+                    any:       'Any',
+                  };
                   const active = form.orientation === o;
                   return (
                     <button key={o} type="button" onClick={() => set('orientation', o)}
@@ -377,6 +381,13 @@ export default function SchedulesTab() {
                     </button>
                   );
                 })}
+              </div>
+              {/* Rotation identification tip */}
+              <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Identifying rotation direction</p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Stand facing the screen. If the TV&apos;s cable port / base faces <span className="font-semibold text-foreground">left → Clockwise (CW)</span>. If it faces <span className="font-semibold text-foreground">right → Anti-clockwise (CCW)</span>. Rotation is handled automatically by the ALIVE Player — select Portrait here and configure the exact direction in the Player&apos;s device settings.
+                </p>
               </div>
             </div>
 
@@ -571,7 +582,7 @@ export default function SchedulesTab() {
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
                         <OrientationIcon o={(s.orientation as 'landscape' | 'portrait' | 'any') ?? 'landscape'} size={12} />
-                        <span className="capitalize">{s.orientation ?? 'landscape'}</span>
+                        <span className="capitalize">{s.orientation ?? 'portrait'}</span>
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-[10px]">
