@@ -108,10 +108,14 @@ model Store {
   payoutLastPaidAt DateTime?
   payoutNotes      String?
   liveAt           DateTime?   // date admin marks store as live (earning starts from here)
-  kycStatus        String?     // not_started | pending | approved | failed | review_pending
-  kycReferenceId   String?     // Digio reference_id (your internal ID sent to Digio)
-  kycDocId         String?     // Digio KID returned on approval
-  kycVerifiedAt    DateTime?   // timestamp when kyc_approved webhook received
+  kycStatus        String?     // not_started | submitted | approved | rejected
+  kycPanUrl        String?     // PAN card photo URL
+  kycAadhaarUrl    String?     // Aadhaar card photo URL
+  kycSelfieUrl     String?     // Live selfie URL
+  kycAadhaarLast4  String?     // Last 4 digits of Aadhaar (for reference)
+  kycSubmittedAt   DateTime?   // timestamp when partner submitted docs
+  kycVerifiedAt    DateTime?   // timestamp when admin approved
+  kycRejectedReason String?    // admin's rejection note
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
