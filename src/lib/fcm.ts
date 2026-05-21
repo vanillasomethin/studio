@@ -2,19 +2,20 @@
 // Uses the lazy-init pattern (never module-level) to avoid breaking SSG.
 // Set FIREBASE_SERVICE_ACCOUNT_JSON env var to a JSON string of the service account.
 
-import type { App } from 'firebase-admin/app';
 import { db } from '@/lib/db';
+import type { App } from 'firebase-admin/app';
 
 let _app: App | null = null;
 
-function getFirebaseApp(): App | null {
+async function getFirebaseApp(): Promise<App | null> {
   if (_app) return _app;
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (!json) return null;
   try {
-    const { initializeApp, cert, getApps } = require('firebase-admin/app') as typeof import('firebase-admin/app');
-    if (getApps().length > 0) {
-      _app = getApps()[0];
+    const { initializeApp, cert, getApps } = await import('firebase-admin/app');
+    const existing = getApps();
+    if (existing.length > 0) {
+      _app = existing[0];
       return _app;
     }
     _app = initializeApp({ credential: cert(JSON.parse(json)) });
@@ -31,7 +32,7 @@ function getFirebaseApp(): App | null {
  */
 export async function pushPlanUpdated(deviceIds: string[]): Promise<void> {
   if (!deviceIds.length) return;
-  const app = getFirebaseApp();
+  const app = await getFirebaseApp();
   if (!app) return;
 
   try {
@@ -42,7 +43,7 @@ export async function pushPlanUpdated(deviceIds: string[]): Promise<void> {
     const tokens = devices.map((d) => d.fcmToken!).filter(Boolean);
     if (!tokens.length) return;
 
-    const { getMessaging } = require('firebase-admin/messaging') as typeof import('firebase-admin/messaging');
+    const { getMessaging } = await import('firebase-admin/messaging');
     const messaging = getMessaging(app);
 
     // Send in chunks of 500 (FCM sendEachForMulticast limit)
