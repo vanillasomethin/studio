@@ -61,8 +61,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { events } = await req.json() as { events: PlayEventInput[] };
+    const body = await req.json() as { events: PlayEventInput[]; telemetry?: { cpuTempC?: number; freeStorageMb?: number; androidVersion?: string; appVersion?: string } };
+    const { events, telemetry } = body;
     if (!Array.isArray(events) || events.length === 0) {
+      // Allow empty event batches if telemetry-only heartbeat
+      if (telemetry) {
+        await db.device.update({
+          where: { id: device.id },
+          data:  {
+            lastSeen: new Date(), status: 'ONLINE',
+            ...(typeof telemetry.cpuTempC      === 'number' ? { cpuTempC: telemetry.cpuTempC, cpuTempUpdatedAt: new Date() } : {}),
+            ...(typeof telemetry.freeStorageMb === 'number' ? { freeStorageMb: telemetry.freeStorageMb } : {}),
+            ...(telemetry.androidVersion ? { androidVersion: telemetry.androidVersion } : {}),
+            ...(telemetry.appVersion     ? { appVersion:     telemetry.appVersion     } : {}),
+          },
+        }).catch(() => { /* telemetry columns may not exist yet */ });
+        const envelope = await respond({ accepted: 0, telemetry: true }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'success', policyFlags: ['telemetry_only'], startedAtMs });
+        return NextResponse.json(envelope);
+      }
       const envelope = await respond({ accepted: 0 }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'invalid_request', policyFlags: ['empty_batch'], errorCategory: 'validation', startedAtMs });
       return NextResponse.json(envelope);
     }
@@ -135,11 +151,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Update device heartbeat
+    // Update device heartbeat + optional telemetry
     await db.device.update({
       where: { id: device.id },
-      data:  { lastSeen: new Date(), status: 'ONLINE' },
-    });
+      data:  {
+        lastSeen: new Date(), status: 'ONLINE',
+        ...(typeof telemetry?.cpuTempC      === 'number' ? { cpuTempC: telemetry.cpuTempC, cpuTempUpdatedAt: new Date() } : {}),
+        ...(typeof telemetry?.freeStorageMb === 'number' ? { freeStorageMb: telemetry.freeStorageMb } : {}),
+        ...(telemetry?.androidVersion ? { androidVersion: telemetry.androidVersion } : {}),
+        ...(telemetry?.appVersion     ? { appVersion:     telemetry.appVersion     } : {}),
+      },
+    }).catch(() => { /* telemetry columns may not exist yet */ });
 
     const envelope = await respond({ accepted }, { route, request: { correlationId, eventsCount: batch.length }, outcome: 'success', policyFlags: [], startedAtMs });
     return NextResponse.json(envelope);

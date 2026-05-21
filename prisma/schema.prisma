@@ -186,6 +186,7 @@ model Campaign {
   paymentId       String?
   orderId         String?
   status          String     @default("upcoming") // upcoming | active | completed | cancelled
+  creativeUrls    String[]   @default([])          // R2 URLs of uploaded ad creatives
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -218,6 +219,11 @@ model Device {
   claimedAt    DateTime      @default(now())
   linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
   forceSyncAt  DateTime?                     // admin-triggered cache bust — player re-fetches when > lastSyncAt
+  cpuTempC          Float?                   // last reported CPU temperature in °C
+  cpuTempUpdatedAt  DateTime?
+  freeStorageMb     Int?                     // available storage in MB (last reported)
+  androidVersion    String?                  // e.g. "13"
+  appVersion        String?                  // ALIVE Player app version, e.g. "1.4.2"
   updatedAt    DateTime      @updatedAt
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)

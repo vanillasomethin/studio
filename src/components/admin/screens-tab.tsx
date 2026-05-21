@@ -18,7 +18,9 @@ import { toast } from '@/hooks/use-toast';
 // ─── Diagnostic panel (unchanged) ────────────────────────────────────────────
 type DiagIssue = { level: 'ok' | 'warn' | 'error'; message: string };
 type PlanPreview = {
-  device:      { id: string; name: string; hardwareKey: string; groupName: string | null; status: string; lastSeen: string | null };
+  device:      { id: string; name: string; hardwareKey: string; groupName: string | null; status: string; lastSeen: string | null; storeName?: string | null; city?: string | null };
+  telemetry?:  { cpuTempC: number | null; cpuTempUpdatedAt: string | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null } | null;
+  performance?: { plays7d: number; watchMs7d: number; uptimePct: number | null };
   plan:        { planHash: string; scheduleId: string | null; scheduleName: string | null; playlistName: string | null; items: { name: string; url: string; type: string; durationMs: number; order: number }[]; scheduleCount: number; validUntil: string };
   diagnostics: { issues: DiagIssue[] };
   curl:        string;
@@ -52,7 +54,13 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-2xl border border-border bg-card shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2"><Stethoscope className="h-4 w-4 text-primary" /><p className="text-sm font-bold text-foreground">Plan diagnostic</p></div>
+          <div className="flex items-center gap-2 min-w-0">
+            <Stethoscope className="h-4 w-4 text-primary shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-foreground truncate">{data?.device.storeName ? `${data.device.storeName}` : 'Screen detail'}</p>
+              {data?.device && <p className="text-[10px] text-muted-foreground">{data.device.city ?? '—'} · Screen #{(data.device.hardwareKey ?? data.device.id).slice(-4).toUpperCase()}</p>}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={load} disabled={loading} className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">{loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Refresh'}</button>
             <button onClick={onClose} className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground transition-colors"><X className="h-3.5 w-3.5" /></button>
@@ -73,6 +81,54 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                   ))}
                 </div>
               </div>
+              {/* Performance over last 7 days */}
+              {data.performance && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Performance · last 7 days</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-xl border border-border bg-background p-3">
+                      <p className="text-base font-bold text-foreground">{data.performance.plays7d.toLocaleString('en-IN')}</p>
+                      <p className="text-[10px] text-muted-foreground">Plays</p>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-3">
+                      <p className="text-base font-bold text-foreground">{data.performance.watchMs7d < 60_000 ? `${Math.round(data.performance.watchMs7d / 1000)}s` : data.performance.watchMs7d < 3_600_000 ? `${Math.round(data.performance.watchMs7d / 60_000)}m` : `${(data.performance.watchMs7d / 3_600_000).toFixed(1)}h`}</p>
+                      <p className="text-[10px] text-muted-foreground">Watch time</p>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-3">
+                      <p className="text-base font-bold text-foreground">{data.performance.uptimePct != null ? `${data.performance.uptimePct.toFixed(0)}%` : '—'}</p>
+                      <p className="text-[10px] text-muted-foreground">Uptime (30d)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Hardware telemetry */}
+              {data.telemetry && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Hardware</p>
+                  <div className="rounded-xl border border-border bg-background p-3 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                    <div className="flex justify-between text-xs col-span-2">
+                      <span className="text-muted-foreground">CPU temperature</span>
+                      <span className={`font-semibold ${data.telemetry.cpuTempC == null ? 'text-muted-foreground/50 italic font-normal' : data.telemetry.cpuTempC > 75 ? 'text-red-500' : data.telemetry.cpuTempC > 60 ? 'text-amber-500' : 'text-green-600'}`}>
+                        {data.telemetry.cpuTempC != null ? `${data.telemetry.cpuTempC.toFixed(1)} °C` : 'Not reported'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs col-span-2">
+                      <span className="text-muted-foreground">Free storage</span>
+                      <span className="font-semibold text-foreground">{data.telemetry.freeStorageMb != null ? `${(data.telemetry.freeStorageMb / 1024).toFixed(1)} GB` : <span className="text-muted-foreground/50 italic font-normal">—</span>}</span>
+                    </div>
+                    <div className="flex justify-between text-xs col-span-2">
+                      <span className="text-muted-foreground">Android version</span>
+                      <span className="font-semibold text-foreground">{data.telemetry.androidVersion ?? <span className="text-muted-foreground/50 italic font-normal">—</span>}</span>
+                    </div>
+                    <div className="flex justify-between text-xs col-span-2">
+                      <span className="text-muted-foreground">Player version</span>
+                      <span className="font-semibold text-foreground">{data.telemetry.appVersion ?? <span className="text-muted-foreground/50 italic font-normal">—</span>}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">What this device receives now</p>
                 <div className="rounded-xl border border-border bg-background p-3 space-y-1.5">
@@ -313,7 +369,7 @@ function GroupPanel({ onClose, onFilterGroup }: { onClose: () => void; onFilterG
 
 // ─── Registration onboarding card ────────────────────────────────────────────
 const PLAY_STORE_URL = process.env.NEXT_PUBLIC_PLAY_STORE_URL ?? 'https://play.google.com/store/apps/details?id=in.wearealive.player';
-const APK_DIRECT_URL = process.env.NEXT_PUBLIC_APK_DIRECT_URL ?? 'https://pub-7a9bd7006a434f6c84ea68e69b323918.r2.dev/alive-player-latest.apk';
+const APK_DIRECT_URL = process.env.NEXT_PUBLIC_APK_DIRECT_URL ?? '/api/apk/latest';
 const CLAIM_ENDPOINT = '/api/device/claim';
 
 function AddScreenCard() {
@@ -321,6 +377,7 @@ function AddScreenCard() {
   const [copied, setCopied] = useState(false);
   const baseUrl   = typeof window !== 'undefined' ? window.location.origin : 'https://wearealive.in';
   const claimUrl  = `${baseUrl}${CLAIM_ENDPOINT}`;
+  const apkUrl    = APK_DIRECT_URL.startsWith('http') ? APK_DIRECT_URL : `${baseUrl}${APK_DIRECT_URL}`;
   const copy = (text: string) => { navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
 
   return (
@@ -344,11 +401,11 @@ function AddScreenCard() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <div className="flex flex-col items-center gap-1.5"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(PLAY_STORE_URL)}`} alt="Play Store QR" className="rounded-xl border border-border" width={100} height={100} /><p className="text-[9px] text-muted-foreground text-center">Play Store</p></div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <div className="flex flex-col items-center gap-1.5"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(APK_DIRECT_URL)}`} alt="Direct APK QR" className="rounded-xl border border-border" width={100} height={100} /><p className="text-[9px] text-muted-foreground text-center">Direct APK</p></div>
+                <div className="flex flex-col items-center gap-1.5"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(apkUrl)}`} alt="Direct APK QR" className="rounded-xl border border-border" width={100} height={100} /><p className="text-[9px] text-muted-foreground text-center">Direct APK</p></div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary/90 transition-colors"><Download className="h-3.5 w-3.5" /> Play Store</a>
-                <a href={APK_DIRECT_URL} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/30 transition-colors"><Download className="h-3.5 w-3.5" /> Direct APK</a>
+                <a href={apkUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/30 transition-colors"><Download className="h-3.5 w-3.5" /> Direct APK</a>
               </div>
             </div>
             <div className="space-y-3">
@@ -428,6 +485,15 @@ function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) =
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+// Human-friendly label for a device — avoids exposing raw hardware IDs in the UI.
+// Examples: "Sharma Stores · Screen #b434" or "Screen #b434" if not linked.
+function friendlyDeviceLabel(d: Device): string {
+  const tail = (d.hardwareKey ?? d.id).slice(-4).toUpperCase();
+  const short = `Screen #${tail}`;
+  if (d.linkedStoreName) return `${d.linkedStoreName} · ${short}`;
+  return short;
+}
+
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
   catch { return iso; }
@@ -806,7 +872,7 @@ export default function ScreensTab() {
                         <td className="px-3 py-2 text-muted-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</td>
                         <td className="px-3 py-2 text-right">
                           <button onClick={() => setDiagId(d.id)} className="rounded-lg border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
-                            Diag
+                            Details
                           </button>
                         </td>
                       </tr>
@@ -831,7 +897,7 @@ export default function ScreensTab() {
                         <div className="min-w-0">
                           <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-[10px] font-mono text-muted-foreground/70 truncate">{d.hardwareKey.slice(0, 20)}…</p>
+                            <p className="text-[10px] text-muted-foreground/70 truncate">{friendlyDeviceLabel(d)}</p>
                             {d.linkedStoreName ? (
                               <button onClick={() => setLinkIds([d.id])} className="flex items-center gap-0.5 text-[10px] text-green-700 hover:underline">
                                 <Store className="h-2.5 w-2.5" />{d.linkedStoreName}
@@ -851,7 +917,7 @@ export default function ScreensTab() {
                           <Link2 className="h-3 w-3" />
                         </button>
                         <button onClick={() => setDiagId(d.id)} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
-                          <Stethoscope className="h-3 w-3" /> Diag
+                          <Stethoscope className="h-3 w-3" /> Details
                         </button>
                         <button onClick={() => doForceSync(d.id)} title="Force this screen to re-fetch its plan on next poll" className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
                           <RefreshCw className="h-3 w-3" /> Sync
