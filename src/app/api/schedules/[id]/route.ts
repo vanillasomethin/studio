@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { pushPlanUpdated, resolveScheduleDeviceIds } from '@/lib/fcm';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -84,6 +85,15 @@ export async function PATCH(
       endAt:        updated.endAt.toISOString(),
       createdAt:    updated.createdAt.toISOString(),
     };
+
+    // Push plan_updated to affected devices (best-effort, non-blocking)
+    resolveScheduleDeviceIds({
+      deviceIds:  updated.deviceIds,
+      groupName:  updated.groupName,
+      storeIds:   (updated as { storeIds?: string[] }).storeIds,
+      cityFilter: (updated as { cityFilter?: string | null }).cityFilter,
+    }).then((ids) => pushPlanUpdated(ids)).catch(() => {});
+
     return NextResponse.json({ schedule: norm });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

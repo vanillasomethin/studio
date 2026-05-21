@@ -220,6 +220,7 @@ model Device {
   uptimePctD30 Float?
   claimedAt    DateTime      @default(now())
   linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
+  fcmToken     String?                       // Firebase Cloud Messaging token — set by APK on first boot / token refresh
   forceSyncAt  DateTime?                     // admin-triggered cache bust — player re-fetches when > lastSyncAt
   cpuTempC          Float?                   // last reported CPU temperature in °C
   cpuTempUpdatedAt  DateTime?
