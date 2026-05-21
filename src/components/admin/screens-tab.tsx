@@ -369,8 +369,8 @@ function GroupPanel({ onClose, onFilterGroup }: { onClose: () => void; onFilterG
 }
 
 // ─── Registration onboarding card ────────────────────────────────────────────
-const PLAY_STORE_URL = process.env.NEXT_PUBLIC_PLAY_STORE_URL ?? 'https://play.google.com/store/apps/details?id=in.wearealive.player';
-const APK_DIRECT_URL = process.env.NEXT_PUBLIC_APK_DIRECT_URL ?? '/api/apk/latest';
+const PLAY_STORE_URL = process.env.NEXT_PUBLIC_PLAY_STORE_URL ?? 'https://play.google.com/apps/internaltest/4701500416653827139';
+const APK_DIRECT_URL = process.env.NEXT_PUBLIC_APK_DIRECT_URL ?? 'https://github.com/vanillasomethin/ALIVE-Player/releases/tag/sideload-latest';
 const CLAIM_ENDPOINT = '/api/device/claim';
 
 function AddScreenCard() {
