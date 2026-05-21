@@ -154,7 +154,7 @@
 :root { --bg:#ffffff; --bg-2:#f5f5f5; --paper:#ffffff; --ink:#0a0a0a; --ink-2:#1f1f1f; --muted:#737373; --rule:#e5e5e5; --rule-cream:#e5e5e5; --red:#dc2626; --gradient-red:linear-gradient(135deg,rgba(220,38,38,.92) 0%,#dc2626 50%,#a81b1b 100%); }
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
-body{overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+body{overflow-x:clip;-webkit-font-smoothing:antialiased;}
 @media(pointer:coarse){body{cursor:auto;}.cursor,.cursor-ring{display:none !important;}}
 ::selection{background:var(--red);color:#fff;}
 .mono{font-family:"DM Mono",ui-monospace,monospace;font-weight:400;letter-spacing:0.02em;}
@@ -210,6 +210,9 @@ nav.nav .cta .cta-dot{width:6px;height:6px;border-radius:50%;background:#fff;}
 
 /* Sections — homepage only (scoped via body.home-page to avoid breaking dashboard) */
 body.home-page section{position:relative;padding:0 32px;}
+/* Higher-specificity overrides for sections that need vertical padding */
+body.home-page section.hero{padding-top:108px;padding-bottom:56px;}
+body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 @media(min-width:1101px){body.home-page section{padding-right:80px;}.proof,.join{padding-right:100px;}footer.f{padding-right:100px;}}
 
 /* Hero */
@@ -269,13 +272,13 @@ body.home-page section{position:relative;padding:0 32px;}
 /* Content stack — slides over the sticky hero */
 .content-stack{position:relative;z-index:2;background:var(--bg);box-shadow:0 -32px 80px rgba(0,0,0,0.055);}
 
-/* Smooth image loading */
+/* Smooth image loading — Next.js Image manages its own opacity on load */
 .img-wrap{background:var(--bg-2);}
-.img-wrap img,.alive-screen .layer img{opacity:0;transition:opacity .5s ease;}
-.img-wrap img.loaded,.alive-screen .layer.is-active img{opacity:1;}
-/* Fade in Next.js images on load */
-img[data-nimg]{opacity:0;transition:opacity .45s ease;}
-img[data-nimg="fill"],img[data-nimg="1"]{opacity:1;}
+.alive-screen .layer img{opacity:1;transition:opacity .5s ease;}
+/* Next.js sets opacity:0 via inline style while loading; once loaded it removes it.
+   We add a transition so the reveal is smooth rather than a snap. */
+img[data-nimg]{transition:opacity .5s ease;}
+img[data-nimg="fill"]{transition:opacity .5s ease;}
 
 /* Section header */
 .sec-h{display:flex;justify-content:space-between;align-items:flex-start;padding:96px 0 40px;border-top:1px solid var(--rule);}
@@ -406,7 +409,7 @@ img[data-nimg="fill"],img[data-nimg="1"]{opacity:1;}
 footer.f{background:var(--ink);color:#fff;margin:0 -32px;padding:100px 64px 0;border-top:1px solid rgba(255,255,255,.12);position:relative;overflow:hidden;}
 footer.f::before{content:"";position:absolute;top:-150px;left:-150px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(220,38,38,.22),transparent 60%);filter:blur(60px);pointer-events:none;}
 footer.f .top{position:relative;z-index:1;display:grid;grid-template-columns:1.7fr 1fr 1fr 1fr;gap:64px;padding-bottom:80px;}
-footer.f .top .lead h3{font-family:"Manrope",sans-serif;font-weight:800;font-size:clamp(54px,7.5vw,96px);line-height:1;letter-spacing:-.04em;display:inline-flex;align-items:center;gap:.04em;text-rendering:optimizeLegibility;font-feature-settings:"kern" 1,"ss01" 1;}
+footer.f .top .lead h3{font-family:"Poppins",sans-serif;font-weight:800;font-size:clamp(54px,7.5vw,96px);line-height:1;letter-spacing:-.04em;display:inline-flex;align-items:center;gap:.04em;text-rendering:optimizeLegibility;}
 footer.f .top .lead h3 .dot{display:inline-block;width:.13em;height:.13em;border-radius:50%;background:var(--red);transform:translateY(.05em);/* static */}
 footer.f .top .lead .tagline{font-family:"Manrope",sans-serif;font-weight:300;font-style:italic;font-size:20px;margin-top:24px;max-width:36ch;line-height:1.45;color:rgba(255,255,255,.72);}
 footer.f .top .lead .footer-cta{display:inline-flex;align-items:center;gap:12px;margin-top:32px;padding:16px 28px;background:var(--gradient-red);border-radius:999px;font-family:"Manrope",sans-serif;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#fff;text-decoration:none;box-shadow:0 14px 32px -10px rgba(220,38,38,.55);transition:box-shadow .35s;}
@@ -432,7 +435,7 @@ footer.f .bot .end{text-align:right;display:flex;gap:18px;justify-content:flex-e
 footer.f .bot .end a{color:rgba(255,255,255,.55);text-decoration:none;}
 footer.f .bot .end a:hover{color:var(--red);}
 footer.f .mega{margin:0 -64px;padding:0;display:flex;justify-content:center;align-items:flex-end;overflow:hidden;position:relative;z-index:1;border-top:1px solid rgba(255,255,255,.12);}
-footer.f .mega .word{font-family:"Manrope",sans-serif;font-weight:900;font-size:clamp(140px,26vw,440px);letter-spacing:-.07em;line-height:.82;color:rgba(255,255,255,.08);display:inline-flex;align-items:center;gap:.04em;transform:translateY(14%);white-space:nowrap;}
+footer.f .mega .word{font-family:"Poppins",sans-serif;font-weight:900;font-size:clamp(140px,26vw,440px);letter-spacing:-.07em;line-height:.82;color:rgba(255,255,255,.08);display:inline-flex;align-items:center;gap:.04em;transform:translateY(14%);white-space:nowrap;}
 footer.f .mega .word .megadot{width:.22em;height:.22em;border-radius:50%;background:var(--red);margin-bottom:.14em;-webkit-text-stroke:0;display:inline-block;box-shadow:0 0 40px rgba(220,38,38,.5);}
 
 /* Responsive */
