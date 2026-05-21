@@ -107,7 +107,20 @@ export async function DELETE(
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
   try {
+    // Read targeting before deleting so we know which devices to notify
+    const schedule = await db.schedule.findUnique({
+      where: { id },
+      select: { deviceIds: true, groupName: true, storeIds: true, cityFilter: true },
+    });
     await db.schedule.delete({ where: { id } });
+    if (schedule) {
+      resolveScheduleDeviceIds({
+        deviceIds:  schedule.deviceIds,
+        groupName:  schedule.groupName,
+        storeIds:   (schedule as { storeIds?: string[] }).storeIds,
+        cityFilter: (schedule as { cityFilter?: string | null }).cityFilter,
+      }).then((ids) => pushPlanUpdated(ids)).catch(() => {});
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
