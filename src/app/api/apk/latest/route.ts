@@ -4,13 +4,9 @@
 
 import { NextResponse } from 'next/server';
 
+const FALLBACK_APK_URL = 'https://github.com/vanillasomethin/ALIVE-Player/releases/tag/sideload-latest';
+
 export async function GET() {
-  const url = process.env.ALIVE_APK_URL?.trim();
-  if (!url) {
-    return NextResponse.json(
-      { error: 'APK not yet uploaded. Contact ALIVE admin (+91 74113 24448) to receive the installer.' },
-      { status: 404 },
-    );
-  }
+  const url = process.env.ALIVE_APK_URL?.trim() || FALLBACK_APK_URL;
   return NextResponse.redirect(url, 302);
 }
