@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2, ListVideo, Plus, Trash2, AlertCircle, Film, ImageIcon, GripVertical, X, Check } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getPlaylists, createPlaylist, updatePlaylist, deletePlaylist, getContent, type Playlist, type Content } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 
@@ -139,7 +140,12 @@ export default function PlaylistsTab() {
     }
   };
 
-  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (loading) return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[0,1,2].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
+      {[0,1,2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
+    </div>
+  );
   if (error)   return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />

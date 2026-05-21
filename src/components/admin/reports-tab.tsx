@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Loader2, Download, AlertCircle, PlayCircle, Filter, BarChart3 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getEvents, getEventsExportUrl, getDevices, type PlayEvent, type Device } from '@/lib/backend-api';
 
 function fmtHours(ms: number): string {
@@ -147,7 +148,12 @@ export default function ReportsTab() {
 
       {/* Tables side-by-side on large screens */}
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[0,1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          </div>
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
       ) : !events.length ? (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <PlayCircle className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />

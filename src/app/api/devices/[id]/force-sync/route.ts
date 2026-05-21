@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { pushPlanUpdated } from '@/lib/fcm';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -18,6 +19,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       data:  { forceSyncAt: new Date() },
       select: { id: true, forceSyncAt: true },
     });
+    // Immediately notify the device via FCM so it doesn't wait for the 15-min poll
+    pushPlanUpdated([id]).catch(() => {});
     return NextResponse.json({
       ok: true,
       forceSyncAt: device.forceSyncAt?.toISOString() ?? null,

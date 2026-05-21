@@ -13,6 +13,7 @@ import {
   searchStores, forceSyncDevice,
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 
 // ─── Diagnostic panel (unchanged) ────────────────────────────────────────────
@@ -695,7 +696,12 @@ export default function ScreensTab() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        <div className="space-y-3">
+          <div className="grid grid-cols-4 gap-3">
+            {[0,1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          </div>
+          {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
+        </div>
       ) : error ? (
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
           <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getContent, deleteContent, initiateUpload, updateContentMeta, type Content } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 
@@ -299,7 +300,9 @@ export default function ContentTab() {
 
       {/* Library */}
       {loading ? (
-        <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        <div className="space-y-2">
+          {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-12 rounded-xl" />)}
+        </div>
       ) : !content.length ? (
         <p className="text-sm text-muted-foreground text-center py-10">No content yet. Upload images or videos above.</p>
       ) : !filtered.length ? (

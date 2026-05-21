@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
+import { pushPlanUpdated, resolveScheduleDeviceIds } from '@/lib/fcm';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -72,6 +73,26 @@ export async function PATCH(
       where:   { id },
       include: { items: { include: { content: { select: CONTENT_SELECT } }, orderBy: { order: 'asc' } } },
     });
+    // Push plan_updated to all devices scheduled via this playlist (best-effort, non-blocking)
+    if (items !== undefined) {
+      db.schedule.findMany({
+        where: { playlistId: id },
+        select: { deviceIds: true, groupName: true, storeIds: true, cityFilter: true },
+      }).then(async (schedules) => {
+        const idSet = new Set<string>();
+        for (const s of schedules) {
+          const ids = await resolveScheduleDeviceIds({
+            deviceIds:  s.deviceIds,
+            groupName:  s.groupName,
+            storeIds:   (s as { storeIds?: string[] }).storeIds,
+            cityFilter: (s as { cityFilter?: string | null }).cityFilter,
+          });
+          for (const id of ids) idSet.add(id);
+        }
+        return pushPlanUpdated(Array.from(idSet));
+      }).catch(() => {});
+    }
+
     return NextResponse.json({ playlist: updated ? normalizePlaylist(updated) : null });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

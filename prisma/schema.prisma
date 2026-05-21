@@ -163,9 +163,11 @@ model Brand {
   email       String
   phone       String
   gstin       String?
-  walletPaise BigInt     @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  walletPaise    BigInt     @default(0)
+  trialOfferedAt DateTime?
+  trialUsedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns   Campaign[]
@@ -218,6 +220,7 @@ model Device {
   uptimePctD30 Float?
   claimedAt    DateTime      @default(now())
   linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
+  fcmToken     String?                       // Firebase Cloud Messaging token — set by APK on first boot / token refresh
   forceSyncAt  DateTime?                     // admin-triggered cache bust — player re-fetches when > lastSyncAt
   cpuTempC          Float?                   // last reported CPU temperature in °C
   cpuTempUpdatedAt  DateTime?
