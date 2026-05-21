@@ -41,10 +41,11 @@ type StoreReg = {
   deviceCount?: number;
 };
 type Campaign = {
-  id: string; brandName: string; contactName: string; email: string;
+  id: string; brandId: string | null; brandName: string; contactName: string; email: string;
   phone: string; screens: number; months: number; startDate: string;
   pricePerScreen: number; totalAmount: number; paymentId: string;
-  status: 'upcoming' | 'active' | 'completed'; createdAt: string;
+  status: 'upcoming' | 'active' | 'completed' | 'trial'; createdAt: string;
+  trialOfferedAt: string | null; trialUsedAt: string | null;
 };
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
@@ -563,9 +564,10 @@ function StoresPanel() {
 // ─── Campaigns Panel ──────────────────────────────────────────────────────────
 
 function CampaignsPanel() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [deleting,  setDeleting]  = useState<string | null>(null);
+  const [campaigns,    setCampaigns]    = useState<Campaign[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [deleting,     setDeleting]     = useState<string | null>(null);
+  const [offeringTrial, setOfferingTrial] = useState<string | null>(null);
 
   useEffect(() => {
     const pw = sessionStorage.getItem(SS_PW) ?? '';
@@ -584,6 +586,18 @@ function CampaignsPanel() {
       if (!res.ok) { const b = await res.json() as { error?: string }; alert(b.error ?? 'Delete failed'); return; }
       setCampaigns((all) => all.filter((c) => c.id !== id));
     } finally { setDeleting(null); }
+  };
+
+  const offerTrial = async (brandId: string, brandName: string) => {
+    if (!confirm(`Offer a free 1-month trial to "${brandName}"? They'll be notified via WhatsApp and email.`)) return;
+    setOfferingTrial(brandId);
+    try {
+      const pw  = sessionStorage.getItem(SS_PW) ?? '';
+      const res = await fetch(`/api/admin/brands/${brandId}/offer-trial`, { method: 'POST', headers: { 'admin-password': pw } });
+      const b   = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) { alert(b.error ?? 'Failed to offer trial'); return; }
+      setCampaigns((all) => all.map((c) => c.brandId === brandId ? { ...c, trialOfferedAt: new Date().toISOString() } : c));
+    } finally { setOfferingTrial(null); }
   };
 
   const total   = campaigns.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
@@ -614,7 +628,7 @@ function CampaignsPanel() {
         <div className="rounded-xl border border-border overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
-              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Date', ''].map((h) => (
+              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Date', 'Trial', ''].map((h) => (
                 <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
               ))}</tr>
             </thead>
@@ -634,6 +648,20 @@ function CampaignsPanel() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {c.trialOfferedAt ? (
+                        <span className="text-[10px] text-muted-foreground/60">Offered {fmtDate(c.trialOfferedAt)}</span>
+                      ) : c.brandId ? (
+                        <button
+                          type="button"
+                          onClick={() => void offerTrial(c.brandId!, c.brandName)}
+                          disabled={offeringTrial === c.brandId}
+                          className="flex items-center gap-1 rounded-lg border border-green-200 px-2 py-1 text-[11px] font-medium text-green-600 hover:bg-green-50 transition-colors disabled:opacity-40"
+                        >
+                          {offeringTrial === c.brandId ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Offer trial'}
+                        </button>
+                      ) : <span className="text-[10px] text-muted-foreground/40">—</span>}
+                    </td>
                     <td className="px-4 py-3">
                       <button
                         type="button"

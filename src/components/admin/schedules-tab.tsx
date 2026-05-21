@@ -13,6 +13,7 @@ import {
 } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 import ScheduleCalendar from './schedule-calendar';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -365,8 +366,9 @@ export default function SchedulesTab() {
   };
 
   if (loading) return (
-    <div className="flex justify-center py-16">
-      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-3">{[0,1,2].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>
+      {[0,1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
     </div>
   );
   if (error) return (

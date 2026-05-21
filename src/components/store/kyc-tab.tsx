@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import {
   Loader2, ShieldCheck, AlertCircle, Clock, CheckCircle2, Camera, FileText, IdCard, X, Upload,
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type KycStatus = 'not_started' | 'submitted' | 'approved' | 'rejected';
 
@@ -112,7 +113,13 @@ export default function KycTab() {
   };
 
   if (loading) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 rounded-xl" />
+        <div className="grid grid-cols-3 gap-4">{[0,1,2].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
+        <Skeleton className="h-12 rounded-xl" />
+      </div>
+    );
   }
 
   const status = data?.status ?? 'not_started';

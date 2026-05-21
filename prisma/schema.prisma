@@ -163,9 +163,11 @@ model Brand {
   email       String
   phone       String
   gstin       String?
-  walletPaise BigInt     @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  walletPaise    BigInt     @default(0)
+  trialOfferedAt DateTime?
+  trialUsedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns   Campaign[]

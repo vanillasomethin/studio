@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import '../bones/registry';
 import { Toaster } from '@/components/ui/toaster';
+import { Toaster as SonnerToaster } from 'sonner';
 import { Providers } from '@/components/providers';
 import { cn } from '@/lib/utils';
 import { NetworkBanner } from '@/components/errors/network-banner';
@@ -54,6 +55,7 @@ export default function RootLayout({
           <SessionExpiredModal />
           <Providers>{children}</Providers>
           <Toaster />
+          <SonnerToaster richColors position="top-right" />
         </body>
       </html>
   );

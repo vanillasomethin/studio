@@ -9,24 +9,27 @@ export async function GET(req: NextRequest) {
   try {
     const campaigns = await db.campaign.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { brand: { select: { brandName: true } } },
+      include: { brand: { select: { id: true, brandName: true, trialOfferedAt: true, trialUsedAt: true } } },
     });
 
     const result = campaigns.map((c) => ({
-      id:             c.id,
-      brandName:      c.brand?.brandName ?? c.name.split(' — ')[0],
-      contactName:    c.contactName,
-      email:          c.email,
-      phone:          c.phone,
-      screens:        c.screens,
-      months:         c.months,
-      startDate:      c.startDate.toISOString(),
-      pricePerScreen: c.pricePerScreen,
-      totalAmount:    c.totalAmount,
-      paymentId:      c.paymentId,
-      orderId:        c.orderId ?? null,
-      status:         c.status,
-      createdAt:      c.createdAt.toISOString(),
+      id:              c.id,
+      brandId:         c.brand?.id ?? null,
+      brandName:       c.brand?.brandName ?? c.name.split(' — ')[0],
+      contactName:     c.contactName,
+      email:           c.email,
+      phone:           c.phone,
+      screens:         c.screens,
+      months:          c.months,
+      startDate:       c.startDate.toISOString(),
+      pricePerScreen:  c.pricePerScreen,
+      totalAmount:     c.totalAmount,
+      paymentId:       c.paymentId,
+      orderId:         c.orderId ?? null,
+      status:          c.status,
+      createdAt:       c.createdAt.toISOString(),
+      trialOfferedAt:  c.brand?.trialOfferedAt?.toISOString() ?? null,
+      trialUsedAt:     c.brand?.trialUsedAt?.toISOString()    ?? null,
     }));
 
     return NextResponse.json(result);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession, signOut as nextAuthSignOut } from 'next-auth/react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,8 +15,11 @@ import { Logo } from '@/components/icons/logo';
 import {
   Monitor, TrendingUp, Eye, IndianRupee, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
-  CreditCard, X, Loader2, Plus, Check,
+  CreditCard, X, Loader2, Plus, Check, Upload, FileVideo, ImageIcon, Download,
+  Gift, Printer,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { Drawer } from 'vaul';
 
 type Campaign = {
   id: string; name?: string; brandName?: string; contactName?: string | null;
@@ -24,6 +27,12 @@ type Campaign = {
   screens: number; months: number;
   startDate: string; pricePerScreen: number; totalAmount: number;
   paymentId?: string | null; orderId?: string | null; status: string; createdAt: string;
+  creativeUrls?: string[];
+};
+
+type Analytics = {
+  byDay:      { date: string; plays: number; watchMs: number }[];
+  byCampaign: { campaignId: string; plays: number; watchMs: number }[];
 };
 
 // ─── Animations ────────────────────────────────────────────────────────────────
@@ -33,9 +42,7 @@ const fadeUp  = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, trans
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
-const fmt   = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-const PLAYS = 144;
-const VIEWS = 4320;
+const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
 const CHART_COLORS = [
   'hsl(var(--chart-1))', 'hsl(var(--chart-2))',
@@ -118,8 +125,8 @@ function CampaignCard({ c }: { c: Campaign }) {
       <div className="grid grid-cols-3 gap-3 text-center">
         {[
           { icon: <Monitor    className="h-3.5 w-3.5" />, label: 'Screens',   value: c.screens.toString() },
-          { icon: <TrendingUp className="h-3.5 w-3.5" />, label: 'Plays/day', value: `~${(PLAYS * c.screens).toLocaleString('en-IN')}` },
-          { icon: <Eye        className="h-3.5 w-3.5" />, label: 'Views/mo',  value: `~${(VIEWS * c.screens).toLocaleString('en-IN')}` },
+          { icon: <TrendingUp className="h-3.5 w-3.5" />, label: 'Plays/day', value: `~${(144 * c.screens).toLocaleString('en-IN')}` },
+          { icon: <Eye        className="h-3.5 w-3.5" />, label: 'Views/mo',  value: `~${(4320 * c.screens).toLocaleString('en-IN')}` },
         ].map(({ icon, label, value }) => (
           <div key={label} className="rounded-lg bg-muted/30 p-2.5 space-y-1">
             <div className="flex justify-center text-muted-foreground">{icon}</div>
@@ -145,76 +152,74 @@ function CampaignCard({ c }: { c: Campaign }) {
 
 // ─── Performance Charts ────────────────────────────────────────────────────────
 
-function PerformanceCharts({ campaigns }: { campaigns: Campaign[] }) {
+function PerformanceCharts({ campaigns, analytics }: { campaigns: Campaign[]; analytics: Analytics | null }) {
+  const axisStyle = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' };
+
+  const hasRealData = analytics && (analytics.byDay.length > 0 || analytics.byCampaign.length > 0);
+
   if (campaigns.length === 0) return (
     <div className="rounded-xl border border-border bg-card p-10 text-center text-muted-foreground text-sm">
       No campaign data to display yet.
     </div>
   );
 
-  const barData = campaigns.map((c) => ({
-    name:            (c.brandName ?? c.name ?? '').slice(0, 14),
-    'Monthly views': VIEWS * c.screens,
-    'Daily plays':   PLAYS * c.screens,
+  if (!hasRealData) return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-10 text-center space-y-2">
+        <TrendingUp className="h-8 w-8 text-muted-foreground/30 mx-auto" />
+        <p className="text-sm font-semibold text-foreground">Playback data will appear once your campaign goes live</p>
+        <p className="text-xs text-muted-foreground">Real-time plays and watch time are tracked once screens start showing your ad.</p>
+      </div>
+    </div>
+  );
+
+  const areaData = analytics.byDay.map((d) => ({
+    date:  format(parseISO(d.date), 'dd MMM'),
+    Plays: d.plays,
+    'Watch (min)': Math.round(d.watchMs / 60000),
   }));
 
-  const allDates      = new Set<string>();
-  const campaignDayMap: Record<string, Record<string, number>> = {};
-
-  campaigns.forEach((c) => {
-    if (!c.startDate) return;
-    const start = parseISO(c.startDate);
-    const end   = addMonths(start, c.months);
-    const label = (c.brandName ?? c.name ?? '').slice(0, 14);
-    campaignDayMap[label] = {};
-    eachDayOfInterval({ start, end }).slice(0, 60).forEach((d) => {
-      const key = format(d, 'dd MMM');
-      allDates.add(key);
-      campaignDayMap[label][key] = PLAYS * c.screens;
-    });
+  const barData = analytics.byCampaign.map((b) => {
+    const c = campaigns.find((x) => x.id === b.campaignId);
+    return {
+      name:  (c?.brandName ?? b.campaignId).slice(0, 14),
+      Plays: b.plays,
+      'Watch (min)': Math.round(b.watchMs / 60000),
+    };
   });
-
-  const areaData = [...allDates].map((date) => {
-    const row: Record<string, string | number> = { date };
-    Object.entries(campaignDayMap).forEach(([label, days]) => { row[label] = days[date] ?? 0; });
-    return row;
-  });
-
-  const labels     = Object.keys(campaignDayMap);
-  const axisStyle  = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' };
 
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Daily plays timeline</p>
+        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Daily plays (last 90 days)</p>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={areaData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" tick={axisStyle} tickLine={false} interval="preserveStartEnd" />
-            <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v) => v.toLocaleString('en-IN')} />
+            <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v: number) => v.toLocaleString('en-IN')} />
             <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: 'hsl(var(--foreground))' }} />
             <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-            {labels.map((l, i) => (
-              <Area key={l} type="monotone" dataKey={l} stroke={CHART_COLORS[i % 5]} fill={CHART_COLORS[i % 5]} fillOpacity={0.15} strokeWidth={2} />
-            ))}
+            <Area type="monotone" dataKey="Plays" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.15} strokeWidth={2} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Estimated reach per campaign</p>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={barData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="name" tick={axisStyle} tickLine={false} />
-            <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v) => v.toLocaleString('en-IN')} />
-            <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: 'hsl(var(--foreground))' }} />
-            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-            <Bar dataKey="Monthly views" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Daily plays"   fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {barData.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Plays per campaign</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={barData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="name" tick={axisStyle} tickLine={false} />
+              <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v: number) => v.toLocaleString('en-IN')} />
+              <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: 'hsl(var(--foreground))' }} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              <Bar dataKey="Plays"         fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Watch (min)"   fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }
@@ -353,7 +358,279 @@ function NetworkTab() {
   );
 }
 
-// ─── Pending Payment ──────────────────────────────────────────────────────────
+// ─── Trial Banner ────────────────────────────────────────────────────────────
+
+function TrialBanner() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-green-200 bg-green-50 px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4"
+    >
+      <div className="flex items-center gap-3">
+        <div className="rounded-lg bg-green-100 p-2 shrink-0">
+          <Gift className="h-5 w-5 text-green-700" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-green-900">Your free 1-month trial is ready!</p>
+          <p className="text-xs text-green-700 mt-0.5">ALIVE is offering you a free campaign — claim it now before it expires.</p>
+        </div>
+      </div>
+      <a
+        href="/brand-onboarding?trial=1"
+        className="shrink-0 rounded-xl bg-green-700 px-5 py-2.5 text-xs font-bold text-white hover:bg-green-800 transition-colors"
+      >
+        Claim trial →
+      </a>
+    </motion.div>
+  );
+}
+
+// ─── Creatives Tab ────────────────────────────────────────────────────────────
+
+function CreativesTab({ campaigns }: { campaigns: Campaign[] }) {
+  const [uploading, setUploading]   = useState<string | null>(null);
+  const [localUrls, setLocalUrls]   = useState<Record<string, string[]>>({});
+  const fileRefs                    = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const getUrls = (c: Campaign) => [...(c.creativeUrls ?? []), ...(localUrls[c.id] ?? [])];
+
+  async function upload(campaignId: string, paymentId: string, file: File) {
+    const MAX = 4 * 1024 * 1024;
+    if (file.size > MAX) { toast.error(`File too large — max 4 MB`); return; }
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4'];
+    if (!allowed.includes(file.type)) { toast.error('Only JPEG, PNG, WebP or MP4 allowed'); return; }
+
+    setUploading(campaignId);
+    const tid = toast.loading('Uploading creative…');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res  = await fetch(`/api/brand/upload?paymentId=${paymentId}`, { method: 'POST', body: fd });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      setLocalUrls((prev) => ({ ...prev, [campaignId]: [...(prev[campaignId] ?? []), data.url!] }));
+      toast.success('Creative uploaded!', { id: tid });
+    } catch (e) {
+      toast.error((e as Error).message, { id: tid });
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  if (campaigns.length === 0) return (
+    <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-muted-foreground text-sm">
+      No campaigns yet. Book a campaign first to upload creatives.
+    </div>
+  );
+
+  return (
+    <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6">
+      {campaigns.map((c) => {
+        const urls   = getUrls(c);
+        const period = c.startDate ? `${format(parseISO(c.startDate), 'd MMM')} → ${format(addMonths(parseISO(c.startDate), c.months), 'd MMM yyyy')}` : '';
+        return (
+          <motion.div key={c.id} variants={fadeUp} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-foreground">{c.brandName}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{period} · {c.screens} screen{c.screens !== 1 ? 's' : ''}</p>
+              </div>
+              {c.paymentId && (
+                <label className="cursor-pointer">
+                  <input
+                    ref={(el) => { fileRefs.current[c.id] = el; }}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,video/mp4"
+                    className="sr-only"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f && c.paymentId) upload(c.id, c.paymentId, f); e.target.value = ''; }}
+                  />
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-all">
+                    {uploading === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    Upload
+                  </span>
+                </label>
+              )}
+            </div>
+
+            {urls.length === 0 ? (
+              <div className="px-5 py-6 flex items-center gap-3 bg-amber-50 border-t border-amber-100">
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                <p className="text-xs text-amber-800 font-medium">No creatives yet — upload your ad so it can go live on screens.</p>
+              </div>
+            ) : (
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {urls.map((url, i) => {
+                  const isVideo = url.includes('.mp4') || url.includes('video');
+                  return (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                      className="relative rounded-lg border border-border bg-muted/20 overflow-hidden aspect-video flex items-center justify-center hover:border-primary/40 transition-colors group"
+                    >
+                      {isVideo ? (
+                        <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                          <FileVideo className="h-6 w-6" />
+                          <span className="text-[10px]">MP4</span>
+                        </div>
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={url} alt={`Creative ${i + 1}`} className="w-full h-full object-cover" />
+                      )}
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        );
+      })}
+    </motion.div>
+  );
+}
+
+// ─── Invoices Tab ─────────────────────────────────────────────────────────────
+
+function InvoicesTab({ campaigns }: { campaigns: Campaign[] }) {
+  const paid = campaigns.filter((c) => c.paymentId);
+
+  function openInvoice(c: Campaign) {
+    const subtotal = Math.round(c.totalAmount / 1.18);
+    const gst      = c.totalAmount - subtotal;
+    const start    = c.startDate ? format(parseISO(c.startDate), 'd MMMM yyyy') : '—';
+    const end      = c.startDate ? format(addMonths(parseISO(c.startDate), c.months), 'd MMMM yyyy') : '—';
+    const now      = format(new Date(), 'd MMMM yyyy');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><title>ALIVE Invoice — ${c.brandName}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:13px;color:#111;background:#fff;padding:40px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px}
+  .logo{font-size:22px;font-weight:900;letter-spacing:-0.5px;color:#ef4444}
+  .title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#666;margin-top:4px}
+  h2{font-size:18px;font-weight:700;margin-bottom:6px}
+  .meta{font-size:12px;color:#555;line-height:1.6}
+  .section{margin-bottom:24px}
+  .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:6px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#999;border-bottom:2px solid #eee;padding:8px 0}
+  td{padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:12px}
+  .amount{text-align:right;font-weight:700}
+  .total-row td{font-weight:900;font-size:14px;border-top:2px solid #111;padding-top:12px}
+  .footer{margin-top:40px;font-size:11px;color:#aaa;border-top:1px solid #eee;padding-top:16px}
+  @media print{body{padding:20px}button{display:none}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <div class="logo">ALIVE</div>
+    <div class="title">Tax Invoice</div>
+  </div>
+  <div style="text-align:right">
+    <div class="meta"><strong>Invoice date:</strong> ${now}</div>
+    <div class="meta"><strong>Payment ref:</strong> ${c.paymentId}</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:28px">
+  <div class="section">
+    <div class="label">Supplier</div>
+    <div class="meta">
+      <strong>VS Collective LLP</strong><br>
+      #13 First Floor Highland Manor, Falnir<br>
+      Mangalore 575002, Karnataka<br>
+      GSTIN: 29AAXFV2589C1ZE<br>
+      hello@wearealive.in
+    </div>
+  </div>
+  <div class="section">
+    <div class="label">Bill to</div>
+    <div class="meta">
+      <strong>${c.brandName}</strong><br>
+      ${c.contactName ?? ''}<br>
+      ${c.email ?? ''}<br>
+      ${c.gstin ? `GSTIN: ${c.gstin}` : 'GSTIN: —'}
+    </div>
+  </div>
+</div>
+
+<table>
+  <thead><tr>
+    <th>Description</th>
+    <th>Qty</th>
+    <th>Rate</th>
+    <th class="amount">Amount</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td>ALIVE In-store Ad Campaign<br><small style="color:#888">${start} to ${end}</small></td>
+      <td>${c.screens} screen${c.screens !== 1 ? 's' : ''} × ${c.months} mo</td>
+      <td>₹${c.pricePerScreen.toLocaleString('en-IN')}/screen/mo</td>
+      <td class="amount">₹${subtotal.toLocaleString('en-IN')}</td>
+    </tr>
+    <tr>
+      <td colspan="3">GST @ 18% (SAC 998365)</td>
+      <td class="amount">₹${gst.toLocaleString('en-IN')}</td>
+    </tr>
+    <tr class="total-row">
+      <td colspan="3">Total (INR)</td>
+      <td class="amount">₹${c.totalAmount.toLocaleString('en-IN')}</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  This is a computer-generated invoice. Subject to Mangalore jurisdiction. · wearealive.in
+</div>
+<br>
+<button onclick="window.print()" style="padding:8px 18px;background:#111;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Print / Save PDF</button>
+</body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  if (paid.length === 0) return (
+    <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-muted-foreground text-sm">
+      No paid campaigns yet. Invoices will appear here after payment.
+    </div>
+  );
+
+  return (
+    <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-3">
+      {paid.map((c) => {
+        const period = c.startDate ? `${format(parseISO(c.startDate), 'MMM yyyy')} – ${format(addMonths(parseISO(c.startDate), c.months), 'MMM yyyy')}` : '—';
+        return (
+          <motion.div key={c.id} variants={fadeUp} className="rounded-xl border border-border bg-card px-5 py-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="rounded-lg bg-muted/40 p-2 shrink-0">
+                <Printer className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-foreground text-sm truncate">{c.brandName}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{period} · {c.screens} screen{c.screens !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 shrink-0">
+              <p className="font-black text-foreground">₹{c.totalAmount.toLocaleString('en-IN')}</p>
+              <button
+                onClick={() => openInvoice(c)}
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-all"
+              >
+                <Download className="h-3.5 w-3.5" /> Invoice
+              </button>
+            </div>
+          </motion.div>
+        );
+      })}
+    </motion.div>
+  );
+}
+
+// ─── Pending Payment ──────────────────────────────────────────────────────────────
 
 const PENDING_KEY = 'alive_pending_campaign';
 
@@ -528,10 +805,12 @@ function NewCampaignModal({
   onClose,
   onBooked,
   prefill,
+  inDrawer = false,
 }: {
   onClose: () => void;
   onBooked: (c: Campaign) => void;
   prefill: { brandName: string; contactName: string; email: string; phone: string; gstin: string };
+  inDrawer?: boolean;
 }) {
   const [modalStep,  setModalStep]  = useState<ModalStep>(1);
   const [modalForm,  setModalForm]  = useState<ModalFormData>({
@@ -669,9 +948,8 @@ function NewCampaignModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-xl">
+  const inner = (
+    <div className={inDrawer ? 'relative w-full' : 'relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-xl'}>
         {/* Close */}
         <button
           onClick={onClose}
@@ -1027,6 +1305,10 @@ function NewCampaignModal({
           </div>
         )}
       </div>
+  );
+  return inDrawer ? inner : (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+      {inner}
     </div>
   );
 }
@@ -1034,13 +1316,24 @@ function NewCampaignModal({
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const router                  = useRouter();
+  const router                    = useRouter();
   const { data: session, status } = useSession();
 
   const [campaigns,       setCampaigns]       = useState<Campaign[]>([]);
+  const [analytics,       setAnalytics]       = useState<Analytics | null>(null);
+  const [trialOfferedAt,  setTrialOfferedAt]  = useState<string | null>(null);
+  const [trialUsedAt,     setTrialUsedAt]     = useState<string | null>(null);
   const [fetching,        setFetching]        = useState(true);
   const [pending,         setPending]         = useState<PendingForm | null>(null);
   const [showNewCampaign, setShowNewCampaign] = useState(false);
+  const [isMobile,        setIsMobile]        = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   // Load pending campaign from localStorage (saved if user left during payment)
   useEffect(() => {
@@ -1057,22 +1350,33 @@ export default function DashboardPage() {
     fetch('/api/campaigns/list')
       .then((r) => {
         if (!r.ok || !r.headers.get('content-type')?.includes('application/json')) {
-          return { campaigns: [] };
+          return { campaigns: [], trialOfferedAt: null, trialUsedAt: null };
         }
         return r.json();
       })
-      .then((d: { campaigns?: Campaign[] }) => setCampaigns(d.campaigns ?? []))
+      .then((d: { campaigns?: Campaign[]; trialOfferedAt?: string | null; trialUsedAt?: string | null }) => {
+        setCampaigns(d.campaigns ?? []);
+        setTrialOfferedAt(d.trialOfferedAt ?? null);
+        setTrialUsedAt(d.trialUsedAt ?? null);
+      })
       .catch(() => {})
       .finally(() => setFetching(false));
+
+    // Load analytics in background (non-blocking)
+    fetch('/api/campaigns/analytics')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: Analytics | null) => { if (d) setAnalytics(d); })
+      .catch(() => {});
   }, [session, status, router]);
 
   if (status === 'loading' || fetching) return <LoadingSkeleton />;
   if (!session) return null;
 
-  const brandName      = campaigns[0]?.brandName || session.user?.name || 'Brand';
-  const totalInvested  = campaigns.reduce((s, c) => s + c.totalAmount, 0);
-  const activeScreens  = campaigns.filter((c) => deriveCampaignStatus(c) === 'active').reduce((s, c) => s + c.screens, 0);
-  const estimatedViews = campaigns.reduce((s, c) => s + VIEWS * c.screens * c.months, 0);
+  const brandName     = campaigns[0]?.brandName || session.user?.name || 'Brand';
+  const totalInvested = campaigns.reduce((s, c) => s + c.totalAmount, 0);
+  const activeScreens = campaigns.filter((c) => deriveCampaignStatus(c) === 'active').reduce((s, c) => s + c.screens, 0);
+  const totalPlays    = analytics?.byCampaign.reduce((s, b) => s + b.plays, 0) ?? 0;
+  const showTrial     = !!trialOfferedAt && !trialUsedAt && campaigns.length === 0;
 
   const modalPrefill = {
     brandName:   campaigns[0]?.brandName   || session.user?.name  || '',
@@ -1115,23 +1419,26 @@ export default function DashboardPage() {
           </div>
         ) : (
           <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard icon={<CalendarDays className="h-4 w-4" />} label="Campaigns"       value={campaigns.length.toString()} />
-            <SummaryCard icon={<Monitor      className="h-4 w-4" />} label="Active screens"  value={activeScreens.toString()} sub="Currently live" />
-            <SummaryCard icon={<IndianRupee  className="h-4 w-4" />} label="Total invested"  value={fmt(totalInvested)} />
-            <SummaryCard icon={<Eye          className="h-4 w-4" />} label="Est. total views" value={estimatedViews > 0 ? `~${estimatedViews.toLocaleString('en-IN')}` : '—'} />
+            <SummaryCard icon={<CalendarDays className="h-4 w-4" />} label="Campaigns"      value={campaigns.length.toString()} />
+            <SummaryCard icon={<Monitor      className="h-4 w-4" />} label="Active screens" value={activeScreens.toString()} sub="Currently live" />
+            <SummaryCard icon={<IndianRupee  className="h-4 w-4" />} label="Total invested" value={fmt(totalInvested)} />
+            <SummaryCard icon={<Eye          className="h-4 w-4" />} label="Total plays"     value={totalPlays > 0 ? totalPlays.toLocaleString('en-IN') : '—'} sub={totalPlays > 0 ? 'Actual plays' : 'Pending data'} />
           </motion.div>
         )}
 
         {/* Tabs */}
         <Tabs defaultValue="campaigns">
-          <TabsList className="mb-6">
+          <TabsList className="mb-6 flex-wrap h-auto gap-1">
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
+            <TabsTrigger value="creatives">Creatives</TabsTrigger>
+            <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="network">Our Network</TabsTrigger>
           </TabsList>
 
           <TabsContent value="campaigns">
+            {showTrial && <TrialBanner />}
             <AnimatePresence>
               {pending && (
                 <div className="mb-4">
@@ -1185,7 +1492,21 @@ export default function DashboardPage() {
           <TabsContent value="performance">
             {fetching
               ? <Skeleton className="h-64 rounded-xl" />
-              : <PerformanceCharts campaigns={campaigns} />
+              : <PerformanceCharts campaigns={campaigns} analytics={analytics} />
+            }
+          </TabsContent>
+
+          <TabsContent value="creatives">
+            {fetching
+              ? <div className="space-y-4">{[0,1].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
+              : <CreativesTab campaigns={campaigns} />
+            }
+          </TabsContent>
+
+          <TabsContent value="invoices">
+            {fetching
+              ? <div className="space-y-3">{[0,1,2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+              : <InvoicesTab campaigns={campaigns} />
             }
           </TabsContent>
 
@@ -1205,16 +1526,30 @@ export default function DashboardPage() {
         </p>
       </footer>
 
-      {/* New Campaign Modal */}
-      {showNewCampaign && (
-        <NewCampaignModal
-          prefill={modalPrefill}
-          onClose={() => setShowNewCampaign(false)}
-          onBooked={(c) => {
-            setCampaigns((prev) => [c, ...prev]);
-            setShowNewCampaign(false);
-          }}
-        />
+      {/* New Campaign Modal — vaul drawer on mobile, centred overlay on desktop */}
+      {isMobile ? (
+        <Drawer.Root open={showNewCampaign} onOpenChange={setShowNewCampaign}>
+          <Drawer.Portal>
+            <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
+            <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl bg-background border-t border-border max-h-[92dvh] overflow-y-auto focus:outline-none">
+              <div className="mx-auto mt-3 mb-1 h-1 w-10 rounded-full bg-muted" />
+              <NewCampaignModal
+                prefill={modalPrefill}
+                onClose={() => setShowNewCampaign(false)}
+                onBooked={(c) => { setCampaigns((prev) => [c, ...prev]); setShowNewCampaign(false); }}
+                inDrawer
+              />
+            </Drawer.Content>
+          </Drawer.Portal>
+        </Drawer.Root>
+      ) : (
+        showNewCampaign && (
+          <NewCampaignModal
+            prefill={modalPrefill}
+            onClose={() => setShowNewCampaign(false)}
+            onBooked={(c) => { setCampaigns((prev) => [c, ...prev]); setShowNewCampaign(false); }}
+          />
+        )
       )}
     </div>
   );
