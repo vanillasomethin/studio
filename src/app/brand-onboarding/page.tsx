@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
   TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays, EyeOff,
+  Upload, X,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -1090,6 +1091,108 @@ function StepPayment({
   );
 }
 
+// ── Inline creative uploader on the confirmation page ─────────────────────
+function CreativeUploadBox({ paid, paymentId, brandName }: { paid: boolean; paymentId: string; brandName: string }) {
+  const [uploads,  setUploads]  = useState<string[]>([]);
+  const [busy,     setBusy]     = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  const handleFile = async (file: File) => {
+    if (!paid) { setError('Complete payment first to upload creatives.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/brand/upload?paymentId=${encodeURIComponent(paymentId)}`, { method: 'POST', body: fd });
+      const d   = await res.json() as { url?: string; error?: string };
+      if (!res.ok) throw new Error(d.error ?? 'Upload failed');
+      if (d.url)  setUploads((u) => [...u, d.url!]);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void handleFile(file);
+  };
+
+  if (!paid) {
+    return (
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-3">
+        <div className="flex items-center gap-2">
+          <Mail className="h-5 w-5 text-primary shrink-0" />
+          <p className="font-bold text-foreground">Send us your creatives after payment</p>
+        </div>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Complete your payment to unlock creative upload. You can also email files to your Account Manager.
+        </p>
+        <a href={`mailto:hello@wearealive.in?subject=Campaign%20creatives%20—%20${encodeURIComponent(brandName)}`}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-bold text-foreground hover:bg-muted transition-colors">
+          <Mail className="h-3.5 w-3.5" /> Email AM
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-4">
+      <div className="flex items-center gap-2">
+        <Upload className="h-5 w-5 text-primary shrink-0" />
+        <p className="font-bold text-foreground">Upload your ad creative</p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        MP4 or JPEG/PNG · 1920 × 1080 · Max 4 MB per file. Add as many files as you need (creative + logo).
+      </p>
+
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={`rounded-xl border-2 border-dashed transition-colors ${dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'} p-6 text-center`}
+      >
+        {busy ? (
+          <div className="flex flex-col items-center gap-2"><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-xs text-muted-foreground">Uploading…</p></div>
+        ) : (
+          <label className="flex flex-col items-center gap-2 cursor-pointer">
+            <Upload className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-xs text-muted-foreground">Drop a file or click to pick</p>
+            <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }} />
+          </label>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <AlertCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
+
+      {uploads.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Uploaded ({uploads.length})</p>
+          {uploads.map((u, i) => (
+            <div key={u} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              <span className="text-[11px] font-mono text-muted-foreground truncate flex-1">File {i + 1} · {u.split('/').pop()?.slice(0, 30)}</span>
+              <button onClick={() => setUploads((u2) => u2.filter((x) => x !== u))} className="text-muted-foreground/50 hover:text-muted-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+        Files are attached to your campaign and visible to the ALIVE team. Your Account Manager will confirm specs and scheduling within 24 hours.
+      </p>
+    </div>
+  );
+}
+
 function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: string }) {
   const paid    = !!paymentId;
   const subtotal = getScreenPrice(data.screens) * data.screens * data.months;
@@ -1140,34 +1243,8 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
         </p>
       </motion.div>
 
-      <motion.div variants={fadeUp} className="w-full max-w-md rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-4">
-        <div className="flex items-center gap-2">
-          <Mail className="h-5 w-5 text-primary shrink-0" />
-          <p className="font-bold text-foreground">One thing left — send us your creatives</p>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Email your ad file and logo to your Account Manager and we handle the rest.
-        </p>
-        <div className="rounded-lg border border-border bg-card p-4 space-y-3 text-sm">
-          {[
-            { Icon: FileVideo, title: 'Ad creative', spec: 'MP4 or JPEG/PNG · 1920 × 1080 px · Max 100 MB' },
-            { Icon: FileImage, title: 'Brand logo',  spec: 'PNG transparent background · Min 500 px wide' },
-          ].map(({ Icon, title, spec }) => (
-            <div key={title} className="flex items-start gap-3">
-              <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div>
-                <p className="font-semibold text-foreground">{title}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{spec}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <a
-          href={`mailto:hello@wearealive.in?subject=Campaign%20creatives%20—%20${encodeURIComponent(data.brandName)}`}
-          className="flex items-center justify-center gap-2 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Mail className="h-4 w-4" /> Email creatives to your AM
-        </a>
+      <motion.div variants={fadeUp} className="w-full max-w-md">
+        <CreativeUploadBox paid={paid} paymentId={paymentId} brandName={data.brandName} />
       </motion.div>
 
       <motion.div variants={stagger} className="w-full max-w-md space-y-2 text-left">

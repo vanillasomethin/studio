@@ -23,9 +23,44 @@ export async function GET(
   try {
     const device = await db.device.findUnique({
       where: { id },
-      select: { id: true, name: true, hardwareKey: true, groupName: true, status: true, lastSeen: true },
+      select: {
+        id: true, name: true, hardwareKey: true, groupName: true, status: true, lastSeen: true,
+        uptimePctD30: true,
+        store: { select: { storeName: true, city: true } },
+      },
     });
     if (!device) return NextResponse.json({ error: 'Device not found' }, { status: 404 });
+
+    // Optional telemetry columns — may not exist on older DBs
+    let telemetry: { cpuTempC: number | null; cpuTempUpdatedAt: string | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null } | null = null;
+    try {
+      const t = await db.$queryRaw<{ cpuTempC: number | null; cpuTempUpdatedAt: Date | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null }[]>`
+        SELECT "cpuTempC", "cpuTempUpdatedAt", "freeStorageMb", "androidVersion", "appVersion"
+        FROM "Device" WHERE "id" = ${id} LIMIT 1
+      `;
+      const r = t[0];
+      if (r) telemetry = {
+        cpuTempC:         r.cpuTempC,
+        cpuTempUpdatedAt: r.cpuTempUpdatedAt instanceof Date ? r.cpuTempUpdatedAt.toISOString() : null,
+        freeStorageMb:    r.freeStorageMb,
+        androidVersion:   r.androidVersion,
+        appVersion:       r.appVersion,
+      };
+    } catch { /* columns not yet migrated */ }
+
+    // Last-7-day performance
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const perf = await db.playEvent.aggregate({
+      where:  { deviceId: id, startedAt: { gte: sevenDaysAgo } },
+      _count: { id: true },
+      _sum:   { durationMs: true },
+    }).catch(() => ({ _count: { id: 0 }, _sum: { durationMs: 0 } }));
+
+    const performance = {
+      plays7d:    perf._count.id ?? 0,
+      watchMs7d:  perf._sum.durationMs ?? 0,
+      uptimePct:  device.uptimePctD30 ?? null,
+    };
 
     const now       = new Date();
     const windowEnd = new Date(now.getTime() + 72 * 60 * 60 * 1000);
@@ -150,7 +185,11 @@ export async function GET(
         groupName: device.groupName,
         status:    device.status,
         lastSeen:  device.lastSeen?.toISOString() ?? null,
+        storeName: device.store?.storeName ?? null,
+        city:      device.store?.city ?? null,
       },
+      telemetry,
+      performance,
       plan: {
         planHash,
         scheduleId:  activeSchedule?.id ?? null,
