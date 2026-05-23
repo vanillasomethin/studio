@@ -527,7 +527,7 @@ function StepCampaign({
       {/* Duration */}
       <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-3">
         <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Duration</motion.p>
-        <motion.div variants={fadeUp} className="grid grid-cols-4 gap-2">
+        <motion.div variants={fadeUp} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {DURATION_OPTIONS.map(({ months, label }) => (
             <motion.button
               key={months}

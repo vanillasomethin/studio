@@ -77,7 +77,7 @@ function deriveCampaignStatus(c: Campaign): Campaign['status'] {
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen bg-background p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="min-h-screen bg-background p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       <Skeleton className="h-16 w-full rounded-xl" />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
@@ -122,7 +122,7 @@ function CampaignCard({ c }: { c: Campaign }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-center">
+      <div className="grid grid-cols-3 sm:grid-cols-3 gap-3 text-center">
         {[
           { icon: <Monitor    className="h-3.5 w-3.5" />, label: 'Screens',   value: c.screens.toString() },
           { icon: <TrendingUp className="h-3.5 w-3.5" />, label: 'Plays/day', value: `~${(144 * c.screens).toLocaleString('en-IN')}` },
