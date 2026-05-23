@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "ALIVE Store",
+    "slug": "alive-store",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f9fafb",
+    "splash": {
+      "backgroundColor": "#ef4444",
+      "resizeMode": "contain"
+    },
+    "android": {
+      "package": "in.wearealive.store",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#ef4444"
+      },
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "wearealive.in",
+              "pathPrefix": "/store"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "scheme": "alive-store",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow ALIVE Store to use your location to pin your shop on the map."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ALIVE Store to access your photos for KYC and flyer uploads.",
+          "cameraPermission": "Allow ALIVE Store to use the camera for your KYC selfie."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      }
+    }
+  }
+}
