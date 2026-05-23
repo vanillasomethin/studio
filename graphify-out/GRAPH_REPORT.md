@@ -1,16 +1,16 @@
 # Graph Report - studio  (2026-05-23)
 
 ## Corpus Check
-- 274 files · ~1,042,465 words
+- 274 files · ~1,042,494 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1435 nodes · 2088 edges · 127 communities (97 shown, 30 thin omitted)
+- 1436 nodes · 2089 edges · 126 communities (96 shown, 30 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 1 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `2a46f5ed`
+- Built from commit: `2b9dfed9`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -119,7 +119,6 @@
 - [[_COMMUNITY_Community 102|Community 102]]
 - [[_COMMUNITY_Community 103|Community 103]]
 - [[_COMMUNITY_Community 104|Community 104]]
-- [[_COMMUNITY_Community 105|Community 105]]
 - [[_COMMUNITY_Community 106|Community 106]]
 - [[_COMMUNITY_Community 107|Community 107]]
 - [[_COMMUNITY_Community 108|Community 108]]
@@ -152,11 +151,11 @@
 - `SheetFooter()` --calls--> `cn()`  [EXTRACTED]
   src/components/ui/sheet.tsx → src/lib/utils.ts
 
-## Communities (127 total, 30 thin omitted)
+## Communities (126 total, 30 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
-Nodes (65): dependencies, @auth/prisma-adapter, @aws-sdk/client-s3, @aws-sdk/s3-request-presigner, bcryptjs, boneyard-js, class-variance-authority, @clerk/nextjs (+57 more)
+Nodes (64): dependencies, @auth/prisma-adapter, @aws-sdk/client-s3, @aws-sdk/s3-request-presigner, bcryptjs, boneyard-js, class-variance-authority, @clerk/nextjs (+56 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.06
@@ -183,8 +182,8 @@ Cohesion: 0.08
 Nodes (23): Analytics, Campaign, CampaignCard(), CHART_COLORS, DashboardPage(), deriveCampaignStatus(), DURATION_OPTS, fadeUp (+15 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.13
-Nodes (25): adminGuard(), BASE_CONTENT_SELECT, GET(), PATCH(), POST(), BUCKET(), deleteObject(), publicUrl() (+17 more)
+Cohesion: 0.12
+Nodes (29): adminGuard(), BASE_CONTENT_SELECT, GET(), PATCH(), POST(), normalizePlaylist(), BUCKET(), deleteObject() (+21 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.07
@@ -195,16 +194,16 @@ Cohesion: 0.08
 Nodes (18): DATE_CHIPS, DURATION_OPTIONS, fadeUp, fmt(), getScreenPrice(), INITIAL, OnboardingFormData, RazorpayResponse (+10 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.12
-Nodes (18): blogPosts, categories, benefits, jobOpenings, BusinessModelProps, plans, navLinks, steps (+10 more)
+Cohesion: 0.21
+Nodes (11): benefits, jobOpenings, BusinessModelProps, plans, steps, Card, CardContent, CardDescription (+3 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.07
-Nodes (9): adminGuard(), GET(), globalForPrisma, StoreLocation, Body, adminGuard(), GET(), adminGuard() (+1 more)
+Cohesion: 0.08
+Nodes (7): globalForPrisma, checkAdmin(), POST(), Body, adminGuard(), GET(), Body
 
 ### Community 12 - "Community 12"
-Cohesion: 0.17
-Nodes (22): GET(), authenticate(), computeRowHash(), PlayEventInput, POST(), generateTestimonialAction(), signDeviceToken(), verifyDeviceToken() (+14 more)
+Cohesion: 0.07
+Nodes (46): ai, POST, GET(), authenticate(), computeRowHash(), PlayEventInput, POST(), generateTextTestimonialFromAudio() (+38 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.08
@@ -215,8 +214,8 @@ Cohesion: 0.07
 Nodes (27): Admin Dashboard, ALIVE Advertising Platform — CLAUDE.md, Architecture, Brand Onboarding, code:block1 (src/app/page.tsx                          — homepage), code:block2 (stores:index   → string[]       # store IDs), code:block3 (DATABASE_URL                    # Neon pooled (runtime)), Critical Conventions — Read These First (+19 more)
 
 ### Community 15 - "Community 15"
-Cohesion: 0.11
-Nodes (14): afterImage, beforeImage, adImages, adImagesData, bgImage, TestimonialCardProps, ImagePlaceholder, placeholderImages (+6 more)
+Cohesion: 0.13
+Nodes (12): adImages, adImagesData, bgImage, TestimonialCardProps, ImagePlaceholder, placeholderImages, storyElements, founders (+4 more)
 
 ### Community 16 - "Community 16"
 Cohesion: 0.08
@@ -227,16 +226,16 @@ Cohesion: 0.15
 Nodes (24): adminHeaders(), apiFetch(), bulkPushSchedule(), bulkUpdateDevices(), createOverlay(), createPlaylist(), createSchedule(), deleteContent() (+16 more)
 
 ### Community 18 - "Community 18"
-Cohesion: 0.13
-Nodes (17): ai, generateTextTestimonialFromAudio(), generateTextTestimonialFromAudioFlow, GenerateTextTestimonialFromAudioInput, GenerateTextTestimonialFromAudioInputSchema, GenerateTextTestimonialFromAudioOutput, GenerateTextTestimonialFromAudioOutputSchema, generateTextTestimonialPrompt (+9 more)
+Cohesion: 0.15
+Nodes (8): blogPosts, categories, footerLinks, navLinks, coreTeam, supportingTeam, Button, ButtonProps
 
 ### Community 19 - "Community 19"
 Cohesion: 0.19
 Nodes (14): collectAllContextSources(), collectExternalSignals(), collectGitCommits(), collectProdLogs(), collectSupportAdminNotes(), CanonicalContextDocument, ContextSourceType, RawCollectorRecord (+6 more)
 
 ### Community 20 - "Community 20"
-Cohesion: 0.21
-Nodes (15): adminGuard(), POST(), normalizePlaylist(), getFirebaseApp(), pushPlanUpdated(), resolveScheduleDeviceIds(), adminGuard(), GET() (+7 more)
+Cohesion: 0.28
+Nodes (11): adminGuard(), POST(), getFirebaseApp(), pushPlanUpdated(), resolveScheduleDeviceIds(), adminGuard(), GET(), POST() (+3 more)
 
 ### Community 21 - "Community 21"
 Cohesion: 0.12
@@ -259,8 +258,8 @@ Cohesion: 0.15
 Nodes (10): UploadState, DraftItem, fmtMs(), PlaylistsTab(), Toast, Content, getContent(), getPlaylists() (+2 more)
 
 ### Community 26 - "Community 26"
-Cohesion: 0.16
-Nodes (15): cn(), AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter(), AlertDialogHeader(), AlertDialogOverlay (+7 more)
+Cohesion: 0.15
+Nodes (16): cn(), clsx, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter(), AlertDialogHeader() (+8 more)
 
 ### Community 27 - "Community 27"
 Cohesion: 0.15
@@ -279,8 +278,8 @@ Cohesion: 0.12
 Nodes (5): DiagIssue, PlanPreview, STATUS_COLORS, STATUS_ICONS, getDeviceGroups()
 
 ### Community 31 - "Community 31"
-Cohesion: 0.17
-Nodes (5): Logo(), sections, footerLinks, clauses, sections
+Cohesion: 0.21
+Nodes (4): Logo(), sections, clauses, sections
 
 ### Community 32 - "Community 32"
 Cohesion: 0.14
@@ -307,16 +306,16 @@ Cohesion: 0.15
 Nodes (5): Bill, CustomerSession, Flyer, PAY_LABELS, Tab
 
 ### Community 38 - "Community 38"
-Cohesion: 0.15
-Nodes (7): Progress, RadioGroup, RadioGroupItem, ScrollArea, ScrollBar, Slider, Switch
+Cohesion: 0.12
+Nodes (10): AccordionContent, AccordionItem, AccordionTrigger, Progress, RadioGroup, RadioGroupItem, ScrollArea, ScrollBar (+2 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.15
-Nodes (12): devDependencies, genkit-cli, postcss, tailwindcss, @types/bcryptjs, @types/node, @types/react, @types/react-dom (+4 more)
+Cohesion: 0.22
+Nodes (9): devDependencies, genkit-cli, postcss, tailwindcss, @types/bcryptjs, @types/node, @types/react, @types/react-dom (+1 more)
 
 ### Community 40 - "Community 40"
-Cohesion: 0.22
-Nodes (4): useCountUp(), PulseCounter(), pulseData, ImpactMetric()
+Cohesion: 0.15
+Nodes (6): useCountUp(), afterImage, beforeImage, PulseCounter(), pulseData, ImpactMetric()
 
 ### Community 41 - "Community 41"
 Cohesion: 0.17
@@ -333,10 +332,6 @@ Nodes (10): AI-native infrastructure — already built (do not re-implement), AP
 ### Community 44 - "Community 44"
 Cohesion: 0.18
 Nodes (7): ChartConfig, ChartContainer, ChartContext, ChartContextProps, ChartLegendContent, ChartTooltipContent, THEMES
-
-### Community 45 - "Community 45"
-Cohesion: 0.22
-Nodes (7): POST, ActorType, Handler, HandlerContext, withApiHandler(), GET, POST
 
 ### Community 46 - "Community 46"
 Cohesion: 0.27
@@ -375,8 +370,8 @@ Cohesion: 0.25
 Nodes (7): EMPTY_FORM, FormState, Offer, OffersTab(), ProductMatch, savings(), UNIT_SUGGESTIONS
 
 ### Community 55 - "Community 55"
-Cohesion: 0.22
-Nodes (9): scripts, build, dev, export, genkit:dev, genkit:watch, lint, start (+1 more)
+Cohesion: 0.15
+Nodes (12): name, private, scripts, build, dev, export, genkit:dev, genkit:watch (+4 more)
 
 ### Community 56 - "Community 56"
 Cohesion: 0.25
@@ -458,10 +453,6 @@ Nodes (3): **App Name**: AliveNow, Core Features:, Style Guidelines:
 Cohesion: 0.83
 Nodes (3): adminGuard(), effectiveStatus(), GET()
 
-### Community 78 - "Community 78"
-Cohesion: 0.50
-Nodes (3): AccordionContent, AccordionItem, AccordionTrigger
-
 ### Community 80 - "Community 80"
 Cohesion: 0.83
 Nodes (3): checkRateLimit(), getRedis(), POST()
@@ -482,24 +473,28 @@ Nodes (3): checkAdmin(), GET(), POST()
 Cohesion: 0.83
 Nodes (3): adminGuard(), computeRowHash(), GET()
 
+### Community 87 - "Community 87"
+Cohesion: 0.50
+Nodes (3): hooks, PostToolUse, PreToolUse
+
 ## Knowledge Gaps
-- **557 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+552 more)
+- **558 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+553 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **30 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `cn()` connect `Community 26` to `Community 0`, `Community 1`, `Community 2`, `Community 6`, `Community 8`, `Community 9`, `Community 10`, `Community 15`, `Community 25`, `Community 27`, `Community 28`, `Community 29`, `Community 33`, `Community 36`, `Community 38`, `Community 44`, `Community 48`, `Community 52`, `Community 53`, `Community 78`?**
+- **Why does `cn()` connect `Community 26` to `Community 1`, `Community 2`, `Community 6`, `Community 8`, `Community 9`, `Community 10`, `Community 15`, `Community 18`, `Community 25`, `Community 27`, `Community 28`, `Community 29`, `Community 33`, `Community 36`, `Community 38`, `Community 44`, `Community 48`, `Community 52`, `Community 53`?**
   _High betweenness centrality (0.197) - this node is a cross-community bridge._
-- **Why does `dependencies` connect `Community 0` to `Community 39`?**
+- **Why does `dependencies` connect `Community 0` to `Community 26`, `Community 55`?**
   _High betweenness centrality (0.098) - this node is a cross-community bridge._
-- **Why does `clsx` connect `Community 0` to `Community 26`?**
+- **Why does `clsx` connect `Community 26` to `Community 0`?**
   _High betweenness centrality (0.094) - this node is a cross-community bridge._
 - **What connects `$schema`, `style`, `rsc` to the rest of the system?**
-  _557 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _558 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.03076923076923077 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03125 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.058673469387755105 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
