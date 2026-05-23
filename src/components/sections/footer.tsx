@@ -6,6 +6,11 @@ const footerLinks = [
     { title: "Resources", links: ["Blog", "Case Studies", "Help Center"] },
 ];
 
+const legalLinks = [
+  { label: "Privacy Policy", href: "/privacy-policy" },
+  { label: "Delete my data", href: "/delete-account" },
+];
+
 export default function Footer() {
   return (
     <footer className="bg-secondary" style={{ scrollSnapAlign: 'end' }}>
@@ -34,8 +39,13 @@ export default function Footer() {
                 ))}
             </div>
         </div>
-        <div className="mt-12 border-t pt-8 text-center text-sm text-muted-foreground">
-            <p>&copy; {new Date().getFullYear()} AliveNow. All rights reserved.</p>
+        <div className="mt-12 border-t pt-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
+            <p>&copy; {new Date().getFullYear()} Vanilla &amp; Somethin&apos; LLP. All rights reserved.</p>
+            <div className="flex gap-4">
+              {legalLinks.map(l => (
+                <a key={l.href} href={l.href} className="hover:text-foreground transition-colors">{l.label}</a>
+              ))}
+            </div>
         </div>
       </div>
     </footer>

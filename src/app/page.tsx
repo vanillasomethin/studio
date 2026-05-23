@@ -532,7 +532,7 @@ export default function Home() {
           <div>© MMXXVI · Alive Networks Pvt. Ltd.</div>
           <div className="mid">Live across India · 11 languages</div>
           <div className="end">
-            <a href="#">Privacy</a><a href="#">Terms</a><a href="#">Instagram</a><a href="#">LinkedIn</a>
+            <a href="/privacy-policy">Privacy</a><a href="#">Terms</a><a href="/delete-account">Delete my data</a><a href="#">Instagram</a><a href="#">LinkedIn</a>
           </div>
         </div>
 

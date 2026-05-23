@@ -225,7 +225,12 @@ const sections = [
       },
       {
         type: 'p',
-        text: 'To exercise any of these rights, contact us at privacy@wearealive.in. We will respond within 30 days.',
+        text: 'To exercise any of these rights, contact us at privacy@wearealive.in or use our online deletion request form. We will respond within 30 days.',
+      },
+      {
+        type: 'cta',
+        label: 'Request account & data deletion →',
+        href: '/delete-account',
       },
     ],
   },
@@ -295,7 +300,8 @@ const sections = [
 type ContentBlock =
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
-  | { type: 'address'; lines: string[] };
+  | { type: 'address'; lines: string[] }
+  | { type: 'cta'; label: string; href: string };
 
 function renderBlock(block: ContentBlock, idx: number) {
   if (block.type === 'p') {
@@ -311,6 +317,13 @@ function renderBlock(block: ContentBlock, idx: number) {
           </li>
         ))}
       </ul>
+    );
+  }
+  if (block.type === 'cta') {
+    return (
+      <a key={idx} href={block.href} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors">
+        {block.label}
+      </a>
     );
   }
   if (block.type === 'address') {

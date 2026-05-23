@@ -261,6 +261,15 @@ function AccountTab({ campaigns }: { campaigns: Campaign[] }) {
       >
         <Mail className="h-4 w-4" /> Contact your Account Manager
       </motion.a>
+
+      <motion.div variants={fadeUp} className="pt-2 border-t border-border">
+        <a
+          href="/delete-account"
+          className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+        >
+          Request account &amp; data deletion
+        </a>
+      </motion.div>
     </motion.div>
   );
 }
