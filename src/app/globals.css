@@ -155,6 +155,8 @@
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
 body{overflow-x:clip;-webkit-font-smoothing:antialiased;}
+.scrollbar-none{scrollbar-width:none;-ms-overflow-style:none;}
+.scrollbar-none::-webkit-scrollbar{display:none;}
 @media(pointer:coarse){body{cursor:auto;}.cursor,.cursor-ring{display:none !important;}}
 ::selection{background:var(--red);color:#fff;}
 .mono{font-family:"DM Mono",ui-monospace,monospace;font-weight:400;letter-spacing:0.02em;}
@@ -441,4 +443,25 @@ footer.f .mega .word .megadot{width:.22em;height:.22em;border-radius:50%;backgro
 /* Responsive */
 @media(max-width:1100px){.hero-grid{grid-template-columns:1fr;gap:48px;}.hero-eyebrow{grid-template-columns:1fr;gap:16px;}.alive-screen{max-width:320px;margin:0 auto;}.hero-eyebrow .r{margin-left:0;max-width:100%;justify-self:start;}.hero-footrow{grid-template-columns:repeat(3,1fr);}}
 @media(max-width:760px){.philosophy-grid,.benefits-head{grid-template-columns:1fr;gap:48px;}.hero-footrow{grid-template-columns:1fr 1fr;gap:20px;}.vessels-grid,.stewards-grid,.proof-grid{grid-template-columns:1fr 1fr;}.blist li{grid-template-columns:40px 1fr 12px;gap:16px;}.blist li .b-desc{grid-column:2/4;padding-top:8px;}footer.f .top{grid-template-columns:1fr 1fr;}footer.f .bot{grid-template-columns:1fr;}footer.f .bot .mid,footer.f .bot .end{text-align:left;justify-content:flex-start;}}
+@media(max-width:480px){
+  body.home-page section{padding-left:16px;padding-right:16px;}
+  body.home-page section.hero{padding-top:80px;padding-bottom:40px;}
+  body.home-page section.join{padding-top:80px;padding-bottom:60px;}
+  .proof{margin:0 -16px;padding:56px 32px;}
+  .join{margin:0 -16px;padding:80px 32px 60px;}
+  footer.f{margin:0 -16px;padding:64px 32px 0;}
+  footer.f .ticker{margin:0 -32px;}
+  footer.f .mega{margin:0 -32px;}
+  footer.f .top{grid-template-columns:1fr;gap:40px;}
+  footer.f .bot{grid-template-columns:1fr;}
+  .vessels-grid,.stewards-grid,.proof-grid{grid-template-columns:1fr;}
+  .hero-footrow{grid-template-columns:1fr;gap:16px;}
+  .sec-h{flex-direction:column;gap:16px;padding:56px 0 28px;}
+  .blist li{grid-template-columns:36px 1fr 12px;gap:12px;}
+  .join h2{font-size:clamp(44px,16vw,120px);}
+  .join .row{flex-direction:column;gap:24px;}
+  .join-cards{margin-top:40px;}
+  .philosophy-grid{gap:32px;}
+  .benefits-head{gap:32px;}
+}
   

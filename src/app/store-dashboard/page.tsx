@@ -1025,19 +1025,19 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
         {!storeData.email && <EmailBanner store={storeData} onSave={saveEmail} />}
 
         {/* Tabs */}
-        <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1">
+        <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1 overflow-x-auto scrollbar-none">
           {DASH_TABS.map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
+                className={`flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-2 text-xs font-semibold transition-all ${
                   tab === t.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
-                {t.label}
+                <span className="hidden sm:inline whitespace-nowrap">{t.label}</span>
               </button>
             );
           })}
