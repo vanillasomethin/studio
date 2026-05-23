@@ -11,14 +11,31 @@
       "resizeMode": "contain"
     },
     "android": {
+      "package": "in.wearealive.store",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#ef4444"
       },
-      "package": "in.wearealive.store",
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "wearealive.in",
+              "pathPrefix": "/store"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "scheme": "alive-store",
@@ -34,9 +51,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow ALIVE Store to access your photos for KYC and flyer uploads."
+          "photosPermission": "Allow ALIVE Store to access your photos for KYC and flyer uploads.",
+          "cameraPermission": "Allow ALIVE Store to use the camera for your KYC selfie."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      }
+    }
   }
 }
