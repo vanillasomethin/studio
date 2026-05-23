@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "ALIVE Store",
+    "slug": "alive-store",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f9fafb",
+    "splash": {
+      "backgroundColor": "#ef4444",
+      "resizeMode": "contain"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ef4444"
+      },
+      "package": "in.wearealive.store",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "scheme": "alive-store",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow ALIVE Store to use your location to pin your shop on the map."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ALIVE Store to access your photos for KYC and flyer uploads."
+        }
+      ]
+    ]
+  }
+}
