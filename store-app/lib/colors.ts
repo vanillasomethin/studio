@@ -1,18 +1,5 @@
-export const C = {
-  primary: '#ef4444',
-  primaryDark: '#b91c1c',
-  primaryLight: '#fef2f2',
-  primaryBorder: '#fecaca',
-  bg: '#f9fafb',
-  card: '#ffffff',
-  border: '#e5e7eb',
-  text: '#111827',
-  textSub: '#6b7280',
-  textMuted: '#9ca3af',
-  success: '#22c55e',
-  successLight: '#f0fdf4',
-  warn: '#f59e0b',
-  warnLight: '#fffbeb',
-  error: '#ef4444',
-  errorLight: '#fef2f2',
-} as const;
+// Derived from shared/constants.ts BRAND_COLORS.
+// Keep in sync by importing directly; StyleSheet values must be plain strings.
+import { BRAND_COLORS } from '@shared/constants';
+
+export const C = BRAND_COLORS;

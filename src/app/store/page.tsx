@@ -11,44 +11,19 @@ import {
 import { Logo } from '@/components/icons/logo';
 import MapPicker from '@/components/map-picker';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
+// Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
+// to update both this web page and the mobile app simultaneously.
+import { AGREEMENT_TERMS } from '@shared/agreement-terms';
+import {
+  validateForm, makeReferralCode, FORM_INIT,
+  type FieldErrors, type FormData,
+} from '@shared/validation';
+import { COMPANY, SUPPORT_WHATSAPP } from '@shared/constants';
+// ──────────────────────────────────────────────────────────────────────────────
 
-type Form = {
-  storeName: string; ownerName: string; whatsapp: string; password: string;
-  address: string; locality: string; city: string; pincode: string;
-  lat: string; lng: string; referredBy: string; gstin: string;
-};
-const INIT: Form = {
-  storeName: '', ownerName: '', whatsapp: '', password: '',
-  address: '', locality: '', city: '', pincode: '', lat: '', lng: '',
-  referredBy: '', gstin: '',
-};
-
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-
-type FieldErrors = Partial<Record<keyof Form, string>>;
-
-function validate(form: Form): FieldErrors {
-  const e: FieldErrors = {};
-  if (!form.storeName.trim())       e.storeName = 'Store name is required';
-  if (!form.ownerName.trim())       e.ownerName = 'Owner name is required';
-  if (form.whatsapp.length !== 10)  e.whatsapp  = 'Enter a valid 10-digit number';
-  if (form.password.length < 6)     e.password  = 'Minimum 6 characters required';
-  if (!form.address.trim())         e.address   = 'Shop address is required';
-  if (!form.city.trim())            e.city      = 'City is required';
-  if (form.pincode.length !== 6)    e.pincode   = 'Enter a valid 6-digit pincode';
-  if (form.gstin && !GSTIN_RE.test(form.gstin.toUpperCase())) {
-    e.gstin = 'Invalid GSTIN — must be 15 characters (e.g. 29AAXFV2589C1ZE)';
-  }
-  return e;
-}
-
-function makeReferralCode(storeName: string, ownerName: string): string {
-  const s = storeName.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase();
-  const o = ownerName.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase();
-  const r = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `${s}${o}${r}`;
-}
+type Form = FormData;
+const INIT: Form = FORM_INIT;
 
 // ─── Password strength ────────────────────────────────────────────────────────
 
@@ -65,13 +40,11 @@ function PasswordStrength({ password }: { password: string }) {
 
   return (
     <div className="space-y-1.5 -mt-1">
-      {/* Strength bar */}
       <div className="flex gap-1">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className={`flex-1 h-1 rounded-full transition-all duration-300 ${i <= score ? barColor : 'bg-gray-200'}`} />
         ))}
       </div>
-      {/* Checklist */}
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
         {criteria.map((c) => (
           <span key={c.label} className={`flex items-center gap-1 text-[10px] ${c.met ? 'text-green-600' : 'text-gray-400'}`}>
@@ -116,21 +89,6 @@ function Field({ label, value, onChange, type = 'text', placeholder, prefix, err
 
 // ─── Agreement step ───────────────────────────────────────────────────────────
 
-const AGREEMENT_TERMS = [
-  { heading: 'Remuneration',    body: 'VS Collective LLP shall pay a fixed monthly remuneration of ₹500 per screen, within 10 working days of month end via UPI/NEFT.' },
-  { heading: 'Electricity',     body: 'Electricity consumed by the screens is reimbursed at screen rated power × actual hours of operation × prevailing tariff. Submit monthly electricity bills for accurate settlement.' },
-  { heading: 'Generator / UPS', body: 'If screens operate on your generator during outages, VS Collective LLP compensates proportionally (screen share of generator load × fuel cost/hr × hours run).' },
-  { heading: 'Referral reward', body: '₹500 bonus for every new store partner who joins using your referral code, paid within 10 working days of their screen going live.' },
-  { heading: 'Equipment',       body: 'Screens are installed free of charge and remain the exclusive property of VS Collective LLP at all times. No right, title or interest vests in the Shop Owner.' },
-  { heading: 'Your obligations', body: 'Provide unobstructed space during business hours. Do not tamper, relocate, or allow competing advertising equipment on premises. Notify ALIVE 24 hrs before any planned closure.' },
-  { heading: 'Exclusivity',     body: 'VS Collective LLP will not install any screen within 200 m of your premises for the duration of this agreement.' },
-  { heading: 'Operating hours', body: 'Screens run during your regular business hours (~8 AM–10 PM or as mutually agreed). Planned maintenance is scheduled off-peak and does not affect your remuneration.' },
-  { heading: 'Exit',            body: '30 days written notice by either party. ALIVE removes the screen within 15 working days at its own cost. All outstanding dues settled within 30 days of termination.' },
-  { heading: 'Content',         body: 'All advertising content is managed exclusively by VS Collective LLP. Screens must not be used for personal entertainment, CCTV, browsing, or any non-approved purpose.' },
-  { heading: 'Governing law',   body: 'This agreement is governed by the laws of India. Disputes resolved by arbitration in Mangaluru under the Arbitration and Conciliation Act, 1996.' },
-  { heading: 'Digital execution', body: 'This agreement is executed electronically under the Information Technology Act, 2000. Electronic acceptance constitutes valid execution without physical signatures or witnesses.' },
-];
-
 function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }: {
   form: Form; agreed: boolean; setAgreed: (v: boolean) => void;
   onBack: () => void; onSubmit: () => void; busy: boolean; err: string;
@@ -142,7 +100,6 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
 
-      {/* Step nav */}
       <div className="flex items-center gap-2">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-all"
@@ -172,9 +129,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
       <div className="rounded-xl border-2 border-red-100 bg-red-50/60 p-4 space-y-3">
         <div>
           <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-1">Party A — Company</p>
-          <p className="text-sm font-bold text-gray-900">VS Collective LLP (ALIVE)</p>
-          <p className="text-xs text-gray-500">#13, First Floor, Highland Manor, Falnir, Mangalore 575002</p>
-          <p className="text-xs text-gray-500">GSTIN: 29AAXFV2589C1ZE · LLP: IN-KA43598411418020V</p>
+          <p className="text-sm font-bold text-gray-900">{COMPANY.name}</p>
+          <p className="text-xs text-gray-500">{COMPANY.address}</p>
+          <p className="text-xs text-gray-500">GSTIN: {COMPANY.gstin} · LLP: {COMPANY.llp}</p>
         </div>
         <div className="border-t border-red-100 pt-3">
           <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-1">Party B — Store Partner</p>
@@ -186,7 +143,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         </div>
       </div>
 
-      {/* Full agreement terms — scrollable */}
+      {/* Agreement terms ─ from shared/agreement-terms.ts */}
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
           <p className="text-xs font-bold text-gray-700">Terms &amp; Conditions — Store Partner Agreement</p>
@@ -221,7 +178,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
           </div>
         </div>
         <span className="text-xs text-gray-600 leading-relaxed">
-          I, <strong className="text-gray-900">{form.ownerName}</strong>, on behalf of <strong className="text-gray-900">{form.storeName}</strong>, have read and agree to the Store Partner Agreement with VS Collective LLP (ALIVE), effective {today}. I confirm this electronic acceptance is legally binding under the IT Act, 2000.
+          I, <strong className="text-gray-900">{form.ownerName}</strong>, on behalf of <strong className="text-gray-900">{form.storeName}</strong>, have read and agree to the Store Partner Agreement with {COMPANY.name}, effective {today}. I confirm this electronic acceptance is legally binding under the IT Act, 2000.
         </span>
       </label>
 
@@ -259,7 +216,6 @@ function RegistrationForm() {
   const [done,    setDone]    = useState(false);
   const [touched, setTouched] = useState(false);
 
-  // Restore saved draft on mount
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
@@ -267,13 +223,12 @@ function RegistrationForm() {
     } catch { /* ignore */ }
   }, []);
 
-  // Persist draft on every change
   useEffect(() => {
     try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch { /* ignore */ }
   }, [form]);
 
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
-  const errors    = useMemo(() => validate(form), [form]);
+  const errors    = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
 
   const handleLocation = (lat: string, lng: string, locality: string, pincode: string, city: string) => {
@@ -296,7 +251,6 @@ function RegistrationForm() {
       agreedAt:     new Date().toISOString(),
     };
     try {
-      // 20-second timeout — Neon cold-start can take up to 15s
       const controller = new AbortController();
       const tid = setTimeout(() => controller.abort(), 20000);
       let res: Response;
@@ -313,7 +267,6 @@ function RegistrationForm() {
         return;
       } finally { clearTimeout(tid); }
 
-      // Safely parse JSON (server may return HTML on 500 crash)
       let body: { data?: { success?: boolean; error?: string; referralCode?: string }; success?: boolean; error?: string };
       try { body = await res.json(); } catch { body = {}; }
       const payload2 = (body as { data?: { success?: boolean; error?: string } }).data ?? body as { success?: boolean; error?: string };
@@ -323,8 +276,6 @@ function RegistrationForm() {
         return;
       }
 
-      // Persist store session to localStorage immediately so the dashboard
-      // loads without depending on the next-auth session being established.
       try {
         const referralCode = (payload2 as { referralCode?: string }).referralCode ?? code;
         localStorage.setItem('alive_store_session', JSON.stringify({
@@ -343,9 +294,8 @@ function RegistrationForm() {
           referredBy:   form.referredBy || null,
           agreedAt:     new Date().toISOString(),
         }));
-      } catch { /* localStorage unavailable — dashboard will fall back to API */ }
+      } catch { /* localStorage unavailable */ }
 
-      // Auto sign-in — best-effort; if it fails, dashboard uses localStorage session
       try {
         await signIn('phone-password', {
           phone:    `+91${form.whatsapp}`,
@@ -382,11 +332,10 @@ function RegistrationForm() {
     <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} />
   );
 
-  const fe = (k: keyof Form) => touched ? errors[k] : undefined;
+  const fe = (k: keyof Form) => touched ? (errors as FieldErrors)[k] : undefined;
 
   return (
     <form onSubmit={handleContinue} className="space-y-3">
-      {/* Step indicator */}
       <div className="flex items-center gap-2 mb-2">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-black">1</span>
         <div className="flex-1 h-px bg-gray-200" />
@@ -399,7 +348,6 @@ function RegistrationForm() {
         <Field label="Owner name" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Ramesh Sharma" error={fe('ownerName')} />
       </div>
 
-      {/* WhatsApp field with username callout */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">WhatsApp number</label>
         <div className="flex">
@@ -421,7 +369,6 @@ function RegistrationForm() {
         }
       </div>
 
-      {/* Password with strength indicator */}
       <div className="space-y-1.5">
         <Field label="Password" value={form.password} onChange={(v) => set('password', v)}
           type="password" placeholder="Min. 6 characters" error={fe('password')}
@@ -432,10 +379,9 @@ function RegistrationForm() {
         )}
       </div>
 
-      {/* Map */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Pin your shop on the map</label>
-        <p className="text-[10px] text-gray-400">Tap "Use my current location" or drag the pin. City and pincode will be autofilled.</p>
+        <p className="text-[10px] text-gray-400">Tap “Use my current location” or drag the pin. City and pincode will be autofilled.</p>
         <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} />
       </div>
 
@@ -445,7 +391,6 @@ function RegistrationForm() {
       </div>
       <Field label="City" value={form.city} onChange={(v) => set('city', v)} placeholder="Mangaluru" error={fe('city')} />
 
-      {/* Address — mandatory */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Shop address</label>
         <textarea rows={2} value={form.address} onChange={(e) => set('address', e.target.value)}
@@ -455,7 +400,6 @@ function RegistrationForm() {
         {fe('address') && <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('address')}</p>}
       </div>
 
-      {/* GSTIN — optional, validated if filled */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
           GSTIN <span className="normal-case font-normal text-gray-400">(optional)</span>
@@ -471,9 +415,6 @@ function RegistrationForm() {
         }
       </div>
 
-
-
-      {/* Referral code */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
           Referral code <span className="normal-case font-normal text-gray-400">(optional)</span>
@@ -484,7 +425,6 @@ function RegistrationForm() {
         <p className="text-[10px] text-gray-400">Have a code from another store partner? Enter it to help them earn ₹500.</p>
       </div>
 
-      {/* Continue button — prominent */}
       <button type="submit"
         className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-black text-white transition-all"
         style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 4px 16px -4px rgba(220,38,38,0.35)' }}
@@ -580,36 +520,33 @@ export default function StorePage() {
             ))}
           </div>
 
-          {/* Joining bonus callout */}
           <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
               <Gift className="h-4 w-4 text-gray-400 shrink-0" />
               <p className="text-sm font-bold text-gray-900">Joining bonus — ₹500</p>
             </div>
             <p className="text-xs text-gray-500 leading-relaxed">
-              We credit ₹500 to your account the day your screen goes live — no conditions, no waiting period. It's our way of welcoming you to the network.
+              We credit ₹500 to your account the day your screen goes live — no conditions, no waiting period.
             </p>
           </div>
 
-          {/* Store offers feature callout */}
           <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-gray-400 shrink-0" />
               <p className="text-sm font-bold text-gray-900">Publish your own offers</p>
             </div>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Post today's deals — product, weight, MRP, offer price — directly from your dashboard. Your offers show up on the ALIVE screen and on our deals page so customers always see your best prices.
+              Post today’s deals directly from your dashboard. Your offers show on the ALIVE screen and deals page.
             </p>
           </div>
 
-          {/* Deposit / payout */}
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-2.5">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Deposit &amp; payout</p>
             {[
-              { label: 'Security deposit', value: '₹0', note: 'No deposit ever. Equipment is fully free.' },
-              { label: 'Monthly payout',   value: '₹500+', note: 'Credited within 10 working days of month end.' },
-              { label: 'Electricity',      value: 'Reimbursed', note: 'At rated power × hours × tariff rate.' },
-              { label: 'Exit clause',      value: '30-day notice', note: 'Cancel anytime with 30 days notice.' },
+              { label: 'Security deposit', value: '₹0',            note: 'No deposit ever. Equipment is fully free.' },
+              { label: 'Monthly payout',   value: '₹500+',          note: 'Credited within 10 working days of month end.' },
+              { label: 'Electricity',      value: 'Reimbursed',     note: 'At rated power × hours × tariff rate.' },
+              { label: 'Exit clause',      value: '30-day notice',  note: 'Cancel anytime with 30 days notice.' },
             ].map(({ label, value, note }) => (
               <div key={label} className="flex items-start justify-between gap-4">
                 <div>
@@ -638,7 +575,7 @@ export default function StorePage() {
       <footer className="border-t border-gray-200 py-5 text-center mt-4 bg-white">
         <p className="text-xs text-gray-400">
           © 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru ·{' '}
-          <a href="mailto:hello@wearealive.in" className="hover:text-gray-600 transition-colors">hello@wearealive.in</a>
+          <a href={`https://wa.me/${SUPPORT_WHATSAPP.replace('+', '')}`} className="hover:text-gray-600 transition-colors">WhatsApp us</a>
         </p>
       </footer>
     </div>

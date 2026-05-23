@@ -1,10 +1,13 @@
-const BASE = 'https://wearealive.in';
+import { API_BASE_URL } from '@shared/constants';
+import type { StoreSession, RegisterPayload } from '@shared/store-types';
+
+export type { StoreSession, RegisterPayload };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), 20000);
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
       signal: controller.signal,
       headers: {
@@ -23,49 +26,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     clearTimeout(tid);
   }
 }
-
-export type StoreSession = {
-  id?: string;
-  storeName: string;
-  ownerName: string;
-  whatsapp: string;
-  phone?: string;
-  locality?: string;
-  city?: string;
-  pincode?: string;
-  address?: string;
-  gstin?: string;
-  email?: string;
-  referralCode?: string;
-  referredBy?: string;
-  agreedAt?: string;
-  liveAt?: string;
-  onboardingStage?: string;
-  deviceCount?: number;
-  payoutMethod?: string;
-  upiId?: string;
-  bankAccountName?: string;
-  bankAccountNo?: string;
-  bankIfsc?: string;
-  bankName?: string;
-};
-
-export type RegisterPayload = {
-  storeName: string;
-  ownerName: string;
-  whatsapp: string;
-  password: string;
-  address: string;
-  locality: string;
-  city: string;
-  pincode: string;
-  lat: string;
-  lng: string;
-  referredBy?: string;
-  gstin?: string;
-  referralCode: string;
-  agreedAt: string;
-};
 
 export async function storeLogin(
   whatsapp: string,
@@ -86,9 +46,7 @@ export async function storeRegister(
   });
 }
 
-export async function getStoreMe(
-  storeId?: string,
-): Promise<StoreSession> {
+export async function getStoreMe(storeId?: string): Promise<StoreSession> {
   const qs = storeId ? `?storeId=${storeId}` : '';
   return request(`/api/stores/me${qs}`);
 }
