@@ -1,4 +1,4 @@
-// PATCH /api/devices/[id] — update storeName / groupName / storeId (link to a Store)
+// PATCH /api/devices/[id] — update storeName / groupName / storeId / orientation
 // Auth: admin-password header
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,6 +9,8 @@ function adminGuard(req: NextRequest) {
   return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
 }
 
+const VALID_ORIENTATIONS = ['LANDSCAPE', 'PORTRAIT', 'AUTO'] as const;
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -17,9 +19,10 @@ export async function PATCH(
   const { id } = await params;
   try {
     const body = await req.json() as {
-      storeName?: string;
-      groupName?: string;
-      storeId?:   string | null;
+      storeName?:   string;
+      groupName?:   string;
+      storeId?:     string | null;
+      orientation?: string;
     };
 
     const data: Record<string, unknown> = {};
@@ -27,8 +30,10 @@ export async function PATCH(
     if (body.groupName !== undefined) data.groupName = body.groupName?.trim() || null;
     if ('storeId' in body) {
       data.storeId = body.storeId ?? null;
-      // stamp linkedAt when attaching a store; clear when detaching
       data.linkedAt = body.storeId ? new Date() : null;
+    }
+    if (body.orientation && (VALID_ORIENTATIONS as readonly string[]).includes(body.orientation)) {
+      data.orientation = body.orientation;
     }
 
     const raw    = await db.device.update({ where: { id }, data });

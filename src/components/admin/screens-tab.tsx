@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X,
   ExternalLink, CheckCircle2, TriangleAlert, Film, ImageIcon, Layers, Trash2,
   Store, Link2, Filter, SlidersHorizontal, LayoutList, LayoutGrid, ChevronLeft, ChevronRight,
-  MapPin, RefreshCw,
+  MapPin, RefreshCw, Monitor,
 } from 'lucide-react';
 import {
   getDevices, updateDevice, bulkUpdateDevices, bulkPushSchedule, getDeviceGroups, getPlaylists,
@@ -485,6 +485,37 @@ function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) =
   );
 }
 
+// ─── Orientation select ───────────────────────────────────────────────────────
+function OrientationSelect({ device, onSave }: { device: Device; onSave: (d: Device) => void }) {
+  const [saving, setSaving] = useState(false);
+  const val = device.orientation ?? 'LANDSCAPE';
+
+  const change = async (o: string) => {
+    setSaving(true);
+    try {
+      const updated = await updateDevice(device.id, { orientation: o });
+      onSave(updated);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <select
+        value={val}
+        onChange={(e) => change(e.target.value)}
+        disabled={saving}
+        className="rounded-lg border border-border bg-background px-2 py-0.5 text-[10px] font-semibold focus:outline-none focus:border-primary disabled:opacity-50 transition-all"
+      >
+        <option value="LANDSCAPE">Landscape</option>
+        <option value="PORTRAIT">Portrait</option>
+        <option value="AUTO">Auto</option>
+      </select>
+      {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+    </div>
+  );
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Human-friendly label for a device — avoids exposing raw hardware IDs in the UI.
 // Examples: "Sharma Stores · Screen #b434" or "Screen #b434" if not linked.
@@ -848,6 +879,7 @@ export default function ScreensTab() {
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Screen</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Store</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Group</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Orient.</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Status</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Schedule</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Heartbeat</th>
@@ -869,6 +901,9 @@ export default function ScreensTab() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">{d.groupName ?? '—'}</td>
+                        <td className="px-3 py-2">
+                          <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
+                        </td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
                             <StatusIcon className="h-2 w-2" />{d.status}
@@ -939,7 +974,7 @@ export default function ScreensTab() {
                       </div>
                     </div>
                     {/* Bottom row */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/60">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-border/60">
                       <div className="px-4 py-2.5">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
                         {sched ? (<><p className="text-[11px] font-semibold text-foreground truncate">{sched.name}</p>{sched.playlistName && <p className="text-[10px] text-muted-foreground truncate">{sched.playlistName}</p>}</>) : <p className="text-[11px] text-muted-foreground/50 italic">No active schedule</p>}
@@ -955,6 +990,10 @@ export default function ScreensTab() {
                       <div className="px-4 py-2.5">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Wifi className="h-2.5 w-2.5" />Heartbeat</p>
                         <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
+                      </div>
+                      <div className="px-4 py-2.5">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Monitor className="h-2.5 w-2.5" />Orientation</p>
+                        <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
                       </div>
                     </div>
                   </div>
