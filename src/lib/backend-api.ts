@@ -24,6 +24,7 @@ export type Device = {
   orientation?:     'LANDSCAPE' | 'PORTRAIT' | 'AUTO' | null;
   uptimePct?:       number | null;
   claimedAt:        string;
+  pairedAt?:        string | null;
   lat?:             number | null;
   lng?:             number | null;
   city?:            string | null;
@@ -164,7 +165,12 @@ export const getDevices = (params?: Record<string, string>) => {
 
 export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.device);
+  .then((r) => r.device);
+
+export const confirmPairing = (code: string) =>
+  apiFetch<{ device: { id: string; name: string; hardwareKey: string } }>('/api/admin/confirm-pairing', {
+    method: 'POST', body: JSON.stringify({ code }),
+  }).then((r) => r.device);
 
 export const bulkUpdateDevices = (body: { ids: string[]; action: 'group' | 'delete'; groupName?: string }) =>
   apiFetch<{ updated?: number; deleted?: number }>('/api/devices/bulk', { method: 'POST', body: JSON.stringify(body) });

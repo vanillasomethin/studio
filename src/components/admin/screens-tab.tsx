@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import {
   getDevices, updateDevice, bulkUpdateDevices, bulkPushSchedule, getDeviceGroups, getPlaylists,
-  searchStores, forceSyncDevice,
+  searchStores, forceSyncDevice, confirmPairing,
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -445,6 +445,82 @@ function AddScreenCard() {
   );
 }
 
+// ─── Pair screen modal ────────────────────────────────────────────────────────
+function PairScreenModal({ onClose, onPaired }: { onClose: () => void; onPaired: () => void }) {
+  const [code,    setCode]    = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ name: string } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
+
+  const handleSubmit = async () => {
+    const trimmed = code.trim().toUpperCase();
+    if (trimmed.length !== 6) { setError('Enter the 6-character code shown on the TV screen'); return; }
+    setSaving(true); setError(null);
+    try {
+      const device = await confirmPairing(trimmed);
+      setSuccess({ name: device.name });
+      onPaired();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Tv2 className="h-4 w-4 text-primary" />
+            <p className="text-sm font-bold">Pair a screen</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground transition-colors"><X className="h-3.5 w-3.5" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {success ? (
+            <div className="text-center space-y-3 py-2">
+              <div className="flex justify-center"><CheckCircle2 className="h-10 w-10 text-green-500" /></div>
+              <p className="text-sm font-bold text-foreground">{success.name} added to fleet</p>
+              <p className="text-xs text-muted-foreground">The screen will appear in your device list. Assign a store and schedule to go live.</p>
+              <button onClick={onClose} className="w-full rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 transition-colors">Done</button>
+            </div>
+          ) : (
+            <>
+              <div className="rounded-xl bg-muted/40 border border-border p-4 text-center space-y-1">
+                <p className="text-xs text-muted-foreground">On the TV screen, look for</p>
+                <p className="text-lg font-black tracking-widest text-foreground">YOUR SCREEN CODE</p>
+                <p className="text-xs text-muted-foreground">e.g. <span className="font-mono font-bold text-foreground">A4F9B2</span></p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">6-character code</label>
+                <input
+                  ref={inputRef}
+                  value={code}
+                  onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 6)); setError(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                  placeholder="A4F9B2"
+                  maxLength={6}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-center text-2xl font-mono font-bold tracking-widest uppercase focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                />
+                {error && <p className="text-xs text-red-500">{error}</p>}
+              </div>
+              <button onClick={handleSubmit} disabled={saving || code.trim().length !== 6}
+                className="w-full rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                {saving ? 'Confirming…' : 'Add screen to fleet'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Inline rename ────────────────────────────────────────────────────────────
 function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) => void }) {
   const [editing, setEditing] = useState(false);
@@ -574,6 +650,7 @@ export default function ScreensTab() {
   const [groupMode,    setGroupMode]    = useState<'existing' | 'new'>('existing');
   const [allGroups,    setAllGroups]    = useState<DeviceGroup[]>([]);
   const [showGroups,   setShowGroups]   = useState(false);
+  const [showPairModal, setShowPairModal] = useState(false);
   const [linkIds,      setLinkIds]      = useState<string[] | null>(null);
   const [pushIds,      setPushIds]      = useState<string[] | null>(null);
   const [showFilters,  setShowFilters]  = useState(false);
@@ -692,9 +769,24 @@ export default function ScreensTab() {
         setSelected(new Set());
       }} />}
       {pushIds && <PushScheduleDialog deviceIds={pushIds} onClose={() => { setPushIds(null); setSelected(new Set()); }} />}
+      {showPairModal && (
+        <PairScreenModal
+          onClose={() => setShowPairModal(false)}
+          onPaired={() => { setPrevStack([]); fetchPage(); }}
+        />
+      )}
 
-      {/* Add screen onboarding */}
-      <AddScreenCard />
+      {/* Header row: onboarding + pair button */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0"><AddScreenCard /></div>
+        <button
+          onClick={() => setShowPairModal(true)}
+          className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-bold text-white hover:bg-primary/90 transition-colors shadow-sm"
+        >
+          <Tv2 className="h-4 w-4" />
+          Pair screen
+        </button>
+      </div>
 
       {/* Stat chips */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
