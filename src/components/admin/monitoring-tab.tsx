@@ -63,12 +63,19 @@ export default function MonitoringTab() {
 
   return (
     <div className="space-y-4">
-      {/* Header row */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" />{online} online</span>
-          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" />{offline} offline</span>
-          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-yellow-500 inline-block" />{pending} pending</span>
+      {/* Page head */}
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="admin-live-dot admin-live-dot--online" />
+            <span className="admin-font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Live network</span>
+          </div>
+          <div className="flex items-baseline gap-4">
+            <span className="admin-font-display text-3xl font-bold text-foreground tracking-tight">{online}</span>
+            <span className="text-sm text-muted-foreground">of {devices.length} screens online</span>
+            {offline > 0 && <span className="admin-badge admin-badge--offline">{offline} offline</span>}
+            {pending > 0 && <span className="admin-badge admin-badge--pending">{pending} pending</span>}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {/* View toggle */}
