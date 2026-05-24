@@ -3,7 +3,8 @@
 //
 // POST /api/device/claim
 // Body: { hardwareKey: string, name?: string, groupName?: string }
-// Returns: { deviceId, token }
+// Returns: { deviceId, token, pairingCode }
+//   pairingCode: 6-char code to display on TV; empty string if device already admin-confirmed
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -33,11 +34,15 @@ export async function POST(req: NextRequest) {
       if (store) storeId = store.id;
     }
 
+    // Generate a 6-char uppercase hex pairing code
+    const newPairingCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
+
     // Idempotent — return existing device token if already claimed
     let device = await db.device.findUnique({ where: { hardwareKey } });
 
     if (!device) {
-      const jwtSecret = crypto.randomBytes(32).toString('hex');
+      const jwtSecret   = crypto.randomBytes(32).toString('hex');
+      const pairingCode = newPairingCode();
       device = await db.device.create({
         data: {
           hardwareKey,
@@ -45,6 +50,8 @@ export async function POST(req: NextRequest) {
           groupName: groupName ?? null,
           jwtSecret,
           status:    'PENDING',
+          pairingCode,
+          // pairedAt intentionally null — set by admin after entering the on-screen code
           ...(storeId ? { storeId, linkedAt: new Date() } : {}),
         },
       });
@@ -58,7 +65,13 @@ export async function POST(req: NextRequest) {
 
     const token = await signDeviceToken(device.id, device.jwtSecret);
 
-    return NextResponse.json({ deviceId: device.id, token });
+    // Return pairingCode so the player displays it on screen.
+    // Empty string means device is already admin-confirmed (pairedAt is set).
+    return NextResponse.json({
+      deviceId:    device.id,
+      token,
+      pairingCode: device.pairedAt ? '' : (device.pairingCode ?? ''),
+    });
   } catch (e) {
     const error = e as Error;
     await recordError({ route, errorClass: error.name, message: error.message, stackHash: hashStack(error.stack), requestMeta: { correlationId, method: req.method }, actorType: 'device', correlationId });

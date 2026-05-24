@@ -31,11 +31,14 @@ export async function GET(req: NextRequest) {
     const storeIdF  = p.get('storeId')  ?? '';
     const cityF     = p.get('city')     ?? '';
     const linkedF   = p.get('linked')   ?? '';     // 'true' | 'false'
+    const allF      = p.get('all')      ?? '';     // 'true' to include unconfirmed devices
     const cursor    = p.get('cursor')   ?? '';
     const take      = Math.min(200, Math.max(1, Number(p.get('take') ?? DEFAULT_TAKE)));
 
     // Build Prisma where clause (fields we can filter server-side)
-    const where: Prisma.DeviceWhereInput = {};
+    // Default: only show devices that have been admin-confirmed (pairedAt IS NOT NULL).
+    // Pass ?all=true to include devices waiting for pairing confirmation.
+    const where: Prisma.DeviceWhereInput = allF === 'true' ? {} : { pairedAt: { not: null } };
     if (q) {
       where.OR = [
         { name:        { contains: q, mode: 'insensitive' } },
