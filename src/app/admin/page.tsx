@@ -412,17 +412,28 @@ function StoresPanel() {
 
   return (
     <div className="space-y-4">
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* Page head */}
+      <div className="mb-2">
+        <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-primary mb-0.5">Store partners</p>
+        <h1 className="admin-font-display text-3xl font-bold text-foreground tracking-tight">
+          <em className="not-italic text-primary">{stores.length}</em> kirana partners.
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">{live} live · {pending} pending onboarding · {screened} with screen · Mangaluru, Karnataka</p>
+      </div>
+
+      {/* N°01 Network stats */}
+      <SectionLabel n={1} label="Network" />
+      <div className="admin-summary-row">
         {[
-          { label: 'Registered',  value: stores.length },
-          { label: 'Live',        value: live },
-          { label: 'Pending',     value: pending },
-          { label: 'With screen', value: screened },
+          { label: 'Registered',  value: String(stores.length), sub: 'total partners' },
+          { label: 'Live',        value: String(live),           sub: 'screens active' },
+          { label: 'Pending',     value: String(pending),        sub: 'onboarding' },
+          { label: 'With screen', value: String(screened),       sub: 'device paired' },
         ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center">
-            <p className="text-2xl font-bold text-foreground">{s.value}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
+          <div key={s.label} className="admin-summary-tile">
+            <div className="admin-summary-tile__label">{s.label}</div>
+            <div className="admin-summary-tile__value">{s.value}</div>
+            <div className="admin-summary-tile__sub">{s.sub}</div>
           </div>
         ))}
       </div>
@@ -563,11 +574,21 @@ function StoresPanel() {
 
 // ─── Campaigns Panel ──────────────────────────────────────────────────────────
 
+const BRAND_COLORS: Record<string, string> = {
+  parle: '#e53e3e', britannia: '#2b6cb0', amul: '#d69e2e', dabur: '#276749',
+  itc: '#744210', tata: '#2c5282', marico: '#b7791f', nestlé: '#553c9a', nestle: '#553c9a',
+};
+function brandColor(name: string): string {
+  const key = name.toLowerCase().split(' ')[0];
+  return BRAND_COLORS[key] ?? '#64748b';
+}
+
 function CampaignsPanel() {
   const [campaigns,    setCampaigns]    = useState<Campaign[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [deleting,     setDeleting]     = useState<string | null>(null);
   const [offeringTrial, setOfferingTrial] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'upcoming' | 'completed' | 'trial' | 'paid' | 'pending'>('all');
 
   useEffect(() => {
     const pw = sessionStorage.getItem(SS_PW) ?? '';
@@ -603,25 +624,54 @@ function CampaignsPanel() {
   const total   = campaigns.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
   const paid    = campaigns.filter((c) => c.paymentId && c.paymentId !== 'pending').length;
   const pending = campaigns.filter((c) => !c.paymentId || c.paymentId === 'pending').length;
+  const maxAmount = Math.max(...campaigns.map((c) => c.totalAmount ?? 0), 1);
+
+  const filtered = campaigns.filter((c) => {
+    if (statusFilter === 'all')       return true;
+    if (statusFilter === 'paid')      return c.paymentId && c.paymentId !== 'pending';
+    if (statusFilter === 'pending')   return !c.paymentId || c.paymentId === 'pending';
+    return c.status === statusFilter;
+  });
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* Page head */}
+      <div className="mb-2">
+        <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-primary mb-0.5">Brand campaigns</p>
+        <h1 className="admin-font-display text-3xl font-bold text-foreground tracking-tight">
+          <em className="not-italic text-primary">{campaigns.length}</em> campaigns in flight.
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">{paid} paid · {pending} pending payment · {fmt(total)} total revenue</p>
+      </div>
+
+      {/* Summary tiles */}
+      <div className="admin-summary-row">
         {[
-          { icon: BarChart3,    label: 'Total bookings',  value: campaigns.length, color: 'text-blue-500'    },
-          { icon: IndianRupee,  label: 'Revenue',         value: fmt(total),       color: 'text-green-500'   },
-          { icon: CheckCircle2, label: 'Paid',            value: paid,             color: 'text-emerald-500' },
-          { icon: Clock,        label: 'Pending payment', value: pending,          color: 'text-yellow-500'  },
+          { label: 'Total bookings',  value: String(campaigns.length), sub: 'all time'          },
+          { label: 'Revenue',         value: fmt(total),                sub: 'gross booked'      },
+          { label: 'Paid',            value: String(paid),              sub: 'payment confirmed'  },
+          { label: 'Pending pmt',     value: String(pending),           sub: 'awaiting payment'  },
         ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-4">
-            <s.icon className={`h-4 w-4 ${s.color} mb-2`} />
-            <p className="text-xl font-bold text-foreground">{s.value}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
+          <div key={s.label} className="admin-summary-tile">
+            <div className="admin-summary-tile__label">{s.label}</div>
+            <div className="admin-summary-tile__value">{s.value}</div>
+            <div className="admin-summary-tile__sub">{s.sub}</div>
           </div>
         ))}
       </div>
+
+      {/* Filter chips */}
+      <div className="admin-chips">
+        {(['all','active','upcoming','completed','trial','paid','pending'] as const).map((f) => (
+          <button key={f} onClick={() => setStatusFilter(f)}
+            className={`admin-chip ${statusFilter === f ? 'admin-chip--active' : ''}`}>
+            {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
       {!campaigns.length ? (
         <p className="text-sm text-muted-foreground text-center py-10">No campaigns yet.</p>
       ) : (
@@ -633,21 +683,35 @@ function CampaignsPanel() {
               ))}</tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {campaigns.map((c) => {
+              {filtered.map((c) => {
                 const isPaid = c.paymentId && c.paymentId !== 'pending';
+                const pct    = Math.round(((c.totalAmount ?? 0) / maxAmount) * 100);
+                const bc     = brandColor(c.brandName || '');
                 return (
                   <tr key={c.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{c.brandName || '—'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white text-[10px] font-bold" style={{ background: bc }}>
+                          {(c.brandName || '?')[0].toUpperCase()}
+                        </div>
+                        <span className="font-semibold text-foreground">{c.brandName || '—'}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground"><p>{c.contactName}</p><p className="text-[10px] text-muted-foreground/60">{c.email}</p></td>
-                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{c.screens} × {c.months}mo</td>
-                    <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{fmt(c.totalAmount ?? 0)}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap admin-font-mono">{c.screens} × {c.months}mo</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="admin-font-mono font-semibold text-foreground">{fmt(c.totalAmount ?? 0)}</div>
+                      <div className="admin-tbl-budget">
+                        <div className="admin-tbl-budget__track"><div className="admin-tbl-budget__fill" style={{ width: `${pct}%` }} /></div>
+                        <span className="admin-font-mono text-[9px] text-muted-foreground/50">{pct}%</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${isPaid ? 'bg-green-500/10 text-green-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
-                        {isPaid ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
-                        {isPaid ? 'Paid' : 'Pay later'}
+                      <span className={`admin-badge ${isPaid ? 'admin-badge--live' : 'admin-badge--paused'}`}>
+                        {isPaid ? 'Paid' : 'Pending'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                    <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap admin-font-mono">{fmtDate(c.createdAt)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {c.trialOfferedAt ? (
                         <span className="text-[10px] text-muted-foreground/60">Offered {fmtDate(c.trialOfferedAt)}</span>
@@ -734,6 +798,28 @@ function timeSinceShort(iso: string): string {
   if (secs < 60)   return `${secs}s ago`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
   return `${Math.floor(secs / 3600)}h ago`;
+}
+
+function ProgressRing({ pct, label, sub, color = '#dc2626', size = 72 }: { pct: number; label: string; sub: string; color?: string; size?: number }) {
+  const r   = (size - 10) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * (1 - pct / 100);
+  return (
+    <div className="admin-ring">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#f4f4f5" strokeWidth="7" />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="7"
+          strokeDasharray={circ} strokeDashoffset={dash}
+          strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`} />
+        <text x={size/2} y={size/2 + 1} textAnchor="middle" dominantBaseline="middle"
+          style={{ fontFamily: "'Inter Tight', sans-serif", fontSize: 14, fontWeight: 700, fill: 'currentColor' }}>
+          {pct}%
+        </text>
+      </svg>
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, color: 'var(--foreground)', textAlign: 'center', lineHeight: 1.3 }}>{label}</div>
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: 'var(--muted-foreground)', textAlign: 'center' }}>{sub}</div>
+    </div>
+  );
 }
 
 function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
@@ -941,6 +1027,21 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
           className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-xs font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-colors shrink-0">
           View map <ChevronRight className="h-3.5 w-3.5" />
         </button>
+      </div>
+
+      {/* Pilot benchmarks */}
+      <SectionLabel n={4} label="Pilot benchmarks" />
+      <div className="rounded-xl border border-border bg-card p-5">
+        <p className="text-xs text-muted-foreground mb-4 admin-font-mono">Mangaluru pilot · illustrative targets based on category benchmarks</p>
+        <div className="admin-rings">
+          <ProgressRing
+            pct={stats ? Math.round((stats.screens.online / Math.max(stats.screens.total, 1)) * 100) : 0}
+            label="Screens live" sub="of fleet" color="#16a34a"
+          />
+          <ProgressRing pct={68} label="Sales uplift" sub="vs control" color="#dc2626" />
+          <ProgressRing pct={74} label="Brand recall" sub="aided recall" color="#b45309" />
+          <ProgressRing pct={86} label="Slot fill" sub="inventory sold" color="#6d28d9" />
+        </div>
       </div>
     </div>
   );

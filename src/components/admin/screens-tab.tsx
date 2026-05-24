@@ -761,6 +761,17 @@ export default function ScreensTab() {
 
   return (
     <div className="space-y-4">
+      {/* Page head */}
+      <div className="mb-2">
+        <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-primary mb-0.5">Screen fleet</p>
+        <h1 className="admin-font-display text-3xl font-bold text-foreground tracking-tight">
+          <em className="not-italic text-primary">{loading ? '—' : total}</em> screens, breathing.
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {online} online · {offline} offline · {pending} pending · {unlinked} unlinked · Mangaluru, Karnataka
+        </p>
+      </div>
+
       {/* Modals */}
       {diagId    && <DiagPanel deviceId={diagId} onClose={() => setDiagId(null)} />}
       {showGroups && <GroupPanel onClose={() => setShowGroups(false)} onFilterGroup={(g) => { setGroupF(g); setShowGroups(false); }} />}
