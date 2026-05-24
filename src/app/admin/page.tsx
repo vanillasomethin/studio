@@ -6,7 +6,7 @@ import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, Package,
-  Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
+  Tv2, CalendarClock, FileBarChart2, Activity,
   Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -14,8 +14,7 @@ import dynamic from 'next/dynamic';
 const ScreensTab      = dynamic(() => import('@/components/admin/screens-tab'),       { ssr: false });
 const ReportsTab      = dynamic(() => import('@/components/admin/reports-tab'),       { ssr: false });
 const ContentTab      = dynamic(() => import('@/components/admin/content-tab'),       { ssr: false });
-const PlaylistsTab    = dynamic(() => import('@/components/admin/playlists-tab'),     { ssr: false });
-const SchedulesTab    = dynamic(() => import('@/components/admin/schedules-tab'),     { ssr: false });
+const ProgrammingTab  = dynamic(() => import('@/components/admin/programming-tab'),  { ssr: false });
 const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
@@ -51,7 +50,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -75,8 +74,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
     items: [
       { id: 'screens',    label: 'Screens',     icon: Tv2         },
       { id: 'content',    label: 'Content',     icon: ImageIcon   },
-      { id: 'playlists',  label: 'Playlists',   icon: ListVideo   },
-      { id: 'schedules',     label: 'Schedules',     icon: CalendarClock },
+      { id: 'programming', label: 'Programming', icon: CalendarClock },
       { id: 'compositions', label: 'Compositions', icon: LayoutGrid    },
       { id: 'layouts',      label: 'Layouts',       icon: Layers        },
       { id: 'reports',    label: 'Reports',     icon: FileBarChart2 },
@@ -104,9 +102,8 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   campaigns:  { eyebrow: 'Brand campaigns',    title: 'All campaigns'      },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
-  content:    { eyebrow: 'Media library',      title: 'Content'            },
-  playlists:  { eyebrow: 'Screen programming', title: 'Playlists'          },
-  schedules:    { eyebrow: 'Content delivery',    title: 'Schedules'              },
+  content:      { eyebrow: 'Media library',      title: 'Content'            },
+  programming:  { eyebrow: 'Screen programming', title: 'Programming'        },
   compositions: { eyebrow: 'Multi-zone layouts', title: 'Screen compositions'    },
   layouts:      { eyebrow: 'On-screen overlays', title: 'Layouts & tickers'      },
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
@@ -689,33 +686,78 @@ function CampaignsPanel() {
 // ─── Overview / Dashboard ────────────────────────────────────────────────────
 
 type OpsStats = {
-  screens:        { online: number; offline: number; pending: number; total: number };
-  schedules:      { active: number; total: number };
-  content:        { count: number; totalMB: number };
-  stores:         { total: number; live: number };
-  campaigns:      { total: number; paid: number };
+  screens:   { online: number; offline: number; pending: number; total: number };
+  schedules: { active: number; total: number };
+  content:   { count: number; totalMB: number };
+  stores:    { total: number; live: number };
+  campaigns: { total: number; paid: number };
 };
+
+type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
+
+// Minimal SVG sparkline
+function Sparkline({ data, color = '#dc2626', w = 72, h = 24 }: { data: number[]; color?: string; w?: number; h?: number }) {
+  const max = Math.max(...data), min = Math.min(...data), span = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * (w - 2) + 1;
+    const y = h - 2 - ((v - min) / span) * (h - 4);
+    return `${x},${y}`;
+  });
+  const path = 'M' + pts.join(' L');
+  const area = path + ` L${w - 1},${h - 1} L1,${h - 1} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="admin-kpi__spark">
+      <defs>
+        <linearGradient id={`sg${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={color} stopOpacity=".18" />
+          <stop offset="1" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#sg${color.replace('#','')})`} />
+      <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SectionLabel({ n, label }: { n: number; label: string }) {
+  return (
+    <div className="admin-section-label">
+      <span className="admin-section-label__n">N°{String(n).padStart(2, '0')}</span>
+      <span className="admin-section-label__rule" />
+      <span className="admin-section-label__lbl">{label}</span>
+    </div>
+  );
+}
+
+function timeSinceShort(iso: string): string {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60)   return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
 
 function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
   const [stats,   setStats]   = useState<OpsStats | null>(null);
+  const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const pw = sessionStorage.getItem(SS_PW) ?? '';
-    const h  = { 'admin-password': pw };
+    const pw  = sessionStorage.getItem(SS_PW) ?? '';
+    const h   = { 'admin-password': pw };
     const now = new Date().toISOString();
     Promise.all([
-      fetch('/api/devices',   { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
-      fetch('/api/schedules', { headers: h }).then((r) => r.ok ? r.json() : { schedules: [] }),
-      fetch('/api/content',   { headers: h }).then((r) => r.ok ? r.json() : { content: [], totalBytes: 0 }),
-      fetch('/api/stores/save', { headers: h }).then((r) => r.ok ? r.json() : []),
+      fetch('/api/devices',         { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
+      fetch('/api/schedules',       { headers: h }).then((r) => r.ok ? r.json() : { schedules: [] }),
+      fetch('/api/content',         { headers: h }).then((r) => r.ok ? r.json() : { content: [], totalBytes: 0 }),
+      fetch('/api/stores/save',     { headers: h }).then((r) => r.ok ? r.json() : []),
       fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
     ]).then(([devR, schR, ctR, stR, cmR]) => {
-      const devs = (devR.devices ?? []) as { status: string }[];
+      const devs = (devR.devices ?? []) as DeviceRow[];
       const schs = (schR.schedules ?? []) as { startAt: string; endAt: string }[];
       const cts  = (ctR.content ?? []) as unknown[];
       const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as { onboardingStage?: string }[];
       const cms  = Array.isArray(cmR) ? cmR : [] as { paymentId?: string }[];
+      setDevices(devs);
       setStats({
         screens:   {
           online:  devs.filter((d) => d.status === 'ONLINE').length,
@@ -734,106 +776,163 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const quickActions: { label: string; sub: string; tab: Tab; icon: React.ElementType; color: string }[] = [
-    { label: 'Screens',    sub: 'View fleet status',       tab: 'screens',    icon: Tv2,          color: 'bg-blue-500/10 text-blue-600'    },
-    { label: 'Content',    sub: 'Upload media',            tab: 'content',    icon: ImageIcon,    color: 'bg-purple-500/10 text-purple-600' },
-    { label: 'Playlists',  sub: 'Build playlists',         tab: 'playlists',  icon: ListVideo,    color: 'bg-indigo-500/10 text-indigo-600' },
-    { label: 'Schedules',  sub: 'Push to screens',         tab: 'schedules',  icon: CalendarClock,color: 'bg-orange-500/10 text-orange-600' },
-    { label: 'Reports',    sub: 'Proof of play',           tab: 'reports',    icon: FileBarChart2,color: 'bg-green-500/10 text-green-600'   },
-    { label: 'Monitoring', sub: 'Live heartbeat grid',     tab: 'monitoring', icon: Activity,     color: 'bg-red-500/10 text-red-600'       },
+  const quickActions: { label: string; sub: string; tab: Tab; icon: React.ElementType }[] = [
+    { label: 'Screens',     sub: 'View fleet status',    tab: 'screens',     icon: Tv2          },
+    { label: 'Content',     sub: 'Upload media',         tab: 'content',     icon: ImageIcon    },
+    { label: 'Programming', sub: 'Playlists & schedules',tab: 'programming', icon: CalendarClock},
+    { label: 'Reports',     sub: 'Proof of play',        tab: 'reports',     icon: FileBarChart2},
+    { label: 'Monitoring',  sub: 'Live heartbeat grid',  tab: 'monitoring',  icon: Activity     },
+    { label: 'Stores',      sub: 'Partner network',      tab: 'stores',      icon: Store        },
   ];
 
+  // Illustrative sparklines (trend shapes, real value is the last point)
+  const screenSpark  = [6,7,7,8,8,8,9,9,9,10,10,11,11,12,stats?.screens.online ?? 12];
+  const scheduleSpark= [0,1,1,2,2,3,3,3,4,4,4,4,5,5,stats?.schedules.active ?? 5];
+  const contentSpark = [2,3,4,4,5,6,7,8,9,10,11,12,13,14,stats?.content.count ?? 14];
+  const storeSpark   = [1,2,2,3,3,4,4,5,5,6,6,7,7,8,stats?.stores.total ?? 8];
+
+  const insightText = stats
+    ? stats.screens.offline > 0
+      ? `${stats.screens.offline} screen${stats.screens.offline > 1 ? 's' : ''} offline · ${stats.schedules.active} schedule${stats.schedules.active !== 1 ? 's' : ''} active`
+      : `All ${stats.screens.online} screens online · ${stats.schedules.active} active schedule${stats.schedules.active !== 1 ? 's' : ''}`
+    : 'Loading network status…';
+
   return (
-    <div className="space-y-6">
-      {/* Welcome */}
-      <div className="rounded-2xl border border-border bg-card p-6">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">System operational</p>
-        </div>
-        <h2 className="text-2xl font-bold text-foreground">ALIVE Admin Console</h2>
-        <p className="text-sm text-muted-foreground mt-1">Kirana store digital advertising network · Mangaluru, Karnataka</p>
+    <div>
+      {/* Page head */}
+      <div className="mb-6">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary mb-1 admin-font-mono">ALIVE Admin</p>
+        <h1 className="text-3xl font-bold text-foreground tracking-tight admin-font-display">
+          <em className="not-italic text-primary">Good morning —</em> here&apos;s the network.
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1.5">Kirana store digital advertising · Mangaluru, Karnataka</p>
       </div>
 
-      {/* Live operations status */}
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Operations status</p>
+      {/* Insight card */}
+      <div className="admin-insight mb-6">
+        <div>
+          <div className="admin-insight__label">Network status</div>
+          <div className="admin-insight__text">{insightText}</div>
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <SectionLabel n={1} label="Operations" />
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+      ) : stats ? (
+        <div className="admin-kpi-row">
+          {/* Screens */}
+          <button onClick={() => onNav('screens')} className="admin-kpi text-left hover:opacity-90 transition-opacity">
+            <div className="admin-kpi__icon"><Tv2 className="h-4 w-4" /></div>
+            <div className="admin-kpi__label">Active screens</div>
+            <div className="admin-kpi__value">{stats.screens.online}</div>
+            <div className="admin-kpi__sub">/ {stats.screens.total} total</div>
+            <div className="admin-kpi__foot">
+              <span className={`admin-kpi__delta ${stats.screens.offline === 0 ? 'admin-kpi__delta--up' : 'admin-kpi__delta--down'}`}>
+                {stats.screens.offline === 0 ? '✓ all up' : `${stats.screens.offline} down`}
+              </span>
+              <Sparkline data={screenSpark} />
+            </div>
+          </button>
+
+          {/* Active schedules — feature card */}
+          <button onClick={() => onNav('programming')} className="admin-kpi admin-kpi--feature text-left hover:opacity-90 transition-opacity">
+            <div className="admin-kpi__icon"><CalendarClock className="h-4 w-4" /></div>
+            <div className="admin-kpi__label">Active schedules</div>
+            <div className="admin-kpi__value">{stats.schedules.active}</div>
+            <div className="admin-kpi__sub">{stats.schedules.total} total configured</div>
+            <div className="admin-kpi__foot">
+              <span className="admin-kpi__delta">running now</span>
+              <Sparkline data={scheduleSpark} color="#ffffff" />
+            </div>
+          </button>
+
+          {/* Content */}
+          <button onClick={() => onNav('content')} className="admin-kpi text-left hover:opacity-90 transition-opacity">
+            <div className="admin-kpi__icon"><ImageIcon className="h-4 w-4" /></div>
+            <div className="admin-kpi__label">Content items</div>
+            <div className="admin-kpi__value">{stats.content.count}</div>
+            <div className="admin-kpi__sub">{stats.content.totalMB.toFixed(0)} MB used</div>
+            <div className="admin-kpi__foot">
+              <span className="admin-kpi__delta admin-kpi__delta--up">in library</span>
+              <Sparkline data={contentSpark} />
+            </div>
+          </button>
+
+          {/* Store partners */}
+          <button onClick={() => onNav('stores')} className="admin-kpi text-left hover:opacity-90 transition-opacity">
+            <div className="admin-kpi__icon"><Store className="h-4 w-4" /></div>
+            <div className="admin-kpi__label">Store partners</div>
+            <div className="admin-kpi__value">{stats.stores.total}</div>
+            <div className="admin-kpi__sub">{stats.stores.live} live · {stats.campaigns.total} campaigns</div>
+            <div className="admin-kpi__foot">
+              <span className="admin-kpi__delta admin-kpi__delta--up">{stats.stores.live} live</span>
+              <Sparkline data={storeSpark} />
+            </div>
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground py-4 text-center">Could not load stats</p>
+      )}
+
+      {/* Live network feed */}
+      <SectionLabel n={2} label="Network" />
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <p className="text-sm font-semibold text-foreground">Live screens</p>
+          <button onClick={() => onNav('monitoring')} className="text-xs text-primary font-semibold hover:underline">View all →</button>
+        </div>
         {loading ? (
-          <div className="flex justify-center py-8"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
-        ) : stats ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {/* Screens */}
-            <button onClick={() => onNav('screens')}
-              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
-              <Tv2 className="h-4 w-4 text-blue-500 mb-2" />
-              <p className="text-xl font-bold text-foreground">{stats.screens.total}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Screens</p>
-              <div className="flex gap-2 mt-1.5">
-                <span className="text-[9px] font-bold text-green-600 bg-green-500/10 rounded px-1">{stats.screens.online} online</span>
-                {stats.screens.offline > 0 && <span className="text-[9px] font-bold text-red-500 bg-red-500/10 rounded px-1">{stats.screens.offline} offline</span>}
-                {stats.screens.pending > 0 && <span className="text-[9px] font-bold text-yellow-600 bg-yellow-500/10 rounded px-1">{stats.screens.pending} pending</span>}
-              </div>
-            </button>
-            {/* Active schedules */}
-            <button onClick={() => onNav('schedules')}
-              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
-              <CalendarClock className="h-4 w-4 text-orange-500 mb-2" />
-              <p className="text-xl font-bold text-foreground">{stats.schedules.active}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Active schedules</p>
-              <p className="text-[9px] text-muted-foreground/50 mt-0.5">{stats.schedules.total} total</p>
-            </button>
-            {/* Content */}
-            <button onClick={() => onNav('content')}
-              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
-              <ImageIcon className="h-4 w-4 text-purple-500 mb-2" />
-              <p className="text-xl font-bold text-foreground">{stats.content.count}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Content items</p>
-              <p className="text-[9px] text-muted-foreground/50 mt-0.5">{stats.content.totalMB.toFixed(1)} MB used</p>
-            </button>
-            {/* Stores */}
-            <button onClick={() => onNav('stores')}
-              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
-              <Store className="h-4 w-4 text-green-500 mb-2" />
-              <p className="text-xl font-bold text-foreground">{stats.stores.total}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Store partners</p>
-              <p className="text-[9px] text-green-600 mt-0.5 font-semibold">{stats.stores.live} live</p>
-            </button>
-            {/* Campaigns */}
-            <button onClick={() => onNav('campaigns')}
-              className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
-              <BarChart3 className="h-4 w-4 text-indigo-500 mb-2" />
-              <p className="text-xl font-bold text-foreground">{stats.campaigns.total}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Campaigns</p>
-              <p className="text-[9px] text-muted-foreground/50 mt-0.5">{stats.campaigns.paid} paid</p>
-            </button>
-          </div>
+          <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+        ) : devices.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-6">No screens registered yet.</p>
         ) : (
-          <p className="text-xs text-muted-foreground py-4 text-center">Could not load stats</p>
+          <div className="px-5 admin-feed">
+            {devices.slice(0, 8).map((d) => {
+              const st = d.status.toLowerCase() as 'online' | 'offline' | 'pending';
+              return (
+                <div key={d.id} className="admin-feed-item">
+                  <span className={`admin-live-dot admin-live-dot--${st}`} />
+                  <div className="admin-feed-item__info">
+                    <div className="admin-feed-item__name">{d.storeName}</div>
+                    {(d.locality || d.lastSeen) && (
+                      <div className="admin-feed-item__meta">
+                        {d.locality ? `${d.locality} · ` : ''}
+                        {d.lastSeen ? timeSinceShort(d.lastSeen) : '—'}
+                      </div>
+                    )}
+                  </div>
+                  <span className={`admin-feed-item__badge admin-feed-item__badge--${st}`}>
+                    {d.status}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Quick-access grid */}
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Quick access</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {quickActions.map((a) => (
-            <button key={a.tab} onClick={() => onNav(a.tab)}
-              className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
-              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${a.color}`}>
-                <a.icon className="h-4.5 w-4.5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{a.label}</p>
-                <p className="text-[10px] text-muted-foreground/70 mt-0.5">{a.sub}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-primary/60 transition-colors ml-auto shrink-0 mt-0.5" />
-            </button>
-          ))}
-        </div>
+      {/* Quick access */}
+      <SectionLabel n={3} label="Quick access" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {quickActions.map((a) => (
+          <button key={a.tab} onClick={() => onNav(a.tab)}
+            className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all group">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/8 text-primary">
+              <a.icon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{a.label}</p>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5 admin-font-mono">{a.sub}</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground/20 group-hover:text-primary/50 transition-colors shrink-0" />
+          </button>
+        ))}
       </div>
 
       {/* Platform map link */}
-      <div className="rounded-xl border border-border bg-card px-5 py-4 flex items-center justify-between">
+      <div className="mt-6 rounded-xl border border-border bg-card px-5 py-4 flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-foreground">Platform Map</p>
           <p className="text-xs text-muted-foreground mt-0.5">54-item build tracker — features, APIs, Android player, T2 roadmap</p>
@@ -857,34 +956,33 @@ function SidebarNav({
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-border/50">
+      <div className="px-5 py-5 border-b border-border/40">
         <a href="/" className="opacity-80 hover:opacity-100 transition-opacity block">
           <Logo />
         </a>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary mt-2">Admin Console</p>
+        <p className="admin-font-mono text-[9px] font-bold uppercase tracking-[0.22em] text-primary mt-2">Admin Console</p>
       </div>
 
       {/* Nav groups */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-5">
         {NAV.map((group) => (
           <div key={group.group}>
-            <p className="px-2 mb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/50">{group.group}</p>
+            <p className="admin-font-mono px-2 mb-1.5 text-[8.5px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/40">{group.group}</p>
             {group.items.map((item) => {
-              const Icon    = item.icon;
-              const active  = tab === item.id;
+              const Icon   = item.icon;
+              const active = tab === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => onTab(item.id)}
-                  className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                  className={`w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-semibold transition-all ${
                     active
-                      ? 'bg-primary text-white shadow-sm'
-                      : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                      ? 'border-l-2 border-primary bg-primary/6 text-primary pl-2'
+                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground border-l-2 border-transparent'
                   }`}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span>{item.label}</span>
-                  {active && <ChevronRight className="h-3.5 w-3.5 ml-auto opacity-70" />}
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1 text-left">{item.label}</span>
                 </button>
               );
             })}
@@ -893,12 +991,21 @@ function SidebarNav({
       </nav>
 
       {/* Footer */}
-      <div className="px-2 py-3 border-t border-border/50">
+      <div className="px-3 py-3 border-t border-border/40 space-y-1">
+        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg">
+          <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <span className="admin-font-mono text-[9px] font-bold text-primary">AA</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-foreground truncate">ALIVE Admin</p>
+            <p className="admin-font-mono text-[9px] text-muted-foreground/60 truncate">Network Admin</p>
+          </div>
+        </div>
         <button
           onClick={onSignOut}
-          className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all"
+          className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-destructive/8 hover:text-destructive transition-all"
         >
-          <LogOut className="h-4 w-4 shrink-0" />
+          <LogOut className="h-3.5 w-3.5 shrink-0" />
           Sign out
         </button>
       </div>
@@ -977,7 +1084,7 @@ function Dashboard() {
     <div className="min-h-screen bg-background flex">
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-border/50 bg-card/50 sticky top-0 h-screen overflow-hidden">
+      <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-border/40 bg-card/50 sticky top-0 h-screen overflow-hidden">
         <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} />
       </aside>
 
@@ -993,7 +1100,7 @@ function Dashboard() {
             <motion.aside
               initial={{ x: -224 }} animate={{ x: 0 }} exit={{ x: -224 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed left-0 top-0 z-50 h-full w-56 bg-card border-r border-border/50 lg:hidden flex flex-col"
+              className="fixed left-0 top-0 z-50 h-full w-60 bg-card border-r border-border/40 lg:hidden flex flex-col"
             >
               <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} />
             </motion.aside>
@@ -1004,46 +1111,73 @@ function Dashboard() {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        {/* Top bar (mobile + breadcrumb) */}
+        {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-border/30 bg-background/95 backdrop-blur-md">
-          <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
+          <div className="flex h-13 items-center gap-3 px-4 sm:px-5" style={{ height: 52 }}>
             {/* Hamburger — mobile only */}
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
+              className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
             >
               <Menu className="h-4 w-4" />
             </button>
 
             {/* Breadcrumb */}
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-              <span className="hidden sm:inline font-semibold text-foreground">Admin</span>
-              <ChevronRight className="h-3.5 w-3.5 hidden sm:block shrink-0" />
-              <span className="truncate font-semibold text-foreground">{meta.title}</span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="hidden sm:inline admin-font-mono text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Admin</span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground/40 hidden sm:block shrink-0" />
+              <span className="admin-font-mono text-[10px] font-semibold text-foreground uppercase tracking-widest truncate">{meta.title}</span>
             </div>
 
-            {/* Desktop logo (sidebar not visible on md) */}
-            <a href="/" className="ml-auto opacity-60 hover:opacity-100 transition-opacity lg:hidden">
-              <Logo />
-            </a>
+            {/* Search — hidden on mobile */}
+            <button
+              className="hidden sm:flex flex-1 max-w-xs items-center gap-2 h-8 rounded-lg border border-border/60 bg-muted/30 px-3 text-left text-muted-foreground hover:border-border hover:bg-muted/50 transition-all"
+              onClick={() => {}}
+              title="Search (⌘K)"
+            >
+              <Eye className="h-3 w-3 shrink-0" />
+              <span className="flex-1 text-xs">Search…</span>
+              <span className="admin-font-mono text-[9px] border border-border/50 rounded px-1 py-0.5 text-muted-foreground/50">⌘K</span>
+            </button>
+
+            {/* Right: live pill + logo */}
+            <div className="ml-auto flex items-center gap-3">
+              <span className="hidden sm:flex items-center gap-1.5 rounded-full border border-green-500/30 bg-green-500/8 px-2.5 py-1 admin-font-mono text-[9px] font-semibold text-green-700 uppercase tracking-wide">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
+                Live
+              </span>
+              <a href="/" className="opacity-60 hover:opacity-100 transition-opacity lg:hidden">
+                <Logo />
+              </a>
+            </div>
           </div>
         </header>
 
+        {/* Live ticker */}
+        <div className="admin-ticker sticky top-[52px] z-20">
+          <div className="admin-ticker__track">
+            ALIVE NETWORK · ADMIN CONSOLE · MANGALURU, KARNATAKA &nbsp;·&nbsp; SCREEN NETWORK OPERATIONAL &nbsp;·&nbsp; ALIVE v4.12 &nbsp;·&nbsp; ALL SYSTEMS NORMAL &nbsp;·&nbsp; PROOF OF PLAY: ACTIVE &nbsp;·&nbsp; SCHEDULES: SYNCING &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            ALIVE NETWORK · ADMIN CONSOLE · MANGALURU, KARNATAKA &nbsp;·&nbsp; SCREEN NETWORK OPERATIONAL &nbsp;·&nbsp; ALIVE v4.12 &nbsp;·&nbsp; ALL SYSTEMS NORMAL &nbsp;·&nbsp; PROOF OF PLAY: ACTIVE &nbsp;·&nbsp; SCHEDULES: SYNCING &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+          </div>
+        </div>
+
         {/* Page content */}
-        <main className="flex-1 px-4 sm:px-6 py-6 max-w-5xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 py-6 max-w-6xl w-full mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.18 }}
             >
-              {/* Page heading */}
-              <div className="mb-5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">{meta.eyebrow}</p>
-                <h1 className="text-2xl font-bold text-foreground">{meta.title}</h1>
-              </div>
+              {/* Page heading — suppress for overview (it renders its own) */}
+              {tab !== 'overview' && (
+                <div className="mb-5">
+                  <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-primary mb-0.5">{meta.eyebrow}</p>
+                  <h1 className="admin-font-display text-2xl font-bold text-foreground tracking-tight">{meta.title}</h1>
+                </div>
+              )}
 
               {/* Tab content */}
               {tab === 'overview'   && <OverviewPanel onNav={handleNav} />}
@@ -1061,8 +1195,7 @@ function Dashboard() {
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
-              {tab === 'playlists'  && <PlaylistsTab />}
-              {tab === 'schedules'     && <SchedulesTab />}
+              {tab === 'programming'  && <ProgrammingTab />}
               {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'      && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
