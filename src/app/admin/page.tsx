@@ -7,7 +7,7 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, Package,
   Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
-  Menu, ChevronRight, LogOut, LayoutDashboard, Images, Map, Layers,
+  Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -16,6 +16,7 @@ const ReportsTab      = dynamic(() => import('@/components/admin/reports-tab'), 
 const ContentTab      = dynamic(() => import('@/components/admin/content-tab'),       { ssr: false });
 const PlaylistsTab    = dynamic(() => import('@/components/admin/playlists-tab'),     { ssr: false });
 const SchedulesTab    = dynamic(() => import('@/components/admin/schedules-tab'),     { ssr: false });
+const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
 const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
@@ -50,7 +51,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -75,8 +76,9 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'screens',    label: 'Screens',     icon: Tv2         },
       { id: 'content',    label: 'Content',     icon: ImageIcon   },
       { id: 'playlists',  label: 'Playlists',   icon: ListVideo   },
-      { id: 'schedules',  label: 'Schedules',   icon: CalendarClock },
-      { id: 'layouts',    label: 'Layouts',     icon: Layers       },
+      { id: 'schedules',     label: 'Schedules',     icon: CalendarClock },
+      { id: 'compositions', label: 'Compositions', icon: LayoutGrid    },
+      { id: 'layouts',      label: 'Layouts',       icon: Layers        },
       { id: 'reports',    label: 'Reports',     icon: FileBarChart2 },
       { id: 'monitoring', label: 'Monitoring',  icon: Activity    },
     ],
@@ -104,8 +106,9 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
   content:    { eyebrow: 'Media library',      title: 'Content'            },
   playlists:  { eyebrow: 'Screen programming', title: 'Playlists'          },
-  schedules:  { eyebrow: 'Content delivery',   title: 'Schedules'          },
-  layouts:    { eyebrow: 'On-screen overlays', title: 'Layouts & tickers'  },
+  schedules:    { eyebrow: 'Content delivery',    title: 'Schedules'              },
+  compositions: { eyebrow: 'Multi-zone layouts', title: 'Screen compositions'    },
+  layouts:      { eyebrow: 'On-screen overlays', title: 'Layouts & tickers'      },
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
@@ -1059,8 +1062,9 @@ function Dashboard() {
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'playlists'  && <PlaylistsTab />}
-              {tab === 'schedules'  && <SchedulesTab />}
-              {tab === 'layouts'    && <LayoutsTab />}
+              {tab === 'schedules'     && <SchedulesTab />}
+              {tab === 'compositions' && <CompositionsTab />}
+              {tab === 'layouts'      && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
               {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}

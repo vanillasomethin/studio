@@ -21,6 +21,7 @@ export type Device = {
   lastSeen?:        string | null;
   lastPlayAt?:      string | null;
   groupName?:       string | null;
+  orientation?:     'LANDSCAPE' | 'PORTRAIT' | 'AUTO' | null;
   uptimePct?:       number | null;
   claimedAt:        string;
   lat?:             number | null;
@@ -33,6 +34,27 @@ export type Device = {
     playlistName: string | null;
     endsAt:       string;
   } | null;
+};
+
+export type ZoneDefinition = {
+  id:           string;
+  label:        string;
+  x:            number;   // 0–100 (% of screen width)
+  y:            number;   // 0–100 (% of screen height)
+  w:            number;   // 0–100
+  h:            number;   // 0–100
+  playlistId?:  string | null;
+  playlistName?: string | null;
+};
+
+export type Composition = {
+  id:          string;
+  name:        string;
+  description?: string | null;
+  zones:       ZoneDefinition[];
+  isPreset:    boolean;
+  createdAt:   string;
+  updatedAt:   string;
 };
 
 export type DeviceGroup = {
@@ -140,7 +162,7 @@ export const getDevices = (params?: Record<string, string>) => {
   return apiFetch<DevicesResponse>(`/api/devices${qs}`);
 };
 
-export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null }) =>
+export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
     .then((r) => r.device);
 
@@ -284,3 +306,19 @@ export const deleteOverlay = (id: string) =>
 
 export const previewFeed = (url: string) =>
   apiFetch<{ items: { title: string; link: string; pubDate: string | null }[]; cached: boolean }>(`/api/feed/proxy?url=${encodeURIComponent(url)}`);
+
+// ─── Compositions ─────────────────────────────────────────────────────────────
+
+export const getCompositions = () =>
+  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => r.compositions);
+
+export const createComposition = (body: { name: string; description?: string; zones: ZoneDefinition[]; isPreset?: boolean }) =>
+  apiFetch<{ composition: Composition }>('/api/compositions', { method: 'POST', body: JSON.stringify(body) })
+    .then((r) => r.composition);
+
+export const updateComposition = (id: string, body: { name?: string; description?: string; zones?: ZoneDefinition[] }) =>
+  apiFetch<{ composition: Composition }>(`/api/compositions/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.composition);
+
+export const deleteComposition = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/compositions/${id}`, { method: 'DELETE' });

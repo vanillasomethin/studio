@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
         status:       true,
         lastSeen:     true,
         groupName:    true,
+        orientation:  true,
         claimedAt:    true,
         uptimePctD30: true,
         store: {
