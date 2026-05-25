@@ -625,6 +625,78 @@ const STATUS_ICONS: Record<Device['status'], React.ElementType> = {
 
 const PAGE_SIZE = 50;
 
+// ─── Sideload APK card ────────────────────────────────────────────────────────
+function SideloadApkCard() {
+  const [open,   setOpen]   = useState(false);
+  const [apkUrl, setApkUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    if (!apkUrl) return;
+    navigator.clipboard.writeText(apkUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <span className="text-sm font-semibold text-foreground flex items-center gap-2">
+          {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          Sideload APK — AFTVnews Downloader
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-4">
+          {/* URL input + copy */}
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground">APK download URL</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                value={apkUrl}
+                onChange={(e) => setApkUrl(e.target.value)}
+                placeholder="https://example.com/alive-player.apk"
+                className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              />
+              <button
+                onClick={copy}
+                disabled={!apkUrl}
+                className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+
+          {/* Instructions */}
+          <p className="text-xs text-muted-foreground">
+            Open the <span className="font-semibold text-foreground">Downloader</span> app on your Fire TV / Android TV → enter the URL above → install ALIVE Player
+          </p>
+
+          {/* QR code */}
+          {apkUrl && (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Scan to open URL on device</p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(apkUrl)}`}
+                alt="APK URL QR code"
+                width={120}
+                height={120}
+                className="rounded-xl border border-border"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main tab ────────────────────────────────────────────────────────────────
 export default function ScreensTab() {
   const [devices,    setDevices]    = useState<Device[]>([]);
@@ -771,6 +843,9 @@ export default function ScreensTab() {
           {online} online · {offline} offline · {pending} pending · {unlinked} unlinked · Mangaluru, Karnataka
         </p>
       </div>
+
+      {/* Sideload APK card */}
+      <SideloadApkCard />
 
       {/* Modals */}
       {diagId    && <DiagPanel deviceId={diagId} onClose={() => setDiagId(null)} />}

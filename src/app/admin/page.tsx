@@ -7,7 +7,7 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, Package,
   Tv2, CalendarClock, FileBarChart2, Activity,
-  Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
+  Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers, Search,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -1157,6 +1157,154 @@ function PasswordGate({ onAuth }: { onAuth: () => void }) {
   );
 }
 
+// ─── Global Search Modal ──────────────────────────────────────────────────────
+
+type SearchResult = { id: string; label: string; sub?: string; tab: Tab };
+
+function SearchModal({ onClose, onNav, adminPw }: { onClose: () => void; onNav: (t: Tab) => void; adminPw: string }) {
+  const [query,   setQuery]   = useState('');
+  const [loading, setLoading] = useState(true);
+  const [stores,   setStores]   = useState<{ id: string; storeName: string; city?: string }[]>([]);
+  const [campaigns, setCampaigns] = useState<{ id: string; brandName: string; contactName: string }[]>([]);
+  const [devices,  setDevices]  = useState<{ id: string; storeName: string; status: string }[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 30);
+    const h = { 'admin-password': adminPw };
+    Promise.all([
+      fetch('/api/stores/save', { headers: h }).then((r) => r.ok ? r.json() : []),
+      fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+      fetch('/api/devices', { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
+    ]).then(([stR, cmR, devR]) => {
+      const st = Array.isArray(stR) ? stR : (stR?.data ?? []);
+      const cm = Array.isArray(cmR) ? cmR : [];
+      const dv = devR?.devices ?? [];
+      setStores(st);
+      setCampaigns(cm);
+      setDevices(dv);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [adminPw]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const q = query.toLowerCase();
+
+  const matchedStores: SearchResult[] = !q ? [] : stores
+    .filter((s) => s.storeName.toLowerCase().includes(q) || (s.city ?? '').toLowerCase().includes(q))
+    .slice(0, 4)
+    .map((s) => ({ id: s.id, label: s.storeName, sub: s.city, tab: 'stores' }));
+
+  const matchedCampaigns: SearchResult[] = !q ? [] : campaigns
+    .filter((c) => c.brandName.toLowerCase().includes(q) || c.contactName.toLowerCase().includes(q))
+    .slice(0, 4)
+    .map((c) => ({ id: c.id, label: c.brandName, sub: c.contactName, tab: 'campaigns' }));
+
+  const matchedDevices: SearchResult[] = !q ? [] : devices
+    .filter((d) => d.storeName.toLowerCase().includes(q) || d.status.toLowerCase().includes(q))
+    .slice(0, 4)
+    .map((d) => ({ id: d.id, label: d.storeName, sub: d.status, tab: 'screens' }));
+
+  const totalResults = matchedStores.length + matchedCampaigns.length + matchedDevices.length;
+
+  const go = (tab: Tab) => { onNav(tab); onClose(); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        {/* Input */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search stores, campaigns, screens…"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <kbd className="hidden sm:inline admin-font-mono text-[9px] border border-border/50 rounded px-1.5 py-0.5 text-muted-foreground/50">ESC</kbd>
+        </div>
+
+        {/* Body */}
+        <div className="max-h-[60vh] overflow-y-auto p-3 space-y-4">
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : !query ? (
+            <p className="text-xs text-muted-foreground text-center py-6">Type to search…</p>
+          ) : totalResults === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6">No results for &ldquo;{query}&rdquo;</p>
+          ) : (
+            <>
+              {matchedStores.length > 0 && (
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">Stores</p>
+                  <div className="space-y-0.5">
+                    {matchedStores.map((r) => (
+                      <button key={r.id} onClick={() => go(r.tab)} className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-muted/50 transition-colors">
+                        <Store className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-foreground truncate">{r.label}</p>
+                          {r.sub && <p className="text-[10px] text-muted-foreground">{r.sub}</p>}
+                        </div>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {matchedCampaigns.length > 0 && (
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">Campaigns</p>
+                  <div className="space-y-0.5">
+                    {matchedCampaigns.map((r) => (
+                      <button key={r.id} onClick={() => go(r.tab)} className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-muted/50 transition-colors">
+                        <BarChart3 className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-foreground truncate">{r.label}</p>
+                          {r.sub && <p className="text-[10px] text-muted-foreground">{r.sub}</p>}
+                        </div>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {matchedDevices.length > 0 && (
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 px-1">Screens</p>
+                  <div className="space-y-0.5">
+                    {matchedDevices.map((r) => (
+                      <button key={r.id} onClick={() => go(r.tab)} className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-muted/50 transition-colors">
+                        <Tv2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-foreground truncate">{r.label}</p>
+                          {r.sub && <p className="text-[10px] text-muted-foreground">{r.sub}</p>}
+                        </div>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 function Dashboard() {
@@ -1164,10 +1312,22 @@ function Dashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [adminPw,    setAdminPw]    = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   const meta = PAGE_META[tab];
 
   useEffect(() => {
     setAdminPw(sessionStorage.getItem(SS_PW) ?? '');
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   const signOut = () => {
@@ -1183,6 +1343,7 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background flex">
+      {showSearch && <SearchModal onClose={() => setShowSearch(false)} onNav={handleNav} adminPw={adminPw} />}
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-border/40 bg-card/50 sticky top-0 h-screen overflow-hidden">
@@ -1233,10 +1394,10 @@ function Dashboard() {
             {/* Search — hidden on mobile */}
             <button
               className="hidden sm:flex flex-1 max-w-xs items-center gap-2 h-8 rounded-lg border border-border/60 bg-muted/30 px-3 text-left text-muted-foreground hover:border-border hover:bg-muted/50 transition-all"
-              onClick={() => {}}
+              onClick={() => setShowSearch(true)}
               title="Search (⌘K)"
             >
-              <Eye className="h-3 w-3 shrink-0" />
+              <Search className="h-3 w-3 shrink-0" />
               <span className="flex-1 text-xs">Search…</span>
               <span className="admin-font-mono text-[9px] border border-border/50 rounded px-1 py-0.5 text-muted-foreground/50">⌘K</span>
             </button>
