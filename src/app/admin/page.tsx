@@ -7,10 +7,11 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, Package,
   Tv2, CalendarClock, FileBarChart2, Activity,
-  Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers, Search,
+  Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers, Search, Bell,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
+const AlertsTab       = dynamic(() => import('@/components/admin/alerts-tab'),        { ssr: false });
 const ScreensTab      = dynamic(() => import('@/components/admin/screens-tab'),       { ssr: false });
 const ReportsTab      = dynamic(() => import('@/components/admin/reports-tab'),       { ssr: false });
 const ContentTab      = dynamic(() => import('@/components/admin/content-tab'),       { ssr: false });
@@ -50,7 +51,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'alerts' | 'media' | 'roadmap' | 'products';
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -90,6 +91,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
   {
     group: 'Platform',
     items: [
+      { id: 'alerts',     label: 'Alerts',       icon: Bell       },
       { id: 'roadmap',    label: 'Platform Map', icon: Map        },
     ],
   },
@@ -110,6 +112,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
   products:   { eyebrow: 'Product catalogue',  title: 'Master Products'    },
+  alerts:     { eyebrow: 'System status',      title: 'Alerts'             },
   roadmap:    { eyebrow: 'ALIVE PLATFORM',     title: 'Platform Roadmap'   },
 };
 
@@ -1312,11 +1315,41 @@ function Dashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [adminPw,    setAdminPw]    = useState('');
-  const [showSearch, setShowSearch] = useState(false);
+  const [showSearch,    setShowSearch]    = useState(false);
+  const [alertCount,    setAlertCount]    = useState(0);
   const meta = PAGE_META[tab];
 
   useEffect(() => {
-    setAdminPw(sessionStorage.getItem(SS_PW) ?? '');
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    setAdminPw(pw);
+    // quick alert count: offline devices + pending campaigns
+    const h = { 'admin-password': pw };
+    const dismissed: string[] = (() => {
+      try { return JSON.parse(localStorage.getItem('alive_admin_dismissed_alerts') ?? '[]') as string[]; }
+      catch { return []; }
+    })();
+    Promise.all([
+      fetch('/api/devices',         { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
+      fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+      fetch('/api/stores/save',     { headers: h }).then((r) => r.ok ? r.json() : []),
+    ]).then(([devR, cmR, stR]) => {
+      const devs = (devR.devices ?? []) as { id: string; status: string }[];
+      const cms  = Array.isArray(cmR) ? cmR : [] as { paymentId?: string; status?: string }[];
+      const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as { id: string; createdAt: string; onboardingStage?: string }[];
+      let count = 0;
+      devs.forEach((d) => { if (d.status === 'OFFLINE' && !dismissed.includes(`device-offline-${d.id}`)) count++; });
+      const pending = devs.filter((d) => d.status === 'PENDING');
+      if (pending.length > 0 && !dismissed.includes('devices-pending')) count++;
+      const pendingCms = cms.filter((c) => c.paymentId === 'pending' || c.status === 'upcoming');
+      if (pendingCms.length > 0 && !dismissed.includes('campaigns-pending-payment')) count++;
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const newSts = sts.filter((s) => s.createdAt > cutoff && (!s.onboardingStage || s.onboardingStage === 'new'));
+      if (newSts.length > 0) {
+        const id = `stores-new-${newSts.map((s: { id: string }) => s.id).join('-')}`;
+        if (!dismissed.includes(id)) count++;
+      }
+      setAlertCount(count);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1402,8 +1435,20 @@ function Dashboard() {
               <span className="admin-font-mono text-[9px] border border-border/50 rounded px-1 py-0.5 text-muted-foreground/50">⌘K</span>
             </button>
 
-            {/* Right: live pill + logo */}
-            <div className="ml-auto flex items-center gap-3">
+            {/* Right: alerts bell + live pill + logo */}
+            <div className="ml-auto flex items-center gap-2.5">
+              <button
+                onClick={() => handleNav('alerts')}
+                className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors"
+                title="Alerts"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                {alertCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-white admin-font-mono text-[8px] font-bold px-1">
+                    {alertCount > 9 ? '9+' : alertCount}
+                  </span>
+                )}
+              </button>
               <span className="hidden sm:flex items-center gap-1.5 rounded-full border border-green-500/30 bg-green-500/8 px-2.5 py-1 admin-font-mono text-[9px] font-semibold text-green-700 uppercase tracking-wide">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
                 Live
@@ -1462,6 +1507,7 @@ function Dashboard() {
               {tab === 'layouts'      && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
+              {tab === 'alerts'    && <AlertsTab onNav={(t) => handleNav(t as Tab)} />}
               {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}
               {tab === 'products'   && <ProductsTab adminPw={adminPw} />}
               {tab === 'roadmap'    && <RoadmapTab />}
