@@ -6,8 +6,8 @@ import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, Package,
-  Tv2, ListVideo, CalendarClock, FileBarChart2, Activity,
-  Menu, ChevronRight, LogOut, LayoutDashboard, Images, Map, Layers,
+  Tv2, CalendarClock, FileBarChart2, Activity,
+  Menu, ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
   // New icons for the redesign
   Play, Trophy, MonitorPlay, PlayCircle, TrendingUp, Users,
   Search, Bell, Moon, Sun, LifeBuoy, Download, Plus, ArrowRight,
@@ -21,8 +21,8 @@ import './admin.css';
 const ScreensTab      = dynamic(() => import('@/components/admin/screens-tab'),       { ssr: false });
 const ReportsTab      = dynamic(() => import('@/components/admin/reports-tab'),       { ssr: false });
 const ContentTab      = dynamic(() => import('@/components/admin/content-tab'),       { ssr: false });
-const PlaylistsTab    = dynamic(() => import('@/components/admin/playlists-tab'),     { ssr: false });
-const SchedulesTab    = dynamic(() => import('@/components/admin/schedules-tab'),     { ssr: false });
+const ProgrammingTab  = dynamic(() => import('@/components/admin/programming-tab'),  { ssr: false });
+const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
 const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
@@ -57,7 +57,8 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'playlists' | 'schedules' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
+type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
   {
@@ -81,8 +82,8 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
     items: [
       { id: 'screens',    label: 'Screens',     icon: Tv2         },
       { id: 'content',    label: 'Content',     icon: ImageIcon   },
-      { id: 'playlists',  label: 'Playlists',   icon: ListVideo   },
-      { id: 'schedules',  label: 'Schedules',   icon: CalendarClock },
+      { id: 'programming',  label: 'Programming',  icon: LayoutGrid    },
+      { id: 'compositions', label: 'Compositions', icon: CalendarClock },
       { id: 'layouts',    label: 'Layouts',     icon: Layers       },
       { id: 'reports',    label: 'Reports',     icon: FileBarChart2 },
       { id: 'monitoring', label: 'Monitoring',  icon: Activity    },
@@ -110,8 +111,8 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
   content:    { eyebrow: 'Media library',      title: 'Content'            },
-  playlists:  { eyebrow: 'Screen programming', title: 'Playlists'          },
-  schedules:  { eyebrow: 'Content delivery',   title: 'Schedules'          },
+  programming:  { eyebrow: 'Screen programming', title: 'Programming'        },
+  compositions: { eyebrow: 'Content delivery',   title: 'Compositions'       },
   layouts:    { eyebrow: 'On-screen overlays', title: 'Layouts & tickers'  },
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
@@ -1357,7 +1358,7 @@ const NAV_DESIGN = [
       { id: 'overview' as Tab,   label: 'Overview',         icon: LayoutDashboard, count: null },
       { id: 'campaigns' as Tab,  label: 'Campaigns',        icon: Megaphone,       count: 8    },
       { id: 'content' as Tab,    label: 'Creatives',        icon: Image,           count: 4    },
-      { id: 'schedules' as Tab,  label: 'Schedule',         icon: CalendarClock,   count: null },
+      { id: 'compositions' as Tab, label: 'Compositions',     icon: CalendarClock,   count: null },
     ],
   },
   {
@@ -1365,7 +1366,7 @@ const NAV_DESIGN = [
     items: [
       { id: 'stores' as Tab,     label: 'Kirana partners',  icon: Store,           count: 412  },
       { id: 'screens' as Tab,    label: 'Screens',          icon: Tv2,             count: null },
-      { id: 'playlists' as Tab,  label: 'Playlists',        icon: ListVideo,       count: null },
+      { id: 'programming' as Tab, label: 'Programming',       icon: LayoutGrid,      count: null },
       { id: 'monitoring' as Tab, label: 'Monitoring',       icon: Activity,        count: null },
     ],
   },
@@ -1658,10 +1659,10 @@ function Dashboard() {
     overview:   'Overview',
     campaigns:  'Campaigns',
     content:    'Creatives',
-    schedules:  'Schedule',
-    stores:     'Kirana Partners',
-    screens:    'Screens',
-    playlists:  'Playlists',
+    compositions: 'Compositions',
+    stores:       'Kirana Partners',
+    screens:      'Screens',
+    programming:  'Programming',
     monitoring: 'Monitoring',
     payments:   'Payouts',
     reports:    'Reports',
@@ -1709,8 +1710,8 @@ function Dashboard() {
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
-              {tab === 'playlists'  && <PlaylistsTab />}
-              {tab === 'schedules'  && <SchedulesTab />}
+              {tab === 'programming'   && <ProgrammingTab />}
+              {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}

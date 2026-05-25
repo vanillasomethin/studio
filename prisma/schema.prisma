@@ -208,17 +208,26 @@ enum DeviceStatus {
   OFFLINE
 }
 
+enum DeviceOrientation {
+  LANDSCAPE
+  PORTRAIT
+  AUTO
+}
+
 model Device {
-  id           String        @id @default(cuid())
-  hardwareKey  String        @unique
+  id           String            @id @default(cuid())
+  hardwareKey  String            @unique
   storeId      String?
   name         String
-  groupName    String?       // e.g. "Mangaluru North" — for group-based scheduling
-  jwtSecret    String        // per-device secret used to sign tokens
-  status       DeviceStatus  @default(PENDING)
+  groupName    String?           // e.g. "Mangaluru North" — for group-based scheduling
+  orientation  DeviceOrientation @default(LANDSCAPE)
+  jwtSecret    String            // per-device secret used to sign tokens
+  status       DeviceStatus      @default(PENDING)
   lastSeen     DateTime?
   uptimePctD30 Float?
-  claimedAt    DateTime      @default(now())
+  pairingCode  String?           @unique        // 6-char code shown on TV screen; null after admin confirms
+  pairedAt     DateTime?                     // set by admin after entering the on-screen code
+  claimedAt    DateTime          @default(now())
   linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
   fcmToken     String?                       // Firebase Cloud Messaging token — set by APK on first boot / token refresh
   forceSyncAt  DateTime?                     // admin-triggered cache bust — player re-fetches when > lastSyncAt
@@ -227,7 +236,7 @@ model Device {
   freeStorageMb     Int?                     // available storage in MB (last reported)
   androidVersion    String?                  // e.g. "13"
   appVersion        String?                  // ALIVE Player app version, e.g. "1.4.2"
-  updatedAt    DateTime      @updatedAt
+  updatedAt    DateTime          @updatedAt
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
   events       PlayEvent[]
@@ -404,6 +413,20 @@ model Schedule {
   @@index([groupName])
   @@index([cityFilter])
   @@index([startAt, endAt])
+}
+
+// ─── Screen compositions (multi-zone layouts) ────────────────────────────────
+
+model Composition {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  zones       Json     // ZoneDefinition[] — {id,label,x,y,w,h,playlistId?,playlistName?}
+  isPreset    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPreset])
 }
 
 // ─── Proof-of-play ───────────────────────────────────────────────────────────

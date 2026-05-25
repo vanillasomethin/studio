@@ -6,11 +6,11 @@ import {
   ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X,
   ExternalLink, CheckCircle2, TriangleAlert, Film, ImageIcon, Layers, Trash2,
   Store, Link2, Filter, SlidersHorizontal, LayoutList, LayoutGrid, ChevronLeft, ChevronRight,
-  MapPin, RefreshCw,
+  MapPin, RefreshCw, Monitor,
 } from 'lucide-react';
 import {
   getDevices, updateDevice, bulkUpdateDevices, bulkPushSchedule, getDeviceGroups, getPlaylists,
-  searchStores, forceSyncDevice,
+  searchStores, forceSyncDevice, confirmPairing,
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -445,6 +445,82 @@ function AddScreenCard() {
   );
 }
 
+// ─── Pair screen modal ────────────────────────────────────────────────────────
+function PairScreenModal({ onClose, onPaired }: { onClose: () => void; onPaired: () => void }) {
+  const [code,    setCode]    = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ name: string } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
+
+  const handleSubmit = async () => {
+    const trimmed = code.trim().toUpperCase();
+    if (trimmed.length !== 6) { setError('Enter the 6-character code shown on the TV screen'); return; }
+    setSaving(true); setError(null);
+    try {
+      const device = await confirmPairing(trimmed);
+      setSuccess({ name: device.name });
+      onPaired();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Tv2 className="h-4 w-4 text-primary" />
+            <p className="text-sm font-bold">Pair a screen</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground transition-colors"><X className="h-3.5 w-3.5" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {success ? (
+            <div className="text-center space-y-3 py-2">
+              <div className="flex justify-center"><CheckCircle2 className="h-10 w-10 text-green-500" /></div>
+              <p className="text-sm font-bold text-foreground">{success.name} added to fleet</p>
+              <p className="text-xs text-muted-foreground">The screen will appear in your device list. Assign a store and schedule to go live.</p>
+              <button onClick={onClose} className="w-full rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 transition-colors">Done</button>
+            </div>
+          ) : (
+            <>
+              <div className="rounded-xl bg-muted/40 border border-border p-4 text-center space-y-1">
+                <p className="text-xs text-muted-foreground">On the TV screen, look for</p>
+                <p className="text-lg font-black tracking-widest text-foreground">YOUR SCREEN CODE</p>
+                <p className="text-xs text-muted-foreground">e.g. <span className="font-mono font-bold text-foreground">A4F9B2</span></p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">6-character code</label>
+                <input
+                  ref={inputRef}
+                  value={code}
+                  onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 6)); setError(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                  placeholder="A4F9B2"
+                  maxLength={6}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-center text-2xl font-mono font-bold tracking-widest uppercase focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                />
+                {error && <p className="text-xs text-red-500">{error}</p>}
+              </div>
+              <button onClick={handleSubmit} disabled={saving || code.trim().length !== 6}
+                className="w-full rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/90 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                {saving ? 'Confirming…' : 'Add screen to fleet'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Inline rename ────────────────────────────────────────────────────────────
 function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) => void }) {
   const [editing, setEditing] = useState(false);
@@ -481,6 +557,37 @@ function RenameField({ device, onSave }: { device: Device; onSave: (d: Device) =
         </button>
         <button onClick={cancel} className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground">Cancel</button>
       </div>
+    </div>
+  );
+}
+
+// ─── Orientation select ───────────────────────────────────────────────────────
+function OrientationSelect({ device, onSave }: { device: Device; onSave: (d: Device) => void }) {
+  const [saving, setSaving] = useState(false);
+  const val = device.orientation ?? 'LANDSCAPE';
+
+  const change = async (o: string) => {
+    setSaving(true);
+    try {
+      const updated = await updateDevice(device.id, { orientation: o });
+      onSave(updated);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <select
+        value={val}
+        onChange={(e) => change(e.target.value)}
+        disabled={saving}
+        className="rounded-lg border border-border bg-background px-2 py-0.5 text-[10px] font-semibold focus:outline-none focus:border-primary disabled:opacity-50 transition-all"
+      >
+        <option value="LANDSCAPE">Landscape</option>
+        <option value="PORTRAIT">Portrait</option>
+        <option value="AUTO">Auto</option>
+      </select>
+      {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
     </div>
   );
 }
@@ -543,6 +650,7 @@ export default function ScreensTab() {
   const [groupMode,    setGroupMode]    = useState<'existing' | 'new'>('existing');
   const [allGroups,    setAllGroups]    = useState<DeviceGroup[]>([]);
   const [showGroups,   setShowGroups]   = useState(false);
+  const [showPairModal, setShowPairModal] = useState(false);
   const [linkIds,      setLinkIds]      = useState<string[] | null>(null);
   const [pushIds,      setPushIds]      = useState<string[] | null>(null);
   const [showFilters,  setShowFilters]  = useState(false);
@@ -653,6 +761,17 @@ export default function ScreensTab() {
 
   return (
     <div className="space-y-4">
+      {/* Page head */}
+      <div className="mb-2">
+        <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-primary mb-0.5">Screen fleet</p>
+        <h1 className="admin-font-display text-3xl font-bold text-foreground tracking-tight">
+          <em className="not-italic text-primary">{loading ? '—' : total}</em> screens, breathing.
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {online} online · {offline} offline · {pending} pending · {unlinked} unlinked · Mangaluru, Karnataka
+        </p>
+      </div>
+
       {/* Modals */}
       {diagId    && <DiagPanel deviceId={diagId} onClose={() => setDiagId(null)} />}
       {showGroups && <GroupPanel onClose={() => setShowGroups(false)} onFilterGroup={(g) => { setGroupF(g); setShowGroups(false); }} />}
@@ -661,9 +780,24 @@ export default function ScreensTab() {
         setSelected(new Set());
       }} />}
       {pushIds && <PushScheduleDialog deviceIds={pushIds} onClose={() => { setPushIds(null); setSelected(new Set()); }} />}
+      {showPairModal && (
+        <PairScreenModal
+          onClose={() => setShowPairModal(false)}
+          onPaired={() => { setPrevStack([]); fetchPage(); }}
+        />
+      )}
 
-      {/* Add screen onboarding */}
-      <AddScreenCard />
+      {/* Header row: onboarding + pair button */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0"><AddScreenCard /></div>
+        <button
+          onClick={() => setShowPairModal(true)}
+          className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-bold text-white hover:bg-primary/90 transition-colors shadow-sm"
+        >
+          <Tv2 className="h-4 w-4" />
+          Pair screen
+        </button>
+      </div>
 
       {/* Stat chips */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -848,6 +982,7 @@ export default function ScreensTab() {
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Screen</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Store</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Group</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Orient.</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Status</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Schedule</th>
                     <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Heartbeat</th>
@@ -869,6 +1004,9 @@ export default function ScreensTab() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">{d.groupName ?? '—'}</td>
+                        <td className="px-3 py-2">
+                          <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
+                        </td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
                             <StatusIcon className="h-2 w-2" />{d.status}
@@ -939,7 +1077,7 @@ export default function ScreensTab() {
                       </div>
                     </div>
                     {/* Bottom row */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/60">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-border/60">
                       <div className="px-4 py-2.5">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
                         {sched ? (<><p className="text-[11px] font-semibold text-foreground truncate">{sched.name}</p>{sched.playlistName && <p className="text-[10px] text-muted-foreground truncate">{sched.playlistName}</p>}</>) : <p className="text-[11px] text-muted-foreground/50 italic">No active schedule</p>}
@@ -955,6 +1093,10 @@ export default function ScreensTab() {
                       <div className="px-4 py-2.5">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Wifi className="h-2.5 w-2.5" />Heartbeat</p>
                         <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
+                      </div>
+                      <div className="px-4 py-2.5">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Monitor className="h-2.5 w-2.5" />Orientation</p>
+                        <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
                       </div>
                     </div>
                   </div>
