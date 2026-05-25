@@ -1,16 +1,16 @@
 # Graph Report - studio  (2026-05-25)
 
 ## Corpus Check
-- 320 files · ~1,074,643 words
+- 322 files · ~1,074,664 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1795 nodes · 2770 edges · 167 communities (129 shown, 38 thin omitted)
+- 1799 nodes · 2772 edges · 167 communities (129 shown, 38 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `356eb314`
+- Built from commit: `ad00cf4f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -152,11 +152,9 @@
 - [[_COMMUNITY_Community 149|Community 149]]
 - [[_COMMUNITY_Community 150|Community 150]]
 - [[_COMMUNITY_Community 151|Community 151]]
-- [[_COMMUNITY_Community 152|Community 152]]
 - [[_COMMUNITY_Community 153|Community 153]]
 - [[_COMMUNITY_Community 154|Community 154]]
 - [[_COMMUNITY_Community 155|Community 155]]
-- [[_COMMUNITY_Community 161|Community 161]]
 - [[_COMMUNITY_Community 162|Community 162]]
 - [[_COMMUNITY_Community 163|Community 163]]
 - [[_COMMUNITY_Community 164|Community 164]]
@@ -170,9 +168,9 @@
 4. `SchedulesTab` - 30 edges
 5. `LayoutsTab` - 25 edges
 6. `Carousel` - 19 edges
-7. `ALIVE Advertising Platform — CLAUDE.md` - 18 edges
-8. `TestimonialCard()` - 17 edges
-9. `compilerOptions` - 16 edges
+7. `compilerOptions` - 18 edges
+8. `ALIVE Advertising Platform — CLAUDE.md` - 18 edges
+9. `TestimonialCard()` - 17 edges
 10. `Card` - 16 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -207,7 +205,7 @@ Nodes (37): ALIVE Player — Device API Reference, ALIVE Player Integration Chec
 
 ### Community 4 - "Community 4"
 Cohesion: 0.06
-Nodes (12): adminGuard(), POST(), adminGuard(), GET(), globalForPrisma, StoreLocation, Body, checkAdmin() (+4 more)
+Nodes (12): adminGuard(), POST(), globalForPrisma, StoreLocation, checkAdmin(), POST(), Body, adminGuard() (+4 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.17
@@ -246,8 +244,8 @@ Cohesion: 0.10
 Nodes (20): Admin Dashboard, ALIVE Advertising Platform — CLAUDE.md, Architecture, Brand Onboarding, code:block1 (src/app/page.tsx                          — homepage), code:block2 (stores:index   → string[]       # store IDs), code:block3 (DATABASE_URL                    # Neon pooled (runtime)), Critical Conventions — Read These First (+12 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.16
-Nodes (16): FleetMap, timeSince(), View, MonitoringTab, ReportsTab, ACTIVITY_FEED, fmtDateShort(), fmtHours() (+8 more)
+Cohesion: 0.15
+Nodes (17): FleetMap, timeSince(), View, MonitoringTab, ReportsTab, ACTIVITY_FEED, fmtDateShort(), fmtHours() (+9 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.08
@@ -270,8 +268,8 @@ Cohesion: 0.05
 Nodes (36): 0. Pre-flight scan, 1. Design-context gate, 2.5. Check project memory, 2.6. Theme route — studied-DNA, catalog, or custom, 2. Pick a macrostructure FIRST, 3. Load the visual ruleset, 4. Decide on hero enrichment, 5. Preview (+28 more)
 
 ### Community 20 - "Community 20"
-Cohesion: 0.10
-Nodes (20): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, lib, module (+12 more)
+Cohesion: 0.09
+Nodes (22): compilerOptions, allowArbitraryExtensions, allowImportingTsExtensions, allowJs, esModuleInterop, incremental, isolatedModules, jsx (+14 more)
 
 ### Community 21 - "Community 21"
 Cohesion: 0.19
@@ -306,12 +304,12 @@ Cohesion: 0.23
 Nodes (10): TestimonialCard(), TestimonialCardProps, ImagePlaceholder, placeholderImages, storyElements, founders, testimonials, Avatar (+2 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.11
-Nodes (19): PRESETS, ZONE_COLORS, UploadState, adminHeaders(), apiFetch(), bulkPushSchedule(), bulkUpdateDevices(), Composition (+11 more)
+Cohesion: 0.10
+Nodes (27): PRESETS, ZONE_COLORS, UploadState, PlaylistsTab, DraftItem, fmtDate(), fmtMs(), PlaylistsTab() (+19 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.17
-Nodes (16): ScreensTab, AddScreenCard(), DiagIssue, DiagPanel(), fmtDate(), friendlyDeviceLabel(), GroupPanel(), LinkStoreDialog() (+8 more)
+Cohesion: 0.15
+Nodes (19): ScreensTab, AddScreenCard(), DiagIssue, DiagPanel(), fmtDate(), friendlyDeviceLabel(), GroupPanel(), LinkStoreDialog() (+11 more)
 
 ### Community 31 - "Community 31"
 Cohesion: 0.33
@@ -343,11 +341,11 @@ Nodes (13): CheckMark(), ErrorDot(), MONO, OfflineDot(), PendingDot(), Props, Sp
 
 ### Community 38 - "Community 38"
 Cohesion: 0.18
-Nodes (18): BLANK_FORM, detectTargetMode(), FormState, POSITION_META, TARGET_MODES, TargetMode, TYPE_META, LayoutsTab (+10 more)
+Nodes (19): BLANK_FORM, detectTargetMode(), FormState, POSITION_META, TARGET_MODES, TargetMode, TYPE_META, LayoutsTab (+11 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.15
-Nodes (12): name, private, scripts, build, dev, export, genkit:dev, genkit:watch (+4 more)
+Cohesion: 0.09
+Nodes (21): devDependencies, genkit-cli, postcss, tailwindcss, @types/bcryptjs, @types/node, @types/react, @types/react-dom (+13 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.12
@@ -597,17 +595,9 @@ Nodes (3): adminGuard(), GET(), POST()
 Cohesion: 0.12
 Nodes (10): AccordionContent, AccordionItem, AccordionTrigger, Checkbox, Progress, RadioGroup, RadioGroupItem, ScrollArea (+2 more)
 
-### Community 152 - "Community 152"
-Cohesion: 0.25
-Nodes (13): PlaylistsTab, DraftItem, fmtDate(), fmtMs(), PlaylistsTab(), Content, createPlaylist(), deletePlaylist() (+5 more)
-
 ### Community 153 - "Community 153"
 Cohesion: 0.18
 Nodes (7): blogPosts, categories, navLinks, coreTeam, supportingTeam, Button, ButtonProps
-
-### Community 161 - "Community 161"
-Cohesion: 0.22
-Nodes (9): devDependencies, genkit-cli, postcss, tailwindcss, @types/bcryptjs, @types/node, @types/react, @types/react-dom (+1 more)
 
 ### Community 162 - "Community 162"
 Cohesion: 0.48
@@ -626,21 +616,21 @@ Cohesion: 0.67
 Nodes (3): Badge(), BadgeProps, badgeVariants
 
 ## Knowledge Gaps
-- **676 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+671 more)
+- **678 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+673 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **38 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `cn()` connect `Community 6` to `Community 0`, `Community 7`, `Community 8`, `Community 10`, `Community 11`, `Community 17`, `Community 18`, `Community 150`, `Community 24`, `Community 153`, `Community 152`, `Community 27`, `Community 28`, `Community 25`, `Community 34`, `Community 164`, `Community 165`, `Community 45`, `Community 46`, `Community 50`, `Community 56`?**
-  _High betweenness centrality (0.139) - this node is a cross-community bridge._
+- **Why does `cn()` connect `Community 6` to `Community 0`, `Community 7`, `Community 8`, `Community 10`, `Community 11`, `Community 14`, `Community 17`, `Community 18`, `Community 150`, `Community 24`, `Community 153`, `Community 25`, `Community 27`, `Community 28`, `Community 34`, `Community 164`, `Community 165`, `Community 45`, `Community 46`, `Community 50`, `Community 56`?**
+  _High betweenness centrality (0.126) - this node is a cross-community bridge._
 - **Why does `dependencies` connect `Community 0` to `Community 39`?**
-  _High betweenness centrality (0.073) - this node is a cross-community bridge._
-- **Why does `clsx` connect `Community 0` to `Community 6`?**
   _High betweenness centrality (0.071) - this node is a cross-community bridge._
+- **Why does `clsx` connect `Community 0` to `Community 6`?**
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
 - **What connects `$schema`, `style`, `rsc` to the rest of the system?**
-  _676 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _678 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.03076923076923077 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
