@@ -25,7 +25,7 @@ type RoadmapItem = {
 
 const PLATFORM_CONTEXT = `# ALIVE Platform — Claude Session Context
 Repository: vanillasomethin/studio (Next.js 15 App Router)
-Branch: claude/build-alive-advertising-platform-tlG96
+Branch: claude/ecstatic-heisenberg-j93BW
 Production: wearealive.in (Vercel auto-deploy from main)
 
 ## Stack
@@ -50,7 +50,7 @@ Production: wearealive.in (Vercel auto-deploy from main)
 - Cloudflare R2 uploads: browser → signed URL → R2 directly (see src/lib/r2.ts)
 
 ## Current build state (as of today)
-Built (live): Homepage, Store Registration + Agreement, Brand Onboarding + Razorpay, Store Dashboard (overview/earnings/flyers/payout tabs), Admin Panel (stores/flyers/campaigns/screens/content/playlists/schedules/reports/monitoring/payments/site-media/roadmap tabs), Device APIs (claim/events/plan/fleet), Background cron jobs (health check, context sync, external signals), Prisma schema with all models, Cloudflare R2 media storage, ALIVE_PLAYER_API.md integration guide.
+Built (live): Homepage, Store Registration + Agreement, Brand Onboarding + Razorpay, Store Dashboard (overview/earnings/flyers/payout tabs), Admin Panel with full design system (Inter Tight + JetBrains Mono, KPI cards, live feed, ticker, ⌘K search), Admin tabs: stores/flyers/campaigns/screens/content/programming/compositions/layouts/reports/monitoring/payments/site-media/products/roadmap, Satori flyer generator (/api/generate-flyer edge route), APK sideload card, drag-drop product image upload, Device APIs (claim/events/plan/fleet), Background cron jobs (health check, context sync, external signals), Prisma schema with all models, Cloudflare R2 media storage, ALIVE_PLAYER_API.md integration guide.
 
 In progress: WhatsApp admin alerts (notifyAdminWA exists in src/lib/notify.ts, needs wiring to health cron), Auto-remediation (route exists, not auto-triggered).
 
@@ -390,12 +390,94 @@ Key files:
 - src/app/api/admin/store-payments/bulk-export/route.ts — CSV generator`,
   },
   {
-    id: 'admin-media', cluster: 'Admin Panel', label: 'Site Media Tab', sub: 'Hero images via R2',
+    id: 'admin-media', cluster: 'Admin Panel', label: 'Site Media Tab', sub: '9 homepage slots + layout preview',
     status: 'built', path: 'src/components/admin/site-media-tab.tsx',
-    description: 'Manage homepage hero images stored on Cloudflare R2. Upload via server-side proxy, list, delete.',
-    claudePrompt: `Context: Site media tab at src/components/admin/site-media-tab.tsx. Uploads hero images to R2 via /api/site-media endpoint.
+    description: 'Manage 9 named homepage media slots on Cloudflare R2 (hero-consumer, hero-brand, hero-map, etc.). Upload via server-side proxy, grouped by section. Includes visual homepage skeleton preview with green/gray block diagram showing which slots have custom vs default images. Fixed dead india-shop slot → og-cover for OG/social share.',
+    notes: ['9 slots: hero-consumer, hero-brand, hero-map, og-cover, how-it-works, flyer-sample, store-partner, brand-partner, cta-bg', 'Section grouping: Hero, Social, Marketing, Partners', 'Skeleton preview shows slot positions with color-coded state (green=custom, gray=default)'],
+    claudePrompt: `Context: Site media tab at src/components/admin/site-media-tab.tsx. 9 named R2 slots for homepage images, grouped by section. Upload via POST /api/site-media. Homepage reads slots via mediaUrl() helper.
 
 Task: [DESCRIBE YOUR CHANGE — e.g. "Add image ordering: drag-to-reorder the hero image list. Persist order to a JSON file on R2 at 'site/hero-order.json'. Homepage fetches this file to determine display sequence."]`,
+  },
+  {
+    id: 'admin-design-system', cluster: 'Admin Panel', label: 'Admin Design System', sub: 'Inter Tight + JetBrains Mono + KPI cards',
+    status: 'built', path: 'src/app/admin/page.tsx',
+    description: 'Full admin UI design system: Inter Tight font for display/headings, JetBrains Mono for badges/labels/tabular numbers. KPI cards (admin-kpi) with SVG sparklines, red gradient feature card. Section labels (N°01 · Label). Live feed with pulsing status dots. Scrolling ticker below topbar. ⌘K global search modal. Red left-border sidebar active state. Admin user chip at sidebar bottom.',
+    notes: ['Fonts scoped via src/app/admin/layout.tsx — does not affect marketing site', 'CSS classes prefixed admin- in src/app/globals.css', 'Ticker: 28s scroll animation, JetBrains Mono, 28px tall', 'Search: fetches all stores/campaigns/devices on open, client-side filter, grouped results'],
+    claudePrompt: `Context: Admin design system is fully built. CSS utilities in src/app/globals.css (prefixed admin-). Fonts loaded in src/app/admin/layout.tsx.
+
+Key classes:
+- admin-font-display (Inter Tight), admin-font-mono (JetBrains Mono)
+- admin-kpi, admin-kpi--feature (red gradient KPI card)
+- admin-kpi__icon, admin-kpi__label, admin-kpi__value, admin-kpi__sub, admin-kpi__foot, admin-kpi__delta, admin-kpi__delta--up/down
+- admin-kpi-row (4-column responsive grid)
+- admin-section-label (N°NN · LABEL pattern) — use <SectionLabel n={N} label="..." /> component
+- admin-ticker / admin-ticker__track (scrolling info band)
+- admin-live-dot, admin-live-dot--online/offline/pending (pulsing status dots)
+- admin-feed, admin-feed-item, admin-feed-item__name, admin-feed-item__meta, admin-feed-item__badge
+- admin-badge--live/paused/offline/pending (status badges)
+- admin-summary-row (4-col grid), admin-summary-tile, admin-summary-tile__label/value/delta
+- admin-chips / admin-chip / admin-chip--active (filter chips)
+- admin-rings / admin-ring (progress ring grid) — use <ProgressRing pct label sub color /> component
+
+Task: [DESCRIBE YOUR UI CHANGE — e.g. "Add a new admin-kpi card for 'Revenue' showing total paid campaign amount in ₹ with a green delta badge"]`,
+  },
+  {
+    id: 'admin-search', cluster: 'Admin Panel', label: 'Global Search (⌘K)', sub: 'Unified search across stores, campaigns, devices',
+    status: 'built', path: 'src/app/admin/page.tsx',
+    description: 'Global search modal triggered by ⌘K (or Ctrl+K on Windows) or the topbar search button. Fetches all stores, campaigns, and devices on open, then filters client-side on keystroke. Results grouped by category (max 4 per group). Click any result to navigate to the relevant tab. Closes on Escape.',
+    notes: ['Data fetched once on open — no per-keystroke API calls', 'Grouped: Stores / Campaigns / Devices', 'Navigate via click → closes modal → switches tab', 'Keyboard shortcut: metaKey+K (Mac) or ctrlKey+K (Windows/Linux)'],
+    claudePrompt: `Context: Global search modal at SearchModal component in src/app/admin/page.tsx. Opens on ⌘K, fetches all data once, client-side filter with grouped results.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add keyboard navigation: arrow keys move through results, Enter opens the selected item. Highlight matched substring in result labels."]`,
+  },
+  {
+    id: 'admin-flyer-generator', cluster: 'Admin Panel', label: 'Satori Flyer Generator', sub: 'Server-side 1080×1920 PNG via next/og',
+    status: 'built', path: 'src/app/api/generate-flyer/route.tsx',
+    description: 'Edge API route that generates dark-themed 1080×1920 PNG flyers for digital signage using Satori (next/og ImageResponse). Dark background (#0f0f0f), 3×3 product grid on #1e1e1e cards, red circular discount badges, red price pills, hero "WOW" text, QR code footer. POST with FlyerData JSON, returns PNG image.',
+    notes: ['Edge runtime — no Node.js APIs, no CSS grid (use flex+wrap)', 'FlyerData: storeName, badge, offerTitle, products[{name,mrp,price,imageUrl,discount}], footerLine1/2, contactLine, qrUrl', 'Products padded to 9 items, CELL_W=346px for 3-column flex wrap in 1080px container', 'Inline styles only — no Tailwind classes in Satori', 'GET /api/generate-flyer returns JSON schema docs'],
+    claudePrompt: `Context: Satori flyer generator at src/app/api/generate-flyer/route.tsx. Edge runtime, POST FlyerData JSON → 1080×1920 PNG. Dark theme.
+
+FlyerData interface:
+\`\`\`ts
+interface FlyerData {
+  storeName: string;
+  badge: string;           // e.g. "MEGA SALE" or "UP TO 60% OFF"
+  offerTitle: string;      // split at '—' into two lines
+  validUntil?: string;
+  products: Array<{
+    name: string; mrp: number; price: number;
+    imageUrl?: string; discount?: string;
+  }>;
+  footerLine1?: string;
+  footerLine2?: string;
+  contactLine?: string;
+  qrUrl?: string;
+}
+\`\`\`
+
+Task: [DESCRIBE YOUR CHANGE — e.g. "Add a light theme variant triggered by ?theme=light query param. Light: #ffffff bg, #f8f8f8 cards, #dc2626 accents, dark text"]`,
+  },
+  {
+    id: 'admin-apk-sideload', cluster: 'Admin Panel', label: 'APK Sideload Card', sub: 'AFTVnews downloader QR in ScreensTab',
+    status: 'built', path: 'src/components/admin/screens-tab.tsx',
+    description: 'Collapsible card in ScreensTab for sideloading the ALIVE Player APK onto Fire TV devices via AFTVnews Downloader app. Admin pastes APK URL → card shows QR code (via api.qrserver.com) + step-by-step instructions. Copy-link button for clipboard. Local state only — no API calls.',
+    notes: ['No new packages — QR via api.qrserver.com', 'Three steps: install Downloader from Fire TV Store → enter URL or scan QR → install APK', 'Works with any APK URL (Vercel, S3, R2, GitHub Releases)'],
+    claudePrompt: `Context: APK sideload card at SideloadApkCard component in src/components/admin/screens-tab.tsx. Collapsible card with URL input, copy button, QR code, and instructions.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a 'Latest APK' section that fetches GET /api/device/update to show the current version number and a pre-filled URL for the latest APK hosted on R2."]`,
+  },
+  {
+    id: 'admin-products', cluster: 'Admin Panel', label: 'Products Tab', sub: 'Master product catalogue with drag-drop images',
+    status: 'built', path: 'src/components/admin/products-tab.tsx',
+    description: 'Master product catalogue shared across flyer generation. CRUD: create product with name, MRP, sale price, category, brand. Drag-and-drop PNG image upload (no-background images work best) with preview. After creation, image auto-uploaded to R2 via server-side proxy. Products used as input to Satori flyer generator.',
+    notes: ['PNG without background recommended for flyer use (products appear on dark cards)', 'Drag-and-drop: onDragOver/onDrop handlers with visual feedback', 'Image upload: POST /api/products/[id]/image after product creation', 'Only new product form has drag-drop — existing product edit uses regular file input'],
+    claudePrompt: `Context: Products tab at src/components/admin/products-tab.tsx. Master product catalogue for kirana store items. Drag-drop PNG upload on new product form. Products feed into Satori flyer generator at /api/generate-flyer.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a 'Generate flyer from selected products' button: multi-select products via checkboxes, then call POST /api/generate-flyer with the selected products array and open the resulting PNG in a new tab."]
+
+Key files:
+- src/components/admin/products-tab.tsx — UI
+- src/app/api/generate-flyer/route.tsx — Satori edge route`,
   },
   {
     id: 'admin-moderation', cluster: 'Admin Panel', label: 'Creative Moderation Queue', sub: 'Approve / reject brand creatives',
@@ -418,8 +500,8 @@ Task: Build the creative moderation queue as a new admin tab.
   {
     id: 'admin-roadmap', cluster: 'Admin Panel', label: 'Platform Map', sub: 'Build progress + Claude prompts',
     status: 'built', path: 'src/components/admin/roadmap-tab.tsx',
-    description: 'This tab. Visual build-progress map of all ALIVE platform components. Click any item to see description, file path, implementation notes, and a ready-to-paste Claude prompt.',
-    claudePrompt: `Context: This is the Platform Map tab (src/components/admin/roadmap-tab.tsx). It tracks all 57+ platform items with status, paths, notes, and Claude prompts.
+    description: 'This tab. Visual build-progress map of all ALIVE platform components. Click any item to see description, file path, implementation notes, and a ready-to-paste Claude prompt. 60+ items across 8 clusters: Marketing Site, Store Dashboard, Admin Panel, Device APIs, Background Jobs, Data & Infra, Android Player, Brand Features T2.',
+    claudePrompt: `Context: This is the Platform Map tab (src/components/admin/roadmap-tab.tsx). It tracks all 60+ platform items with status, paths, notes, and Claude prompts.
 
 Task: [DESCRIBE YOUR CHANGE — e.g. "Add a 'Dependencies' field to each RoadmapItem listing which items must be built first (by ID). Show a dependency warning in the panel if any dependency is not yet 'built'. Block the Claude prompt copy with 'Build X first' message."]`,
   },
