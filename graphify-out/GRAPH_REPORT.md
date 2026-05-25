@@ -1,16 +1,16 @@
-# Graph Report - studio  (2026-05-23)
+# Graph Report - studio  (2026-05-25)
 
 ## Corpus Check
-- 276 files · ~1,043,906 words
+- 276 files · ~1,046,978 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1467 nodes · 2375 edges · 132 communities (98 shown, 34 thin omitted)
+- 1490 nodes · 2399 edges · 138 communities (101 shown, 37 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 6 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `fe6b96dc`
+- Built from commit: `96d14fc3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -118,6 +118,7 @@
 - [[_COMMUNITY_Community 101|Community 101]]
 - [[_COMMUNITY_Community 102|Community 102]]
 - [[_COMMUNITY_Community 103|Community 103]]
+- [[_COMMUNITY_Community 104|Community 104]]
 - [[_COMMUNITY_Community 105|Community 105]]
 - [[_COMMUNITY_Community 106|Community 106]]
 - [[_COMMUNITY_Community 107|Community 107]]
@@ -132,6 +133,10 @@
 - [[_COMMUNITY_Community 131|Community 131]]
 - [[_COMMUNITY_Community 132|Community 132]]
 - [[_COMMUNITY_Community 133|Community 133]]
+- [[_COMMUNITY_Community 134|Community 134]]
+- [[_COMMUNITY_Community 135|Community 135]]
+- [[_COMMUNITY_Community 136|Community 136]]
+- [[_COMMUNITY_Community 137|Community 137]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `cn()` - 50 edges
@@ -157,7 +162,7 @@
 - `ALIVE Player API Reference` --references--> `Device Plan API`  [EXTRACTED]
   ALIVE_PLAYER_API.md → src/app/api/device/plan/route.ts
 
-## Communities (132 total, 34 thin omitted)
+## Communities (138 total, 37 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
@@ -168,56 +173,56 @@ Cohesion: 0.09
 Nodes (33): POST(), respond(), RespondInput, buildLearningArtifact(), emitLearningArtifact(), JsonLike, LearningArtifact, LearningArtifactInput (+25 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.06
-Nodes (23): Campaign, CampaignsPanel(), ContentTab, fadeIn, Flyer, fmt(), NAV, OpsStats (+15 more)
+Cohesion: 0.04
+Nodes (21): BRANDS, Campaign, CHART_SERIES, ContentTab, fadeIn, Flyer, INSIGHTS, LIVE_SCREENS (+13 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.06
 Nodes (37): ALIVE Player — Device API Reference, ALIVE Player Integration Checklist, Android TV Specifics, Authentication, Boot Sequence Diagram, code:block1 (Authorization: Bearer <token>), code:block10 (POST https://wearealive.in/api/device/events), code:bash (curl -X POST https://wearealive.in/api/device/events \) (+29 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.07
-Nodes (8): adminGuard(), POST(), globalForPrisma, StoreLocation, Body, adminGuard(), GET(), Body
+Cohesion: 0.09
+Nodes (7): globalForPrisma, Body, checkAdmin(), DELETE(), adminGuard(), PATCH(), Body
 
 ### Community 5 - "Community 5"
 Cohesion: 0.08
 Nodes (40): adminGuard(), BASE_CONTENT_SELECT, GET(), PATCH(), POST(), adminGuard(), POST(), normalizePlaylist() (+32 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.08
-Nodes (26): cn(), AccordionContent, AccordionItem, AccordionTrigger, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription (+18 more)
+Cohesion: 0.13
+Nodes (14): cn(), AccordionContent, AccordionItem, AccordionTrigger, Badge(), BadgeProps, badgeVariants, Checkbox (+6 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.08
-Nodes (23): Analytics, Campaign, CampaignCard(), CHART_COLORS, DashboardPage(), deriveCampaignStatus(), DURATION_OPTS, fadeUp (+15 more)
+Nodes (22): Analytics, Campaign, CampaignCard(), CHART_COLORS, DashboardPage(), deriveCampaignStatus(), fadeUp, fmt() (+14 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.07
 Nodes (28): useIsMobile(), Separator, Sidebar, SidebarContent, SidebarContext, SidebarFooter, SidebarGroup, SidebarGroupAction (+20 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.07
-Nodes (46): ai, POST, GET(), authenticate(), computeRowHash(), PlayEventInput, POST(), generateTextTestimonialFromAudio() (+38 more)
+Cohesion: 0.06
+Nodes (45): ai, POST, GET(), authenticate(), computeRowHash(), PlayEventInput, POST(), generateTextTestimonialFromAudio() (+37 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.09
-Nodes (19): ErrorState(), iconBg(), MONO, Props, Variant, SessionExpiredModal(), ApiState, ApiError (+11 more)
+Cohesion: 0.06
+Nodes (29): metadata, EluIdentify(), Providers(), BeforeInstallPromptEvent, PwaInstallBanner(), PwaRegister(), ErrorState(), iconBg() (+21 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.09
-Nodes (17): DATE_CHIPS, DURATION_OPTIONS, fadeUp, fmt(), getScreenPrice(), INITIAL, OnboardingFormData, RazorpayResponse (+9 more)
+Cohesion: 0.08
+Nodes (18): DATE_CHIPS, DURATION_OPTIONS, fadeUp, fmt(), getScreenPrice(), INITIAL, OnboardingFormData, RazorpayResponse (+10 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.08
-Nodes (12): DASH_TABS, DashTab, EARNING_TABLE, fadeUp, Flyer, LoginView, monthKey(), PaymentRecord (+4 more)
+Nodes (9): DASH_TABS, DashTab, EARNING_TABLE, fadeUp, Flyer, LoginView, PaymentRecord, stagger (+1 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.07
 Nodes (27): Admin Dashboard, ALIVE Advertising Platform — CLAUDE.md, Architecture, Brand Onboarding, code:block1 (src/app/page.tsx                          — homepage), code:block2 (stores:index   → string[]       # store IDs), code:block3 (DATABASE_URL                    # Neon pooled (runtime)), Critical Conventions — Read These First (+19 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.18
-Nodes (14): ReportsTab, fmtDateShort(), fmtHours(), ReportsTab(), screenLabel(), getEvents(), getEventsExportUrl(), PlayEvent (+6 more)
+Cohesion: 0.22
+Nodes (14): FleetMap, timeSince(), View, MonitoringTab, ReportsTab, fmtDateShort(), fmtHours(), ReportsTab() (+6 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.08
@@ -228,16 +233,16 @@ Cohesion: 0.19
 Nodes (14): collectAllContextSources(), collectExternalSignals(), collectGitCommits(), collectProdLogs(), collectSupportAdminNotes(), CanonicalContextDocument, ContextSourceType, RawCollectorRecord (+6 more)
 
 ### Community 17 - "Community 17"
-Cohesion: 0.06
-Nodes (45): ProductsTab, BLANK, CsvRow, parseCsvText(), Product, ProductsTab(), metadata, EluIdentify() (+37 more)
+Cohesion: 0.11
+Nodes (26): ProductsTab, BLANK, CsvRow, parseCsvText(), Product, ProductsTab(), useToast(), brandSlug() (+18 more)
 
 ### Community 18 - "Community 18"
 Cohesion: 0.15
 Nodes (14): bgImage, cities, locations, Alert, AlertDescription, AlertTitle, alertVariants, SelectContent (+6 more)
 
 ### Community 19 - "Community 19"
-Cohesion: 0.38
-Nodes (6): useCountUp(), PulseCounter(), pulseData, ImpactCalculator(), ImpactMetric(), Slider
+Cohesion: 0.30
+Nodes (8): useCountUp(), PulseCounter(), pulseData, ImpactCalculator(), ImpactMetric(), Label, labelVariants, Slider
 
 ### Community 20 - "Community 20"
 Cohesion: 0.10
@@ -248,16 +253,16 @@ Cohesion: 0.19
 Nodes (11): collectCompetitorActivitySignals(), fetchJson(), collectInfraCostEfficiencySignals(), fetchJson(), collectMarketSentimentSignals(), fetchJson(), ExternalSignalSeverity, ExternalSignalSource (+3 more)
 
 ### Community 22 - "Community 22"
-Cohesion: 0.22
-Nodes (3): placeholderImages, storyElements, founders
+Cohesion: 0.15
+Nodes (7): UploadState, DocSlot, KycData, KycStatus, SLOTS, STATUS_COPY, Skeleton()
 
 ### Community 23 - "Community 23"
 Cohesion: 0.11
 Nodes (17): aliases, components, hooks, lib, ui, utils, iconLibrary, rsc (+9 more)
 
 ### Community 24 - "Community 24"
-Cohesion: 0.21
-Nodes (14): blogPosts, categories, jobOpenings, BusinessModel(), BusinessModelProps, plans, steps, Button (+6 more)
+Cohesion: 0.15
+Nodes (18): blogPosts, categories, jobOpenings, BusinessModel(), BusinessModelProps, plans, navLinks, steps (+10 more)
 
 ### Community 25 - "Community 25"
 Cohesion: 0.12
@@ -272,32 +277,32 @@ Cohesion: 0.25
 Nodes (15): benefits, slides, Carousel, CarouselApi, CarouselContent, CarouselContext, CarouselContextProps, CarouselItem (+7 more)
 
 ### Community 28 - "Community 28"
-Cohesion: 0.53
-Nodes (8): TestimonialCard(), TestimonialCardProps, ImagePlaceholder, testimonials, Avatar, AvatarFallback, AvatarImage, CardContent
+Cohesion: 0.21
+Nodes (11): TestimonialCard(), TestimonialCardProps, generateTestimonialAction(), ImagePlaceholder, placeholderImages, storyElements, founders, testimonials (+3 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.15
-Nodes (20): UploadState, PlaylistsTab, DraftItem, fmtDate(), fmtMs(), PlaylistsTab(), Toast, adminHeaders() (+12 more)
+Cohesion: 0.16
+Nodes (27): PlaylistsTab, DraftItem, fmtDate(), fmtMs(), PlaylistsTab(), adminHeaders(), apiFetch(), bulkPushSchedule() (+19 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.17
-Nodes (19): ScreensTab, AddScreenCard(), DiagIssue, DiagPanel(), fmtDate(), friendlyDeviceLabel(), GroupPanel(), LinkStoreDialog() (+11 more)
+Cohesion: 0.22
+Nodes (14): ScreensTab, AddScreenCard(), DiagIssue, DiagPanel(), fmtDate(), friendlyDeviceLabel(), GroupPanel(), LinkStoreDialog() (+6 more)
 
 ### Community 31 - "Community 31"
 Cohesion: 0.33
 Nodes (3): ContentBlock, metadata, sections
 
 ### Community 32 - "Community 32"
-Cohesion: 0.18
-Nodes (19): SchedulesTab, BLANK_FORM, fmtDateTime(), INTERVAL_MARKS, isoToLocal(), localPlusDays(), nowLocal(), OrientationIcon() (+11 more)
+Cohesion: 0.23
+Nodes (14): SchedulesTab, BLANK_FORM, fmtDateTime(), INTERVAL_MARKS, isoToLocal(), localPlusDays(), nowLocal(), OrientationIcon() (+6 more)
 
 ### Community 33 - "Community 33"
 Cohesion: 0.15
 Nodes (5): Bill, CustomerSession, Flyer, PAY_LABELS, Tab
 
 ### Community 34 - "Community 34"
-Cohesion: 0.28
-Nodes (11): ContactForm(), ContactFormProps, DialogContent, DialogDescription, DialogHeader(), DialogOverlay, DialogTitle, Input (+3 more)
+Cohesion: 0.32
+Nodes (10): ContactForm(), ContactFormProps, DialogContent, DialogDescription, DialogFooter(), DialogHeader(), DialogOverlay, DialogTitle (+2 more)
 
 ### Community 35 - "Community 35"
 Cohesion: 0.22
@@ -308,12 +313,12 @@ Cohesion: 0.31
 Nodes (4): AliveBeforeAfter, afterImage, beforeImage, AliveMeter()
 
 ### Community 37 - "Community 37"
-Cohesion: 0.25
-Nodes (13): CheckMark(), ErrorDot(), MONO, OfflineDot(), PendingDot(), Props, Spinner(), statusColor() (+5 more)
+Cohesion: 0.15
+Nodes (16): MANGALURU, Props, STATUS_COLOR, CheckMark(), ErrorDot(), MONO, OfflineDot(), PendingDot() (+8 more)
 
 ### Community 38 - "Community 38"
-Cohesion: 0.20
-Nodes (19): BLANK_FORM, detectTargetMode(), FormState, POSITION_META, TARGET_MODES, TargetMode, TYPE_META, LayoutsTab (+11 more)
+Cohesion: 0.17
+Nodes (20): BLANK_FORM, detectTargetMode(), FormState, POSITION_META, TARGET_MODES, TargetMode, TYPE_META, LayoutsTab (+12 more)
 
 ### Community 39 - "Community 39"
 Cohesion: 0.15
@@ -324,8 +329,8 @@ Cohesion: 0.17
 Nodes (4): AGREEMENT_TERMS, FieldErrors, Form, INIT
 
 ### Community 41 - "Community 41"
-Cohesion: 0.17
-Nodes (5): Logo(), sections, navLinks, clauses, sections
+Cohesion: 0.21
+Nodes (4): DATA_CATEGORIES, Logo(), sections, sections
 
 ### Community 42 - "Community 42"
 Cohesion: 0.17
@@ -350,6 +355,10 @@ Nodes (9): FormControl, FormDescription, FormFieldContext, FormFieldContextValue
 ### Community 47 - "Community 47"
 Cohesion: 0.20
 Nodes (10): AI-native infrastructure — already built (do not re-implement), API error wrapper (`src/lib/with-api-handler.ts`), Context engine (`src/lib/context-engine/`, `/api/cron/context-sync`, `/api/context/search`), Database workflow policy (Neon + Prisma), Device health + self-correction (`/api/cron/device-health`, `/api/agent/remediate`), External signals (`src/lib/data-sources/`, `/api/cron/external-signals`), Learning artifacts (`src/lib/learning-artifacts.ts` + `src/lib/api-envelope.ts`), Notification hub (`src/lib/notify.ts`) (+2 more)
+
+### Community 48 - "Community 48"
+Cohesion: 0.19
+Nodes (13): Action, ActionType, actionTypes, addToRemoveQueue(), dispatch(), genId(), listeners, memoryState (+5 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.20
@@ -400,8 +409,8 @@ Cohesion: 0.38
 Nodes (6): BillData, BillItem, BillReceiptPage(), fmtDate(), fmtINR(), PAY_LABELS
 
 ### Community 66 - "Community 66"
-Cohesion: 0.19
-Nodes (9): MANGALURU, Props, STATUS_COLOR, FleetMap, timeSince(), View, MonitoringTab, Device (+1 more)
+Cohesion: 0.17
+Nodes (11): AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter(), AlertDialogHeader(), AlertDialogOverlay, AlertDialogTitle (+3 more)
 
 ### Community 67 - "Community 67"
 Cohesion: 0.47
@@ -436,8 +445,8 @@ Cohesion: 0.70
 Nodes (4): Flyer, GET(), getRedis(), POST()
 
 ### Community 75 - "Community 75"
-Cohesion: 0.50
-Nodes (3): BeforeInstallPromptEvent, PwaInstallBanner(), PwaRegister()
+Cohesion: 0.48
+Nodes (6): StorePaymentsTab, fmtMonth(), monthsFrom(), StorePayment, StorePaymentsTab(), StoreSummary
 
 ### Community 76 - "Community 76"
 Cohesion: 0.40
@@ -491,25 +500,29 @@ Nodes (3): Alive After Image (Duplicate), Alive After (AI Edited), Alive Before 
 Cohesion: 0.50
 Nodes (3): Favicon SVG, Firebase Studio, Firebase Studio
 
+### Community 135 - "Community 135"
+Cohesion: 0.67
+Nodes (3): monthKey(), PaymentTimeline(), proRateFirstMonth()
+
 ## Knowledge Gaps
-- **516 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+511 more)
+- **524 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+519 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **34 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **37 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `cn()` connect `Community 6` to `Community 0`, `Community 7`, `Community 8`, `Community 11`, `Community 14`, `Community 17`, `Community 18`, `Community 19`, `Community 24`, `Community 25`, `Community 26`, `Community 27`, `Community 28`, `Community 34`, `Community 35`, `Community 45`, `Community 46`, `Community 50`, `Community 56`?**
-  _High betweenness centrality (0.191) - this node is a cross-community bridge._
+- **Why does `cn()` connect `Community 6` to `Community 0`, `Community 7`, `Community 8`, `Community 10`, `Community 11`, `Community 17`, `Community 18`, `Community 19`, `Community 22`, `Community 24`, `Community 25`, `Community 26`, `Community 27`, `Community 28`, `Community 34`, `Community 35`, `Community 45`, `Community 46`, `Community 50`, `Community 56`, `Community 66`?**
+  _High betweenness centrality (0.185) - this node is a cross-community bridge._
 - **Why does `dependencies` connect `Community 0` to `Community 39`?**
-  _High betweenness centrality (0.102) - this node is a cross-community bridge._
+  _High betweenness centrality (0.100) - this node is a cross-community bridge._
 - **Why does `clsx` connect `Community 0` to `Community 6`?**
-  _High betweenness centrality (0.098) - this node is a cross-community bridge._
+  _High betweenness centrality (0.097) - this node is a cross-community bridge._
 - **What connects `$schema`, `style`, `rsc` to the rest of the system?**
-  _516 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _524 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.03076923076923077 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.05641025641025641 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.041666666666666664 - nodes in this community are weakly interconnected._
