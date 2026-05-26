@@ -44,6 +44,11 @@
           "cameraPermission": "Allow ALIVE Store to use the camera for your KYC selfie."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6a63834c-7c6a-474c-a438-ca5bbfd0b32f"
+      }
+    }
   }
 }
