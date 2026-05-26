@@ -828,7 +828,7 @@ Start WatchdogService from PlayerActivity.onCreate() and from BootReceiver.`,
   },
   {
     id: 'player-ntp', cluster: 'Android Player', label: 'NTPSyncManager', sub: 'Clock accuracy for POP timestamps',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'NTP client that syncs the device clock offset for accurate proof-of-play timestamps. Critical for billing accuracy. RICE score: 405 — build before POPEmitter.',
     notes: ['NTP server: pool.ntp.org or time.google.com', 'Compute clockOffset = ntpTime - systemTime, store in SharedPreferences', 'Apply offset to all POP timestamps: correctedTime = System.currentTimeMillis() + clockOffset', 'Re-sync every 24h or on network reconnect'],
     claudePrompt: `Context: POP timestamps must be accurate for billing. NTPSyncManager syncs clock offset and all proof-of-play timestamps must be corrected by this offset. ALIVE backend at POST /api/device/events accepts ISO timestamp strings.
@@ -870,7 +870,7 @@ Use NTPSyncManager.nowIso() for all startedAt/endedAt timestamps in POPEmitter.`
   },
   {
     id: 'player-cache', cluster: 'Android Player', label: 'ContentCache', sub: 'Local creative store + MD5 verify',
-    status: 'planned',
+    status: 'built',
     description: 'Downloads and caches ad creatives (video/image) locally. MD5 verification before serving to avoid corrupt file playback. Cache lives in app-specific external storage.',
     notes: ['Cache dir: context.getExternalFilesDir("creatives")', 'Download with OkHttp, verify MD5 before marking ready', 'Eviction: LRU by last-accessed time, keep max 2GB'],
     claudePrompt: `Context: Android player receives content URLs and MD5s from GET /api/device/plan. ContentCache downloads files locally and serves from cache. MD5 check skips re-download if file matches.
@@ -912,7 +912,7 @@ object ContentCache {
   },
   {
     id: 'player-sync', cluster: 'Android Player', label: 'SyncManager', sub: 'Delta schedule + content pull',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'Polls GET /api/device/plan?hours=72 every 15 minutes. Compares new plan with cached plan, downloads only new/changed content. Stores schedule in local SQLite for offline operation.',
     notes: ['Poll interval: 15 min normally, 5 min if plan is empty or device just came online', 'Store JWT in SharedPreferences key alive_device_token', 'Schedule stored as JSON in SQLite table device_plan (one row, upsert)'],
     claudePrompt: `Context: SyncManager polls GET /api/device/plan from wearealive.in/api/device/plan. Auth: Bearer token from SharedPreferences. Plan response: {items: [{mediaUrl, md5, startAt, endAt, durationMs, layoutId, tag}]}. See ALIVE_PLAYER_API.md for full spec.
@@ -952,7 +952,7 @@ Schedule sync via WorkManager with PeriodicWorkRequest (15 min interval, NETWORK
   },
   {
     id: 'player-playback', cluster: 'Android Player', label: 'PlaybackEngine', sub: 'ExoPlayer video + image renderer',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'ExoPlayer-based video player and image renderer. Reads local schedule from SQLite. Transitions between media items based on durationMs. Notifies POPEmitter after each play.',
     notes: ['ExoPlayer 2.x or Media3: implementation "androidx.media3:media3-exoplayer:1.3.0"', 'Image rendering: Glide fullscreen with center-crop, duration from schedule item', 'Preload next item during current item playback for gapless transition'],
     claudePrompt: `Context: PlaybackEngine is the core of the ALIVE Player. It reads the locally-cached schedule (from SyncManager), plays content in order using ExoPlayer for video and Glide for images, and fires POPEmitter after each play.
@@ -999,7 +999,7 @@ Dependencies in build.gradle:
   },
   {
     id: 'player-pop', cluster: 'Android Player', label: 'POPEmitter', sub: 'Per-play log + offline SQLite buffer',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'Records each play event as a PlayEvent row in local SQLite. Batches and POSTs to POST /api/device/events when online. Uses NTPSyncManager.nowIso() for accurate timestamps. Hash-chains events for tamper evidence.',
     notes: ['SQLite table: pop_events (id, mediaId, layoutId, campaignId, startedAt, endedAt, durationMs, tag, prevHash, rowHash, synced BOOL)', 'Batch size: 50 events per POST to /api/device/events', 'Retry failed batches with exponential backoff'],
     claudePrompt: `Context: POPEmitter records proof-of-play events and POSTs them to wearealive.in/api/device/events. Auth: Bearer token. Events buffered in local SQLite when offline. See ALIVE_PLAYER_API.md section 2 for exact API contract.
@@ -1119,6 +1119,180 @@ class UpdateChecker(private val context: Context) {
 \`\`\`
 
 Check for updates in SyncManager.sync() once every 24 hours.`,
+  },
+
+  // ── Android Player — Resilience ──────────────────────────────────────────────
+  {
+    id: 'player-exoplayer-guard', cluster: 'Android Player', label: 'ExoPlayer Resilience', sub: 'Double-release guard + Glide bitmap leak fix',
+    status: 'built', critical: true,
+    description: 'Prevents ExoPlayer double-release race condition (captured null before mainHandler.post) and Glide bitmap accumulation (Glide.clear before each image swap in both renderItem and restartCurrentItem). Critical for 24/7 unattended devices.',
+    notes: ['PlaybackEngine.kt: capture exoPlayer → null before posting release to avoid second call racing', 'Glide.with(context).clear(iv) called before every .into(iv) to release previous bitmap', 'restartCurrentItem() also patched — same bug was duplicated there'],
+  },
+  {
+    id: 'player-asset-integrity', cluster: 'Android Player', label: 'Asset Download Hardening', sub: 'Free-space check + tmp cleanup + renameTo fallback',
+    status: 'built', critical: true,
+    description: 'AssetDownloader now checks StatFs free bytes against Content-Length before writing (refuses download if < content + 50 MB buffer). Cleans up corrupt .tmp on exception. Falls back to copy+delete if renameTo fails cross-filesystem.',
+    notes: ['StatFs check after connection, before stream copy', 'catch(ex) { tmp.delete(); throw ex } wraps stream copy', 'tmp.renameTo(final) fallback: tmp.copyTo(final, overwrite=true) + tmp.delete()'],
+  },
+  {
+    id: 'player-ntp-impl', cluster: 'Android Player', label: 'NTP Clock Sync', sub: 'Raw UDP SNTP client, offset stored in DevicePrefs',
+    status: 'built', critical: true,
+    description: 'NtpSyncManager.kt uses raw UDP datagrams to query pool.ntp.org (no external library). Clock offset stored in DevicePrefs and applied to all POP timestamps. PlanFetchWorker calls sync() after every successful plan fetch. PlaybackEngine uses NtpSyncManager.now() for playStartMs and stop() times.',
+    notes: ['48-byte NTP packet, transmit timestamp at bytes 40-47', 'clockOffset = ntpTime − requestTime − (RTT/2)', 'DevicePrefs.getClockOffsetMs() defaults to 0 until first sync — no invalid offset on first boot', 'PopUploadWorker applies offset to startedAt/endedAt before upload'],
+  },
+  {
+    id: 'player-captive-portal', cluster: 'Android Player', label: 'Captive Portal Detection', sub: 'NET_CAPABILITY_VALIDATED guard on all workers',
+    status: 'built',
+    description: 'PlanFetchWorker and DownloadWorker check NetworkCapabilities.NET_CAPABILITY_VALIDATED before making network requests. Captive portals pass the CONNECTED constraint but can\'t reach the backend — this prevents silent failures that look like server errors.',
+    notes: ['isValidatedNetwork(): ConnectivityManager → activeNetwork → getNetworkCapabilities → hasCapability(VALIDATED)', 'Worker returns Result.retry() on captive portal, not Result.failure() — will auto-retry when portal is dismissed'],
+  },
+  {
+    id: 'player-pop-poison', cluster: 'Android Player', label: 'POP Poison Isolation', sub: 'failCount column + batch limit 50',
+    status: 'built', critical: true,
+    description: 'ProofEvent entity now has failCount column. getPending() excludes events with failCount >= 3 (poison rows that repeatedly fail upload). Batch capped at 50 events. On upload failure, incrementFailCount() is called so stuck events don\'t block the queue forever.',
+    notes: ['AppDatabase version bumped to 3 — fallbackToDestructiveMigration handles upgrade', 'getPending(): WHERE uploaded=0 AND fail_count<3 LIMIT 50', 'incrementFailCount(eventIds): UPDATE SET fail_count=fail_count+1'],
+  },
+  {
+    id: 'player-screen-off', cluster: 'Android Player', label: 'Screen-Off POP Pause', sub: 'Suspend POP emission when HDMI-CEC turns off display',
+    status: 'planned',
+    description: 'Register BroadcastReceiver for ACTION_SCREEN_OFF and ACTION_SCREEN_ON. While screen is off: stop emitting ProofEvents (no proof of play on a dark screen), pause ExoPlayer to save resources. Resume on ACTION_SCREEN_ON.',
+    notes: ['Must register dynamically (not manifest) — ACTION_SCREEN_OFF not delivered to manifest receivers', 'PlaybackActivity.onResume/onPause already handles config changes; the broadcast covers HDMI-CEC off', 'POP events emitted = 0 while screenOff=true regardless of playback state'],
+    claudePrompt: `Task: Add screen-off POP pause to ALIVE Player.
+
+Register a BroadcastReceiver in PlaybackActivity (or the foreground PlaybackService) for Intent.ACTION_SCREEN_OFF and Intent.ACTION_SCREEN_ON.
+
+\`\`\`kotlin
+// In PlaybackActivity or PlaybackService:
+private var screenOff = false
+
+private val screenReceiver = object : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        when (intent.action) {
+            Intent.ACTION_SCREEN_OFF -> {
+                screenOff = true
+                playbackEngine.pauseForScreenOff()
+            }
+            Intent.ACTION_SCREEN_ON -> {
+                screenOff = false
+                playbackEngine.resumeFromScreenOff()
+            }
+        }
+    }
+}
+
+// In onCreate:
+registerReceiver(screenReceiver, IntentFilter().apply {
+    addAction(Intent.ACTION_SCREEN_OFF)
+    addAction(Intent.ACTION_SCREEN_ON)
+})
+
+// In onDestroy:
+unregisterReceiver(screenReceiver)
+\`\`\`
+
+In PlaybackEngine: add pauseForScreenOff() that sets a flag suppressing emitCompleteEvent(), and resumeFromScreenOff() that re-arms.`,
+  },
+  {
+    id: 'player-plan-staleness', cluster: 'Android Player', label: 'Plan Staleness Fallback', sub: 'Detect expired plan + serve offline default',
+    status: 'planned',
+    description: 'If the cached plan is older than 72 hours (the plan window) and no new plan has been fetched, show a static offline fallback asset instead of playing potentially expired schedule windows.',
+    notes: ['PlanLoader checks fetchedAtEpochMs < now - 72h → return fallback plan', 'Fallback: a bundled default_offline.mp4 in res/raw or assets/', 'FetchStatus.NO_CONTENT shown on screen with human-readable countdown'],
+    claudePrompt: `Task: Add plan staleness detection to ALIVE Player PlanLoader.
+
+In PlanLoader.kt (or wherever you load from Room), after loading the cached PlanCache:
+\`\`\`kotlin
+val maxAgeMs = 72 * 60 * 60 * 1000L // 72h matches the server-side plan window
+if (existing != null && System.currentTimeMillis() - existing.fetchedAtEpochMs > maxAgeMs) {
+    // Plan too old — return a fallback plan so the screen doesn't go blank
+    return Plan(windows = emptyList(), fallbackItems = listOf(PlanItem.offline()))
+}
+\`\`\`
+
+Add PlanItem.offline() companion that returns a local file URI pointing to res/raw/offline_default.mp4 (a short branded "No Schedule" video).`,
+  },
+  {
+    id: 'player-thermal', cluster: 'Android Player', label: 'Thermal Adaptation', sub: 'Detect throttle + downgrade resolution',
+    status: 'planned',
+    description: 'Use PowerManager.getThermalHeadroom(1) (API 29+) to detect thermal throttling. When headroom < 0.4, downgrade ExoPlayer video quality. When headroom drops below 0.2, suspend video rendering and show static image fallback to prevent forced reboot.',
+    notes: ['getThermalHeadroom(1) = forecast 1 second ahead (0.0=critical, 1.0=cool)', 'Check every 30 seconds in a coroutine loop', 'ExoPlayer: setVideoScalingMode or switch to lower-res track via TrackSelector'],
+    claudePrompt: `Task: Add thermal adaptation to PlaybackEngine.
+
+\`\`\`kotlin
+private fun startThermalMonitor() {
+    CoroutineScope(Dispatchers.IO).launch {
+        while (isActive) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val headroom = if (Build.VERSION.SDK_INT >= 29) pm.getThermalHeadroom(1) else 1.0f
+            mainHandler.post {
+                when {
+                    headroom < 0.2f -> exoPlayer?.playWhenReady = false  // emergency pause
+                    headroom < 0.4f -> exoPlayer?.setForegroundMode(true) // prioritize decode
+                    else -> exoPlayer?.playWhenReady = true
+                }
+            }
+            delay(30_000)
+        }
+    }
+}
+\`\`\``,
+  },
+  {
+    id: 'player-refresh-rate', cluster: 'Android Player', label: 'Refresh Rate Matching', sub: 'Switch display mode to match content framerate',
+    status: 'planned',
+    description: 'Read Display.getSupportedModes() and switch to a mode whose refresh rate matches the content\'s framerate (24fps→24/48/120Hz, 30fps→30/60Hz). Reduces judder on 60Hz TVs playing 24fps content. Applied per-item when type is video.',
+    notes: ['WindowManager.LayoutParams.preferredDisplayModeId = bestMode.modeId', 'Match by mode.refreshRate divisibility with content fps', 'Only switch if a matching mode exists — no-op otherwise'],
+    claudePrompt: `Task: Add refresh rate matching to PlaybackEngine.
+
+\`\`\`kotlin
+private fun matchRefreshRate(contentFps: Float) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    val display = (context as? Activity)?.windowManager?.defaultDisplay ?: return
+    val modes = display.supportedModes
+    val best = modes.filter { it.refreshRate % contentFps < 0.1f }
+        .maxByOrNull { it.refreshRate } ?: return
+    val params = (context as Activity).window.attributes
+    params.preferredDisplayModeId = best.modeId
+    (context as Activity).window.attributes = params
+}
+\`\`\`
+
+Call matchRefreshRate() in renderItem() for video items, using item's declared fps (add fps field to PlanItem, default 30.0f).`,
+  },
+  {
+    id: 'player-watchdog-xproc', cluster: 'Android Player', label: 'Cross-Process Watchdog', sub: 'Broadcast heartbeat from playback to watchdog service',
+    status: 'planned',
+    description: 'PlaybackEngine sends a LocalBroadcast heartbeat every 15 seconds. WatchdogService listens; if no heartbeat for 60 seconds, it restarts the playback activity. This catches ANRs and frozen activity states that don\'t crash but stop media.',
+    notes: ['Use LocalBroadcastManager for intra-process, or explicit broadcast with permission for cross-process', 'Heartbeat intent action: com.alive.player.HEARTBEAT', 'WatchdogService: AlarmManager.setRepeating every 60s to check last heartbeat timestamp'],
+  },
+  {
+    id: 'player-input-intercept', cluster: 'Android Player', label: 'Kiosk Input Hardening', sub: 'Intercept home/back/recents on Fire TV',
+    status: 'planned',
+    description: 'Override dispatchKeyEvent in PlaybackActivity to consume Home, Back, Menu, and Search keys so accidental remote presses don\'t exit the player. ALIVE Player is a kiosk — users should not be able to navigate away.',
+    notes: ['dispatchKeyEvent: consume KEYCODE_HOME, KEYCODE_BACK, KEYCODE_MENU, KEYCODE_SEARCH', 'Admin unlock: triple-press Select within 2 seconds to allow exit (maintenance mode)', 'Test with Fire TV Stick remote — d-pad and select keys vary by model'],
+  },
+  {
+    id: 'player-firmware-resilience', cluster: 'Android Player', label: 'Firmware Update Resilience', sub: 'Re-register hardwareKey if device identity changes',
+    status: 'planned',
+    description: 'Some Fire TV firmware updates reset the Android ID, breaking the hardwareKey used for device identity. On startup, compare the current hardwareKey with the stored one. If different, re-register with /api/device/claim and update the stored token.',
+    notes: ['hardwareKey = ANDROID_ID (or MAC as fallback)', 'On mismatch: call claim() with new key, store new token, keep all local SQLite data', 'Edge case: two devices swapping keys — backend deduplicates by hardwareKey'],
+  },
+  {
+    id: 'player-burn-in', cluster: 'Android Player', label: 'Burn-In Mitigation', sub: 'Pixel shift + content rotation for long-lived installs',
+    status: 'planned',
+    description: 'Kiosk screens run 16+ hours/day. Apply subtle pixel shift (±2px) every 5 minutes and rotate logo/bug position to reduce static burn-in on OLED and VA panels commonly used in budget TVs.',
+    notes: ['View.animate().translationX(shift) on the container — 2-3px imperceptible shift', 'Track cumulative shift and reset on new content item', 'Not needed for IPS panels (no burn-in), but safe to apply universally'],
+  },
+  {
+    id: 'player-webview-isolation', cluster: 'Android Player', label: 'WebView Process Isolation', sub: 'Run WebView in separate process to prevent main crash',
+    status: 'planned',
+    description: 'WebView crashes (e.g. from malformed HTML ad creative) can bring down the main process. Wrap WebView in a separate :webview process. If it crashes, only that process dies and the main playback loop skips to the next item.',
+    notes: ['AndroidManifest: <activity android:name=".WebViewActivity" android:process=":webview">', 'Use startActivityForResult to load URL in WebViewActivity', 'On onActivityResult: if result OK, advance; if RESULT_CANCELED, skip item'],
+  },
+  {
+    id: 'player-hdcp-probe', cluster: 'Android Player', label: 'HDCP / Codec Probing', sub: 'Detect DRM and codec support at boot, skip incompatible content',
+    status: 'planned',
+    description: 'Some cheap HDMI receivers enforce HDCP restrictions. MediaDrm.isCryptoSchemeSupported() and MediaCodecList probing at startup builds a device capability map. PlanLoader uses this map to skip DRM-protected items the device can\'t play.',
+    notes: ['MediaCodecList(ALL_CODECS).codecInfos — enumerate supported MIME types', 'Store capability bitmap in DevicePrefs for quick lookup at runtime', 'Content marked drm:true in plan response → check capability before queuing'],
   },
 
   // ── Brand Features T2 ────────────────────────────────────────────────────────
