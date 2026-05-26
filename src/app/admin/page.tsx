@@ -29,6 +29,7 @@ const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments
 const SiteMediaTab     = dynamic(() => import('@/components/admin/site-media-tab'),     { ssr: false });
 const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),        { ssr: false });
 const ProductsTab      = dynamic(() => import('@/components/admin/products-tab'),       { ssr: false });
+const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'),         { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'alerts' | 'media' | 'roadmap' | 'products';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -98,6 +99,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
   {
     group: 'Platform',
     items: [
+      { id: 'alerts',     label: 'Alerts',       icon: Bell       },
       { id: 'roadmap',    label: 'Platform Map', icon: Map        },
     ],
   },
@@ -118,6 +120,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
   products:   { eyebrow: 'Product catalogue',  title: 'Master Products'    },
+  alerts:     { eyebrow: 'System status',      title: 'Alerts'             },
   roadmap:    { eyebrow: 'ALIVE PLATFORM',     title: 'Platform Roadmap'   },
 };
 
@@ -1384,6 +1387,7 @@ const NAV_DESIGN = [
       { id: 'layouts' as Tab,    label: 'Layouts',          icon: Layers,          count: null },
       { id: 'media' as Tab,      label: 'Media',            icon: Images,          count: null },
       { id: 'products' as Tab,   label: 'Products',         icon: Package,         count: null },
+      { id: 'alerts' as Tab,     label: 'Alerts',           icon: Bell,            count: null },
       { id: 'roadmap' as Tab,    label: 'Platform',         icon: Map,             count: null },
     ],
   },
@@ -1620,15 +1624,45 @@ function Dashboard() {
   const [theme,       setTheme]       = useState<'light' | 'dark'>('light');
   const [adminPw,     setAdminPw]     = useState('');
   const [liveCount]                   = useState(412);
+  const [alertCount,   setAlertCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load theme from localStorage
+  // Load theme from localStorage + prefetch alert count
   useEffect(() => {
     try {
       const saved = localStorage.getItem('alive-theme') as 'light' | 'dark' | null;
       if (saved) setTheme(saved);
     } catch {}
-    setAdminPw(sessionStorage.getItem(SS_PW) ?? '');
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    setAdminPw(pw);
+    // Quick count of unread alerts (offline devices + pending campaigns/stores)
+    const h = { 'admin-password': pw };
+    const dismissed: string[] = (() => {
+      try { return JSON.parse(localStorage.getItem('alive_admin_dismissed_alerts') ?? '[]') as string[]; }
+      catch { return []; }
+    })();
+    Promise.all([
+      fetch('/api/devices',         { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
+      fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+      fetch('/api/stores/save',     { headers: h }).then((r) => r.ok ? r.json() : []),
+    ]).then(([devR, cmR, stR]) => {
+      const devs = (devR.devices ?? []) as { id: string; status: string }[];
+      const cms  = Array.isArray(cmR) ? cmR : [] as { paymentId?: string; status?: string }[];
+      const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as { id: string; createdAt: string; onboardingStage?: string }[];
+      let count = 0;
+      devs.forEach((d) => { if (d.status === 'OFFLINE' && !dismissed.includes(`device-offline-${d.id}`)) count++; });
+      const pendingDevs = devs.filter((d) => d.status === 'PENDING');
+      if (pendingDevs.length > 0 && !dismissed.includes('devices-pending')) count++;
+      const pendingCms = cms.filter((c) => (c as { paymentId?: string }).paymentId === 'pending' || (c as { status?: string }).status === 'upcoming');
+      if (pendingCms.length > 0 && !dismissed.includes('campaigns-pending-payment')) count++;
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const newSts = sts.filter((s) => s.createdAt > cutoff && (!s.onboardingStage || s.onboardingStage === 'new'));
+      if (newSts.length > 0) {
+        const id = `stores-new-${newSts.map((s: { id: string }) => s.id).join('-')}`;
+        if (!dismissed.includes(id)) count++;
+      }
+      setAlertCount(count);
+    }).catch(() => {});
   }, []);
 
   // Apply theme to container
@@ -1670,6 +1704,7 @@ function Dashboard() {
     layouts:    'Layouts',
     media:      'Media',
     products:   'Products',
+    alerts:     'Alerts',
     roadmap:    'Platform',
   };
 
@@ -1682,10 +1717,10 @@ function Dashboard() {
           section={sectionName[tab] ?? tab}
           liveCount={liveCount}
           onOpenCmd={() => setCmdOpen(true)}
-          onOpenNotif={() => setNotifOpen(true)}
+          onOpenNotif={() => handleNav('alerts')}
           theme={theme}
           setTheme={setTheme}
-          unread={3}
+          unread={alertCount}
         />
         <Ticker />
 
@@ -1715,6 +1750,7 @@ function Dashboard() {
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
+              {tab === 'alerts'    && <AlertsTab onNav={(t) => handleNav(t as Tab)} />}
               {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}
               {tab === 'products'   && <ProductsTab adminPw={adminPw} />}
               {tab === 'roadmap'    && <RoadmapTab />}

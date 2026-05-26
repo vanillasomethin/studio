@@ -58,6 +58,10 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
   const [form,       setForm]       = useState({ ...BLANK });
   const [saving,     setSaving]     = useState(false);
   const [imgUploading, setImgUploading] = useState(false);
+  const [formImgPreview, setFormImgPreview] = useState<string | null>(null);
+  const [formImgFile,    setFormImgFile]    = useState<File | null>(null);
+  const [formImgDragOver, setFormImgDragOver] = useState(false);
+  const formImgRef = useRef<HTMLInputElement>(null);
 
   // Bulk import state
   const [importRows,    setImportRows]    = useState<CsvRow[]>([]);
@@ -93,7 +97,7 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
 
   useEffect(() => { void load(1); }, [load]);
 
-  const openNew  = () => { setEditId(null); setForm({ ...BLANK }); setShowForm(true); };
+  const openNew  = () => { setEditId(null); setForm({ ...BLANK }); setFormImgPreview(null); setFormImgFile(null); setShowForm(true); };
   const openEdit = (p: Product) => {
     setEditId(p.id);
     setForm({ productName: p.productName, brand: p.brand, category: p.category,
@@ -101,7 +105,7 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       imageUrl: p.imageUrl, barcodeEan: p.barcodeEan });
     setShowForm(true);
   };
-  const closeForm = () => { setShowForm(false); setEditId(null); };
+  const closeForm = () => { setShowForm(false); setEditId(null); setFormImgPreview(null); setFormImgFile(null); };
 
   const save = async () => {
     if (!form.productName.trim() || !form.brand.trim() || !form.sizeVariant.trim()) {
@@ -115,6 +119,10 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       const res    = await fetch(url, { method, headers, body: JSON.stringify(form) });
       if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? 'Save failed');
       const data   = await res.json() as { product: Product };
+      // Upload pending image after creation
+      if (!editId && formImgFile) {
+        await uploadImage(data.product.id, formImgFile);
+      }
       toast({ title: editId ? 'Product updated ✓' : `Created ${data.product.id} ✓` });
       closeForm();
       void load(page);
@@ -464,6 +472,51 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
                 <input value={form.barcodeEan ?? ''} onChange={(e) => set('barcodeEan', e.target.value || null)} placeholder="8901234567890" className={inp} />
               </div>
             </div>
+
+            {/* Product image drag-and-drop (new products only) */}
+            {!editId && (
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Product image <span className="normal-case font-normal text-muted-foreground/60">(PNG without background works best)</span>
+                </label>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setFormImgDragOver(true); }}
+                  onDragLeave={() => setFormImgDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault(); setFormImgDragOver(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file || !file.type.startsWith('image/')) return;
+                    setFormImgFile(file);
+                    const r = new FileReader();
+                    r.onload = () => setFormImgPreview(r.result as string);
+                    r.readAsDataURL(file);
+                  }}
+                  onClick={() => formImgRef.current?.click()}
+                  className={`relative flex items-center justify-center rounded-xl border-2 border-dashed cursor-pointer transition-colors h-28 overflow-hidden ${
+                    formImgDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+                  }`}
+                >
+                  {formImgPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={formImgPreview} alt="preview" className="h-full max-h-28 w-full object-contain" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-1 text-muted-foreground/50">
+                      <Upload className="h-5 w-5" />
+                      <span className="text-xs font-semibold">Drop PNG here or click to pick</span>
+                    </div>
+                  )}
+                </div>
+                <input ref={formImgRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]; if (!file) return;
+                    setFormImgFile(file);
+                    const r = new FileReader();
+                    r.onload = () => setFormImgPreview(r.result as string);
+                    r.readAsDataURL(file);
+                    e.target.value = '';
+                  }} />
+              </div>
+            )}
 
             <div className="flex gap-2 pt-2">
               <button onClick={closeForm} className="flex-1 rounded-xl border border-border py-2.5 text-sm font-semibold">Cancel</button>
