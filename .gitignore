@@ -53,3 +53,4 @@ graphify-out/.graphify_root
 graphify-out/.graphify_analysis.json
 graphify-out/.graphify_semantic_marker
 graphify-out/20*/
+graphify-out/.rebuild.lock

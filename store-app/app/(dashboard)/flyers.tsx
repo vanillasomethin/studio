@@ -11,7 +11,7 @@ import { loadSession } from '../../lib/storage';
 const BASE = 'https://wearealive.in';
 
 type Flyer = {
-  id: string; title: string; description: string; validUntil: string;
+  id: string; storeName?: string; title: string; description: string; validUntil: string;
   imageBase64: string; createdAt: string;
 };
 
