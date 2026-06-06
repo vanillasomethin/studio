@@ -15,8 +15,7 @@
     },
     "android": {
       "package": "com.partner.alive",
-      "versionCode": 2,
-      "targetSdkVersion": 35,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ef4444"
@@ -32,6 +31,15 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ],
       [
         "expo-location",
         {
