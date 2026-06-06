@@ -1,16 +1,16 @@
-# Graph Report - studio  (2026-05-25)
+# Graph Report - studio  (2026-06-04)
 
 ## Corpus Check
-- 322 files · ~1,074,664 words
+- 322 files · ~1,074,666 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1799 nodes · 2772 edges · 167 communities (129 shown, 38 thin omitted)
+- 1800 nodes · 2773 edges · 169 communities (130 shown, 39 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ad00cf4f`
+- Built from commit: `b7eea538`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -160,6 +160,8 @@
 - [[_COMMUNITY_Community 164|Community 164]]
 - [[_COMMUNITY_Community 165|Community 165]]
 - [[_COMMUNITY_Community 166|Community 166]]
+- [[_COMMUNITY_Community 167|Community 167]]
+- [[_COMMUNITY_Community 168|Community 168]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `cn()` - 50 edges
@@ -185,7 +187,7 @@
 - `ALIVE Player API Reference` --references--> `Device Plan API`  [EXTRACTED]
   ALIVE_PLAYER_API.md → src/app/api/device/plan/route.ts
 
-## Communities (167 total, 38 thin omitted)
+## Communities (169 total, 39 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
@@ -204,8 +206,8 @@ Cohesion: 0.06
 Nodes (37): ALIVE Player — Device API Reference, ALIVE Player Integration Checklist, Android TV Specifics, Authentication, Boot Sequence Diagram, code:block1 (Authorization: Bearer <token>), code:block10 (POST https://wearealive.in/api/device/events), code:bash (curl -X POST https://wearealive.in/api/device/events \) (+29 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.06
-Nodes (12): adminGuard(), POST(), globalForPrisma, StoreLocation, checkAdmin(), POST(), Body, adminGuard() (+4 more)
+Cohesion: 0.07
+Nodes (10): adminGuard(), POST(), globalForPrisma, StoreLocation, checkAdmin(), POST(), Body, adminGuard() (+2 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.17
@@ -328,8 +330,8 @@ Cohesion: 0.28
 Nodes (11): ContactForm(), ContactFormProps, DialogContent, DialogDescription, DialogHeader(), DialogOverlay, DialogTitle, Input (+3 more)
 
 ### Community 35 - "Community 35"
-Cohesion: 0.08
-Nodes (25): backgroundColor, foregroundImage, adaptiveIcon, package, permissions, versionCode, projectId, expo (+17 more)
+Cohesion: 0.07
+Nodes (26): backgroundColor, foregroundImage, adaptiveIcon, package, permissions, targetSdkVersion, versionCode, projectId (+18 more)
 
 ### Community 36 - "Community 36"
 Cohesion: 0.31
@@ -344,8 +346,8 @@ Cohesion: 0.18
 Nodes (19): BLANK_FORM, detectTargetMode(), FormState, POSITION_META, TARGET_MODES, TargetMode, TYPE_META, LayoutsTab (+11 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.09
-Nodes (21): devDependencies, genkit-cli, postcss, tailwindcss, @types/bcryptjs, @types/node, @types/react, @types/react-dom (+13 more)
+Cohesion: 0.15
+Nodes (12): devDependencies, genkit-cli, postcss, tailwindcss, @types/bcryptjs, @types/node, @types/react, @types/react-dom (+4 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.12
@@ -527,6 +529,10 @@ Nodes (3): Alive After Image (Duplicate), Alive After (AI Edited), Alive Before 
 Cohesion: 0.50
 Nodes (3): Favicon SVG, Firebase Studio, Firebase Studio
 
+### Community 97 - "Community 97"
+Cohesion: 0.22
+Nodes (9): scripts, build, dev, export, genkit:dev, genkit:watch, lint, start (+1 more)
+
 ### Community 100 - "Community 100"
 Cohesion: 0.27
 Nodes (9): s, View_, getStoreMe(), request(), requestPasswordReset(), storeLogin(), storeRegister(), updateStoreMe() (+1 more)
@@ -616,9 +622,9 @@ Cohesion: 0.67
 Nodes (3): Badge(), BadgeProps, badgeVariants
 
 ## Knowledge Gaps
-- **678 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+673 more)
+- **679 isolated node(s):** `$schema`, `style`, `rsc`, `tsx`, `config` (+674 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **38 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **39 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -630,7 +636,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Why does `clsx` connect `Community 0` to `Community 6`?**
   _High betweenness centrality (0.068) - this node is a cross-community bridge._
 - **What connects `$schema`, `style`, `rsc` to the rest of the system?**
-  _678 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _679 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.03076923076923077 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
