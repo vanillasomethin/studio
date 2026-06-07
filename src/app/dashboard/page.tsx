@@ -16,7 +16,7 @@ import {
   Monitor, TrendingUp, Eye, IndianRupee, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
   CreditCard, X, Loader2, Plus, Check, Upload, FileVideo, ImageIcon, Download,
-  Gift, Printer,
+  Gift, Printer, ExternalLink, Sheet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
@@ -219,6 +219,128 @@ function PerformanceCharts({ campaigns, analytics }: { campaigns: Campaign[]; an
             </BarChart>
           </ResponsiveContainer>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Google Sheets Export ─────────────────────────────────────────────────────
+
+function GoogleSheetsExport() {
+  const [connected,  setConnected]  = useState<boolean | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [exporting,  setExporting]  = useState(false);
+  const [sheetUrl,   setSheetUrl]   = useState<string | null>(null);
+  const [error,      setError]      = useState('');
+
+  useEffect(() => {
+    fetch('/api/brands/nango/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { connected: boolean } | null) => setConnected(d?.connected ?? false))
+      .catch(() => setConnected(false));
+  }, []);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setError('');
+    try {
+      const res = await fetch('/api/brands/nango/connect', { method: 'POST' });
+      const body = await res.json() as { connectionId?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Failed to start connection');
+
+      const publicKey = process.env.NEXT_PUBLIC_NANGO_PUBLIC_KEY;
+      if (!publicKey) throw new Error('Nango public key not configured');
+
+      const { default: Nango } = await import('@nangohq/frontend');
+      const nango = new Nango({ publicKey });
+      await nango.auth('google-sheet', body.connectionId!);
+      setConnected(true);
+    } catch (e) {
+      setError((e as Error).message || 'Connection failed');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    setError('');
+    try {
+      const res = await fetch('/api/brands/sheets/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Export failed');
+      setSheetUrl(data.url!);
+    } catch (e) {
+      setError((e as Error).message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  if (connected === null) return null;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-500/10 text-green-600">
+            <Sheet className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-foreground">Google Sheets Export</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Live proof-of-play data in your own spreadsheet</p>
+          </div>
+        </div>
+        {connected && (
+          <span className="flex items-center gap-1 rounded-full border border-green-500/20 bg-green-500/10 px-2.5 py-1 text-[10px] font-bold text-green-600">
+            <Check className="h-3 w-3" /> Connected
+          </span>
+        )}
+      </div>
+
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
+
+      {sheetUrl ? (
+        <a
+          href={sheetUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm font-bold text-primary transition-colors hover:bg-primary/10"
+        >
+          <ExternalLink className="h-4 w-4" />
+          Open your Google Sheet
+        </a>
+      ) : connected ? (
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-60"
+        >
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {exporting ? 'Exporting…' : 'Export all campaigns to Google Sheets'}
+        </button>
+      ) : (
+        <button
+          onClick={handleConnect}
+          disabled={connecting}
+          className="flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        >
+          {connecting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+          )}
+          {connecting ? 'Opening Google login…' : 'Connect Google Sheets'}
+        </button>
       )}
     </div>
   );
@@ -1501,7 +1623,12 @@ export default function DashboardPage() {
           <TabsContent value="performance">
             {fetching
               ? <Skeleton className="h-64 rounded-xl" />
-              : <PerformanceCharts campaigns={campaigns} analytics={analytics} />
+              : (
+                <div className="space-y-6">
+                  <PerformanceCharts campaigns={campaigns} analytics={analytics} />
+                  <GoogleSheetsExport />
+                </div>
+              )
             }
           </TabsContent>
 
