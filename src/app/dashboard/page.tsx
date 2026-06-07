@@ -105,10 +105,26 @@ function SummaryCard({ icon, label, value, sub }: { icon: React.ReactNode; label
 
 // ─── Campaign Card ─────────────────────────────────────────────────────────────
 
-function CampaignCard({ c }: { c: Campaign }) {
+function CampaignCard({ c, sheetsConnected }: { c: Campaign; sheetsConnected?: boolean }) {
   const status         = deriveCampaignStatus(c);
   const startFormatted = c.startDate ? format(parseISO(c.startDate), 'd MMM yyyy') : '—';
   const endFormatted   = c.startDate ? format(addMonths(parseISO(c.startDate), c.months), 'd MMM yyyy') : '—';
+
+  const [exporting, setExporting] = useState(false);
+  const [sheetUrl,  setSheetUrl]  = useState<string | null>(null);
+  const [exportErr, setExportErr] = useState('');
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportErr('');
+    try {
+      setSheetUrl(await requestSheetExport(c.id));
+    } catch (e) {
+      setExportErr((e as Error).message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <motion.div variants={fadeUp} className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -146,6 +162,31 @@ function CampaignCard({ c }: { c: Campaign }) {
           <p className="font-mono text-[10px] text-foreground mt-0.5 truncate max-w-[130px]">{c.paymentId}</p>
         </div>
       </div>
+
+      {sheetsConnected && (
+        <div className="border-t border-border pt-3">
+          {sheetUrl ? (
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary/10"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Open Google Sheet
+            </a>
+          ) : (
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+            >
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sheet className="h-3.5 w-3.5 text-green-600" />}
+              {exporting ? 'Exporting…' : 'Export this campaign to Sheets'}
+            </button>
+          )}
+          {exportErr && <p className="mt-2 text-[11px] text-destructive">{exportErr}</p>}
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -226,19 +267,23 @@ function PerformanceCharts({ campaigns, analytics }: { campaigns: Campaign[]; an
 
 // ─── Google Sheets Export ─────────────────────────────────────────────────────
 
-function GoogleSheetsExport() {
-  const [connected,  setConnected]  = useState<boolean | null>(null);
+// Shared by the Performance-tab card and per-campaign buttons.
+async function requestSheetExport(campaignId?: string): Promise<string> {
+  const res = await fetch('/api/brands/sheets/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(campaignId ? { campaignId } : {}),
+  });
+  const data = await res.json() as { url?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? 'Export failed');
+  return data.url!;
+}
+
+function GoogleSheetsExport({ connected, onConnected }: { connected: boolean | null; onConnected: () => void }) {
   const [connecting, setConnecting] = useState(false);
   const [exporting,  setExporting]  = useState(false);
   const [sheetUrl,   setSheetUrl]   = useState<string | null>(null);
   const [error,      setError]      = useState('');
-
-  useEffect(() => {
-    fetch('/api/brands/nango/status')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { connected: boolean } | null) => setConnected(d?.connected ?? false))
-      .catch(() => setConnected(false));
-  }, []);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -254,7 +299,7 @@ function GoogleSheetsExport() {
       const { default: Nango } = await import('@nangohq/frontend');
       const nango = new Nango({ publicKey });
       await nango.auth('google-sheet', body.connectionId!);
-      setConnected(true);
+      onConnected();
     } catch (e) {
       setError((e as Error).message || 'Connection failed');
     } finally {
@@ -266,14 +311,7 @@ function GoogleSheetsExport() {
     setExporting(true);
     setError('');
     try {
-      const res = await fetch('/api/brands/sheets/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json() as { url?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Export failed');
-      setSheetUrl(data.url!);
+      setSheetUrl(await requestSheetExport());
     } catch (e) {
       setError((e as Error).message || 'Export failed');
     } finally {
@@ -1458,6 +1496,7 @@ export default function DashboardPage() {
   const [pending,         setPending]         = useState<PendingForm | null>(null);
   const [showNewCampaign, setShowNewCampaign] = useState(false);
   const [isMobile,        setIsMobile]        = useState(false);
+  const [sheetsConnected, setSheetsConnected] = useState<boolean | null>(null);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640);
@@ -1498,6 +1537,12 @@ export default function DashboardPage() {
       .then((r) => r.ok ? r.json() : null)
       .then((d: Analytics | null) => { if (d) setAnalytics(d); })
       .catch(() => {});
+
+    // Check Google Sheets connection (non-blocking)
+    fetch('/api/brands/nango/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { connected: boolean } | null) => setSheetsConnected(d?.connected ?? false))
+      .catch(() => setSheetsConnected(false));
   }, [session, status, router]);
 
   if (status === 'loading' || fetching) return <LoadingSkeleton />;
@@ -1614,7 +1659,7 @@ export default function DashboardPage() {
                   </button>
                 </div>
                 <motion.div variants={stagger} initial="hidden" animate="show" className="grid gap-4 sm:grid-cols-2">
-                  {campaigns.map((c) => <CampaignCard key={c.id} c={c} />)}
+                  {campaigns.map((c) => <CampaignCard key={c.id} c={c} sheetsConnected={!!sheetsConnected} />)}
                 </motion.div>
               </>
             )}
@@ -1626,7 +1671,7 @@ export default function DashboardPage() {
               : (
                 <div className="space-y-6">
                   <PerformanceCharts campaigns={campaigns} analytics={analytics} />
-                  <GoogleSheetsExport />
+                  <GoogleSheetsExport connected={sheetsConnected} onConnected={() => setSheetsConnected(true)} />
                 </div>
               )
             }
