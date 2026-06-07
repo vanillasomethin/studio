@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
@@ -132,12 +132,26 @@ export default function RegisterStep1() {
           <TouchableOpacity style={s.gpsBtn} onPress={grabLocation} disabled={gpsLoading}>
             {gpsLoading
               ? <ActivityIndicator size="small" color={C.primary} />
-              : <Ionicons name="locate" size={16} color={C.primary} />
+              : <Ionicons name={form.lat ? 'checkmark-circle' : 'locate'} size={16} color={C.primary} />
             }
             <Text style={s.gpsBtnText}>
               {form.lat ? `Pinned · ${parseFloat(form.lat).toFixed(4)}, ${parseFloat(form.lng).toFixed(4)}` : 'Use my current location'}
             </Text>
           </TouchableOpacity>
+          {form.lat && form.lng ? (
+            <View style={s.mapPreview}>
+              {/* Static OSM tile — z=16, 400×200 */}
+              <Image
+                source={{ uri: `https://staticmap.openstreetmap.de/staticmap.php?center=${form.lat},${form.lng}&zoom=16&size=400x160&markers=${form.lat},${form.lng},red-pushpin` }}
+                style={s.mapImg}
+                resizeMode="cover"
+              />
+              <View style={s.mapPinBadge}>
+                <Ionicons name="location" size={12} color={C.primary} />
+                <Text style={s.mapPinText}>Your shop pin</Text>
+              </View>
+            </View>
+          ) : null}
 
           {/* Address row */}
           <View style={s.row}>
@@ -266,6 +280,10 @@ const s = StyleSheet.create({
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, marginTop: 6,
   },
   gpsBtnText: { fontSize: 13, color: C.primary, fontWeight: '600', flex: 1 },
+  mapPreview: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: C.border, marginTop: 8 },
+  mapImg: { width: '100%', height: 140 },
+  mapPinBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 8, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border },
+  mapPinText: { fontSize: 11, color: C.textSub, fontWeight: '500' },
   btn: {
     backgroundColor: C.primary, borderRadius: 12, paddingVertical: 15,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

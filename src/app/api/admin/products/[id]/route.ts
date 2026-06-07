@@ -16,12 +16,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json() as Partial<{
     productName: string; brand: string; sizeVariant: string;
     unitType: string; mrp: number | null; imageUrl: string | null;
+    imageIsAi: boolean; mrpCheckedAt: string | null;
     barcodeEan: string | null; isActive: boolean;
   }>;
 
+  const { mrpCheckedAt, ...rest } = body;
+
   const product = await db.product.update({
     where: { id },
-    data:  { ...body, updatedAt: new Date() },
+    data:  {
+      ...rest,
+      ...(mrpCheckedAt !== undefined ? { mrpCheckedAt: mrpCheckedAt ? new Date(mrpCheckedAt) : null } : {}),
+      updatedAt: new Date(),
+    },
   });
 
   return NextResponse.json({ product });

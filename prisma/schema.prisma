@@ -538,7 +538,9 @@ model Product {
   sizeVariant  String                     // "1 Ltr", "500 ml", "30 Count"
   unitType     String                     // ml|g|count|ltr|kg
   mrp          Int?                       // national MRP in rupees (reference only)
+  mrpCheckedAt DateTime?                  // last time MRP was fetched from Amazon/Flipkart
   imageUrl     String?                    // R2 public URL
+  imageIsAi    Boolean  @default(false)   // true = AI-generated placeholder; replace with real photo later
   barcodeEan   String?                    // EAN-13 if available
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())

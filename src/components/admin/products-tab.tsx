@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check, FileSpreadsheet, Lightbulb, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check, FileSpreadsheet, Lightbulb, ChevronDown, ChevronUp, Sparkles, Loader2, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORY_OPTIONS, UNIT_TYPES } from '@/lib/product-id';
 
@@ -36,10 +36,13 @@ function parseCsvText(text: string): CsvRow[] {
 type Product = {
   id: string; groupId: string; productName: string; brand: string;
   category: string; sizeVariant: string; unitType: string;
-  mrp: number | null; imageUrl: string | null; barcodeEan: string | null; isActive: boolean;
+  mrp: number | null; imageUrl: string | null; imageIsAi: boolean;
+  barcodeEan: string | null; isActive: boolean;
 };
 
-const BLANK: Omit<Product, 'id' | 'groupId' | 'isActive'> = {
+type MrpCandidate = { source: 'amazon' | 'flipkart'; title: string; price: number; url?: string };
+
+const BLANK: Omit<Product, 'id' | 'groupId' | 'isActive' | 'imageIsAi'> = {
   productName: '', brand: '', category: 'GRO', sizeVariant: '', unitType: 'g',
   mrp: null, imageUrl: null, barcodeEan: null,
 };
@@ -155,13 +158,70 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       const { publicUrl } = await up.json() as { publicUrl: string };
       await fetch(`/api/admin/products/${id}`, {
         method: 'PATCH', headers,
-        body: JSON.stringify({ imageUrl: publicUrl }),
+        // Real photograph overrides any AI-generated placeholder
+        body: JSON.stringify({ imageUrl: publicUrl, imageIsAi: false }),
       });
       toast({ title: 'Image uploaded ✓' });
       void load(page);
     } catch (e) {
       toast({ variant: 'destructive', title: 'Image upload failed', description: (e as Error).message });
     } finally { setImgUploading(false); }
+  };
+
+  // AI image generation (per-row)
+  const [genId, setGenId] = useState<string | null>(null);
+  const generateImage = async (id: string) => {
+    setGenId(id);
+    try {
+      const res = await fetch(`/api/admin/products/${id}/generate-image`, {
+        method: 'POST', headers: { 'admin-password': adminPw },
+      });
+      if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? 'Generation failed');
+      toast({ title: 'AI image generated ✓', description: 'Replace with a real photo anytime.' });
+      void load(page);
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'AI image failed', description: (e as Error).message });
+    } finally { setGenId(null); }
+  };
+
+  // MRP fetch from Amazon/Flipkart via Maxun (per-row, review before apply)
+  const [mrpId,     setMrpId]     = useState<string | null>(null);
+  const [mrpFor,    setMrpFor]    = useState<Product | null>(null);
+  const [mrpCands,  setMrpCands]  = useState<MrpCandidate[]>([]);
+  const [mrpErrors, setMrpErrors] = useState<string[]>([]);
+
+  const fetchMrp = async (p: Product) => {
+    setMrpId(p.id); setMrpFor(p); setMrpCands([]); setMrpErrors([]);
+    try {
+      const res  = await fetch(`/api/admin/products/${p.id}/fetch-mrp`, {
+        method: 'POST', headers: { 'admin-password': adminPw },
+      });
+      const data = await res.json() as { candidates?: MrpCandidate[]; errors?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Fetch failed');
+      setMrpCands(data.candidates ?? []);
+      setMrpErrors(data.errors ?? []);
+      if (!data.candidates?.length) {
+        toast({ title: 'No prices found', description: 'Try a real photo / manual entry.' });
+        setMrpFor(null);
+      }
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'MRP fetch failed', description: (e as Error).message });
+      setMrpFor(null);
+    } finally { setMrpId(null); }
+  };
+
+  const applyMrp = async (id: string, mrp: number) => {
+    try {
+      await fetch(`/api/admin/products/${id}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ mrp, mrpCheckedAt: new Date().toISOString() }),
+      });
+      toast({ title: `MRP set to ₹${mrp} ✓` });
+      setMrpFor(null);
+      void load(page);
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to set MRP' });
+    }
   };
 
   // Load unrecognized offer product names (no productId set)
@@ -384,19 +444,49 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
                   <p className="text-xs text-muted-foreground">{p.brand}</p>
                 </td>
                 <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{p.sizeVariant}</td>
-                <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{p.mrp ? `₹${p.mrp}` : '—'}</td>
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">{p.mrp ? `₹${p.mrp}` : '—'}</span>
+                    <button onClick={() => fetchMrp(p)} disabled={mrpId === p.id}
+                      title="Fetch MRP from Amazon / Flipkart"
+                      className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 disabled:opacity-50">
+                      {mrpId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Tag className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </td>
                 <td className="px-4 py-3">
                   {p.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.imageUrl} alt={p.productName} className="h-10 w-10 rounded object-contain bg-muted" />
-                  ) : (
-                    <label className="cursor-pointer">
-                      <input type="file" accept="image/*" className="hidden"
-                        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(p.id, f); }} />
-                      <div className="h-10 w-10 rounded border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                        <Upload className="h-3.5 w-3.5" />
+                    <div className="flex items-center gap-1.5">
+                      <div className="relative inline-block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.imageUrl} alt={p.productName} className="h-10 w-10 rounded object-contain bg-muted" />
+                        {p.imageIsAi && (
+                          <span className="absolute -top-1 -right-1 rounded bg-violet-600 px-1 text-[8px] font-bold text-white leading-tight">AI</span>
+                        )}
                       </div>
-                    </label>
+                      {p.imageIsAi && (
+                        <label title="Replace with a real photo" className="cursor-pointer p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/5">
+                          <input type="file" accept="image/*" className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(p.id, f); }} />
+                          <Upload className="h-3 w-3" />
+                        </label>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <label className="cursor-pointer" title="Upload a real photo">
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(p.id, f); }} />
+                        <div className="h-10 w-10 rounded border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                          <Upload className="h-3.5 w-3.5" />
+                        </div>
+                      </label>
+                      <button onClick={() => generateImage(p.id)} disabled={genId === p.id}
+                        title="Generate image with AI"
+                        className="h-10 w-10 rounded border-2 border-dashed border-violet-300 flex items-center justify-center text-violet-500 hover:border-violet-500 hover:bg-violet-50 transition-colors disabled:opacity-50">
+                        {genId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-3">
@@ -532,6 +622,46 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       {imgUploading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-background rounded-xl px-6 py-4 text-sm font-semibold">Uploading image…</div>
+        </div>
+      )}
+
+      {/* MRP fetch in progress */}
+      {mrpId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-background rounded-xl px-6 py-4 text-sm font-semibold flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Fetching prices from Amazon &amp; Flipkart…
+          </div>
+        </div>
+      )}
+
+      {/* MRP candidates — review before applying */}
+      {mrpFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-background border border-border shadow-xl p-5 space-y-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-bold text-foreground flex items-center gap-2"><Tag className="h-4 w-4 text-primary" /> MRP candidates</p>
+                <p className="text-xs text-muted-foreground">{mrpFor.brand} {mrpFor.productName} · {mrpFor.sizeVariant}</p>
+              </div>
+              <button onClick={() => setMrpFor(null)}><X className="h-4 w-4 text-muted-foreground" /></button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Scraped from Amazon &amp; Flipkart — verify before applying. The highest figure is usually the MRP.
+            </p>
+            <div className="space-y-1.5 max-h-72 overflow-auto">
+              {mrpCands.map((c, i) => (
+                <button key={i} onClick={() => applyMrp(mrpFor.id, c.price)}
+                  className="flex items-center justify-between w-full gap-3 rounded-lg border border-border px-3 py-2 text-left hover:border-primary hover:bg-primary/5 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">{c.title}</p>
+                    <span className={`text-[10px] font-bold uppercase ${c.source === 'amazon' ? 'text-amber-600' : 'text-blue-600'}`}>{c.source}</span>
+                  </div>
+                  <span className="font-bold text-foreground shrink-0">₹{c.price}</span>
+                </button>
+              ))}
+            </div>
+            {mrpErrors.length > 0 && <p className="text-[10px] text-amber-600">{mrpErrors.join(' · ')}</p>}
+          </div>
         </div>
       )}
     </div>

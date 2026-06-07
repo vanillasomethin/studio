@@ -39,11 +39,28 @@ export async function storeLogin(
 
 export async function storeRegister(
   payload: RegisterPayload,
-): Promise<{ success?: boolean; referralCode?: string; error?: string }> {
-  return request('/api/stores/save', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+): Promise<{ success?: boolean; referralCode?: string; error?: string; statusCode?: number }> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/stores/save`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
+    const body = await res.json().catch(() => ({})) as { success?: boolean; referralCode?: string; error?: string; data?: { error?: string; referralCode?: string } };
+    if (!res.ok) {
+      const msg = body.data?.error ?? body.error ?? `HTTP ${res.status}`;
+      return { error: msg, statusCode: res.status };
+    }
+    return { success: true, referralCode: body.data?.referralCode ?? body.referralCode };
+  } catch (e) {
+    const err = e as Error;
+    return { error: err.name === 'AbortError' ? 'Request timed out. Please try again.' : err.message };
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 export async function getStoreMe(storeId?: string): Promise<StoreSession> {

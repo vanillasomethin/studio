@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../lib/colors';
@@ -14,12 +14,17 @@ type View_ = 'login' | 'forgot_phone' | 'forgot_otp' | 'forgot_done';
 
 export default function SignIn() {
   const router = useRouter();
+  const { prefillPhone } = useLocalSearchParams<{ prefillPhone?: string }>();
   const [view, setView] = useState<View_>('login');
 
   // Login fields
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+
+  useEffect(() => {
+    if (prefillPhone) setPhone(prefillPhone.replace(/\D/g, '').slice(0, 10));
+  }, [prefillPhone]);
 
   // Reset fields
   const [resetPhone, setResetPhone] = useState('');
