@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check, FileSpreadsheet, Lightbulb, ChevronDown, ChevronUp, Sparkles, Loader2, Tag, Barcode, IndianRupee } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check, FileSpreadsheet, Lightbulb, ChevronDown, ChevronUp, Sparkles, Loader2, Tag, Barcode, IndianRupee, Clapperboard } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORY_OPTIONS, UNIT_TYPES } from '@/lib/product-id';
 
@@ -210,6 +210,24 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
     } catch (e) {
       toast({ variant: 'destructive', title: 'AI image failed', description: (e as Error).message });
     } finally { setGenId(null); }
+  };
+
+  // Offer-video generation (Remotion Lambda, renders off-Vercel)
+  const [vidId,    setVidId]    = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const generateVideo = async (id: string) => {
+    setVidId(id);
+    try {
+      const res = await fetch(`/api/admin/products/${id}/generate-video`, {
+        method: 'POST', headers, body: JSON.stringify({}),
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Render failed');
+      setVideoUrl(data.url ?? null);
+      toast({ title: 'Offer video ready ✓' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Video render failed', description: (e as Error).message });
+    } finally { setVidId(null); }
   };
 
   // MRP fetch from Amazon/Flipkart via Maxun (per-row, review before apply)
@@ -629,6 +647,11 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-1 justify-end">
+                    <button onClick={() => generateVideo(p.id)} disabled={vidId === p.id}
+                      title="Generate offer video (Remotion)"
+                      className="p-1.5 rounded hover:bg-violet-50 text-violet-600 disabled:opacity-50">
+                      {vidId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="h-3.5 w-3.5" />}
+                    </button>
                     <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-blue-50 text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
                     <button onClick={() => del(p.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
@@ -777,6 +800,33 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-background rounded-xl px-6 py-4 text-sm font-semibold flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-emerald-600" /> Looking up barcode on Open Food Facts…
+          </div>
+        </div>
+      )}
+
+      {/* Offer video rendering in progress */}
+      {vidId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-background rounded-xl px-6 py-4 text-sm font-semibold flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-violet-600" /> Rendering offer video…
+          </div>
+        </div>
+      )}
+
+      {/* Offer video preview */}
+      {videoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-background border border-border shadow-xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-foreground flex items-center gap-2"><Clapperboard className="h-4 w-4 text-violet-600" /> Offer video</p>
+              <button onClick={() => setVideoUrl(null)}><X className="h-4 w-4 text-muted-foreground" /></button>
+            </div>
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video src={videoUrl} controls autoPlay loop className="w-full rounded-lg bg-black" />
+            <div className="flex items-center justify-between gap-2">
+              <a href={videoUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary hover:underline">Open / download ↗</a>
+              <button onClick={() => setVideoUrl(null)} className="rounded-lg border border-border px-4 py-2 text-xs font-semibold">Close</button>
+            </div>
           </div>
         </div>
       )}
