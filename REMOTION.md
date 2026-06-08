@@ -15,9 +15,22 @@ the reason we chose Remotion over self-hosting nexrender.
 | `src/lib/remotion-render.ts` | Triggers a render on **Remotion Lambda** and polls for the URL. |
 | `src/app/api/admin/products/[id]/generate-video/route.ts` | Admin endpoint that renders a product's offer video. |
 
-Admin UI: the 🎬 button on each product row in **Admin → Content/Products** renders
-a video and opens a preview. Returns a clear "not configured" message until the
-Lambda below is set up.
+Admin UI: the 🎬 button on each product row renders a video, **saves it to R2 +
+the Content library** (folder "Offer Videos"), and opens a preview where you can
+**add it to a playlist** in one click — from there the existing schedule pipeline
+pushes it to screens (no APK rebuild). Returns a clear "not configured" message
+until the Lambda below is set up.
+
+## How a rendered video reaches a screen
+
+1. Render on Lambda → MP4.
+2. Route copies the MP4 into **R2** and creates a **`Content`** row (`type=VIDEO`,
+   8s duration, tagged `offer-video`).
+3. Admin clicks a playlist in the preview → the video is appended as a
+   `PlaylistItem`.
+4. Any `Schedule` using that playlist already targets devices; the player picks
+   the new item up on its next `/api/device/plan` sync and plays it with
+   ExoPlayer (H.264 MP4 — natively supported). **No Android repackage.**
 
 ## Why rendering is off-Vercel
 

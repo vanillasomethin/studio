@@ -1,17 +1,21 @@
-// ALIVE offer video — a clean, animated product/offer card for in-store screens.
+// ALIVE offer video — animated product/offer card for in-store screens.
 // React-only (Remotion): renders on Linux/Lambda, no Adobe, no licence. Enter
 // animations only (spring/fade), matching ALIVE's no-loops design language.
 
+import { loadFont } from '@remotion/google-fonts/Poppins';
 import { AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+
+// Load Poppins (800 weight) — used for the ALIVE logo, matches the site logo component.
+const { fontFamily: POPPINS } = loadFont('normal', { weights: ['800'] });
 
 export type OfferVideoProps = {
   productName: string;
   brand: string;
   sizeVariant?: string;
-  price?: number | null;   // rupees
-  offerText?: string;      // e.g. "TODAY'S OFFER", "FLAT 20% OFF"
+  price?: number | null;
+  offerText?: string;     // e.g. "TODAY'S OFFER", "FLAT 20% OFF"
   imageUrl?: string;
-  accent?: string;         // brand red by default
+  accent?: string;
 };
 
 export const offerVideoDefaults: OfferVideoProps = {
@@ -27,13 +31,39 @@ export const offerVideoDefaults: OfferVideoProps = {
 const SANS = 'Inter Tight, Inter, system-ui, -apple-system, Segoe UI, sans-serif';
 const MONO = 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace';
 
+// Inline ALIVE logo — "alive" in Poppins 800 + red dot, mirrors Logo component exactly.
+const AliveLogo: React.FC<{ size?: number; opacity?: number }> = ({ size = 52, opacity = 1 }) => (
+  <div style={{ display: 'inline-flex', alignItems: 'center', opacity }}>
+    <span style={{
+      fontFamily: POPPINS,
+      fontWeight: 800,
+      fontSize: size,
+      letterSpacing: '-0.02em',
+      lineHeight: 1,
+      color: '#0a0a0a',
+      textRendering: 'optimizeLegibility',
+    }}>
+      alive
+    </span>
+    <span style={{
+      width: size * 0.14,
+      height: size * 0.14,
+      borderRadius: '50%',
+      background: '#dc2626',
+      marginLeft: size * 0.04,
+      flexShrink: 0,
+      transform: `translateY(${size * 0.02}px)`,
+      display: 'inline-block',
+    }} />
+  </div>
+);
+
 export const OfferVideo: React.FC<OfferVideoProps> = ({
   productName, brand, sizeVariant, price, offerText, imageUrl, accent = '#ef4444',
 }) => {
   const frame = useCurrentFrame();
   const { fps, width } = useVideoConfig();
 
-  // Staggered spring helper — enter animation only, settles and holds.
   const enter = (delay: number) =>
     spring({ frame: frame - delay, fps, config: { damping: 18, mass: 0.6 } });
 
@@ -109,17 +139,17 @@ export const OfferVideo: React.FC<OfferVideoProps> = ({
         </div>
       </div>
 
-      {/* ALIVE wordmark */}
-      <div style={{
-        position: 'absolute', bottom: 56, right: 120,
-        fontFamily: MONO, fontSize: 24, fontWeight: 600, letterSpacing: 6, color: '#d4d4d8',
-        opacity: fade(40),
-      }}>
-        ALIVE · <span style={{ color: accent }}>wearealive.in</span>
+      {/* ALIVE logo — bottom right, matches the site logo component */}
+      <div style={{ position: 'absolute', bottom: 52, right: 120, opacity: fade(40) }}>
+        <AliveLogo size={48} />
       </div>
 
-      {/* base width keyline (uses width to stay responsive if dims change) */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, height: 4, width: interpolate(frame, [0, 90], [0, width], { extrapolateRight: 'clamp' }), background: accent, opacity: 0.5 }} />
+      {/* progress keyline */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, height: 4,
+        width: interpolate(frame, [0, 90], [0, width], { extrapolateRight: 'clamp' }),
+        background: accent, opacity: 0.5,
+      }} />
     </AbsoluteFill>
   );
 };

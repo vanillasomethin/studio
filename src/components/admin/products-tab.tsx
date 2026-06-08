@@ -212,22 +212,62 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
     } finally { setGenId(null); }
   };
 
-  // Offer-video generation (Remotion Lambda, renders off-Vercel)
-  const [vidId,    setVidId]    = useState<string | null>(null);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  // Offer-video generation (Remotion Lambda, renders off-Vercel → saved to Content library)
+  const [vidId,      setVidId]      = useState<string | null>(null);
+  const [videoUrl,   setVideoUrl]   = useState<string | null>(null);
+  const [videoCid,   setVideoCid]   = useState<string | null>(null);  // saved Content id
+  const [playlists,  setPlaylists]  = useState<{ id: string; name: string }[]>([]);
+  const [addingTo,   setAddingTo]   = useState<string | null>(null);  // playlistId being appended to
   const generateVideo = async (id: string) => {
     setVidId(id);
     try {
       const res = await fetch(`/api/admin/products/${id}/generate-video`, {
         method: 'POST', headers, body: JSON.stringify({}),
       });
-      const data = await res.json() as { url?: string; error?: string };
+      const data = await res.json() as { url?: string; content?: { id: string }; error?: string };
       if (!res.ok) throw new Error(data.error ?? 'Render failed');
       setVideoUrl(data.url ?? null);
-      toast({ title: 'Offer video ready ✓' });
+      setVideoCid(data.content?.id ?? null);
+      toast({ title: 'Offer video saved to Content ✓', description: 'Add it to a playlist to play on screens.' });
+      void loadPlaylists();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Video render failed', description: (e as Error).message });
     } finally { setVidId(null); }
+  };
+
+  // Lazy-load playlists for the "add to playlist" picker in the preview modal
+  const loadPlaylists = useCallback(async () => {
+    try {
+      const res = await fetch('/api/playlists', { headers: { 'admin-password': adminPw } });
+      if (res.ok) {
+        const data = await res.json() as { playlists: { id: string; name: string }[] };
+        setPlaylists(data.playlists ?? []);
+      }
+    } catch { /* non-fatal */ }
+  }, [adminPw]);
+
+  // Append the just-rendered video (already a Content row) to a playlist
+  const addVideoToPlaylist = async (playlistId: string) => {
+    if (!videoCid) return;
+    setAddingTo(playlistId);
+    try {
+      // Append the existing Content to the playlist (playlist PATCH is a full replace).
+      const plRes = await fetch('/api/playlists', { headers: { 'admin-password': adminPw } });
+      const { playlists: all } = await plRes.json() as { playlists: { id: string; name: string; items: { content: { id: string }; durationMs: number }[] }[] };
+      const target = all.find((p) => p.id === playlistId);
+      if (!target) throw new Error('Playlist not found');
+      const items = [
+        ...target.items.map((it) => ({ contentId: it.content.id, durationMs: it.durationMs })),
+        { contentId: videoCid, durationMs: 8_000 },
+      ];
+      const res = await fetch(`/api/playlists/${playlistId}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ items }),
+      });
+      if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? 'Failed to add');
+      toast({ title: `Added to playlist ✓` });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Add to playlist failed', description: (e as Error).message });
+    } finally { setAddingTo(null); }
   };
 
   // MRP fetch from Amazon/Flipkart via Maxun (per-row, review before apply)
@@ -819,13 +859,36 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
           <div className="w-full max-w-2xl rounded-2xl bg-background border border-border shadow-xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <p className="font-bold text-foreground flex items-center gap-2"><Clapperboard className="h-4 w-4 text-violet-600" /> Offer video</p>
-              <button onClick={() => setVideoUrl(null)}><X className="h-4 w-4 text-muted-foreground" /></button>
+              <button onClick={() => { setVideoUrl(null); setVideoCid(null); }}><X className="h-4 w-4 text-muted-foreground" /></button>
             </div>
             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
             <video src={videoUrl} controls autoPlay loop className="w-full rounded-lg bg-black" />
-            <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-green-700 bg-green-50 rounded-lg px-3 py-2 font-medium">
+              Saved to Content library (folder “Offer Videos”). Add it to a playlist below to play on screens.
+            </p>
+
+            {/* Add to playlist */}
+            {videoCid && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Add to playlist</p>
+                {playlists.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No playlists yet — create one in the Programming tab.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {playlists.map((pl) => (
+                      <button key={pl.id} onClick={() => addVideoToPlaylist(pl.id)} disabled={addingTo === pl.id}
+                        className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:border-primary hover:text-primary disabled:opacity-50">
+                        {addingTo === pl.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} {pl.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-1">
               <a href={videoUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary hover:underline">Open / download ↗</a>
-              <button onClick={() => setVideoUrl(null)} className="rounded-lg border border-border px-4 py-2 text-xs font-semibold">Close</button>
+              <button onClick={() => { setVideoUrl(null); setVideoCid(null); }} className="rounded-lg border border-border px-4 py-2 text-xs font-semibold">Close</button>
             </div>
           </div>
         </div>
