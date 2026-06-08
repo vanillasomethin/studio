@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
-  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift,
+  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, ArrowRight,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import MapPicker from '@/components/map-picker';
@@ -200,12 +200,25 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         </span>
       </label>
 
-      {err && (
+      {err === 'PHONE_EXISTS' ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
+            <p className="text-xs text-amber-800 font-semibold">This WhatsApp number is already registered with ALIVE.</p>
+          </div>
+          <a
+            href="/store-dashboard"
+            className="flex items-center gap-1.5 text-xs font-bold text-red-600 hover:text-red-700 underline underline-offset-2"
+          >
+            Sign in to your dashboard <ArrowRight className="h-3 w-3" />
+          </a>
+        </div>
+      ) : err ? (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
           <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-500" />
           <p className="text-xs text-red-600">{err}</p>
         </div>
-      )}
+      ) : null}
 
       <button type="button" onClick={onSubmit} disabled={busy || !agreed}
         className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -274,6 +287,7 @@ function RegistrationForm() {
         body:    JSON.stringify(payload),
       });
       const data = await res.json() as { success?: boolean; error?: string };
+      if (res.status === 409) { setErr('PHONE_EXISTS'); return; }
       if (!res.ok) { setErr(data.error ?? 'Registration failed.'); return; }
 
       await signIn('phone-password', {
@@ -432,100 +446,209 @@ function RegistrationForm() {
   );
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
+// ─── Feature data ────────────────────────────────────────────────────────────
 
-export default function StorePage() {
+const FEATURES = [
+  { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed payout every month via UPI.' },
+  { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own and maintain it.' },
+  { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us, 24/7.' },
+  { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
+  { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.' },
+  { icon: Gift,        label: 'Referral rewards',         sub: 'Earn ₹500 for every new partner you refer.' },
+];
+
+const HOW_IT_WORKS = [
+  { n: '01', t: 'Register in 2 minutes',  d: 'Fill the form below — it\'s free.' },
+  { n: '02', t: 'We visit & install',     d: 'Free screen installation within 48 h.' },
+  { n: '03', t: 'Earn every month',       d: '₹500 + electricity reimbursed to your UPI.' },
+];
+
+// ─── Intro screen (app-like features showcase) ────────────────────────────────
+
+function IntroScreen({ onRegister }: { onRegister: () => void }) {
+  const router = useRouter();
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+    <motion.div
+      key="intro"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, x: -48 }}
+      transition={{ duration: 0.3 }}
+      className="min-h-screen bg-white flex flex-col"
+    >
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-5">
           <a href="/"><Logo /></a>
-          <a href="/store-dashboard" className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">Partner login →</a>
+          <button
+            onClick={() => router.push('/store-dashboard')}
+            className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            Sign in →
+          </button>
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-14 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
+      <main className="flex-1 flex flex-col items-center px-5 py-10 max-w-lg mx-auto w-full">
 
-        {/* Left: pitch */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="lg:sticky lg:top-24 space-y-6">
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3.5 py-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-[11px] font-bold text-red-600 tracking-wider uppercase">Kirana Partners · Mangaluru</span>
-            </div>
-            <h1 className="text-4xl sm:text-5xl font-black text-gray-900 leading-[1.08] tracking-tight">
-              Extra income.<br /><span className="text-red-500">Zero effort.</span>
-            </h1>
-            <p className="text-base text-gray-600 leading-relaxed">
-              Alive installs a free digital screen in your store. Brands pay to advertise on it.
-              You earn <span className="text-gray-900 font-semibold">₹500 + electricity every month</span> — without lifting a finger.
-            </p>
+        {/* Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+          className="text-center space-y-3 mb-10"
+        >
+          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3.5 py-1.5 mb-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-[11px] font-bold text-red-600 tracking-wider uppercase">Kirana Partners · Mangaluru</span>
           </div>
+          <h1 className="text-4xl font-black text-gray-900 leading-tight tracking-tight">
+            Extra income.<br /><span className="text-red-500">Zero effort.</span>
+          </h1>
+          <p className="text-sm text-gray-500 leading-relaxed max-w-xs mx-auto">
+            Host a free ALIVE screen in your store. Brands advertise. You earn every month.
+          </p>
+        </motion.div>
 
-          <div className="space-y-3">
-            {[
-              { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed. Paid every month via UPI.' },
-              { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.' },
-              { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.' },
-              { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
-              { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.' },
-              { icon: Gift,        label: 'Referral rewards',         sub: 'Earn ₹500 for every new partner you refer.' },
-            ].map(({ icon: Icon, label, sub }) => (
-              <div key={label} className="flex items-start gap-3">
-                <Icon className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
-                <div>
-                  <p className="text-sm font-bold text-gray-900">{label}</p>
-                  <p className="text-xs text-gray-500">{sub}</p>
-                </div>
+        {/* Feature cards */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08 }}
+          className="w-full space-y-2.5 mb-10"
+        >
+          {FEATURES.map(({ icon: Icon, label, sub }) => (
+            <div key={label} className="flex items-center gap-3.5 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50">
+                <Icon className="h-4 w-4 text-red-500" />
               </div>
-            ))}
-          </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">{label}</p>
+                <p className="text-[11px] text-gray-500 leading-snug">{sub}</p>
+              </div>
+            </div>
+          ))}
+        </motion.div>
 
-          <div className="border-t border-gray-200 pt-5 space-y-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">How it works</p>
-            {[
-              { n: '01', t: 'Register below',     d: 'Takes 2 minutes.' },
-              { n: '02', t: 'We visit & install', d: 'Free screen within 48 h.' },
-              { n: '03', t: 'Earn every month',   d: '₹500 + electricity to your account.' },
-            ].map(({ n, t, d }) => (
+        {/* How it works */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.16 }}
+          className="w-full mb-10"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">How it works</p>
+          <div className="space-y-3">
+            {HOW_IT_WORKS.map(({ n, t, d }) => (
               <div key={n} className="flex items-start gap-3">
-                <span className="text-[11px] font-black text-red-400 mt-0.5 w-5 shrink-0">{n}</span>
-                <div>
-                  <p className="text-xs font-bold text-gray-900">{t}</p>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-50 text-[10px] font-black text-red-500">{n}</span>
+                <div className="pt-0.5">
+                  <p className="text-sm font-bold text-gray-900">{t}</p>
                   <p className="text-[11px] text-gray-500">{d}</p>
                 </div>
               </div>
             ))}
           </div>
-
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {['₹0 installation', '₹500 + electricity/month', 'UPI payout', '24/7 support'].map((t) => (
-              <span key={t} className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
-                <Check className="h-3 w-3 text-red-500" /> {t}
-              </span>
-            ))}
-          </div>
         </motion.div>
 
-        {/* Right: form */}
+        {/* CTAs */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.1 }}
-          className="rounded-3xl border border-gray-200 bg-white p-5 sm:p-7 shadow-sm"
+          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.22 }}
+          className="w-full space-y-3"
         >
-          <div className="mb-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Join the network</p>
-            <h2 className="text-xl font-black text-gray-900">Register your store</h2>
-          </div>
-          <RegistrationForm />
+          <button
+            onClick={onRegister}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-base font-black text-white transition-all active:scale-[0.98]"
+            style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 6px 20px -4px rgba(220,38,38,0.45)' }}
+          >
+            Become a Partner — Register Free <ChevronRight className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => router.push('/store-dashboard')}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white py-3.5 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all active:scale-[0.98]"
+          >
+            Already a partner? Sign in →
+          </button>
         </motion.div>
-      </div>
 
-      <footer className="border-t border-gray-200 py-5 text-center mt-4 bg-white">
-        <p className="text-xs text-gray-400">
-          © 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru ·{' '}
+        {/* Trust badges */}
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4, delay: 0.3 }}
+          className="flex flex-wrap justify-center gap-x-5 gap-y-2 mt-8"
+        >
+          {['₹0 installation', 'UPI payout', '24/7 support', 'No lock-in'].map((t) => (
+            <span key={t} className="flex items-center gap-1 text-[11px] text-gray-400 font-medium">
+              <Check className="h-3 w-3 text-red-400" /> {t}
+            </span>
+          ))}
+        </motion.div>
+      </main>
+
+      <footer className="border-t border-gray-100 py-4 text-center bg-white">
+        <p className="text-[11px] text-gray-400">
+          © 2025 VS Collective LLP (ALIVE) · Mangaluru ·{' '}
           <a href="mailto:hello@wearealive.in" className="hover:text-gray-600 transition-colors">hello@wearealive.in</a>
         </p>
       </footer>
-    </div>
+    </motion.div>
+  );
+}
+
+// ─── Register screen (form step) ──────────────────────────────────────────────
+
+function RegisterScreen({ onBack }: { onBack: () => void }) {
+  return (
+    <motion.div
+      key="register"
+      initial={{ opacity: 0, x: 48 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 48 }}
+      transition={{ duration: 0.3 }}
+      className="min-h-screen bg-gray-50 flex flex-col"
+    >
+      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-lg items-center gap-3 px-5">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" /> Back
+          </button>
+          <div className="flex-1 text-center">
+            <a href="/"><Logo /></a>
+          </div>
+          <a href="/store-dashboard" className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">Sign in →</a>
+        </div>
+      </header>
+
+      <main className="flex-1 px-5 py-8 max-w-lg mx-auto w-full">
+        <div className="mb-5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Step 1 of 2 — Store details</p>
+          <h2 className="text-2xl font-black text-gray-900">Register your store</h2>
+          <p className="text-sm text-gray-500 mt-1">Takes about 2 minutes. Everything is free.</p>
+        </div>
+        <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+          <RegistrationForm />
+        </div>
+      </main>
+
+      <footer className="border-t border-gray-200 py-4 text-center bg-white mt-4">
+        <p className="text-[11px] text-gray-400">
+          © 2025 VS Collective LLP (ALIVE) · Mangaluru ·{' '}
+          <a href="mailto:hello@wearealive.in" className="hover:text-gray-600 transition-colors">hello@wearealive.in</a>
+        </p>
+      </footer>
+    </motion.div>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
+export default function StorePage() {
+  const [phase, setPhase] = useState<'intro' | 'register'>('intro');
+
+  return (
+    <AnimatePresence mode="wait">
+      {phase === 'intro' ? (
+        <IntroScreen key="intro" onRegister={() => setPhase('register')} />
+      ) : (
+        <RegisterScreen key="register" onBack={() => setPhase('intro')} />
+      )}
+    </AnimatePresence>
   );
 }

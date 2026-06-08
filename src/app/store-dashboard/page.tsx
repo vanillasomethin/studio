@@ -188,12 +188,21 @@ function EmailBanner({ store, onSave }: { store: StoreInfo; onSave: (email: stri
   const save = async () => {
     if (!email.includes('@')) return;
     setBusy(true);
-    // Fire-and-forget email update (we'd persist this properly with an API call)
-    await new Promise((r) => setTimeout(r, 600));
-    onSave(email);
-    setSaved(true);
-    setTimeout(() => setOpen(false), 1500);
-    setBusy(false);
+    try {
+      const res = await fetch('/api/stores/update', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      onSave(email);
+      setSaved(true);
+      setTimeout(() => setOpen(false), 1500);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
