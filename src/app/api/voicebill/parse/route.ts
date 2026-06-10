@@ -1,23 +1,19 @@
 // POST /api/voicebill/parse
-// Body: { text: string }
+// Body: { text: string; storeId?: string }
 // Returns: { items: { name: string; qty: number; unit: string; price: number }[] }
-// Auth: store session required
+// Open endpoint — store partners use localStorage auth, not next-auth
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { ai } from '@/ai/genkit';
+import { withApiHandler } from '@/lib/with-api-handler';
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const runtime = 'nodejs';
 
-  try {
-    const { text } = await req.json() as { text: string };
-    if (!text?.trim()) return NextResponse.json({ items: [] });
+export const POST = withApiHandler('/api/voicebill/parse', 'user', async (req: NextRequest) => {
+  const { text, storeId } = await req.json() as { text: string; storeId?: string };
+  if (!text?.trim()) return NextResponse.json({ items: [] });
 
-    const prompt = `You are a kirana store bill parser. Extract purchased items from the shopkeeper's spoken or typed text.
+  const prompt = `You are a kirana store bill parser. Extract purchased items from the shopkeeper's spoken or typed text.
 Return ONLY valid JSON with no markdown or explanation.
 Format: {"items": [{"name": "Item Name", "qty": 1, "unit": "pcs", "price": 0}]}
 Rules:
@@ -29,12 +25,12 @@ Common Indian kirana prices: Maggi=14, Milk 500ml=28, Sugar 1kg=45, Bread=35, Bi
 
 Text to parse: "${text.trim()}"`;
 
+  try {
     const result = await ai.generate(prompt);
     const raw    = result.text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(raw) as { items: { name: string; qty: number; unit: string; price: number }[] };
-
     return NextResponse.json({ items: parsed.items ?? [] });
   } catch {
     return NextResponse.json({ items: [] });
   }
-}
+});

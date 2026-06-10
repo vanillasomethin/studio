@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyDeviceToken } from '@/lib/device-auth';
 import crypto from 'crypto';
+import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
+import { respond } from '@/lib/api-envelope';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -49,13 +51,36 @@ function computeRowHash(id: string, deviceId: string, mediaId: string, startedAt
 }
 
 export async function POST(req: NextRequest) {
+  const startedAtMs = Date.now();
+  const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
+  const route = '/api/device/events';
   const device = await authenticate(req);
-  if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!device) {
+    const envelope = await respond({ error: 'Unauthorized' }, { route, request: { correlationId }, outcome: 'unauthorized', policyFlags: ['auth_failed'], errorCategory: 'auth' });
+    return NextResponse.json(envelope, { status: 401 });
+  }
 
   try {
-    const { events } = await req.json() as { events: PlayEventInput[] };
+    const body = await req.json() as { events: PlayEventInput[]; telemetry?: { cpuTempC?: number; freeStorageMb?: number; androidVersion?: string; appVersion?: string } };
+    const { events, telemetry } = body;
     if (!Array.isArray(events) || events.length === 0) {
-      return NextResponse.json({ accepted: 0 });
+      // Allow empty event batches if telemetry-only heartbeat
+      if (telemetry) {
+        await db.device.update({
+          where: { id: device.id },
+          data:  {
+            lastSeen: new Date(), status: 'ONLINE',
+            ...(typeof telemetry.cpuTempC      === 'number' ? { cpuTempC: telemetry.cpuTempC, cpuTempUpdatedAt: new Date() } : {}),
+            ...(typeof telemetry.freeStorageMb === 'number' ? { freeStorageMb: telemetry.freeStorageMb } : {}),
+            ...(telemetry.androidVersion ? { androidVersion: telemetry.androidVersion } : {}),
+            ...(telemetry.appVersion     ? { appVersion:     telemetry.appVersion     } : {}),
+          },
+        }).catch(() => { /* telemetry columns may not exist yet */ });
+        const envelope = await respond({ accepted: 0, telemetry: true }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'success', policyFlags: ['telemetry_only'], startedAtMs });
+        return NextResponse.json(envelope);
+      }
+      const envelope = await respond({ accepted: 0 }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'invalid_request', policyFlags: ['empty_batch'], errorCategory: 'validation', startedAtMs });
+      return NextResponse.json(envelope);
     }
 
     // Cap batch size to prevent abuse
@@ -80,7 +105,7 @@ export async function POST(req: NextRequest) {
           ev.tag ?? null, chainHash,
         );
 
-        await db.playEvent.upsert({
+        const created = await db.playEvent.upsert({
           where:  { id: ev.id },
           update: {}, // already accepted — no-op
           create: {
@@ -96,6 +121,27 @@ export async function POST(req: NextRequest) {
             prevHash:   chainHash,
             rowHash,
           },
+          select: { id: true, startedAt: true, durationMs: true, campaignId: true },
+        });
+
+        // Upsert hourly POP aggregation bucket
+        const hour = new Date(created.startedAt);
+        hour.setUTCMinutes(0, 0, 0);
+        await db.hourlyPop.upsert({
+          where:  { deviceId_hour: { deviceId: device.id, hour } },
+          create: {
+            deviceId:    device.id,
+            hour,
+            playCount:   1,
+            totalMs:     created.durationMs,
+            campaignIds: ev.campaignId ? [ev.campaignId] : [],
+          },
+          update: {
+            playCount: { increment: 1 },
+            totalMs:   { increment: created.durationMs },
+            ...(ev.campaignId ? { campaignIds: { push: ev.campaignId } } : {}),
+            updatedAt: new Date(),
+          },
         });
 
         chainHash = rowHash;
@@ -105,14 +151,33 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Update device heartbeat
+    // Update device heartbeat + optional telemetry
     await db.device.update({
       where: { id: device.id },
-      data:  { lastSeen: new Date(), status: 'ONLINE' },
-    });
+      data:  {
+        lastSeen: new Date(), status: 'ONLINE',
+        ...(typeof telemetry?.cpuTempC      === 'number' ? { cpuTempC: telemetry.cpuTempC, cpuTempUpdatedAt: new Date() } : {}),
+        ...(typeof telemetry?.freeStorageMb === 'number' ? { freeStorageMb: telemetry.freeStorageMb } : {}),
+        ...(telemetry?.androidVersion ? { androidVersion: telemetry.androidVersion } : {}),
+        ...(telemetry?.appVersion     ? { appVersion:     telemetry.appVersion     } : {}),
+      },
+    }).catch(() => { /* telemetry columns may not exist yet */ });
 
-    return NextResponse.json({ accepted });
+    const envelope = await respond({ accepted }, { route, request: { correlationId, eventsCount: batch.length }, outcome: 'success', policyFlags: [], startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const error = e as Error;
+    await recordError({
+      route,
+      errorClass: error.name,
+      message: error.message,
+      stackHash: hashStack(error.stack),
+      requestMeta: { correlationId, method: req.method },
+      actorType: 'device',
+      deviceId: device.id,
+      correlationId,
+    });
+    const envelope = await respond({ error: error.message, correlationId }, { route, request: { correlationId }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }

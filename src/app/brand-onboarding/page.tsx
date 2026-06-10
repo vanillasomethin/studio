@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths } from 'date-fns';
-import { signIn, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -11,8 +12,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, AlertCircle,
-  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays,
-  EyeOff, Tag, X,
+  TrendingUp, Eye, Monitor, Mail, FileVideo, FileImage, Clock, CalendarDays, EyeOff,
+  Upload, X,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -51,7 +52,8 @@ const DURATION_OPTIONS = [
   { months: 6, label: '6 mo'  },
 ];
 
-const STEPS = ['Details', 'Campaign', 'Agreement', 'Login', 'Payment'];
+const STEPS = ['Details', 'Campaign', 'Agreement', 'Payment'];
+
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -416,7 +418,7 @@ function StepCampaign({
         <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Screen plan
         </motion.p>
-        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-3">
+        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-5">
           {SCREEN_TIERS.map((t) => {
             const active   = data.screens === t.screens;
             const popular  = 'popular' in t && t.popular;
@@ -427,11 +429,11 @@ function StepCampaign({
                 onClick={() => onChange('screens', t.screens)}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                className={`relative rounded-xl border border-border bg-card text-left ${popular ? 'pt-7 pb-4 px-4' : 'p-4'}`}
+                className={`relative rounded-xl border border-border bg-card text-left ${popular ? 'pt-8 pb-4 px-4' : 'p-4'}`}
               >
                 {popular && (
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap">
-                    Best value
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 rounded-full bg-primary px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground whitespace-nowrap shadow-sm ring-2 ring-background">
+                    Popular
                   </span>
                 )}
                 {active && (
@@ -446,16 +448,18 @@ function StepCampaign({
                     <p className="text-2xl font-black text-foreground leading-none">{t.screens}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{t.screens === 1 ? 'screen' : 'screens'}</p>
                   </div>
-                  <div className="border-t border-border pt-3 space-y-0.5">
-                    {t.pricePerScreen < BASE_PRICE && (
-                      <p className="text-[10px] text-muted-foreground/60 line-through leading-none">{fmt(BASE_PRICE)}</p>
+                  <div className="border-t border-border pt-3 space-y-1">
+                    {t.pricePerScreen < BASE_PRICE ? (
+                      <p className="text-[10px] text-muted-foreground/50 line-through leading-none">{fmt(BASE_PRICE)}/screen</p>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground/50 leading-none invisible">–</p>
                     )}
-                    <p className="text-sm font-bold text-foreground">{fmt(t.pricePerScreen)}</p>
+                    <p className="text-base font-black text-foreground leading-none">{fmt(t.pricePerScreen)}</p>
                     <p className="text-[10px] text-muted-foreground leading-none">per screen / month</p>
                     {t.pricePerScreen < BASE_PRICE && (
-                      <span className="inline-block rounded-full bg-green-500/10 px-1.5 py-0.5 text-[9px] font-bold text-green-600 uppercase tracking-wide">
-                        Save {Math.round((1 - t.pricePerScreen / BASE_PRICE) * 100)}%
-                      </span>
+                      <p className="text-[11px] font-bold text-green-700 leading-none">
+                        Save ₹{BASE_PRICE - t.pricePerScreen}/screen/mo
+                      </p>
                     )}
                   </div>
                   <div className="space-y-1 pt-1">
@@ -475,28 +479,6 @@ function StepCampaign({
               </motion.button>
             );
           })}
-        </motion.div>
-
-        {/* Coupon callout — show available offers */}
-        <motion.div variants={fadeUp} className="rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-green-700">Available offers</p>
-          <div className="space-y-1.5">
-            {[
-              { code: 'GETALIVENOW', desc: '₹100 off per screen/month', minScreens: 1 },
-            ].map((offer) => (
-              <div key={offer.code} className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-md border border-green-500/40 bg-green-500/10 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-green-700">
-                    {offer.code}
-                  </span>
-                  <span className="text-xs text-green-800">{offer.desc}</span>
-                </div>
-                {data.screens >= offer.minScreens && (
-                  <span className="text-[10px] font-semibold text-green-600">Apply at checkout →</span>
-                )}
-              </div>
-            ))}
-          </div>
         </motion.div>
 
         {/* Custom stepper */}
@@ -545,7 +527,7 @@ function StepCampaign({
       {/* Duration */}
       <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-3">
         <motion.p variants={fadeUp} className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Duration</motion.p>
-        <motion.div variants={fadeUp} className="grid grid-cols-4 gap-2">
+        <motion.div variants={fadeUp} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {DURATION_OPTIONS.map(({ months, label }) => (
             <motion.button
               key={months}
@@ -641,125 +623,6 @@ function StepCampaign({
           Continue <ArrowRight className="h-4 w-4" />
         </Button>
       </motion.div>
-    </div>
-  );
-}
-
-// ─── Step Auth ─────────────────────────────────────────────────────────────────
-
-function StepAuth({
-  onNext, onBack,
-}: {
-  onNext: () => void;
-  onBack: () => void;
-  formData: OnboardingFormData;
-}) {
-  const { data: session, status } = useSession();
-
-  const [email,    setEmail]    = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw,   setShowPw]   = useState(false);
-  const [busy,     setBusy]     = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const [isSignUp, setIsSignUp] = useState(false);
-
-  // Already signed in — skip this step
-  useEffect(() => {
-    if (status === 'authenticated' && session) onNext();
-  }, [status, session, onNext]);
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true); setError(null);
-    try {
-      if (isSignUp) {
-        const res = await fetch('/api/brands/register', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ email, password }),
-        });
-        const data = await res.json() as { success?: boolean; error?: string };
-        if (!res.ok) { setError(data.error ?? 'Sign-up failed.'); return; }
-      }
-      const result = await signIn('email-password', { email, password, redirect: false });
-      if (result?.error) {
-        setError(isSignUp ? 'Account created — sign in below.' : 'Incorrect email or password.');
-        if (isSignUp) setIsSignUp(false);
-      }
-      // On success, useSession updates → useEffect above calls onNext()
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  }, [email, password, isSignUp]);
-
-  if (status === 'loading') {
-    return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
-  }
-
-  const inputCls = "w-full h-12 rounded-xl border border-border bg-card px-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all";
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          {isSignUp ? 'Create your account' : 'Sign in'}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {isSignUp
-            ? 'Save your campaign and access your brand dashboard.'
-            : 'Sign in to continue setting up your campaign.'}
-        </p>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="relative">
-          <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
-          <input type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)} placeholder="Email address"
-            className={`${inputCls} pl-10`} />
-        </div>
-        <div className="relative">
-          <input type={showPw ? 'text' : 'password'} required
-            minLength={isSignUp ? 6 : undefined}
-            autoComplete={isSignUp ? 'new-password' : 'current-password'}
-            value={password} onChange={(e) => setPassword(e.target.value)}
-            placeholder={isSignUp ? 'Create a password (min 6 chars)' : 'Password'}
-            className={`${inputCls} pr-11`} />
-          <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
-            {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <Button type="submit" disabled={busy} className="w-full h-11">
-          {busy
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <>{isSignUp ? 'Create account' : 'Sign in'} <ArrowRight className="h-4 w-4" /></>}
-        </Button>
-      </form>
-
-      <p className="text-center text-sm text-muted-foreground">
-        {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-        <button onClick={() => { setIsSignUp((v) => !v); setError(null); }}
-          className="text-primary font-semibold hover:underline">{isSignUp ? 'Sign in' : 'Sign up'}</button>
-      </p>
-
-      <div className="flex gap-3 pt-1">
-        <Button variant="outline" type="button" onClick={onBack} className="gap-1.5 h-11">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        <button type="button" onClick={onNext}
-          className="flex-1 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
-          Skip — pay as guest
-        </button>
-      </div>
     </div>
   );
 }
@@ -875,8 +738,33 @@ function StepAgreement({
         {/* No nested scroll — content flows naturally so mobile page scroll works */}
         <div className="px-5 py-5 space-y-6 text-sm text-muted-foreground leading-relaxed">
           <p>
-            These Terms of Service govern your use of ALIVE&apos;s digital out-of-home advertising platform (the &quot;Platform&quot;). By accepting, <strong className="text-foreground">{data.brandName || 'your organisation'}</strong> enters into a legally binding Campaign Agreement with ALIVE Advertising Pvt. Ltd. (&quot;ALIVE&quot;).
+            These Terms of Service govern your use of ALIVE&apos;s digital out-of-home advertising platform (the &quot;Platform&quot;). By accepting, <strong className="text-foreground">{data.brandName || 'your organisation'}</strong> enters into a legally binding Campaign Agreement with VS Collective LLP, operating as ALIVE (&quot;ALIVE&quot;).
           </p>
+
+          {/* Parties to the Agreement */}
+          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4 text-sm">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Parties to the Agreement</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
+                <p className="font-semibold text-foreground">VS Collective LLP</p>
+                <p className="text-muted-foreground">LLP IN-KA43598411418020V</p>
+                <p className="text-muted-foreground">#13, First Floor, Highland Manor</p>
+                <p className="text-muted-foreground">Falnir, Mangaluru 575002, Karnataka</p>
+                <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
+                <p className="text-muted-foreground">hello@wearealive.in · +91 74113 24448</p>
+                <p className="text-muted-foreground">Operating as: ALIVE advertising platform</p>
+              </div>
+              <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party B — Advertiser</p>
+                <p className="font-semibold text-foreground">{data.brandName || '—'}</p>
+                {data.contactName && <p className="text-muted-foreground">Contact: {data.contactName}</p>}
+                {data.email       && <p className="text-muted-foreground">{data.email}</p>}
+                {data.phone       && <p className="text-muted-foreground">+91 {data.phone}</p>}
+                {data.gstin       && <p className="text-muted-foreground">GSTIN: {data.gstin}</p>}
+              </div>
+            </div>
+          </div>
 
           {clauses.map(({ n, title, items }) => (
             <div key={n} className="space-y-2">
@@ -894,19 +782,34 @@ function StepAgreement({
             </div>
           ))}
 
-          <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground/70">
-            <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Service Provider</p>
-            <p className="font-semibold text-foreground">ALIVE Advertising Pvt. Ltd.</p>
-            <p>Door no.16-6-391/3, Flat No.13/14, Highland Manor, Kankanady, Mangaluru — 575002</p>
-            <p>GSTIN: 29AAXFV2589C1ZE · Email: legal@wearealive.in</p>
-            {data.gstin && (
-              <div className="pt-1 space-y-0.5">
-                <p className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Advertiser</p>
-                  <p className="font-semibold text-foreground">{data.brandName}</p>
-                  <p>GSTIN: {data.gstin}</p>
-                </div>
-              )}
+          {/* Digital Acceptance block */}
+          <div className="pt-4 border-t border-border">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Digital Acceptance</p>
+            <p className="text-xs text-muted-foreground/70 mb-4 leading-relaxed">
+              This agreement is executed electronically under the Information Technology Act, 2000.
+              Electronic acceptance via the ALIVE platform constitutes valid execution without physical signatures.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
+                <p className="font-semibold text-foreground">VS Collective LLP</p>
+                <p className="text-muted-foreground">#13, First Floor, Highland Manor, Falnir, Mangaluru 575002</p>
+                <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
+                <p className="text-muted-foreground">Authorised by: ALIVE Platform (automated)</p>
+                <p className="text-muted-foreground">Date: {effectiveDate}</p>
+              </div>
+              <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party B — Advertiser</p>
+                <p className="font-semibold text-foreground">{data.brandName || '—'}</p>
+                {data.contactName && <p className="text-muted-foreground">Contact: {data.contactName}</p>}
+                {data.email      && <p className="text-muted-foreground">{data.email}</p>}
+                {data.phone      && <p className="text-muted-foreground">+91 {data.phone}</p>}
+                {data.gstin      && <p className="text-muted-foreground">GSTIN: {data.gstin}</p>}
+                <p className="text-muted-foreground">Campaign: {data.screens} screen{data.screens !== 1 ? 's' : ''} · {data.months} month{data.months !== 1 ? 's' : ''} · {monthlyFee}/mo</p>
+                <p className="text-muted-foreground">Date of acceptance: {effectiveDate}</p>
+              </div>
             </div>
+          </div>
           </div>
       </div>
 
@@ -940,47 +843,37 @@ function StepAgreement({
 }
 
 function StepPayment({
-  data, onSuccess, onConfirm, onBack,
+  data, onSuccess, onConfirm, onBack, isTrial,
 }: {
   data: OnboardingFormData;
   onSuccess: (paymentId: string, orderId: string) => void;
   onConfirm: (effectivePricePerScreen: number) => void;
   onBack: () => void;
+  isTrial?: boolean;
 }) {
-  const [loading,      setLoading]      = useState(false);
-  const [error,        setError]        = useState<string | null>(null);
-  const [promoInput,   setPromoInput]   = useState('GETALIVENOW');
-  const [promoApplied, setPromoApplied] = useState(false);
-  const [promoError,   setPromoError]   = useState<string | null>(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [showPromo, setShowPromo] = useState(false);
 
-  const basePerScreen      = getScreenPrice(data.screens);
-  const discountPerScreen  = promoApplied ? 100 : 0;
-  const pricePerScreen     = Math.max(basePerScreen - discountPerScreen, 499);
-  const subtotal           = pricePerScreen * data.screens * data.months;
-  const gstAmount          = Math.round(subtotal * 0.18);
-  const total              = subtotal + gstAmount;
+  const VALID_PROMOS: Record<string, number> = { GETALIVENOW: 100 };
+  const promoDiscount = promoCode ? (VALID_PROMOS[promoCode.toUpperCase()] ?? 0) : 0;
 
-  const startDate = data.startDate ? new Date(data.startDate + 'T00:00:00') : null;
-  const endDate   = startDate ? addMonths(startDate, data.months) : null;
+  const pricePerScreen = getScreenPrice(data.screens);
+  const baseSubtotal   = pricePerScreen * data.screens * data.months;
+  const subtotal       = Math.max(0, baseSubtotal - promoDiscount);
+  const gstAmount      = Math.round(subtotal * 0.18);
+  const total          = isTrial ? 0 : subtotal + gstAmount;
 
   const applyPromo = () => {
     const code = promoInput.trim().toUpperCase();
-    if (code === 'GETALIVENOW') {
-      setPromoApplied(true);
-      setPromoError(null);
-    } else if (!code) {
-      setPromoError('Enter a promo code first.');
-    } else {
-      setPromoError('Invalid promo code. Try GETALIVENOW.');
-      setPromoApplied(false);
-    }
+    if (VALID_PROMOS[code]) { setPromoCode(code); setShowPromo(false); }
+    else { setError('Invalid promo code'); }
   };
 
-  const removePromo = () => {
-    setPromoApplied(false);
-    setPromoInput('');
-    setPromoError(null);
-  };
+  const startDate = data.startDate ? new Date(data.startDate + 'T00:00:00') : null;
+  const endDate   = startDate ? addMonths(startDate, data.months) : null;
 
   const handlePay = async () => {
     setLoading(true);
@@ -1077,22 +970,17 @@ function StepPayment({
           <motion.div variants={fadeUp} className="flex items-center justify-between">
             <span className="text-muted-foreground">Price / screen / month</span>
             <span className="flex items-center gap-2 font-semibold text-foreground">
-              {promoApplied && (
-                <span className="text-xs text-muted-foreground/60 line-through">{fmt(basePerScreen)}</span>
+              {pricePerScreen < BASE_PRICE && (
+                <span className="text-xs text-muted-foreground/50 line-through">{fmt(BASE_PRICE)}</span>
               )}
               {fmt(pricePerScreen)}
               <span className="text-[10px] text-muted-foreground font-normal">excl. GST</span>
             </span>
           </motion.div>
-
-          {/* Promo discount row */}
-          {promoApplied && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              className="flex items-center justify-between text-green-600"
-            >
-              <span className="flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> Promo: GETALIVENOW</span>
-              <span className="font-semibold">−₹{discountPerScreen}/screen/mo</span>
+          {pricePerScreen < BASE_PRICE && (
+            <motion.div variants={fadeUp} className="flex items-center justify-between text-green-700 text-xs font-semibold">
+              <span>Volume discount</span>
+              <span>−₹{BASE_PRICE - pricePerScreen}/screen/mo</span>
             </motion.div>
           )}
 
@@ -1120,66 +1008,67 @@ function StepPayment({
           <div className="pt-2 border-t border-border space-y-2">
             <motion.div variants={fadeUp} className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-semibold text-foreground">{fmt(subtotal)}</span>
+              <span className="font-semibold text-foreground">{fmt(baseSubtotal)}</span>
             </motion.div>
+            {promoDiscount > 0 && (
+              <motion.div variants={fadeUp} className="flex items-center justify-between text-sm text-green-700">
+                <span className="font-semibold">Promo ({promoCode})</span>
+                <span className="font-semibold">−{fmt(promoDiscount)}</span>
+              </motion.div>
+            )}
+            {isTrial && (
+              <motion.div variants={fadeUp} className="flex items-center justify-between text-sm text-green-700">
+                <span className="font-semibold">Free trial discount</span>
+                <span className="font-semibold">−{fmt(baseSubtotal)}</span>
+              </motion.div>
+            )}
             <motion.div variants={fadeUp} className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">GST (18%)</span>
-              <span className="font-semibold text-foreground">+{fmt(gstAmount)}</span>
+              <span className="font-semibold text-foreground">{isTrial ? '₹0' : `+${fmt(gstAmount)}`}</span>
             </motion.div>
           </div>
+
+          {/* Promo code */}
+          {!isTrial && (
+            <div className="pt-1">
+              {!showPromo ? (
+                <button type="button" onClick={() => setShowPromo(true)} className="text-xs text-primary/70 hover:text-primary underline-offset-2 hover:underline transition-colors">
+                  Have a promo code?
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                    placeholder="GETALIVENOW"
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  />
+                  <button type="button" onClick={applyPromo} className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-colors">
+                    Apply
+                  </button>
+                  <button type="button" onClick={() => setShowPromo(false)} className="rounded-lg border border-border px-2 py-2 text-muted-foreground hover:text-foreground transition-colors">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Total */}
-        <motion.div variants={fadeUp} className="px-5 py-4 border-t border-border bg-muted/20 flex items-center justify-between">
-          <span className="text-sm font-bold text-foreground uppercase tracking-wide">Total (incl. GST)</span>
+        <motion.div variants={fadeUp} className={`px-5 py-4 border-t border-border flex items-center justify-between ${isTrial ? 'bg-green-50' : 'bg-muted/20'}`}>
+          <span className="text-sm font-bold text-foreground uppercase tracking-wide">{isTrial ? 'Trial — ₹0 today' : 'Total (incl. GST)'}</span>
           <motion.span
             key={total}
             initial={{ scale: 0.88, opacity: 0 }}
             animate={{ scale: 1,    opacity: 1 }}
             transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-            className="text-2xl font-black text-foreground"
+            className={`text-2xl font-black ${isTrial ? 'text-green-700' : 'text-foreground'}`}
           >
-            {fmt(total)}
+            {isTrial ? '₹0' : fmt(total)}
           </motion.span>
         </motion.div>
-      </motion.div>
-
-      {/* Promo code */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="space-y-2">
-        {promoApplied ? (
-          <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/5 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm text-green-700 font-semibold">
-              <Check className="h-4 w-4" /> GETALIVENOW applied — saving {fmt(discountPerScreen * data.screens * data.months)} (excl. GST)
-            </div>
-            <button onClick={removePromo} className="text-muted-foreground hover:text-foreground transition-colors">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-              <input
-                type="text"
-                value={promoInput}
-                onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }}
-                onKeyDown={(e) => e.key === 'Enter' && applyPromo()}
-                placeholder="Promo code"
-                className="w-full h-11 rounded-xl border border-border bg-card pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={applyPromo}
-              className="h-11 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-all whitespace-nowrap"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-        {promoError && (
-          <p className="text-xs text-destructive px-1">{promoError}</p>
-        )}
       </motion.div>
 
       {/* Error */}
@@ -1197,49 +1086,68 @@ function StepPayment({
       {/* CTA buttons */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.38, ease: [0.22, 1, 0.36, 1] }} className="space-y-3">
 
-        {/* PRIMARY — pay now via Razorpay */}
-        <button
-          type="button"
-          onClick={handlePay}
-          disabled={loading}
-          className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
-        >
-          <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-          <span className="relative flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm">
-              {loading
-                ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
+        {isTrial ? (
+          /* TRIAL MODE — skip payment */
+          <button
+            type="button"
+            onClick={() => onConfirm(0)}
+            disabled={loading}
+            className="relative w-full overflow-hidden rounded-xl bg-green-700 px-6 py-4 font-bold text-white transition-all hover:bg-green-800 disabled:opacity-60 active:scale-[0.99]"
+          >
+            <span className="relative flex items-center justify-center gap-2 text-sm">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Claim Free Trial — ₹0 today
             </span>
-            {!loading && (
-              <span className="flex items-center gap-2 border-l border-primary-foreground/20 pl-3">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-primary-foreground/60">powered by</span>
-                <RazorpayMark />
+          </button>
+        ) : (
+          <>
+            {/* PRIMARY — pay now via Razorpay */}
+            <button
+              type="button"
+              onClick={handlePay}
+              disabled={loading}
+              className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
+            >
+              <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+              <span className="relative flex items-center justify-between">
+                <span className="flex items-center gap-2 text-sm">
+                  {loading
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
+                </span>
+                {!loading && (
+                  <span className="flex items-center gap-2 border-l border-primary-foreground/20 pl-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-primary-foreground/60">powered by</span>
+                    <RazorpayMark />
+                  </span>
+                )}
               </span>
-            )}
-          </span>
-        </button>
+            </button>
 
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
-          <div className="flex-1 h-px bg-border" />
-          <span>or confirm and pay later</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+              <div className="flex-1 h-px bg-border" />
+              <span>or confirm and pay later</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
 
-        {/* SECONDARY — confirm booking, pay later */}
-        <button
-          type="button"
-          onClick={() => onConfirm(pricePerScreen)}
-          className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground active:scale-[0.99]"
-        >
-          <span className="relative flex items-center justify-center gap-2.5 text-sm">
-            <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
-          </span>
-        </button>
+            {/* SECONDARY — confirm booking, pay later */}
+            <button
+              type="button"
+              onClick={() => onConfirm(pricePerScreen)}
+              className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground active:scale-[0.99]"
+            >
+              <span className="relative flex items-center justify-center gap-2.5 text-sm">
+                <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
+              </span>
+            </button>
+          </>
+        )}
 
-        <p className="text-center text-[11px] text-muted-foreground/50 leading-relaxed">
-          Payment is due 24 hours before your campaign goes live.
-        </p>
+        {!isTrial && (
+          <p className="text-center text-[11px] text-muted-foreground/50 leading-relaxed">
+            Payment is due 24 hours before your campaign goes live.
+          </p>
+        )}
 
         <p className="text-center text-[11px] text-muted-foreground/60 leading-relaxed">
           By confirming, you agree to our{' '}
@@ -1252,6 +1160,108 @@ function StepPayment({
       <Button variant="ghost" onClick={onBack} className="gap-1.5 w-full">
         <ArrowLeft className="h-4 w-4" /> Back to agreement
       </Button>
+    </div>
+  );
+}
+
+// ── Inline creative uploader on the confirmation page ─────────────────────
+function CreativeUploadBox({ paid, paymentId, brandName }: { paid: boolean; paymentId: string; brandName: string }) {
+  const [uploads,  setUploads]  = useState<string[]>([]);
+  const [busy,     setBusy]     = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  const handleFile = async (file: File) => {
+    if (!paid) { setError('Complete payment first to upload creatives.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/brand/upload?paymentId=${encodeURIComponent(paymentId)}`, { method: 'POST', body: fd });
+      const d   = await res.json() as { url?: string; error?: string };
+      if (!res.ok) throw new Error(d.error ?? 'Upload failed');
+      if (d.url)  setUploads((u) => [...u, d.url!]);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void handleFile(file);
+  };
+
+  if (!paid) {
+    return (
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-3">
+        <div className="flex items-center gap-2">
+          <Mail className="h-5 w-5 text-primary shrink-0" />
+          <p className="font-bold text-foreground">Send us your creatives after payment</p>
+        </div>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Complete your payment to unlock creative upload. You can also email files to your Account Manager.
+        </p>
+        <a href={`mailto:hello@wearealive.in?subject=Campaign%20creatives%20—%20${encodeURIComponent(brandName)}`}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-bold text-foreground hover:bg-muted transition-colors">
+          <Mail className="h-3.5 w-3.5" /> Email AM
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-4">
+      <div className="flex items-center gap-2">
+        <Upload className="h-5 w-5 text-primary shrink-0" />
+        <p className="font-bold text-foreground">Upload your ad creative</p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        MP4 or JPEG/PNG · 1920 × 1080 · Max 4 MB per file. Add as many files as you need (creative + logo).
+      </p>
+
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={`rounded-xl border-2 border-dashed transition-colors ${dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'} p-6 text-center`}
+      >
+        {busy ? (
+          <div className="flex flex-col items-center gap-2"><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-xs text-muted-foreground">Uploading…</p></div>
+        ) : (
+          <label className="flex flex-col items-center gap-2 cursor-pointer">
+            <Upload className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-xs text-muted-foreground">Drop a file or click to pick</p>
+            <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }} />
+          </label>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <AlertCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
+
+      {uploads.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Uploaded ({uploads.length})</p>
+          {uploads.map((u, i) => (
+            <div key={u} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              <span className="text-[11px] font-mono text-muted-foreground truncate flex-1">File {i + 1} · {u.split('/').pop()?.slice(0, 30)}</span>
+              <button onClick={() => setUploads((u2) => u2.filter((x) => x !== u))} className="text-muted-foreground/50 hover:text-muted-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+        Files are attached to your campaign and visible to the ALIVE team. Your Account Manager will confirm specs and scheduling within 24 hours.
+      </p>
     </div>
   );
 }
@@ -1306,34 +1316,8 @@ function StepDone({ data, paymentId }: { data: OnboardingFormData; paymentId: st
         </p>
       </motion.div>
 
-      <motion.div variants={fadeUp} className="w-full max-w-md rounded-xl border border-primary/30 bg-primary/5 p-6 text-left space-y-4">
-        <div className="flex items-center gap-2">
-          <Mail className="h-5 w-5 text-primary shrink-0" />
-          <p className="font-bold text-foreground">One thing left — send us your creatives</p>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Email your ad file and logo to your Account Manager and we handle the rest.
-        </p>
-        <div className="rounded-lg border border-border bg-card p-4 space-y-3 text-sm">
-          {[
-            { Icon: FileVideo, title: 'Ad creative', spec: 'MP4 or JPEG/PNG · 1920 × 1080 px · Max 100 MB' },
-            { Icon: FileImage, title: 'Brand logo',  spec: 'PNG transparent background · Min 500 px wide' },
-          ].map(({ Icon, title, spec }) => (
-            <div key={title} className="flex items-start gap-3">
-              <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div>
-                <p className="font-semibold text-foreground">{title}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{spec}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <a
-          href={`mailto:hello@wearealive.in?subject=Campaign%20creatives%20—%20${encodeURIComponent(data.brandName)}`}
-          className="flex items-center justify-center gap-2 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Mail className="h-4 w-4" /> Email creatives to your AM
-        </a>
+      <motion.div variants={fadeUp} className="w-full max-w-md">
+        <CreativeUploadBox paid={paid} paymentId={paymentId} brandName={data.brandName} />
       </motion.div>
 
       <motion.div variants={stagger} className="w-full max-w-md space-y-2 text-left">
@@ -1390,7 +1374,10 @@ const INITIAL: OnboardingFormData = {
 
 const PENDING_KEY = 'alive_pending_campaign';
 
-export default function BrandOnboardingPage() {
+function BrandOnboardingInner() {
+  const searchParams = useSearchParams();
+  const isTrial      = searchParams.get('trial') === '1';
+
   const [step,      setStep]      = useState(1);
   const [direction, setDirection] = useState<1 | -1>(1);
   const [form,      setForm]      = useState<OnboardingFormData>(INITIAL);
@@ -1409,7 +1396,7 @@ export default function BrandOnboardingPage() {
         const { form: savedForm } = JSON.parse(saved) as { form: OnboardingFormData };
         localStorage.removeItem(PENDING_KEY);
         setForm(savedForm);
-        setStep(6); // drop straight back to payment
+        setStep(5); // drop straight back to payment
       }
     } catch { /* ignore */ }
   }, [isLoaded, isSignedIn]);
@@ -1417,17 +1404,17 @@ export default function BrandOnboardingPage() {
   const update = (key: keyof OnboardingFormData, value: OnboardingFormData[keyof OnboardingFormData]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length + 1)); };
+  const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length + 2)); };
   const back = () => { setDirection(-1); setStep((s) => Math.max(s - 1, 1)); };
 
   // Save campaign data when the user reaches the payment step
   useEffect(() => {
-    if (step === 6) {
+    if (step === 5) {
       try { localStorage.setItem(PENDING_KEY, JSON.stringify({ form })); } catch { /* ignore */ }
     }
   }, [step, form]);
 
-  const showIndicator = step >= 2 && step <= 6;
+  const showIndicator = step >= 2 && step <= 5;
 
   const saveCampaign = (pid: string, oid: string, effectivePricePerScreen: number, status: 'upcoming' | 'pending_payment') => {
     const subtotal    = effectivePricePerScreen * form.screens * form.months;
@@ -1515,11 +1502,10 @@ export default function BrandOnboardingPage() {
               {step === 4 && (
                 <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} />
               )}
-              {step === 5 && <StepAuth onNext={next} onBack={back} formData={form} />}
-              {step === 6 && (
-                <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onBack={back} />
+              {step === 5 && (
+                <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onBack={back} isTrial={isTrial} />
               )}
-              {step === 7 && <StepDone data={form} paymentId={paymentId} />}
+              {step === 6 && <StepDone data={form} paymentId={paymentId} />}
             </motion.div>
           </AnimatePresence>
         )}
@@ -1534,5 +1520,13 @@ export default function BrandOnboardingPage() {
         </p>
       </footer>
     </div>
+  );
+}
+
+export default function BrandOnboardingPage() {
+  return (
+    <Suspense>
+      <BrandOnboardingInner />
+    </Suspense>
   );
 }

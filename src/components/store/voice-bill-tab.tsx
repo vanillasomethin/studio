@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic, MicOff, ShoppingCart, Trash2, Plus, Minus,
-  QrCode, MessageCircle, CheckCircle2, RefreshCw, Loader2,
+  QrCode, MessageCircle, CheckCircle2, RefreshCw, Loader2, ScanBarcode, X,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -21,6 +21,7 @@ type PayMethod = 'cash' | 'upi' | 'card' | 'khata';
 interface Props {
   storeId?:   string;
   storeName:  string;
+  upiId?:     string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ type AnySpeechRecognition = any;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function VoiceBillTab({ storeId, storeName }: Props) {
+export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
   const [billRef,       setBillRef]       = useState(() => genBillRef());
   const [billDate]                        = useState(() => new Date());
   const [items,         setItems]         = useState<Item[]>([]);
@@ -66,7 +67,12 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
   const [saveError,     setSaveError]     = useState<string | null>(null);
   const [waPhone,       setWaPhone]       = useState('');
 
-  const recognitionRef = useRef<AnySpeechRecognition>(null);
+  const recognitionRef  = useRef<AnySpeechRecognition>(null);
+  const videoRef        = useRef<HTMLVideoElement>(null);
+  const streamRef       = useRef<MediaStream | null>(null);
+  const scanLoopRef     = useRef<number | null>(null);
+  const [scanning,      setScanning]     = useState(false);
+  const [scanError,     setScanError]    = useState<string | null>(null);
 
   const total = items.reduce((s, i) => s + i.qty * i.price, 0);
 
@@ -75,6 +81,14 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
     : `/bill/${billRef}`;
 
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(billUrl)}`;
+
+  // UPI payment QR — standard upi:// deep link that any UPI app can scan
+  const upiUrl = upiId && total > 0
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(storeName)}&am=${total}&tn=${encodeURIComponent(billRef)}&cu=INR`
+    : null;
+  const upiQrUrl = upiUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiUrl)}`
+    : null;
 
   // ─── Voice recording ────────────────────────────────────────────────────────
 
@@ -119,7 +133,7 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
       const res  = await fetch('/api/voicebill/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, storeId }),
       });
       const data = await res.json() as { items?: { name: string; qty: number; unit: string; price: number }[] };
       const parsed = data.items ?? [];
@@ -196,9 +210,70 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
 
   const waHref = `https://wa.me/${waPhone.replace(/\D/g, '') ? '91' + waPhone.replace(/\D/g, '').slice(-10) : ''}?text=${encodeURIComponent(waText)}`;
 
+  // ─── Barcode scanner ─────────────────────────────────────────────────────
+
+  const stopScan = useCallback(() => {
+    if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setScanning(false);
+  }, []);
+
+  const startScan = useCallback(async () => {
+    setScanError(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!('BarcodeDetector' in window)) {
+      setScanError('Barcode scanning needs Chrome on Android. Use manual entry instead.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      setScanning(true);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detector = new (window as any).BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] });
+
+      const loop = async () => {
+        if (!videoRef.current || !streamRef.current) return;
+        try {
+          const codes = await detector.detect(videoRef.current);
+          if (codes.length > 0) {
+            const ean = (codes[0] as { rawValue: string }).rawValue;
+            stopScan();
+            const res = await fetch(`/api/products/lookup?ean=${encodeURIComponent(ean)}`);
+            if (!res.ok) { setScanError(`No product found for barcode ${ean}. Add it manually.`); return; }
+            const p = await res.json() as { productName: string; brand: string; sizeVariant: string; unitType: string; mrp: number | null };
+            setItems((prev) => [
+              ...prev,
+              {
+                id:    crypto.randomUUID(),
+                name:  `${p.brand} ${p.productName} ${p.sizeVariant}`.trim(),
+                qty:   1,
+                unit:  p.unitType,
+                price: p.mrp ?? 0,
+              },
+            ]);
+            return;
+          }
+        } catch { /* detector can throw on empty frames */ }
+        scanLoopRef.current = requestAnimationFrame(loop);
+      };
+      scanLoopRef.current = requestAnimationFrame(loop);
+    } catch {
+      setScanError('Camera access denied. Allow camera permission and try again.');
+      setScanning(false);
+    }
+  }, [stopScan]);
+
   // ─── Cleanup on unmount ───────────────────────────────────────────────────
 
-  useEffect(() => () => { recognitionRef.current?.stop(); }, []);
+  useEffect(() => () => {
+    recognitionRef.current?.stop();
+    stopScan();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -234,6 +309,20 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
             <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Mic className="h-4 w-4 text-primary" /> Voice / Text input
             </h2>
+
+            {/* How-to hint */}
+            <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">How to use</p>
+              <p className="text-xs text-foreground/70 leading-relaxed">
+                Tap the mic and say each item naturally:
+              </p>
+              <p className="text-xs font-mono bg-background rounded-lg border border-border px-2.5 py-1.5 text-foreground/80 leading-relaxed">
+                &ldquo;2 Maggi at 14 rupees, 1 kg sugar 45, Parle-G 10 rupees&rdquo;
+              </p>
+              <p className="text-[10px] text-muted-foreground/60">
+                Say product name + price (and optionally quantity). The AI fills in the bill automatically.
+              </p>
+            </div>
 
             {/* Mic button */}
             <div className="flex flex-col items-center gap-3">
@@ -306,6 +395,40 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* ── Barcode scanner ──────────────────────────────────────── */}
+            <div className="border-t border-border pt-4 space-y-2">
+              <label className="block text-xs font-semibold text-muted-foreground">Or scan EAN barcode</label>
+              {!scanning ? (
+                <button
+                  onClick={startScan}
+                  disabled={saved}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground hover:border-primary/30 hover:text-primary transition-all disabled:opacity-40"
+                >
+                  <ScanBarcode className="h-4 w-4" /> Scan barcode
+                </button>
+              ) : (
+                <div className="relative rounded-xl overflow-hidden border border-border bg-black aspect-video">
+                  {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-48 h-24 border-2 border-primary rounded-lg opacity-70" />
+                  </div>
+                  <button
+                    onClick={stopScan}
+                    className="absolute top-2 right-2 flex items-center justify-center h-7 w-7 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                  <p className="absolute bottom-2 left-0 right-0 text-center text-[11px] text-white/70">
+                    Point camera at EAN barcode
+                  </p>
+                </div>
+              )}
+              {scanError && (
+                <p className="text-xs text-destructive rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">{scanError}</p>
+              )}
             </div>
 
             {parseError && (
@@ -456,6 +579,34 @@ export default function VoiceBillTab({ storeId, storeName }: Props) {
               ))}
             </div>
           </div>
+
+          {/* UPI payment QR — shown when UPI is selected and total > 0 */}
+          {payMethod === 'upi' && (
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+              <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <QrCode className="h-4 w-4 text-primary" /> UPI Payment QR
+              </h2>
+              {upiQrUrl && total > 0 ? (
+                <div className="flex flex-col items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={upiQrUrl} alt="UPI QR" width={200} height={200} className="rounded-xl border border-border" />
+                  <div className="text-center space-y-0.5">
+                    <p className="text-base font-black text-foreground">{fmtINR(total)}</p>
+                    <p className="text-[10px] text-muted-foreground">Scan with any UPI app</p>
+                    <p className="text-[10px] font-mono text-muted-foreground/60">{upiId}</p>
+                  </div>
+                </div>
+              ) : !upiId ? (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Add your UPI ID in <span className="font-semibold">Payout settings</span> to enable UPI QR
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Add items to generate UPI QR
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Complete sale */}
           <div className="rounded-2xl border border-border bg-card p-5 space-y-3">

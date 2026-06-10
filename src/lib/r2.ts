@@ -1,5 +1,4 @@
-// Cloudflare R2 helper — direct browser-to-R2 upload via signed PUT URLs.
-// Avoids Vercel function payload limits and zero egress fees on R2.
+// Cloudflare R2 helper — server-side upload (avoids browser CORS restrictions on R2).
 
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -20,6 +19,18 @@ function r2Client(): S3Client {
 
 const BUCKET = () => process.env.R2_BUCKET ?? '';
 
+// Server-side upload — pipe file bytes directly to R2 (no CORS issues)
+export async function putObject(objectKey: string, body: Buffer | Uint8Array, contentType: string): Promise<void> {
+  const cmd = new PutObjectCommand({
+    Bucket:      BUCKET(),
+    Key:         objectKey,
+    Body:        body,
+    ContentType: contentType,
+  });
+  await r2Client().send(cmd);
+}
+
+// Kept for other uses (device content uploads etc.)
 export async function signedUploadUrl(objectKey: string, contentType: string, expiresInSeconds = 600): Promise<string> {
   const cmd = new PutObjectCommand({
     Bucket:      BUCKET(),

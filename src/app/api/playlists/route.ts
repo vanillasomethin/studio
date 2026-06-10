@@ -20,20 +20,30 @@ function normalizePlaylist(pl: any) {
     items: (pl.items ?? []).map((item: any) => ({
       ...item,
       content: {
-        ...item.content,
-        type:      (item.content.type as string).toLowerCase() as 'image' | 'video',
-        url:       publicUrl(item.content.objectKey as string),
-        createdAt: (item.content.uploadedAt as Date).toISOString(),
+        id:         item.content.id,
+        name:       item.content.name,
+        type:       (item.content.type as string).toLowerCase() as 'image' | 'video',
+        objectKey:  item.content.objectKey,
+        url:        publicUrl(item.content.objectKey as string),
+        md5:        item.content.md5,
+        sizeBytes:  Number(item.content.sizeBytes),
+        durationMs: item.content.durationMs ?? undefined,
+        createdAt:  (item.content.uploadedAt as Date).toISOString(),
       },
     })),
   };
 }
 
+const CONTENT_SELECT = {
+  id: true, name: true, type: true, objectKey: true,
+  md5: true, sizeBytes: true, durationMs: true, uploadedAt: true,
+};
+
 export async function GET(req: NextRequest) {
   if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const rows = await db.playlist.findMany({
-      include: { items: { include: { content: true }, orderBy: { order: 'asc' } } },
+      include: { items: { include: { content: { select: CONTENT_SELECT } }, orderBy: { order: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
     return NextResponse.json({ playlists: rows.map(normalizePlaylist) });
@@ -62,7 +72,7 @@ export async function POST(req: NextRequest) {
           })),
         },
       },
-      include: { items: { include: { content: true }, orderBy: { order: 'asc' } } },
+      include: { items: { include: { content: { select: CONTENT_SELECT } }, orderBy: { order: 'asc' } } },
     });
 
     return NextResponse.json({ playlist: normalizePlaylist(playlist) });

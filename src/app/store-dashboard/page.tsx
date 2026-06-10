@@ -7,10 +7,15 @@ import {
   IndianRupee, CheckCircle2, Clock, BarChart3, Phone,
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart,
+  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag, ImageIcon,
+  KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
+import OffersTab from '@/components/store/offers-tab';
+import FlyerTab from '@/components/store/flyer-tab';
+import KycTab from '@/components/store/kyc-tab';
+import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
 
@@ -38,9 +43,13 @@ type StoreInfo = {
   address?:      string;
   gstin?:        string;
   email?:        string;
-  referralCode?: string;
-  referredBy?:   string;
-  agreedAt?:     string;
+  referralCode?:     string;
+  referredBy?:       string;
+  agreedAt?:         string;
+  liveAt?:           string;
+  onboardingStage?:  string;
+  deviceCount?:      number;
+  payoutMethod?: string; upiId?: string; bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
 };
 
 type Flyer = {
@@ -60,38 +69,99 @@ function fmtDate(iso: string) {
 }
 function resolveImage(raw: string) {
   if (!raw) return '';
-  return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+  if (raw.startsWith('data:') || raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('//')) return raw;
+  return `data:image/jpeg;base64,${raw}`;
 }
 
 // ─── Phone + password login ───────────────────────────────────────────────────
 
-function PhoneLogin() {
-  const [phone,    setPhone]    = useState('');
-  const [password, setPassword] = useState('');
-  const [busy,     setBusy]     = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
+type LoginView = 'login' | 'forgot_phone' | 'forgot_otp' | 'forgot_done';
 
+function PhoneLogin() {
+  const [view,        setView]        = useState<LoginView>('login');
+  const [phone,       setPhone]       = useState('');
+  const [password,    setPassword]    = useState('');
+  const [showPw,      setShowPw]      = useState(false);
+  const [busy,        setBusy]        = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+
+  // reset flow state
+  const [resetPhone,  setResetPhone]  = useState('');
+  const [otp,         setOtp]         = useState('');
+  const [newPw,       setNewPw]       = useState('');
+  const [showNewPw,   setShowNewPw]   = useState(false);
+
+  const inputCls = 'w-full rounded-xl border border-border bg-card px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all';
+
+  // ── Sign in ────────────────────────────────────────────────────────────────
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length !== 10) { setError('Enter a valid 10-digit WhatsApp number.'); return; }
     if (!password)            { setError('Enter your password.'); return; }
     setBusy(true); setError(null);
-
     try {
-      const result = await signIn('phone-password', {
-        phone:    `+91${phone}`,
-        password,
-        redirect: false,
-      });
-      if (result?.error) {
-        setError('Incorrect number or password. Please try again.');
-      }
-      // On success, useSession in the parent will update and render MainDashboard
+      const result = await signIn('phone-password', { phone: `+91${phone}`, password, redirect: false });
+      if (result?.error) { setError('Incorrect number or password. Please try again.'); return; }
+      // Fetch and cache store data after successful login
+      try {
+        const res = await fetch('/api/stores/me');
+        if (res.ok) {
+          const data = await res.json() as StoreInfo;
+          localStorage.setItem(LS_SESSION_KEY, JSON.stringify(data));
+        }
+      } catch { /* non-fatal — session will load on next render */ }
     } catch {
       setError('Could not connect. Check your internet and try again.');
     } finally {
       setBusy(false);
     }
+  };
+
+  // ── Request OTP ───────────────────────────────────────────────────────────
+  const requestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (resetPhone.length !== 10) { setError('Enter a valid 10-digit WhatsApp number.'); return; }
+    setBusy(true); setError(null);
+    try {
+      await fetch('/api/stores/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request', phone: resetPhone }),
+      });
+      // Always advance — don't reveal if number is registered
+      setView('forgot_otp');
+    } catch {
+      setError('Could not send code. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ── Verify OTP + set new password ─────────────────────────────────────────
+  const verifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otp.length !== 6)   { setError('Enter the 6-digit code from WhatsApp.'); return; }
+    if (newPw.length < 6)   { setError('New password must be at least 6 characters.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const res  = await fetch('/api/stores/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', phone: resetPhone, otp, newPassword: newPw }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) { setError(data.error ?? 'Reset failed. Try again.'); return; }
+      setView('forgot_done');
+    } catch {
+      setError('Could not verify. Check your connection.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const backToLogin = () => {
+    setView('login'); setError(null);
+    setResetPhone(''); setOtp(''); setNewPw('');
   };
 
   return (
@@ -104,71 +174,209 @@ function PhoneLogin() {
 
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
-          <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6">
-            <motion.div variants={fadeUp} className="space-y-1.5">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Store Partner Portal</p>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">Sign in</h1>
-              <p className="text-sm text-muted-foreground">
-                Use your registered WhatsApp number and password.
-              </p>
-            </motion.div>
+          <AnimatePresence mode="wait">
 
-            <motion.form variants={fadeUp} onSubmit={submit} className="space-y-3">
-              {/* Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">WhatsApp number (username)</label>
-                <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
-                  <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    maxLength={10}
-                    required
-                    autoFocus
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    placeholder="98765 43210"
-                    className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-                  />
+            {/* ── Sign in ── */}
+            {view === 'login' && (
+              <motion.div key="login" variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6">
+                <motion.div variants={fadeUp} className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Store Partner Portal</p>
+                  <h1 className="text-3xl font-bold tracking-tight text-foreground">Sign in</h1>
+                  <p className="text-sm text-muted-foreground">Use your registered WhatsApp number and password.</p>
+                </motion.div>
+
+                <motion.form variants={fadeUp} onSubmit={submit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">WhatsApp number (username)</label>
+                    <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
+                      <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
+                      <input
+                        type="tel" inputMode="numeric" maxLength={10} required autoFocus
+                        value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="98765 43210"
+                        className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-semibold text-muted-foreground">Password</label>
+                      <button type="button" onClick={() => { setResetPhone(phone); setView('forgot_phone'); setError(null); }}
+                        className="text-xs text-primary hover:underline font-medium">
+                        Forgot password?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showPw ? 'text' : 'password'} required
+                        value={password} onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Your login password"
+                        className={`${inputCls} pr-11`}
+                      />
+                      <button type="button" tabIndex={-1} onClick={() => setShowPw((v) => !v)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                        {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={busy || phone.length !== 10 || !password}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.4)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Sign in</>}
+                  </button>
+                </motion.form>
+
+                <motion.div variants={fadeUp} className="text-center">
+                  <p className="text-xs text-muted-foreground">
+                    New to Alive?{' '}
+                    <a href="/store" className="text-primary font-semibold hover:underline">Register your store — it&apos;s free →</a>
+                  </p>
+                </motion.div>
+              </motion.div>
+            )}
+
+            {/* ── Forgot: enter phone ── */}
+            {view === 'forgot_phone' && (
+              <motion.div key="forgot_phone" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+                <div className="space-y-1.5">
+                  <button onClick={backToLogin} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                      <KeyRound className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <h1 className="text-xl font-bold tracking-tight text-foreground">Reset password</h1>
+                      <p className="text-xs text-muted-foreground">We&apos;ll send a code to your WhatsApp.</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Password */}
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Your login password"
-                  className="w-full rounded-xl border border-border bg-card px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                />
-              </div>
+                <form onSubmit={requestOtp} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Registered WhatsApp number</label>
+                    <div className="flex items-stretch rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all bg-card">
+                      <span className="flex items-center px-4 text-sm font-semibold text-muted-foreground border-r border-border bg-muted shrink-0">+91</span>
+                      <input
+                        type="tel" inputMode="numeric" maxLength={10} required autoFocus
+                        value={resetPhone} onChange={(e) => setResetPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="98765 43210"
+                        className="flex-1 bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                      />
+                    </div>
+                  </div>
 
-              {error && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-                  <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                  {error && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={busy || resetPhone.length !== 10}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Send code via WhatsApp</>}
+                  </button>
+                </form>
+              </motion.div>
+            )}
+
+            {/* ── Forgot: enter OTP + new password ── */}
+            {view === 'forgot_otp' && (
+              <motion.div key="forgot_otp" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+                <div className="space-y-1.5">
+                  <button onClick={() => { setView('forgot_phone'); setError(null); }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                      <KeyRound className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <h1 className="text-xl font-bold tracking-tight text-foreground">Enter code</h1>
+                      <p className="text-xs text-muted-foreground">Sent to +91 {resetPhone} via WhatsApp.</p>
+                    </div>
+                  </div>
                 </div>
-              )}
 
-              <button
-                type="submit"
-                disabled={busy || phone.length !== 10 || !password}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-red-500 to-red-700 px-6 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.4)] transition-all hover:from-red-600 hover:to-red-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4" /> Sign in</>}
-              </button>
-            </motion.form>
+                <form onSubmit={verifyOtp} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">6-digit code</label>
+                    <input
+                      type="text" inputMode="numeric" maxLength={6} required autoFocus
+                      value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="123456"
+                      className={`${inputCls} text-center text-xl font-bold tracking-[0.3em]`}
+                    />
+                  </div>
 
-            <motion.div variants={fadeUp} className="text-center">
-              <p className="text-xs text-muted-foreground">
-                New to Alive?{' '}
-                <a href="/store" className="text-primary font-semibold hover:underline">Register your store — it&apos;s free →</a>
-              </p>
-            </motion.div>
-          </motion.div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1.5">New password</label>
+                    <div className="relative">
+                      <input
+                        type={showNewPw ? 'text' : 'password'} required minLength={6}
+                        value={newPw} onChange={(e) => setNewPw(e.target.value)}
+                        placeholder="At least 6 characters"
+                        className={`${inputCls} pr-11`}
+                      />
+                      <button type="button" tabIndex={-1} onClick={() => setShowNewPw((v) => !v)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                        {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                      <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={busy || otp.length !== 6 || newPw.length < 6}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><KeyRound className="h-4 w-4" /> Set new password</>}
+                  </button>
+
+                  <p className="text-center text-xs text-muted-foreground">
+                    Didn&apos;t receive it?{' '}
+                    <button type="button" onClick={() => { setView('forgot_phone'); setError(null); }}
+                      className="text-primary hover:underline font-medium">Resend code</button>
+                  </p>
+                </form>
+              </motion.div>
+            )}
+
+            {/* ── Success ── */}
+            {view === 'forgot_done' && (
+              <motion.div key="forgot_done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-500/10">
+                    <Check className="h-7 w-7 text-green-600" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold tracking-tight text-foreground">Password updated</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Sign in with your new password.</p>
+                  </div>
+                </div>
+                <button onClick={backToLogin}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90">
+                  <ArrowRight className="h-4 w-4" /> Go to sign in
+                </button>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
         </div>
       </main>
     </div>
@@ -189,17 +397,14 @@ function EmailBanner({ store, onSave }: { store: StoreInfo; onSave: (email: stri
     if (!email.includes('@')) return;
     setBusy(true);
     try {
-      const res = await fetch('/api/stores/update', {
+      await fetch('/api/stores/me', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email }),
       });
-      if (!res.ok) throw new Error('Failed');
       onSave(email);
       setSaved(true);
       setTimeout(() => setOpen(false), 1500);
-    } catch {
-      // silently ignore — user can retry
     } finally {
       setBusy(false);
     }
@@ -308,21 +513,75 @@ function StoreFlyers({ storeName }: { storeName: string }) {
 
 // ─── 12-month payment timeline ───────────────────────────────────────────────
 
-function PaymentTimeline({ onClaim }: { onClaim: () => void }) {
+type PaymentRecord = {
+  month: string; status: string; amountPaise: number; paidAt: string | null; payRef: string | null;
+};
+
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Pro-rate ₹500 for the first partial month based on onboarding date.
+// Returns amount in paise for consistency with PaymentRecord.
+function proRateFirstMonth(onboardedAt: Date, monthStart: Date): number {
+  const monthEnd   = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+  const totalDays  = (monthEnd.getTime() - monthStart.getTime()) / 86400000;
+  // Days from onboarding date to end of month (inclusive of onboarding day)
+  const daysActive = (monthEnd.getTime() - onboardedAt.getTime()) / 86400000;
+  const fraction   = Math.min(1, Math.max(0, daysActive / totalDays));
+  return Math.round(500 * fraction * 100); // in paise
+}
+
+function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: (monthKey: string, amountPaise: number) => void }) {
+  const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
+
+  useEffect(() => {
+    fetch('/api/stores/payments')
+      .then(r => r.ok ? r.json() as Promise<PaymentRecord[]> : Promise.resolve([]))
+      .then(setPaymentRecords)
+      .catch(() => setPaymentRecords([]));
+  }, []);
+
   const now = new Date();
+  // A month is claimable only after it has fully ended (i.e., today >= 1st of next month)
+  const claimableBeforeMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
-  const months = Array.from({ length: 12 }, (_, i) => {
-    const start   = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1);
-    const end     = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-    const isPast  = start < new Date(now.getFullYear(), now.getMonth(), 1);
-    const isCur   = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
-    const isFuture = !isPast && !isCur;
+  // Determine start month: liveAt → agreedAt → fallback to 4 months ago
+  const onboardDate = store.liveAt ?? store.agreedAt;
+  const onboardedAt = onboardDate ? new Date(onboardDate) : null;
+  const startMonth  = onboardedAt
+    ? new Date(onboardedAt.getFullYear(), onboardedAt.getMonth(), 1)
+    : new Date(now.getFullYear(), now.getMonth() - 4, 1);
 
-    const mo  = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-    const yr  = start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  // Build months from startMonth to current month
+  const months: { label: string; range: string; isPast: boolean; isCur: boolean; isFuture: boolean; amountPaise: number; monthKey: string; isFirstMonth: boolean }[] = [];
+  const cur = new Date(startMonth.getFullYear(), startMonth.getMonth(), 1);
+  const endCal = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    return { label: yr, range: `${mo(start)} – ${mo(end)}`, isPast, isCur, isFuture, amount: '₹500' };
-  });
+  let firstMonthProcessed = false;
+  while (cur <= endCal) {
+    const start    = new Date(cur);
+    const end      = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    const isPast   = start.getTime() < claimableBeforeMs;
+    const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
+    const mo       = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const isFirst  = !firstMonthProcessed;
+    // Pro-rate first month; full ₹500 (50000 paise) for subsequent months
+    const amountPaise = (isFirst && onboardedAt)
+      ? proRateFirstMonth(onboardedAt, start)
+      : 50000;
+    if (isFirst) firstMonthProcessed = true;
+    months.push({
+      label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+      range: `${mo(start)} – ${mo(end)}`,
+      isPast, isCur,
+      isFuture: !isPast && !isCur,
+      amountPaise,
+      monthKey: monthKey(start),
+      isFirstMonth: isFirst,
+    });
+    cur.setMonth(cur.getMonth() + 1);
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
@@ -335,53 +594,73 @@ function PaymentTimeline({ onClaim }: { onClaim: () => void }) {
       </div>
 
       <div className="space-y-2">
-        {months.map((m, i) => (
-          <motion.div
-            key={m.label}
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] }}
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
-              m.isCur    ? 'border border-primary/30 bg-primary/5'  :
-              m.isPast   ? 'border border-border bg-muted/20'       :
-                           'border border-border/40 bg-transparent opacity-50'
-            }`}
-          >
-            {/* Status dot */}
-            <div className={`h-2 w-2 rounded-full shrink-0 ${
-              m.isCur  ? 'bg-primary animate-pulse' :
-              m.isPast ? 'bg-green-500'             :
-                         'bg-muted-foreground/20'
-            }`} />
+        {months.map((m, i) => {
+          const record = paymentRecords.find(p => p.month === m.monthKey);
+          const isPaid = record?.status === 'paid';
+          const isSkipped = record?.status === 'skipped';
 
-            {/* Month + range */}
-            <div className="flex-1 min-w-0">
-              <p className={`text-xs font-bold ${m.isCur ? 'text-primary' : m.isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
-                {m.label}
-              </p>
-              <p className="text-[10px] text-muted-foreground/60">{m.range}</p>
-            </div>
+          return (
+            <motion.div
+              key={m.label}
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.3, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] }}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+                m.isCur    ? 'border border-primary/30 bg-primary/5'  :
+                m.isPast   ? 'border border-border bg-muted/20'       :
+                             'border border-border/40 bg-transparent opacity-50'
+              }`}
+            >
+              {/* Status dot */}
+              <div className={`h-2 w-2 rounded-full shrink-0 ${
+                m.isCur    ? 'bg-primary animate-pulse' :
+                isPaid     ? 'bg-green-500'             :
+                isSkipped  ? 'bg-muted-foreground/30'   :
+                m.isPast   ? 'bg-amber-400'             :
+                             'bg-muted-foreground/20'
+              }`} />
 
-            {/* Amount + status */}
-            <div className="text-right shrink-0">
-              {m.isPast ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-green-600">{m.amount}</span>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                </div>
-              ) : m.isCur ? (
-                <button
-                  onClick={onClaim}
-                  className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
-                >
-                  <Download className="h-2.5 w-2.5" /> Claim
-                </button>
-              ) : (
-                <span className="text-[10px] text-muted-foreground/40 font-medium">Upcoming</span>
-              )}
-            </div>
-          </motion.div>
-        ))}
+              {/* Month + range */}
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-bold ${m.isCur ? 'text-primary' : m.isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {m.label}
+                </p>
+                <p className="text-[10px] text-muted-foreground/60">{m.range}</p>
+              </div>
+
+              {/* Amount + status */}
+              <div className="text-right shrink-0">
+                {isPaid ? (
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-green-600">₹{((record?.amountPaise ?? m.amountPaise) / 100).toLocaleString('en-IN')}</span>
+                      {record?.paidAt && <p className="text-[9px] text-green-600/60">{new Date(record.paidAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>}
+                    </div>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                  </div>
+                ) : isSkipped ? (
+                  <span className="text-[10px] text-muted-foreground/40 font-medium">Skipped</span>
+                ) : m.isCur ? (
+                  // Current month — not yet claimable; show in-progress amount
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-primary">₹{(m.amountPaise / 100).toLocaleString('en-IN')}</span>
+                    <p className="text-[9px] text-primary/50 mt-0.5">In progress</p>
+                  </div>
+                ) : m.isPast ? (
+                  // Past month, unpaid — show Claim button
+                  <button
+                    onClick={() => onClaim(m.monthKey, m.amountPaise)}
+                    className="flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[10px] font-bold text-white hover:opacity-90 transition-opacity"
+                  >
+                    <Download className="h-2.5 w-2.5" /> Claim ₹{(m.amountPaise / 100).toLocaleString('en-IN')}
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/40 font-medium">Upcoming</span>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );
@@ -423,9 +702,17 @@ function ReferralCard({ store }: { store: StoreInfo }) {
 
 // ─── Claim payout modal ───────────────────────────────────────────────────────
 
-function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void }) {
+function ClaimModal({ store, onClose, claimMonthKey, claimAmountPaise }: {
+  store: StoreInfo; onClose: () => void;
+  claimMonthKey: string; claimAmountPaise: number;
+}) {
   const [sent, setSent] = useState(false);
-  const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState<string | null>(null);
+  // claimMonthKey is "YYYY-MM"; display as e.g. "March 2025"
+  const [year, mo] = claimMonthKey.split('-');
+  const month = new Date(Number(year), Number(mo) - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const amountRs = (claimAmountPaise / 100).toLocaleString('en-IN');
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -464,7 +751,7 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Amount</span>
-                <span className="font-bold text-green-600">₹500 + electricity</span>
+                <span className="font-bold text-green-600">₹{amountRs} + electricity</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">UPI / WhatsApp</span>
@@ -474,15 +761,29 @@ function ClaimModal({ store, onClose }: { store: StoreInfo; onClose: () => void 
             <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
               Actual payout is calculated based on verified screen uptime and campaign bookings for the month. Final amount may vary.
             </p>
+            {err && <p className="text-[11px] text-destructive rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">{err}</p>}
             <div className="flex gap-2">
               <button onClick={onClose} className="flex-1 rounded-xl border border-border py-3 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
                 Cancel
               </button>
               <button
-                onClick={() => setSent(true)}
-                className="flex-1 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-xs font-bold text-white hover:opacity-90 transition-opacity"
+                onClick={async () => {
+                  setBusy(true); setErr(null);
+                  try {
+                    const res = await fetch('/api/payout-claim', {
+                      method:  'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body:    JSON.stringify({ month: claimMonthKey, amountPaise: claimAmountPaise }),
+                    });
+                    if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error); }
+                    setSent(true);
+                  } catch (e) { setErr((e as Error).message ?? 'Failed. Try again.'); }
+                  finally { setBusy(false); }
+                }}
+                disabled={busy}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-br from-red-500 to-red-700 py-3 text-xs font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                Submit claim
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Submit claim'}
               </button>
             </div>
           </>
@@ -563,31 +864,85 @@ const EARNING_TABLE = [
   { screens: 3, monthly: 1500, annual: 18000 },
 ];
 
-const TIMELINE = [
-  { label: 'Registration received',   desc: 'Your details are saved successfully.',               done: true  },
-  { label: 'Team verification',       desc: 'Our team will call you within 24 hours.',             active: true  },
-  { label: 'Site visit & install',    desc: 'Free screen installed at your store.',               done: false },
-  { label: 'Screen goes live',        desc: 'Ads start running — you start earning!',             done: false },
-];
+function buildTimeline(store: StoreInfo) {
+  const stage = store.onboardingStage ?? 'new';
+  const isContacted = ['contacted', 'visited', 'installed', 'live', 'rejected'].includes(stage);
+  const isVisited   = ['visited', 'installed', 'live'].includes(stage);
+  const isInstalled = ['installed', 'live'].includes(stage) || (store.deviceCount ?? 0) > 0;
+  const isLive      = stage === 'live' || !!store.liveAt;
+
+  return [
+    { label: 'Registration received', desc: 'Your details are saved successfully.', done: true, active: false },
+    { label: 'Team verification',     desc: 'Our team will call you within 24 hours.', done: isContacted, active: !isContacted },
+    { label: 'Site visit & install',  desc: 'Free screen installed at your store.', done: isInstalled, active: isContacted && !isInstalled },
+    { label: 'Screen goes live',      desc: 'Ads start running — you start earning!', done: isLive, active: isInstalled && !isLive },
+  ];
+}
+
+
+
+function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved: (patch: Partial<StoreInfo>) => void }) {
+  const [payout, setPayout] = useState({
+    payoutMethod: store.payoutMethod ?? 'upi',
+    upiId: store.upiId ?? '', bankAccountName: store.bankAccountName ?? '', bankAccountNo: store.bankAccountNo ?? '', bankIfsc: store.bankIfsc ?? '', bankName: store.bankName ?? '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/stores/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payout) });
+      if (res.ok) onSaved(payout);
+    } finally { setBusy(false); }
+  };
+
+  return <div className="space-y-4">
+    <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+      <h2 className="text-sm font-bold">Payout method</h2>
+      <p className="text-xs text-muted-foreground">Where should we send your monthly ₹500 + electricity reimbursement?</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={()=>setPayout((p)=>({...p,payoutMethod:'upi'}))} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${payout.payoutMethod==='upi' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>UPI</button>
+        <button onClick={()=>setPayout((p)=>({...p,payoutMethod:'bank'}))} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${payout.payoutMethod==='bank' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>Bank transfer</button>
+      </div>
+      {payout.payoutMethod==='upi'
+        ? <input value={payout.upiId} onChange={(e)=>setPayout((p)=>({...p,upiId:e.target.value}))} placeholder="UPI ID (e.g. name@upi)" className="w-full rounded-lg border border-border px-3 py-2 text-xs" />
+        : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input value={payout.bankAccountName} onChange={(e)=>setPayout((p)=>({...p,bankAccountName:e.target.value}))} placeholder="Account name" className="rounded-lg border border-border px-3 py-2 text-xs" />
+            <input value={payout.bankName} onChange={(e)=>setPayout((p)=>({...p,bankName:e.target.value}))} placeholder="Bank name" className="rounded-lg border border-border px-3 py-2 text-xs" />
+            <input value={payout.bankAccountNo} onChange={(e)=>setPayout((p)=>({...p,bankAccountNo:e.target.value}))} placeholder="Account number" className="rounded-lg border border-border px-3 py-2 text-xs" />
+            <input value={payout.bankIfsc} onChange={(e)=>setPayout((p)=>({...p,bankIfsc:e.target.value.toUpperCase()}))} placeholder="IFSC code" className="rounded-lg border border-border px-3 py-2 text-xs" />
+          </div>
+      }
+      <button onClick={save} disabled={busy} className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+        {busy ? 'Saving…' : 'Save payout details'}
+      </button>
+    </div>
+  </div>;
+}
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill';
+type DashTab = 'overview' | 'earnings' | 'flyers' | 'voicebill' | 'offers' | 'flyergen' | 'settings' | 'kyc';
 
 const DASH_TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
-  { id: 'overview',  label: 'Overview',  icon: BarChart3    },
-  { id: 'earnings',  label: 'Earnings',  icon: IndianRupee  },
-  { id: 'flyers',    label: 'My flyers', icon: FileImage    },
-  { id: 'voicebill', label: 'VoiceBill', icon: ShoppingCart },
+  { id: 'overview',  label: 'Overview',   icon: BarChart3    },
+  { id: 'earnings',  label: 'Earnings',   icon: IndianRupee  },
+  { id: 'flyers',    label: 'My flyers',  icon: FileImage    },
+  { id: 'voicebill', label: 'VoiceBill',  icon: ShoppingCart },
+  { id: 'offers',    label: 'Offers',     icon: Tag          },
+  { id: 'flyergen',  label: 'Flyer',      icon: ImageIcon    },
+  { id: 'settings',  label: 'Payout',     icon: Gift         },
+  { id: 'kyc',       label: 'KYC',        icon: ShieldCheck  },
 ];
 
 function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => void }) {
   const [tab,       setTab]      = useState<DashTab>('overview');
   const [storeData, setStoreData] = useState<StoreInfo>(store);
   const [claimOpen, setClaimOpen] = useState(false);
+  const [claimMonthKey,    setClaimMonthKey]    = useState('');
+  const [claimAmountPaise, setClaimAmountPaise] = useState(50000);
 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
-  const earning     = EARNING_TABLE[0]; // 1 screen per store
 
   const saveEmail = (email: string) => {
     setStoreData((prev) => ({ ...prev, email }));
@@ -634,17 +989,35 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 <p className="text-base font-bold text-white">₹500</p>
                 <p className="text-[9px] text-white/40">/month</p>
               </div>
-              <div className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-center">
-                <p className="text-base font-bold text-primary">48h</p>
-                <p className="text-[9px] text-primary/60">To live</p>
-              </div>
+              {storeData.liveAt ? (
+                <div className="rounded-xl border border-green-500/40 bg-green-500/10 px-3 py-2.5 text-center">
+                  <p className="text-base font-bold text-green-400">Live</p>
+                  <p className="text-[9px] text-green-500/60">{(storeData.deviceCount ?? 0)} screen{(storeData.deviceCount ?? 1) !== 1 ? 's' : ''}</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-center">
+                  <p className="text-base font-bold text-primary">48h</p>
+                  <p className="text-[9px] text-primary/60">To live</p>
+                </div>
+              )}
             </div>
           </div>
           <div className="border-t border-white/10 px-5 sm:px-6 py-2.5 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
-            <p className="text-xs text-white/50">
-              <span className="text-white/80 font-semibold">Registration received</span> — our team will call +91 {storeData.whatsapp} within 24 hours.
-            </p>
+            {storeData.liveAt ? (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
+                <p className="text-xs text-white/50">
+                  <span className="text-white/80 font-semibold">Screen is live</span> — ads are running and you&apos;re earning.
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                <p className="text-xs text-white/50">
+                  <span className="text-white/80 font-semibold">Registration received</span> — our team will call +91 {storeData.whatsapp} within 24 hours.
+                </p>
+              </>
+            )}
           </div>
         </motion.div>
 
@@ -652,19 +1025,19 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
         {!storeData.email && <EmailBanner store={storeData} onSave={saveEmail} />}
 
         {/* Tabs */}
-        <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1">
+        <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1 overflow-x-auto scrollbar-none">
           {DASH_TABS.map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
+                className={`flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-2 text-xs font-semibold transition-all ${
                   tab === t.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
-                {t.label}
+                <span className="hidden sm:inline whitespace-nowrap">{t.label}</span>
               </button>
             );
           })}
@@ -676,33 +1049,44 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           {tab === 'overview' && (
             <motion.div key="ov" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
-              {/* Timeline */}
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-sm font-bold text-foreground">What happens next</h2>
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">Step 1 of 4</span>
-                </div>
-                <div className="space-y-0">
-                  {TIMELINE.map((item, i) => (
-                    <div key={item.label} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                          item.done   ? 'bg-primary text-white' :
-                          item.active ? 'border-2 border-primary bg-primary/10 text-primary' :
-                                        'border-2 border-border bg-background text-muted-foreground'
-                        }`}>
-                          {item.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.active ? <Clock className="h-3.5 w-3.5" /> : <span>{i+1}</span>}
-                        </div>
-                        {i < TIMELINE.length - 1 && <div className={`w-px flex-1 min-h-[24px] mt-1 mb-1 ${item.done ? 'bg-primary/30' : 'bg-border'}`} />}
-                      </div>
-                      <div className="pb-4">
-                        <p className={`text-sm font-semibold ${item.done ? 'text-foreground' : item.active ? 'text-primary' : 'text-muted-foreground'}`}>{item.label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
-                      </div>
+              {/* Timeline — dynamic based on onboardingStage + deviceCount */}
+              {(() => {
+                const timeline = buildTimeline(storeData);
+                const stepDone = timeline.filter(t => t.done).length;
+                const stepLabel = stepDone >= 4 ? 'Live ✓' : `Step ${stepDone} of 4`;
+                return (
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-sm font-bold text-foreground">
+                        {stepDone >= 4 ? 'Your store is live!' : 'What happens next'}
+                      </h2>
+                      <span className={`text-xs bg-muted px-2 py-1 rounded-full ${stepDone >= 4 ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                        {stepLabel}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div className="space-y-0">
+                      {timeline.map((item, i) => (
+                        <div key={item.label} className="flex gap-3">
+                          <div className="flex flex-col items-center">
+                            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              item.done   ? 'bg-primary text-white' :
+                              item.active ? 'border-2 border-primary bg-primary/10 text-primary' :
+                                            'border-2 border-border bg-background text-muted-foreground'
+                            }`}>
+                              {item.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.active ? <Clock className="h-3.5 w-3.5" /> : <span>{i+1}</span>}
+                            </div>
+                            {i < timeline.length - 1 && <div className={`w-px flex-1 min-h-[24px] mt-1 mb-1 ${item.done ? 'bg-primary/30' : 'bg-border'}`} />}
+                          </div>
+                          <div className="pb-4">
+                            <p className={`text-sm font-semibold ${item.done ? 'text-foreground' : item.active ? 'text-primary' : 'text-muted-foreground'}`}>{item.label}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Referral */}
               <ReferralCard store={storeData} />
@@ -766,7 +1150,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               </div>
 
               {/* 12-month timeline */}
-              <PaymentTimeline onClaim={() => setClaimOpen(true)} />
+              <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 
             </motion.div>
           )}
@@ -799,7 +1183,31 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 
           {tab === 'voicebill' && (
             <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
-              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} />
+              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} upiId={storeData.upiId} />
+            </motion.div>
+          )}
+
+          {tab === 'offers' && (
+            <motion.div key="offers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <OffersTab />
+            </motion.div>
+          )}
+
+          {tab === 'flyergen' && (
+            <motion.div key="flyergen" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <FlyerTab storeName={storeData.storeName} />
+            </motion.div>
+          )}
+
+          {tab === 'settings' && (
+            <motion.div key="set" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <OffersAndPayoutSettings store={storeData} onSaved={(patch) => setStoreData((p) => ({ ...p, ...patch }))} />
+            </motion.div>
+          )}
+
+          {tab === 'kyc' && (
+            <motion.div key="kyc" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+              <KycTab />
             </motion.div>
           )}
 
@@ -811,55 +1219,142 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
       </footer>
 
       <AnimatePresence>
-        {claimOpen && <ClaimModal store={storeData} onClose={() => setClaimOpen(false)} />}
+        {claimOpen && <ClaimModal store={storeData} onClose={() => setClaimOpen(false)} claimMonthKey={claimMonthKey} claimAmountPaise={claimAmountPaise} />}
       </AnimatePresence>
+
+      <PwaInstallBanner />
     </div>
   );
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+const LS_SESSION_KEY = 'alive_store_session';
+
+function readLocalSession(): StoreInfo | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoreInfo;
+  } catch { return null; }
+}
+
 export default function StoreDashboardPage() {
   const { data: session, status } = useSession();
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
   const [storeLoading, setStoreLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const fetchStore = useCallback(async () => {
+  // On first render, try to populate from localStorage immediately.
+  // This ensures the dashboard is usable right after registration even if
+  // the next-auth session or /api/stores/me isn't established yet.
+  useEffect(() => {
+    if (storeInfo) return;
+    const local = readLocalSession();
+    if (local?.storeName) setStoreInfo(local);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchStore = useCallback(async (attempt = 0) => {
     setStoreLoading(true);
+    setLoadError(null);
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 20000);
     try {
-      const res = await fetch('/api/stores/me');
-      if (res.ok) setStoreInfo(await res.json() as StoreInfo);
+      const res = await fetch('/api/stores/me', { signal: controller.signal });
+      if (res.ok) {
+        const data = await res.json() as StoreInfo;
+        setStoreInfo(data);
+        // Keep localStorage in sync with server data
+        try { localStorage.setItem(LS_SESSION_KEY, JSON.stringify(data)); } catch { /* ignore */ }
+        return;
+      }
+      if (attempt === 0) {
+        clearTimeout(tid);
+        setStoreLoading(false);
+        await new Promise(r => setTimeout(r, 3000));
+        return fetchStore(1);
+      }
+      // API failed but we might still have localStorage data — don't show error if we do
+      if (!readLocalSession()) setLoadError('Could not load your store. Please tap retry.');
+    } catch (e) {
+      const err = e as Error;
+      if (attempt === 0) {
+        clearTimeout(tid);
+        setStoreLoading(false);
+        await new Promise(r => setTimeout(r, 3000));
+        return fetchStore(1);
+      }
+      if (!readLocalSession()) {
+        setLoadError(err.name === 'AbortError' ? 'Taking too long — the server may be waking up. Tap to retry.' : 'Connection error. Tap to retry.');
+      }
     } finally {
+      clearTimeout(tid);
       setStoreLoading(false);
     }
   }, []);
 
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  useEffect(() => {
+    if (status !== 'loading') return;
+    const t = setTimeout(() => setSessionTimedOut(true), 20000);
+    return () => clearTimeout(t);
+  }, [status]);
+
   useEffect(() => {
     if (status === 'authenticated' && !storeInfo) fetchStore();
-  }, [status, storeInfo, fetchStore]);
+    // If already have localStorage data, still refresh from API in background
+    if (status === 'authenticated' && storeInfo) fetchStore();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   const handleLogout = async () => {
     await signOut({ redirect: false });
+    try { localStorage.removeItem(LS_SESSION_KEY); } catch { /* ignore */ }
     setStoreInfo(null);
   };
 
-  if (status === 'loading' || storeLoading) {
+  // If localStorage gave us store data, skip all loading/error screens
+  if (storeInfo) return <MainDashboard store={storeInfo} onLogout={handleLogout} />;
+
+  if (status === 'loading' && !sessionTimedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (sessionTimedOut && status === 'loading') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground">Session check is taking too long — the server may be waking up.</p>
+        <button onClick={() => window.location.reload()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white">Retry</button>
+      </div>
+    );
+  }
+
+  if (storeLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground">{loadError}</p>
+        <button onClick={() => void fetchStore()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white">Retry</button>
       </div>
     );
   }
 
   if (status === 'unauthenticated' || !session) return <PhoneLogin />;
 
-  if (!storeInfo) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  return <MainDashboard store={storeInfo} onLogout={handleLogout} />;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  );
 }

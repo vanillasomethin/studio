@@ -3,7 +3,6 @@
 ## Project Overview
 
 **ALIVE** (wearealive.in) is a kirana store digital advertising network based in Mangaluru, Karnataka.
-The platform connects three parties:
 - **Brands** — pay to run ad campaigns on screens inside kirana stores
 - **Kirana store owners (Store Partners)** — host a free ALIVE screen and earn ₹500 + electricity/month
 - **Shoppers** — see deals/offers at their local kirana store
@@ -14,32 +13,129 @@ The platform connects three parties:
 
 ---
 
-## Architecture (target)
+## How Claude Should Work on This Project
+
+### Plan before building
+For any task with 3+ steps or architectural decisions: think through the full approach first, identify affected files, consider edge cases, then implement. If something goes sideways mid-task, stop and re-plan rather than patching forward.
+
+### Verify before done
+Never mark a task complete without proving it works. Always run `npx tsc --noEmit` and `npm run build` after changes. If they fail, fix before committing. Ask: "Would a staff engineer approve this?"
+
+### Fix bugs autonomously
+When given a bug report: find the root cause, fix it, verify. No hand-holding needed. Point at logs and errors, resolve them.
+
+### Keep changes minimal
+Touch only what the task requires. No cleanup, refactoring, or added abstractions beyond scope. Three similar lines is better than a premature abstraction.
+
+### Demand elegance on non-trivial changes
+Before presenting work, ask: "Is there a more elegant way?" If a fix feels hacky, implement the clean solution. Skip for simple obvious fixes.
+
+### Self-improve after corrections
+If the user corrects a mistake, identify the pattern and avoid it for the rest of the session. Common traps on this codebase: wrong auth mechanism for store partners, proxying R2 uploads through Next.js, module-level Redis instantiation.
+
+---
+
+## Architecture
 
 ALIVE is **one Next.js app** that does everything:
 - Marketing site (`/`, `/store`, `/blog`, etc.)
 - Brand onboarding + dashboard
 - Store partner registration + dashboard
-- **Console / admin** for fleet management (`/admin` with Screens, Content, Playlists, Schedules, Reports, Monitoring tabs)
-- **Device/player API** for the Android TV apps (`/api/device/*`)
+- Admin console for fleet management (`/admin` — Screens, Content, Playlists, Schedules, Reports, Monitoring tabs)
+- Device/player API for Android TV apps (`/api/device/*`)
 
 The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 
+---
+
 ## Tech Stack
 
-- **Framework:** Next.js 15 App Router (`'use client'` boundaries throughout)
-- **Styling:** Tailwind CSS + shadcn/ui (Radix primitives)
-- **Animations:** Framer Motion
-- **Auth (target):** Auth.js v5 (`next-auth@beta`) with Prisma adapter. One `User` table with `role` enum (`STORE_PARTNER | BRAND | AGENCY | ADMIN | OPS`). Phone+password (Credentials provider) for store partners; email magic-link for brand/admin/ops.
-- **Auth (legacy, in migration):** Clerk for brand dashboard + custom localStorage for store partners — both being phased out.
-- **Primary DB:** PostgreSQL via Prisma 6. Use **Neon** for Vercel — pooled `DATABASE_URL` for runtime + direct `DATABASE_DIRECT_URL` for migrations.
-- **Cache / sessions / rate-limit:** Upstash Redis (kept alongside Postgres for short-lived state).
-- **Media storage:** Cloudflare R2 (S3-compatible, zero egress). Direct browser→R2 upload via signed PUT URLs from `lib/r2.ts` — never proxy media through Next.js API routes (Vercel payload limits).
-- **Payments:** Razorpay (brand campaigns)
-- **Maps:** Leaflet (plain, no react-leaflet) + CartoDB Voyager tiles
-- **Geocoding:** OpenStreetMap Nominatim
-- **AI:** Genkit + Google AI
-- **React version:** 18.3.1 (NOT 19)
+| Layer | Choice |
+|-------|--------|
+| Framework | Next.js 15 App Router |
+| Styling | Tailwind CSS + shadcn/ui (Radix primitives) |
+| Animations | Framer Motion 11 (enter animations only — no loops) |
+| Auth | Auth.js v5 (`next-auth@beta`) + Prisma adapter. Store partners: phone+password Credentials. Brands/admin: email magic-link. |
+| DB | Prisma 6 + Neon PostgreSQL. Pooled `DATABASE_URL` for runtime; direct `DATABASE_DIRECT_URL` for migrations. |
+| Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
+| Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
+| Payments | Razorpay (brand campaigns) |
+| Maps | Plain Leaflet + CartoDB Voyager tiles (no react-leaflet — React 19 only) |
+| Geocoding | OpenStreetMap Nominatim |
+| AI | Genkit + Google AI (Gemini 2.5 Flash) |
+| React | 18.3.1 — NOT 19 |
+
+---
+
+## Critical Conventions — Read These First
+
+**Auth — the biggest trap:**
+- Store partners use `localStorage` key `alive_store_session` — NOT next-auth sessions
+- API routes for store partners must NOT call `auth()` or check session — validate storeId against DB instead
+- Admin routes: `admin-password` header checked against `ADMIN_PASSWORD` env var
+- Brands/admin: next-auth session via `auth()`
+
+**R2 uploads:**
+- Always route through `/api/admin/r2-upload` (server-side proxy) — never direct browser PUT to presigned URL (R2 CORS blocks it)
+- `maxDuration = 60` on the upload route for large files
+
+**Redis:**
+- Never `const kv = new Redis(...)` at module level — breaks SSG
+- Always: `function getRedis() { if (!process.env.UPSTASH_...) return null; return new Redis({...}); }`
+
+**Components:**
+- `'use client'` must be first line of any file using hooks, browser APIs, or Framer Motion
+- `import { db } from '@/lib/db'` — never `new PrismaClient()`
+- No react-leaflet — use `async function loadLeaflet()` dynamic import pattern
+- Always `// eslint-disable-next-line @next/next/no-img-element` before `<img>` tags
+
+---
+
+## Key File Paths
+
+```
+src/app/page.tsx                          — homepage
+src/app/store/page.tsx                    — store registration
+src/app/store-dashboard/page.tsx          — store partner dashboard
+src/app/brand-onboarding/page.tsx         — brand onboarding
+src/app/admin/page.tsx                    — admin panel (tab router)
+src/app/api/device/claim/route.ts         — device first-boot JWT
+src/app/api/device/events/route.ts        — proof-of-play ingestion
+src/app/api/device/plan/route.ts          — 72h schedule window
+src/app/api/devices/route.ts              — fleet list
+src/app/api/cron/device-health/route.ts   — offline detection + alerts
+src/app/api/playlists/[id]/route.ts       — PATCH (update items) + DELETE
+src/app/api/admin/r2-upload/route.ts      — server-side R2 proxy upload
+src/lib/db.ts                             — Prisma singleton
+src/lib/r2.ts                             — Cloudflare R2 helpers
+src/lib/notify.ts                         — notifyAdminWA(), notifyStoreWA()
+src/lib/telemetry.ts                      — recordError(), correlation IDs
+src/lib/backend-api.ts                    — typed fetch wrappers for all internal APIs
+src/lib/with-api-handler.ts               — HOF: telemetry + correlationId on API routes
+prisma/schema.prisma                      — full DB schema
+ALIVE_PLAYER_API.md                       — Android player integration guide
+```
+
+---
+
+## Database Models
+
+| Model | Purpose |
+|-------|---------|
+| `User` | All humans. `role` enum: `STORE_PARTNER \| BRAND \| AGENCY \| ADMIN \| OPS`. Holds `phone`, `passwordHash`. |
+| `Account / Session / VerificationToken` | Auth.js standard. |
+| `Store` | Kirana store profile. Map coords, referral code, gstin. |
+| `Brand` | Brand profile. `walletPaise` BigInt (T2). |
+| `Campaign` | Brand campaign + Razorpay order. |
+| `Device` | Physical screen. `hardwareKey` from Android. `groupName` for group scheduling. |
+| `Content` | Media file. `objectKey` = R2 path. `md5` for player cache invalidation. |
+| `Playlist` + `PlaylistItem` | Ordered content list with per-item duration. |
+| `Schedule` | Playlist → devices or groupName, with optional dayparting. |
+| `PlayEvent` | Proof-of-play row. `tag` = campaign attribution. |
+| `Bill` + `BillItem` | VoiceBill POS billing. `billRef` = "ALIVE-XXXXXX". |
+| `Customer` | Bill customer. Token-based auth (randomUUID → localStorage `alive_customer`). |
+| `Flyer` | Store offer flyers. |
+| `AuditLog` | T2 audit trail (reserved). |
 
 ---
 
@@ -47,201 +143,127 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 
 | Route | Description |
 |-------|-------------|
-| `/` | Main marketing homepage (brand-facing) |
-| `/store` | Kirana store partner landing + registration |
-| `/store-dashboard` | Store partner dashboard (login + overview/earnings/flyers tabs) |
-| `/store-agreement` | Full VS Collective LLP store partner contract (rendered page) |
-| `/brand-onboarding` | Multi-step brand campaign onboarding flow |
-| `/admin` | Admin dashboard — Flyers, Stores, Campaigns tabs |
-| `/dashboard` | Brand campaign dashboard (Clerk auth) |
-| `/deals` | Shopper deals/offers page |
+| `/` | Marketing homepage |
+| `/store` | Store partner registration |
+| `/store-dashboard` | Store partner dashboard (overview / earnings / flyers / voicebill tabs) |
+| `/store-agreement` | VS Collective LLP store partner contract |
+| `/brand-onboarding` | Brand campaign onboarding + Razorpay |
+| `/admin` | Admin panel (stores / flyers / campaigns / screens / content / playlists / schedules / reports / monitoring / payments / site-media / roadmap) |
+| `/bill/[billRef]` | Public receipt — customer can claim bill |
+| `/customer-dashboard` | Customer purchase history + local offers |
+| `/deals` | Shopper deals page |
 
 ---
 
-## API Routes
-
-| Route | Method | Auth | Purpose |
-|-------|--------|------|---------|
-| `/api/stores/save` | POST | none | Register a new store |
-| `/api/stores/save` | GET | `admin-password` header | List all stores |
-| `/api/stores/login` | POST | none | Store partner login by phone+password |
-| `/api/flyers/save` | POST | none | Upload a flyer |
-| `/api/flyers/save` | GET | none | List all flyers |
-| `/api/flyers/delete` | POST | none | Delete a flyer by ID |
-| `/api/campaigns/save` | POST | none | Save a brand campaign |
-| `/api/campaigns/list` | GET | none | List campaigns |
-| `/api/campaigns/admin` | GET | `admin-password` header | Admin: all campaigns with revenue |
-| `/api/razorpay` | POST | none | Create Razorpay order |
-
----
-
-## Database Models (Prisma)
-
-Defined in `prisma/schema.prisma`. Run `npx prisma migrate dev` after pulling.
-
-| Model | Purpose |
-|-------|---------|
-| `User` | All humans (store partners, brands, admin/ops) — Auth.js compatible. Holds `role`, `phone`, `passwordHash`. |
-| `Account / Session / VerificationToken` | Auth.js standard. |
-| `Store` | Kirana store profile (1-to-1 with a STORE_PARTNER User). Holds map coords, referral code. |
-| `Brand` | Brand profile (1-to-1 with a BRAND User). `walletPaise` BigInt for prepaid balance (T2). |
-| `Campaign` | Brand campaign — already on Razorpay. |
-| `Device` | Physical screen running ALIVE-Player. `hardwareKey` from Android. `groupName` for group-based scheduling. |
-| `Content` | Media file (image / video). `objectKey` is the R2 path. `md5` for player cache invalidation. |
-| `Playlist` + `PlaylistItem` | Ordered list of content with per-item duration. |
-| `Schedule` | Assigns a playlist to a set of devices OR a `groupName`, with optional dayparting (`dailyStart`/`dailyEnd`). |
-| `PlayEvent` | Proof-of-play log row. Indexed on `(deviceId, startedAt)`, `tag` (campaign attribution). `prevHash`/`rowHash` reserved for T2 tamper-evident chain. |
-| `Flyer` | Existing flyer feature, migrating from Redis-base64 to R2. |
-| `AuditLog` | Reserved for T2 audit trail. |
-
-Always import the singleton from `@/lib/db`:
-```ts
-import { db } from '@/lib/db';
-const stores = await db.store.findMany();
-```
-
----
-
-## Redis Data Model (legacy, being migrated)
-
-Uses per-key storage (not single-blob arrays) to stay under Upstash 1MB/value limit.
-
-```
-stores:index          → string[]          # list of store IDs
-store:{id}            → StoreInfo JSON    # individual store
-
-flyers:index          → string[]          # list of flyer IDs  
-flyer:{id}            → Flyer JSON        # individual flyer (includes base64 image)
-
-campaigns:all         → Campaign[]        # all campaigns (admin use)
-```
-
-**Always use lazy `getRedis()` pattern** — never module-level `const kv = new Redis(...)` as it breaks SSG:
-```ts
-function getRedis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
-  return new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
-}
-```
-
----
-
-## Store Partner Auth
-
-**No Clerk** — custom phone + password auth.
+## Store Partner Auth Flow
 
 - `localStorage` key: `alive_store_session`
-- On registration: saves full session to localStorage immediately (works even without Redis)
-- On login: checks localStorage first → falls back to `/api/stores/login` API
-- Session shape:
-```ts
-{
-  storeName, ownerName, whatsapp, phone, password,
-  address, locality, city, pincode, lat, lng,
-  referralCode,   // e.g. "SHARRAM4X2" — generated on registration
-  referredBy,     // optional code entered during signup
-  agreedAt,       // ISO timestamp when agreement was accepted
-  screens: 1,     // always 1 screen per store
-}
+- On registration: saves session to localStorage immediately
+- On login: checks localStorage → falls back to `/api/stores/login`
+- Session shape: `{ storeName, ownerName, whatsapp, phone, password, address, locality, city, pincode, lat, lng, referralCode, referredBy, agreedAt, screens: 1 }`
+
+**Business rules:**
+- Fixed ₹500/month per screen (clause 3.3 of agreement)
+- Electricity reimbursed separately
+- 1 screen per store only — no screen count selectors
+- Referral reward: ₹500 per new partner who uses code
+- Payout within 10 working days of month end
+- ALIVE exclusivity within 200m of partner store
+
+---
+
+## Store Registration Flow
+
+1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map, locality/pincode/city autofill via Nominatim, referral code
+2. **Step 2** — Agreement preview, party block prefilled, "I agree" checkbox, submit → generates referral code + saves `agreedAt`
+
+Form data persisted to `sessionStorage('alive_store_draft')` so navigating to agreement page and back doesn't lose data.
+
+---
+
+## Admin Dashboard
+
+- Protected by `admin-password` header vs `ADMIN_PASSWORD` env var
+- `sessionStorage.getItem('alive_admin_pw')` in browser for API calls
+- Tabs: Flyers | Stores | Campaigns | Screens | Content | Playlists | Schedules | Reports | Monitoring | Payments | Site Media | Roadmap
+
+---
+
+## Design Conventions
+
+**Never:**
+- Neon colours, glowing buttons, rainbow palettes
+- Floating orbs, blobs, decorative shapes in backgrounds
+- Heavy gradients for decoration
+- Glassmorphism / heavy backdrop-blur
+- Looping or attention-seeking animations
+
+**ALIVE visual language:**
+- Primary red: `#ef4444` / `#b91c1c` — CTAs and key labels only
+- Backgrounds: `bg-white` or `bg-gray-50` / `bg-background`
+- Cards: white + `border border-border` — no shadow stacks
+- Headings: `tracking-tight`, `font-black` for hero numbers
+- Positive/savings: `text-green-700` on `bg-green-50`
+- Framer Motion: enter animations only (`fadeUp`, `stagger`)
+
+---
+
+## Brand Onboarding
+
+- Flow: audience → locations → duration → creative → pricing → agreement → payment
+- Promo code `GETALIVENOW`: ₹799 → ₹699
+- GST 18% on top of base price
+- Razorpay for payment
+
+---
+
+## Redis Data Model (legacy, migrating to Postgres)
+
+```
+stores:index   → string[]       # store IDs
+store:{id}     → StoreInfo JSON
+flyers:index   → string[]       # flyer IDs
+flyer:{id}     → Flyer JSON     # includes base64 image
+campaigns:all  → Campaign[]
 ```
 
 ---
 
-## Store Partner Business Rules
+## Env Vars
 
-- **Fixed remuneration:** ₹500/month per screen (matches clause 3.3 of store agreement)
-- **Electricity:** reimbursed separately at screen rated power × actual hours × prevailing tariff
-- **Only 1 screen per store** — do not show screen count selectors
-- **Referral rewards:** ₹500 per new store partner who joins using a referral code
-- **Payout timing:** within 10 working days of month end via UPI/NEFT
-- **Exclusivity:** ALIVE will not install within 200m of a partner store
-
----
-
-## Store Registration Flow (2-step)
-
-1. **Step 1 — Store details form:**
-   - Store name, owner name, WhatsApp (= username), password (min 6 chars)
-   - Leaflet map (CartoDB Voyager tiles) — drag pin or click to set location
-   - Locality, pincode, city autofilled via Nominatim on pin move
-   - Optional referral code field
-   - Inline validation: errors shown on first submit attempt
-
-2. **Step 2 — Agreement:**
-   - Shows party block with store name, owner name, phone, address **prefilled from step 1**
-   - Key terms summary (remuneration, electricity, equipment, exit)
-   - Checkbox: "I agree" — must be ticked to submit
-   - On submit: generates unique referral code, saves `agreedAt` timestamp
-
----
-
-## Map / Location
-
-- **Component:** `src/components/map-picker.tsx`
-- **Tiles:** CartoDB Voyager — light theme, shows street labels and landmarks
-- **Default centre:** Mangaluru (12.8698°N, 74.8431°E)
-- **Reverse geocode:** Nominatim (`nominatim.openstreetmap.org/reverse`) → locality, pincode, city
-- **Stored data:** `lat`, `lng`, `locality`, `pincode`, `city` — used later to show network map on homepage
-- Do **not** install `react-leaflet` (requires React 19) — use plain `leaflet` with dynamic import only
-- Do **not** install `snazzy-info-window` (Google Maps only, incompatible)
-
----
-
-## Admin Dashboard (`/admin`)
-
-- No Clerk — protected by `admin-password` env var checked in API headers
-- Three tabs: **Flyers** | **Stores** | **Campaigns**
-- Flyer upload: client-side Canvas compression (1200px, JPEG 0.75) before base64 storage
-- Stores panel: search by name/city, shows all registered store partners
-- Campaigns panel: revenue total, paid/pending counts
-
----
-
-## Image Storage
-
-- Images compressed client-side before upload (Canvas API, max 1200px, 0.75 quality)
-- Stored as base64 in Redis per-flyer key
-- `resolveImage(raw)` helper: prepends `data:image/jpeg;base64,` if not already a data URL
-
----
-
-## Brand Onboarding (`/brand-onboarding`)
-
-- Multi-step campaign flow: audience → locations → duration → creative → pricing → agreement → payment
-- Razorpay for payments
-- Promo code `GETALIVENOW` reduces price from ₹799 → ₹699
-- GST at 18% added on top of base price
-- Agreement auto-fills brand name, campaign details, date
-
----
-
-## Important Conventions
-
-- **`'use client'`** must be first line of any component using hooks, browser APIs, or Framer Motion
-- **No module-level Redis** — always lazy `getRedis()`
-- **Dark theme on store pages** was replaced with **light theme** (white/gray-50) matching brand onboarding
-- **Inline styles** for colours that must be exact (e.g. map overlay, brand red `#ef4444`/`#b91c1c`)
-- **No react-leaflet** — plain leaflet with `async function loadLeaflet()` dynamic import pattern
-- **`localStorage('alive_store_session')`** — the single key for store auth; do not use sessionStorage or other keys
-- Images: always use `// eslint-disable-next-line @next/next/no-img-element` before `<img>` tags for base64 images
+```
+DATABASE_URL                    # Neon pooled (runtime)
+DATABASE_DIRECT_URL             # Neon direct (migrations)
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+NEXT_PUBLIC_RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET
+R2_ENDPOINT
+R2_ACCESS_KEY_ID
+R2_SECRET_ACCESS_KEY
+R2_BUCKET
+R2_PUBLIC_BASE
+AUTH_SECRET
+ADMIN_PASSWORD
+TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
+TWILIO_AUTH_TOKEN
+ADMIN_WHATSAPP                  # default +917411324448
+RESEND_API_KEY                  # email alerts (optional)
+```
 
 ---
 
 ## Development Branch
 
-Active feature branch: `claude/build-alive-advertising-platform-tlG96`
+Active: `claude/build-alive-advertising-platform-tlG96`  
+Merge to `main` → auto-deploys to Vercel.
 
-Merge to `main` → auto-deploys to Vercel production.
+## graphify
 
----
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
-## Env Vars Required
-
-```
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
-NEXT_PUBLIC_RAZORPAY_KEY_ID
-RAZORPAY_KEY_SECRET
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-CLERK_SECRET_KEY
-```
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

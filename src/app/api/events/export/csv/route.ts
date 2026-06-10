@@ -36,9 +36,13 @@ export async function GET(req: NextRequest) {
         ...(tag        ? { tag }        : {}),
         ...(from || to ? { startedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
       },
+      select: {
+        id: true, deviceId: true, mediaId: true, campaignId: true,
+        tag: true, startedAt: true, endedAt: true, durationMs: true,
+        device: { select: { name: true, groupName: true } },
+      },
       orderBy: { startedAt: 'asc' },
       take:    50_000,
-      include: { device: { select: { name: true, groupName: true } } },
     });
 
     const header = 'id,deviceId,deviceName,groupName,mediaId,campaignId,tag,startedAt,endedAt,durationMs';

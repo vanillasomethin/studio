@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
+import { notifyAdminWA, storeRegistrationMsg } from '@/lib/notify';
+import { respond } from '@/lib/api-envelope';
 
 // ─── Redis (dual-write for admin panel backward compat during migration) ──────
 
@@ -13,28 +16,88 @@ function getRedis(): Redis | null {
 // ─── GET — list all stores (admin) ───────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const route = '/api/stores/save';
+  const startedAtMs = Date.now();
   const pw = req.headers.get('admin-password') ?? '';
   if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const envelope = await respond({ error: 'Unauthorized' }, { route, request: { hasAdminPassword: !!pw }, outcome: 'unauthorized', policyFlags: ['admin_guard'], errorCategory: 'auth', startedAtMs });
+    return NextResponse.json(envelope, { status: 401 });
   }
   try {
-    const stores = await db.store.findMany({
-      include: { user: { select: { phone: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
+    // Base columns always present
+    const stores = await db.$queryRaw<Array<{
+      id: string; storeName: string; ownerName: string; whatsapp: string;
+      address: string | null; locality: string | null; city: string | null;
+      pincode: string | null; lat: number | null; lng: number | null;
+      gstin: string | null; referralCode: string; referredBy: string | null;
+      agreedAt: Date | null; createdAt: Date; updatedAt: Date;
+      phone: string | null; email: string | null;
+      deviceCount: number;
+    }>>`
+      SELECT
+        s."id", s."storeName", s."ownerName", s."whatsapp",
+        s."address", s."locality", s."city", s."pincode",
+        s."lat", s."lng", s."gstin",
+        s."referralCode", s."referredBy", s."agreedAt",
+        s."createdAt", s."updatedAt",
+        u."phone", u."email",
+        (SELECT COUNT(*) FROM "Device" d WHERE d."storeId" = s."id")::int AS "deviceCount"
+      FROM "Store" s
+      LEFT JOIN "User" u ON u."id" = s."userId"
+      ORDER BY s."createdAt" DESC
+    `;
+
+    // Optional columns added by migrations — fetched separately so base query never fails
+    type ExtraRow = {
+      id: string;
+      onboardingStage: string | null; payoutStatus: string | null;
+      payoutNotes: string | null; liveAt: Date | null;
+      upiId: string | null; payoutMethod: string | null;
+    };
+    let extraMap = new Map<string, ExtraRow>();
+    try {
+      const extraRows = await db.$queryRaw<ExtraRow[]>`
+        SELECT "id", "onboardingStage", "payoutStatus", "payoutNotes", "liveAt",
+               "upiId", "payoutMethod"
+        FROM "Store"
+      `;
+      extraMap = new Map(extraRows.map((r) => [r.id, r]));
+    } catch { /* columns not yet migrated — omit gracefully */ }
+
+    const result = stores.map((s) => {
+      const ex = extraMap.get(s.id);
+      return {
+        ...s,
+        createdAt:       s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
+        updatedAt:       s.updatedAt instanceof Date ? s.updatedAt.toISOString() : s.updatedAt,
+        agreedAt:        s.agreedAt instanceof Date  ? s.agreedAt.toISOString()  : (s.agreedAt ?? null),
+        onboardingStage: ex?.onboardingStage ?? null,
+        payoutStatus:    ex?.payoutStatus    ?? null,
+        payoutNotes:     ex?.payoutNotes     ?? null,
+        liveAt:          ex?.liveAt instanceof Date ? ex.liveAt.toISOString() : (ex?.liveAt ?? null),
+        upiId:           ex?.upiId           ?? null,
+        payoutMethod:    ex?.payoutMethod    ?? null,
+        deviceCount:     Number(s.deviceCount),
+      };
     });
-    // Flatten user.phone/email to top level for admin panel
-    const result = stores.map(({ user, ...s }) => ({
-      ...s,
-      phone:     user?.phone ?? null,
-      email:     user?.email ?? null,
-      createdAt: s.createdAt.toISOString(),
-      updatedAt: s.updatedAt.toISOString(),
-      agreedAt:  s.agreedAt?.toISOString() ?? null,
-    }));
-    return NextResponse.json(result);
+
+    const envelope = await respond(result, { route, request: { operation: 'list_stores' }, outcome: 'success', startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const envelope = await respond({ error: (e as Error).message }, { route, request: { operation: 'list_stores' }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
+}
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+
+async function checkRegistrationRateLimit(ip: string): Promise<boolean> {
+  const kv = getRedis();
+  if (!kv) return true;
+  const key   = `rl:register:${ip}`;
+  const count = await kv.incr(key);
+  if (count === 1) await kv.expire(key, 3600); // 1 attempt per IP per hour
+  return count <= 3;
 }
 
 // ─── POST — register a new store partner ─────────────────────────────────────
@@ -42,9 +105,9 @@ export async function GET(req: NextRequest) {
 type RegistrationBody = {
   storeName:    string;
   ownerName:    string;
-  whatsapp:     string;   // 10-digit, no country code
+  whatsapp:     string;
   password:     string;
-  address:      string;   // mandatory
+  address:      string;
   locality?:    string;
   city?:        string;
   pincode?:     string;
@@ -57,80 +120,106 @@ type RegistrationBody = {
 };
 
 export async function POST(req: NextRequest) {
+  const route = '/api/stores/save';
+  const startedAtMs = Date.now();
+
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  if (!(await checkRegistrationRateLimit(ip))) {
+    const envelope = await respond({ error: 'Too many registrations from this IP. Try again in an hour.' }, { route, request: { ip }, outcome: 'unauthorized', policyFlags: ['rate_limit'], errorCategory: 'auth', startedAtMs });
+    return NextResponse.json(envelope, { status: 429 });
+  }
+
   try {
     const body = await req.json() as RegistrationBody;
 
     if (!body.address?.trim()) {
-      return NextResponse.json({ error: 'Shop address is required.' }, { status: 400 });
+      const envelope = await respond({ error: 'Shop address is required.' }, { route, request: { hasAddress: false }, outcome: 'invalid_request', policyFlags: ['missing_required_fields'], errorCategory: 'validation', startedAtMs });
+      return NextResponse.json(envelope, { status: 400 });
     }
 
     const phone = `+91${body.whatsapp.replace(/\D/g, '').slice(-10)}`;
 
-    // Guard: duplicate phone
-    const existing = await db.user.findUnique({ where: { phone } });
+    // Guard: duplicate phone — select only id to avoid schema drift issues
+    const existing = await db.user.findUnique({ where: { phone }, select: { id: true } });
     if (existing) {
-      return NextResponse.json({ error: 'An account with this number already exists.' }, { status: 409 });
+      const envelope = await respond({ error: 'An account with this number already exists.' }, { route, request: { phone }, outcome: 'conflict', policyFlags: ['duplicate_account'], errorCategory: 'duplicate', startedAtMs });
+      return NextResponse.json(envelope, { status: 409 });
     }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
+    const storeId      = crypto.randomUUID();
+    const now          = new Date();
+    const agreedAt     = body.agreedAt ? new Date(body.agreedAt) : now;
+    const lat          = body.lat ? parseFloat(body.lat) : null;
+    const lng          = body.lng ? parseFloat(body.lng) : null;
 
+    // Create user only — no nested store.create so Prisma doesn't touch Store at all
     const user = await db.user.create({
-      data: {
-        phone,
-        passwordHash,
-        name: body.ownerName,
-        role: 'STORE_PARTNER',
-        store: {
-          create: {
-            storeName:    body.storeName,
-            ownerName:    body.ownerName,
-            whatsapp:     body.whatsapp,
-            address:      body.address,
-            gstin:        body.gstin || null,
-            locality:     body.locality,
-            city:         body.city,
-            pincode:      body.pincode,
-            lat:          body.lat ? parseFloat(body.lat) : null,
-            lng:          body.lng ? parseFloat(body.lng) : null,
-            referralCode: body.referralCode,
-            referredBy:   body.referredBy || null,
-            agreedAt:     new Date(body.agreedAt),
-          },
-        },
-      },
-      include: { store: true },
+      data: { phone, passwordHash, name: body.ownerName, role: 'STORE_PARTNER' },
+      select: { id: true },
     });
 
-    // Dual-write to Redis so the existing admin panel still lists new stores
+    // Raw INSERT — only the base columns from the init migration.
+    // This bypasses Prisma's schema-aware INSERT which adds onboardingStage, payoutStatus, etc.
+    await db.$executeRaw`
+      INSERT INTO "Store" (
+        "id", "userId", "storeName", "ownerName", "whatsapp", "address",
+        "gstin", "locality", "city", "pincode", "lat", "lng",
+        "referralCode", "referredBy", "agreedAt", "createdAt", "updatedAt"
+      ) VALUES (
+        ${storeId}, ${user.id}, ${body.storeName}, ${body.ownerName},
+        ${body.whatsapp}, ${body.address},
+        ${body.gstin || null}, ${body.locality || null}, ${body.city || null},
+        ${body.pincode || null}, ${lat}, ${lng},
+        ${body.referralCode}, ${body.referredBy || null}, ${agreedAt},
+        ${now}, ${now}
+      )
+    `;
+
+    // Build result from known values — no follow-up SELECT needed
+    const store = {
+      id:           storeId,
+      referralCode: body.referralCode,
+      storeName:    body.storeName,
+      ownerName:    body.ownerName,
+      whatsapp:     body.whatsapp,
+      address:      body.address,
+      locality:     body.locality ?? '',
+      city:         body.city ?? '',
+      pincode:      body.pincode ?? '',
+      lat,
+      lng,
+      referredBy:   body.referredBy ?? '',
+      agreedAt:     agreedAt.toISOString(),
+      createdAt:    now.toISOString(),
+    };
+
+    // Dual-write to Redis (non-fatal)
     try {
       const kv = getRedis();
-      if (kv && user.store) {
-        const s = user.store;
+      if (kv) {
         const ids: string[] = (await kv.get<string[]>('stores:index')) ?? [];
-        if (!ids.includes(s.id)) await kv.set('stores:index', [s.id, ...ids]);
-        await kv.set(`store:${s.id}`, {
-          id:           s.id,
-          storeName:    s.storeName,
-          ownerName:    s.ownerName,
-          phone,
-          whatsapp:     s.whatsapp,
-          address:      s.address ?? '',
-          locality:     s.locality ?? '',
-          city:         s.city ?? '',
-          pincode:      s.pincode ?? '',
-          referralCode: s.referralCode,
-          referredBy:   s.referredBy ?? '',
-          agreedAt:     s.agreedAt?.toISOString() ?? '',
-          createdAt:    s.createdAt.toISOString(),
-        });
+        if (!ids.includes(store.id)) await kv.set('stores:index', [store.id, ...ids]);
+        await kv.set(`store:${store.id}`, { ...store, phone });
       }
     } catch {
       // Redis dual-write failure is non-fatal — Postgres is source of truth
     }
 
-    return NextResponse.json({ success: true, referralCode: user.store?.referralCode });
+    void notifyAdminWA(storeRegistrationMsg({
+      storeName: body.storeName,
+      ownerName: body.ownerName,
+      phone,
+      city:    body.city    ?? null,
+      address: body.address ?? null,
+      gstin:   body.gstin   ?? null,
+    }));
+
+    const envelope = await respond({ success: true, referralCode: store.referralCode }, { route, request: { phone, storeName: body.storeName }, outcome: 'success', startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
     const msg = (e as Error).message ?? 'Failed to register store';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const envelope = await respond({ error: msg }, { route, request: { operation: 'register_store' }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }

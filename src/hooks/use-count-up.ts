@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 
 export function useCountUp(end: number, duration: number = 2000, startOnMount: boolean = false) {
   const [count, setCount] = useState(0);
-  const ref = useRef<HTMLSpanElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const animationFrameId = useRef<number>();
 
   const startAnimation = () => {

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { respond } from '@/lib/api-envelope';
 
 export async function POST(req: NextRequest) {
+  const route = '/api/campaigns/save';
+  const startedAtMs = Date.now();
   try {
     const body = await req.json() as {
       brandName:      string;
@@ -20,7 +23,8 @@ export async function POST(req: NextRequest) {
     };
 
     if (!body.email || !body.brandName) {
-      return NextResponse.json({ error: 'brandName and email required' }, { status: 400 });
+      const envelope = await respond({ error: 'brandName and email required' }, { route, request: { hasEmail: !!body.email, hasBrandName: !!body.brandName }, outcome: 'invalid_request', policyFlags: ['missing_required_fields'], errorCategory: 'validation', startedAtMs });
+      return NextResponse.json(envelope, { status: 400 });
     }
 
     // Look up brand by email — optional link
@@ -44,11 +48,10 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, id: campaign.id });
+    const envelope = await respond({ success: true, id: campaign.id }, { route, request: { email: body.email, brandName: body.brandName }, outcome: 'success', startedAtMs });
+    return NextResponse.json(envelope);
   } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message ?? 'Failed to save campaign' },
-      { status: 500 },
-    );
+    const envelope = await respond({ error: (e as Error).message ?? 'Failed to save campaign' }, { route, request: { operation: 'create_campaign' }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    return NextResponse.json(envelope, { status: 500 });
   }
 }

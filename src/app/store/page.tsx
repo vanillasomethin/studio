@@ -1,54 +1,29 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
-  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, ArrowRight,
+  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, Tag,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import MapPicker from '@/components/map-picker';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
+// Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
+// to update both this web page and the mobile app simultaneously.
+import { AGREEMENT_TERMS } from '@shared/agreement-terms';
+import {
+  validateForm, makeReferralCode, FORM_INIT,
+  type FieldErrors, type FormData,
+} from '@shared/validation';
+import { COMPANY, SUPPORT_WHATSAPP } from '@shared/constants';
+// ──────────────────────────────────────────────────────────────────────────────
 
-type Form = {
-  storeName: string; ownerName: string; whatsapp: string; password: string;
-  address: string; locality: string; city: string; pincode: string;
-  lat: string; lng: string; referredBy: string; gstin: string;
-};
-const INIT: Form = {
-  storeName: '', ownerName: '', whatsapp: '', password: '',
-  address: '', locality: '', city: '', pincode: '', lat: '', lng: '',
-  referredBy: '', gstin: '',
-};
-
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-
-type FieldErrors = Partial<Record<keyof Form, string>>;
-
-function validate(form: Form): FieldErrors {
-  const e: FieldErrors = {};
-  if (!form.storeName.trim())       e.storeName = 'Store name is required';
-  if (!form.ownerName.trim())       e.ownerName = 'Owner name is required';
-  if (form.whatsapp.length !== 10)  e.whatsapp  = 'Enter a valid 10-digit number';
-  if (form.password.length < 6)     e.password  = 'Minimum 6 characters required';
-  if (!form.address.trim())         e.address   = 'Shop address is required';
-  if (!form.city.trim())            e.city      = 'City is required';
-  if (form.pincode.length !== 6)    e.pincode   = 'Enter a valid 6-digit pincode';
-  if (form.gstin && !GSTIN_RE.test(form.gstin.toUpperCase())) {
-    e.gstin = 'Invalid GSTIN — must be 15 characters (e.g. 29AAXFV2589C1ZE)';
-  }
-  return e;
-}
-
-function makeReferralCode(storeName: string, ownerName: string): string {
-  const s = storeName.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase();
-  const o = ownerName.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase();
-  const r = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `${s}${o}${r}`;
-}
+type Form = FormData;
+const INIT: Form = FORM_INIT;
 
 // ─── Password strength ────────────────────────────────────────────────────────
 
@@ -65,13 +40,11 @@ function PasswordStrength({ password }: { password: string }) {
 
   return (
     <div className="space-y-1.5 -mt-1">
-      {/* Strength bar */}
       <div className="flex gap-1">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className={`flex-1 h-1 rounded-full transition-all duration-300 ${i <= score ? barColor : 'bg-gray-200'}`} />
         ))}
       </div>
-      {/* Checklist */}
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
         {criteria.map((c) => (
           <span key={c.label} className={`flex items-center gap-1 text-[10px] ${c.met ? 'text-green-600' : 'text-gray-400'}`}>
@@ -122,73 +95,82 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
 }) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const gstin = form.gstin ? form.gstin.toUpperCase() : null;
-
-  const agreementHref = `/store-agreement?${new URLSearchParams({
-    name:    form.storeName,
-    owner:   form.ownerName,
-    address: [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', '),
-    phone:   form.whatsapp,
-    ...(gstin ? { gstin } : {}),
-  }).toString()}`;
+  const fullAddress = [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', ');
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-3">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
 
-      {/* Prominent back button */}
-      <button type="button" onClick={onBack}
-        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-all"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" /> Back to form
-      </button>
-
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2 — Partner Agreement</p>
-        <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
-      </div>
-
-      {/* Prefilled party info */}
-      <div className="rounded-xl border-2 border-red-100 bg-red-50 p-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-red-400 mb-2">This agreement is between</p>
-        <div className="space-y-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-base font-black text-gray-900">{form.storeName}</span>
-            <span className="text-xs text-gray-500">({form.ownerName})</span>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={onBack}
+          className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-all"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> Back
+        </button>
+        <div className="flex items-center gap-2 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-white text-[10px] font-black"><Check className="h-3 w-3" /></span>
+            <span className="text-[10px] text-gray-400">Details</span>
           </div>
-          <p className="text-sm text-gray-600">+91 {form.whatsapp}</p>
-          {form.address && <p className="text-xs text-gray-500">{form.address}</p>}
-          {form.city && <p className="text-xs text-gray-500">{[form.locality, form.city, form.pincode].filter(Boolean).join(', ')}</p>}
-          {gstin && <p className="text-xs text-gray-500">GSTIN: {gstin}</p>}
-          <div className="pt-1 border-t border-red-100 mt-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-700">VS Collective LLP (ALIVE)</span>
-            <span className="text-xs text-gray-400">{today}</span>
+          <div className="flex-1 h-px bg-red-200" />
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-black">2</span>
+            <span className="text-[10px] font-semibold text-red-500">Agreement</span>
           </div>
         </div>
       </div>
 
-      {/* Terms */}
-      <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
-        {[
-          { t: 'Remuneration', d: '₹500/month per screen, fixed. Paid within 10 working days of month end.' },
-          { t: 'Electricity',  d: 'ALIVE reimburses at screen rated power × actual hours × prevailing tariff.' },
-          { t: 'Equipment',    d: 'Screen installed free. Remains ALIVE property at all times.' },
-          { t: 'Exit',         d: '30 days written notice by either party. ALIVE removes screen at its cost.' },
-        ].map(({ t, d }, i) => (
-          <div key={t} className={`px-3.5 py-2.5 flex gap-3 text-xs ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-            <span className="font-bold text-gray-700 shrink-0 w-24">{t}</span>
-            <span className="text-gray-500">{d}</span>
-          </div>
-        ))}
-        <div className="border-t border-gray-100 px-3.5 py-2">
-          <a href={agreementHref} target="_blank" rel="noreferrer"
-            className="text-[11px] text-red-500 hover:text-red-600 font-semibold underline underline-offset-2"
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2</p>
+        <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
+        <p className="text-xs text-gray-500 mt-0.5">Read the key terms below, then sign digitally.</p>
+      </div>
+
+      {/* Parties block */}
+      <div className="rounded-xl border-2 border-red-100 bg-red-50/60 p-4 space-y-3">
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-1">Party A — Company</p>
+          <p className="text-sm font-bold text-gray-900">{COMPANY.name}</p>
+          <p className="text-xs text-gray-500">{COMPANY.address}</p>
+          <p className="text-xs text-gray-500">GSTIN: {COMPANY.gstin} · LLP: {COMPANY.llp}</p>
+        </div>
+        <div className="border-t border-red-100 pt-3">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-1">Party B — Store Partner</p>
+          <p className="text-sm font-bold text-gray-900">{form.storeName}</p>
+          <p className="text-xs text-gray-600">{form.ownerName} · +91 {form.whatsapp}</p>
+          {fullAddress && <p className="text-xs text-gray-500">{fullAddress}</p>}
+          {gstin && <p className="text-xs text-gray-500 font-mono">GSTIN: {gstin}</p>}
+          <p className="text-xs text-gray-400 mt-1">Date of execution: {today}</p>
+        </div>
+      </div>
+
+      {/* Agreement terms ─ from shared/agreement-terms.ts */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
+          <p className="text-xs font-bold text-gray-700">Terms &amp; Conditions — Store Partner Agreement</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Scroll to read all terms before signing</p>
+        </div>
+        <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+          {AGREEMENT_TERMS.map(({ heading, body }) => (
+            <div key={heading} className="px-4 py-3 flex gap-3 text-xs">
+              <span className="font-bold text-gray-800 shrink-0 w-28">{heading}</span>
+              <span className="text-gray-500 leading-relaxed">{body}</span>
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between bg-gray-50/40">
+          <p className="text-[10px] text-gray-400">Full legal document</p>
+          <a
+            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}) }).toString()}`}
+            target="_blank" rel="noreferrer"
+            className="text-[11px] text-red-500 hover:text-red-600 font-semibold flex items-center gap-1"
           >
-            Read full agreement →
+            Open full PDF version <ChevronRight className="h-3 w-3" />
           </a>
         </div>
       </div>
 
       {/* Checkbox */}
-      <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-3 hover:bg-gray-100 transition-colors">
+      <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-3.5 hover:bg-gray-100 transition-colors">
         <div className="relative mt-0.5 shrink-0">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="sr-only" />
           <div className={`h-[18px] w-[18px] rounded border-2 transition-all flex items-center justify-center ${agreed ? 'border-red-500 bg-red-500' : 'border-gray-300 bg-white'}`}>
@@ -196,29 +178,16 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
           </div>
         </div>
         <span className="text-xs text-gray-600 leading-relaxed">
-          I, <strong className="text-gray-900">{form.ownerName}</strong>, agree to the Store Partner Agreement between <strong className="text-gray-900">{form.storeName}</strong> and VS Collective LLP (ALIVE), effective {today}.
+          I, <strong className="text-gray-900">{form.ownerName}</strong>, on behalf of <strong className="text-gray-900">{form.storeName}</strong>, have read and agree to the Store Partner Agreement with {COMPANY.name}, effective {today}. I confirm this electronic acceptance is legally binding under the IT Act, 2000.
         </span>
       </label>
 
-      {err === 'PHONE_EXISTS' ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
-            <p className="text-xs text-amber-800 font-semibold">This WhatsApp number is already registered with ALIVE.</p>
-          </div>
-          <a
-            href="/store-dashboard"
-            className="flex items-center gap-1.5 text-xs font-bold text-red-600 hover:text-red-700 underline underline-offset-2"
-          >
-            Sign in to your dashboard <ArrowRight className="h-3 w-3" />
-          </a>
-        </div>
-      ) : err ? (
+      {err && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
           <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-500" />
           <p className="text-xs text-red-600">{err}</p>
         </div>
-      ) : null}
+      )}
 
       <button type="button" onClick={onSubmit} disabled={busy || !agreed}
         className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -226,6 +195,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
       >
         {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</> : <><CheckCircle2 className="h-4 w-4" /> I agree — Register my store</>}
       </button>
+      {busy && (
+        <p className="text-center text-xs text-gray-400 mt-1">This can take up to 20 seconds on first try…</p>
+      )}
     </motion.div>
   );
 }
@@ -244,21 +216,19 @@ function RegistrationForm() {
   const [done,    setDone]    = useState(false);
   const [touched, setTouched] = useState(false);
 
-  // Restore saved draft on mount
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
-      if (saved) setForm(JSON.parse(saved) as Form);
+      if (saved && saved.trim()) setForm(JSON.parse(saved) as Form);
     } catch { /* ignore */ }
   }, []);
 
-  // Persist draft on every change
   useEffect(() => {
     try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch { /* ignore */ }
   }, [form]);
 
   const set = (k: keyof Form, v: string) => setForm((p) => ({ ...p, [k]: v }));
-  const errors    = useMemo(() => validate(form), [form]);
+  const errors    = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
 
   const handleLocation = (lat: string, lng: string, locality: string, pincode: string, city: string) => {
@@ -281,28 +251,66 @@ function RegistrationForm() {
       agreedAt:     new Date().toISOString(),
     };
     try {
-      const res = await fetch('/api/stores/save', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-      });
-      const data = await res.json() as { success?: boolean; error?: string };
-      if (res.status === 409) { setErr('PHONE_EXISTS'); return; }
-      if (!res.ok) { setErr(data.error ?? 'Registration failed.'); return; }
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 20000);
+      let res: Response;
+      try {
+        res = await fetch('/api/stores/save', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+          signal:  controller.signal,
+        });
+      } catch (fetchErr) {
+        const e = fetchErr as Error;
+        setErr(e.name === 'AbortError' ? 'Request timed out — the server is waking up. Please try again.' : 'Network error — check your connection and try again.');
+        return;
+      } finally { clearTimeout(tid); }
 
-      await signIn('phone-password', {
-        phone:    `+91${form.whatsapp}`,
-        password: form.password,
-        redirect: false,
-      });
+      let body: { data?: { success?: boolean; error?: string; referralCode?: string }; success?: boolean; error?: string };
+      try { body = await res.json(); } catch { body = {}; }
+      const payload2 = (body as { data?: { success?: boolean; error?: string } }).data ?? body as { success?: boolean; error?: string };
 
-      // Clear draft on success
+      if (!res.ok) {
+        setErr((payload2 as { error?: string }).error || `Registration failed (${res.status}). Please try again.`);
+        return;
+      }
+
+      try {
+        const referralCode = (payload2 as { referralCode?: string }).referralCode ?? code;
+        localStorage.setItem('alive_store_session', JSON.stringify({
+          storeName:    form.storeName,
+          ownerName:    form.ownerName,
+          whatsapp:     form.whatsapp,
+          phone:        form.whatsapp,
+          address:      form.address,
+          locality:     form.locality,
+          city:         form.city,
+          pincode:      form.pincode,
+          lat:          form.lat,
+          lng:          form.lng,
+          gstin:        form.gstin || null,
+          referralCode,
+          referredBy:   form.referredBy || null,
+          agreedAt:     new Date().toISOString(),
+        }));
+      } catch { /* localStorage unavailable */ }
+
+      try {
+        await signIn('phone-password', {
+          phone:    `+91${form.whatsapp}`,
+          password: form.password,
+          redirect: false,
+        });
+      } catch { /* non-fatal */ }
+
       try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 
       setDone(true);
       setTimeout(() => router.push('/store-dashboard'), 1500);
     } catch (e) {
-      setErr((e as Error).message ?? 'Something went wrong.');
+      const msg = (e as Error)?.message;
+      setErr(msg && msg.length < 200 ? msg : 'Something went wrong. Please try again.');
     } finally { setBusy(false); }
   };
 
@@ -324,11 +332,10 @@ function RegistrationForm() {
     <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} />
   );
 
-  const fe = (k: keyof Form) => touched ? errors[k] : undefined;
+  const fe = (k: keyof Form) => touched ? (errors as FieldErrors)[k] : undefined;
 
   return (
     <form onSubmit={handleContinue} className="space-y-3">
-      {/* Step indicator */}
       <div className="flex items-center gap-2 mb-2">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-black">1</span>
         <div className="flex-1 h-px bg-gray-200" />
@@ -336,12 +343,11 @@ function RegistrationForm() {
         <span className="text-[10px] text-gray-400">Agreement</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Store name" value={form.storeName} onChange={(v) => set('storeName', v)} placeholder="Sharma Store" error={fe('storeName')} />
         <Field label="Owner name" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Ramesh Sharma" error={fe('ownerName')} />
       </div>
 
-      {/* WhatsApp field with username callout */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">WhatsApp number</label>
         <div className="flex">
@@ -355,15 +361,14 @@ function RegistrationForm() {
         {fe('whatsapp')
           ? <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('whatsapp')}</p>
           : (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-              <span className="text-amber-500 text-sm font-bold shrink-0">★</span>
-              <p className="text-[11px] text-amber-800 font-semibold">This number is your login username — save it.</p>
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+              <span className="text-gray-400 text-sm font-bold shrink-0">★</span>
+              <p className="text-[11px] text-gray-600 font-semibold">This number is your login username — save it.</p>
             </div>
           )
         }
       </div>
 
-      {/* Password with strength indicator */}
       <div className="space-y-1.5">
         <Field label="Password" value={form.password} onChange={(v) => set('password', v)}
           type="password" placeholder="Min. 6 characters" error={fe('password')}
@@ -374,20 +379,18 @@ function RegistrationForm() {
         )}
       </div>
 
-      {/* Map */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Pin your shop on the map</label>
-        <p className="text-[10px] text-gray-400">Tap "Use my current location" or drag the pin. City and pincode will be autofilled.</p>
+        <p className="text-[10px] text-gray-400">Tap “Use my current location” or drag the pin. City and pincode will be autofilled.</p>
         <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Locality" value={form.locality} onChange={(v) => set('locality', v)} placeholder="Kankanady" />
         <Field label="Pincode" value={form.pincode} onChange={(v) => set('pincode', v.replace(/\D/g, '').slice(0, 6))} placeholder="575002" error={fe('pincode')} />
       </div>
       <Field label="City" value={form.city} onChange={(v) => set('city', v)} placeholder="Mangaluru" error={fe('city')} />
 
-      {/* Address — mandatory */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Shop address</label>
         <textarea rows={2} value={form.address} onChange={(e) => set('address', e.target.value)}
@@ -397,7 +400,6 @@ function RegistrationForm() {
         {fe('address') && <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('address')}</p>}
       </div>
 
-      {/* GSTIN — optional, validated if filled */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
           GSTIN <span className="normal-case font-normal text-gray-400">(optional)</span>
@@ -413,7 +415,6 @@ function RegistrationForm() {
         }
       </div>
 
-      {/* Referral code */}
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">
           Referral code <span className="normal-case font-normal text-gray-400">(optional)</span>
@@ -424,7 +425,6 @@ function RegistrationForm() {
         <p className="text-[10px] text-gray-400">Have a code from another store partner? Enter it to help them earn ₹500.</p>
       </div>
 
-      {/* Continue button — prominent */}
       <button type="submit"
         className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-base font-black text-white transition-all"
         style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 4px 16px -4px rgba(220,38,38,0.35)' }}
@@ -446,209 +446,138 @@ function RegistrationForm() {
   );
 }
 
-// ─── Feature data ────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 
-const FEATURES = [
-  { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed payout every month via UPI.' },
-  { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own and maintain it.' },
-  { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us, 24/7.' },
-  { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
-  { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.' },
-  { icon: Gift,        label: 'Referral rewards',         sub: 'Earn ₹500 for every new partner you refer.' },
-];
-
-const HOW_IT_WORKS = [
-  { n: '01', t: 'Register in 2 minutes',  d: 'Fill the form below — it\'s free.' },
-  { n: '02', t: 'We visit & install',     d: 'Free screen installation within 48 h.' },
-  { n: '03', t: 'Earn every month',       d: '₹500 + electricity reimbursed to your UPI.' },
-];
-
-// ─── Intro screen (app-like features showcase) ────────────────────────────────
-
-function IntroScreen({ onRegister }: { onRegister: () => void }) {
-  const router = useRouter();
-
+export default function StorePage() {
   return (
-    <motion.div
-      key="intro"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, x: -48 }}
-      transition={{ duration: 0.3 }}
-      className="min-h-screen bg-white flex flex-col"
-    >
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-5">
+    <div className="min-h-screen bg-gray-50">
+      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <a href="/"><Logo /></a>
-          <button
-            onClick={() => router.push('/store-dashboard')}
-            className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            Sign in →
-          </button>
+          <a href="/store-dashboard" className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">Partner login →</a>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center px-5 py-10 max-w-lg mx-auto w-full">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-14 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
 
-        {/* Hero */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-          className="text-center space-y-3 mb-10"
-        >
-          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3.5 py-1.5 mb-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-[11px] font-bold text-red-600 tracking-wider uppercase">Kirana Partners · Mangaluru</span>
-          </div>
-          <h1 className="text-4xl font-black text-gray-900 leading-tight tracking-tight">
-            Extra income.<br /><span className="text-red-500">Zero effort.</span>
-          </h1>
-          <p className="text-sm text-gray-500 leading-relaxed max-w-xs mx-auto">
-            Host a free ALIVE screen in your store. Brands advertise. You earn every month.
-          </p>
-        </motion.div>
-
-        {/* Feature cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.08 }}
-          className="w-full space-y-2.5 mb-10"
-        >
-          {FEATURES.map(({ icon: Icon, label, sub }) => (
-            <div key={label} className="flex items-center gap-3.5 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50">
-                <Icon className="h-4 w-4 text-red-500" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">{label}</p>
-                <p className="text-[11px] text-gray-500 leading-snug">{sub}</p>
-              </div>
+        {/* Left: pitch */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="lg:sticky lg:top-24 space-y-6">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3.5 py-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[11px] font-bold text-red-600 tracking-wider uppercase">Kirana Partners · Mangaluru</span>
             </div>
-          ))}
-        </motion.div>
+            <h1 className="text-4xl sm:text-5xl font-black text-gray-900 leading-[1.08] tracking-tight">
+              Extra income.<br /><span className="text-red-500">Zero effort.</span>
+            </h1>
+            <p className="text-base text-gray-600 leading-relaxed">
+              Alive installs a free digital screen in your store. Brands pay to advertise on it.
+              You earn <span className="text-gray-900 font-semibold">₹500 + electricity every month</span> — without lifting a finger.
+            </p>
+          </div>
 
-        {/* How it works */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.16 }}
-          className="w-full mb-10"
-        >
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">How it works</p>
           <div className="space-y-3">
-            {HOW_IT_WORKS.map(({ n, t, d }) => (
+            {[
+              { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed. Paid every month via UPI.' },
+              { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.' },
+              { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.' },
+              { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
+              { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.' },
+              { icon: Gift,        label: 'Referral rewards',         sub: 'Earn ₹500 for every new partner you refer.' },
+            ].map(({ icon: Icon, label, sub }) => (
+              <div key={label} className="flex items-start gap-3">
+                <Icon className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{label}</p>
+                  <p className="text-xs text-gray-500">{sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-gray-200 pt-5 space-y-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">How it works</p>
+            {[
+              { n: '01', t: 'Register below',     d: 'Takes 2 minutes.' },
+              { n: '02', t: 'We visit & install', d: 'Free screen within 48 h.' },
+              { n: '03', t: 'Earn every month',   d: '₹500 + electricity to your account.' },
+            ].map(({ n, t, d }) => (
               <div key={n} className="flex items-start gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-50 text-[10px] font-black text-red-500">{n}</span>
-                <div className="pt-0.5">
-                  <p className="text-sm font-bold text-gray-900">{t}</p>
+                <span className="text-[11px] font-black text-red-400 mt-0.5 w-5 shrink-0">{n}</span>
+                <div>
+                  <p className="text-xs font-bold text-gray-900">{t}</p>
                   <p className="text-[11px] text-gray-500">{d}</p>
                 </div>
               </div>
             ))}
           </div>
-        </motion.div>
 
-        {/* CTAs */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.22 }}
-          className="w-full space-y-3"
-        >
-          <button
-            onClick={onRegister}
-            className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-base font-black text-white transition-all active:scale-[0.98]"
-            style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 6px 20px -4px rgba(220,38,38,0.45)' }}
-          >
-            Become a Partner — Register Free <ChevronRight className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => router.push('/store-dashboard')}
-            className="w-full flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white py-3.5 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all active:scale-[0.98]"
-          >
-            Already a partner? Sign in →
-          </button>
-        </motion.div>
-
-        {/* Trust badges */}
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4, delay: 0.3 }}
-          className="flex flex-wrap justify-center gap-x-5 gap-y-2 mt-8"
-        >
-          {['₹0 installation', 'UPI payout', '24/7 support', 'No lock-in'].map((t) => (
-            <span key={t} className="flex items-center gap-1 text-[11px] text-gray-400 font-medium">
-              <Check className="h-3 w-3 text-red-400" /> {t}
-            </span>
-          ))}
-        </motion.div>
-      </main>
-
-      <footer className="border-t border-gray-100 py-4 text-center bg-white">
-        <p className="text-[11px] text-gray-400">
-          © 2025 VS Collective LLP (ALIVE) · Mangaluru ·{' '}
-          <a href="mailto:hello@wearealive.in" className="hover:text-gray-600 transition-colors">hello@wearealive.in</a>
-        </p>
-      </footer>
-    </motion.div>
-  );
-}
-
-// ─── Register screen (form step) ──────────────────────────────────────────────
-
-function RegisterScreen({ onBack }: { onBack: () => void }) {
-  return (
-    <motion.div
-      key="register"
-      initial={{ opacity: 0, x: 48 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 48 }}
-      transition={{ duration: 0.3 }}
-      className="min-h-screen bg-gray-50 flex flex-col"
-    >
-      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-lg items-center gap-3 px-5">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" /> Back
-          </button>
-          <div className="flex-1 text-center">
-            <a href="/"><Logo /></a>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            {['₹0 installation', '₹500 + electricity/month', 'UPI payout', '24/7 support'].map((t) => (
+              <span key={t} className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
+                <Check className="h-3 w-3 text-red-500" /> {t}
+              </span>
+            ))}
           </div>
-          <a href="/store-dashboard" className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">Sign in →</a>
-        </div>
-      </header>
 
-      <main className="flex-1 px-5 py-8 max-w-lg mx-auto w-full">
-        <div className="mb-5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Step 1 of 2 — Store details</p>
-          <h2 className="text-2xl font-black text-gray-900">Register your store</h2>
-          <p className="text-sm text-gray-500 mt-1">Takes about 2 minutes. Everything is free.</p>
-        </div>
-        <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Gift className="h-4 w-4 text-gray-400 shrink-0" />
+              <p className="text-sm font-bold text-gray-900">Joining bonus — ₹500</p>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              We credit ₹500 to your account the day your screen goes live — no conditions, no waiting period.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-gray-400 shrink-0" />
+              <p className="text-sm font-bold text-gray-900">Publish your own offers</p>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Post today’s deals directly from your dashboard. Your offers show on the ALIVE screen and deals page.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Deposit &amp; payout</p>
+            {[
+              { label: 'Security deposit', value: '₹0',            note: 'No deposit ever. Equipment is fully free.' },
+              { label: 'Monthly payout',   value: '₹500+',          note: 'Credited within 10 working days of month end.' },
+              { label: 'Electricity',      value: 'Reimbursed',     note: 'At rated power × hours × tariff rate.' },
+              { label: 'Exit clause',      value: '30-day notice',  note: 'Cancel anytime with 30 days notice.' },
+            ].map(({ label, value, note }) => (
+              <div key={label} className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-800">{label}</p>
+                  <p className="text-[11px] text-gray-500">{note}</p>
+                </div>
+                <span className="text-xs font-black text-red-500 shrink-0">{value}</span>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Right: form */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.1 }}
+          className="rounded-3xl border border-gray-200 bg-white p-5 sm:p-7 shadow-sm"
+        >
+          <div className="mb-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Join the network</p>
+            <h2 className="text-xl font-black text-gray-900">Register your store</h2>
+          </div>
           <RegistrationForm />
-        </div>
-      </main>
+        </motion.div>
+      </div>
 
-      <footer className="border-t border-gray-200 py-4 text-center bg-white mt-4">
-        <p className="text-[11px] text-gray-400">
-          © 2025 VS Collective LLP (ALIVE) · Mangaluru ·{' '}
-          <a href="mailto:hello@wearealive.in" className="hover:text-gray-600 transition-colors">hello@wearealive.in</a>
+      <footer className="border-t border-gray-200 py-5 text-center mt-4 bg-white">
+        <p className="text-xs text-gray-400">
+          © 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru ·{' '}
+          <a href={`https://wa.me/${SUPPORT_WHATSAPP.replace('+', '')}`} className="hover:text-gray-600 transition-colors">WhatsApp us</a>
         </p>
       </footer>
-    </motion.div>
-  );
-}
-
-// ─── Page ────────────────────────────────────────────────────────────────────
-
-export default function StorePage() {
-  const [phase, setPhase] = useState<'intro' | 'register'>('intro');
-
-  return (
-    <AnimatePresence mode="wait">
-      {phase === 'intro' ? (
-        <IntroScreen key="intro" onRegister={() => setPhase('register')} />
-      ) : (
-        <RegisterScreen key="register" onBack={() => setPhase('intro')} />
-      )}
-    </AnimatePresence>
+    </div>
   );
 }

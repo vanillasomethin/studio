@@ -6,9 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DATABASE_DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // directUrl removed — Neon pooler (DATABASE_URL) handles both runtime and
+  // migrations. Set DATABASE_DIRECT_URL locally for npx prisma migrate dev.
 }
 
 // ─── Auth (Auth.js compatible) ───────────────────────────────────────────────
@@ -96,16 +97,60 @@ model Store {
   referralCode  String     @unique
   referredBy    String?
   agreedAt      DateTime?
+  onboardingStage String    @default("new") // new | physically_onboarded | digitally_onboarded | live
+  payoutStatus    String    @default("pending_setup") // pending_setup | ready | paid | on_hold
+  payoutMethod    String?   // upi | bank
+  upiId           String?
+  bankAccountName String?
+  bankAccountNo   String?
+  bankIfsc        String?
+  bankName        String?
+  payoutLastPaidAt DateTime?
+  payoutNotes      String?
+  liveAt           DateTime?   // date admin marks store as live (earning starts from here)
+  kycStatus        String?     // not_started | submitted | approved | rejected
+  kycPanUrl        String?     // PAN card photo URL
+  kycAadhaarUrl    String?     // Aadhaar card photo URL
+  kycSelfieUrl     String?     // Live selfie URL
+  kycAadhaarLast4  String?     // Last 4 digits of Aadhaar (for reference)
+  kycSubmittedAt   DateTime?   // timestamp when partner submitted docs
+  kycVerifiedAt    DateTime?   // timestamp when admin approved
+  kycRejectedReason String?    // admin's rejection note
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   devices       Device[]
   bills         Bill[]
+  offers        StoreOffer[]
+  storePayments StorePayment[]
 
   @@index([city])
   @@index([pincode])
   @@index([referralCode])
+}
+
+// ─── Store Payments ───────────────────────────────────────────────────────────
+
+model StorePayment {
+  id          String   @id @default(cuid())
+  storeId     String
+  month       String   // "2026-05" — YYYY-MM format
+  amountPaise Int      @default(50000) // ₹500 in paise
+  status      String   @default("pending") // pending | paid | skipped
+  paidAt      DateTime?
+  paidBy      String?  // admin user id or name
+  payRef      String?  // UPI reference or transaction ID
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, month])
+  @@index([storeId])
+  @@index([month])
+  @@index([status])
 }
 
 // ─── Brands ──────────────────────────────────────────────────────────────────
@@ -118,9 +163,11 @@ model Brand {
   email       String
   phone       String
   gstin       String?
-  walletPaise BigInt     @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  walletPaise    BigInt     @default(0)
+  trialOfferedAt DateTime?
+  trialUsedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns   Campaign[]
@@ -141,6 +188,7 @@ model Campaign {
   paymentId       String?
   orderId         String?
   status          String     @default("upcoming") // upcoming | active | completed | cancelled
+  creativeUrls    String[]   @default([])          // R2 URLs of uploaded ad creatives
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -160,25 +208,123 @@ enum DeviceStatus {
   OFFLINE
 }
 
+enum DeviceOrientation {
+  LANDSCAPE
+  PORTRAIT
+  AUTO
+}
+
 model Device {
-  id           String        @id @default(cuid())
-  hardwareKey  String        @unique
+  id           String            @id @default(cuid())
+  hardwareKey  String            @unique
   storeId      String?
   name         String
-  groupName    String?       // e.g. "Mangaluru North" — for group-based scheduling
-  jwtSecret    String        // per-device secret used to sign tokens
-  status       DeviceStatus  @default(PENDING)
+  groupName    String?           // e.g. "Mangaluru North" — for group-based scheduling
+  orientation  DeviceOrientation @default(LANDSCAPE)
+  jwtSecret    String            // per-device secret used to sign tokens
+  status       DeviceStatus      @default(PENDING)
   lastSeen     DateTime?
   uptimePctD30 Float?
-  claimedAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  pairingCode  String?           @unique        // 6-char code shown on TV screen; null after admin confirms
+  pairedAt     DateTime?                     // set by admin after entering the on-screen code
+  claimedAt    DateTime          @default(now())
+  linkedAt     DateTime?                     // when storeId was first assigned (admin or claim)
+  fcmToken     String?                       // Firebase Cloud Messaging token — set by APK on first boot / token refresh
+  forceSyncAt  DateTime?                     // admin-triggered cache bust — player re-fetches when > lastSyncAt
+  cpuTempC          Float?                   // last reported CPU temperature in °C
+  cpuTempUpdatedAt  DateTime?
+  freeStorageMb     Int?                     // available storage in MB (last reported)
+  androidVersion    String?                  // e.g. "13"
+  appVersion        String?                  // ALIVE Player app version, e.g. "1.4.2"
+  updatedAt    DateTime          @updatedAt
 
   store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
   events       PlayEvent[]
+  telemetryEvents TelemetryEvent[]
+  remediationTickets RemediationTicket[]
 
   @@index([storeId])
   @@index([groupName])
   @@index([status])
+}
+
+enum RemediationTicketStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum RemediationActionType {
+  CONFIG_CHANGE
+  ROLLBACK
+  PATCH_TARGET
+}
+
+enum RemediationApplyMode {
+  AUTO
+  REQUIRES_APPROVAL
+}
+
+model RemediationTicket {
+  id                 String                  @id @default(cuid())
+  deviceId           String
+  status             RemediationTicketStatus @default(OPEN)
+  triggerType        String
+  severity           String                  @default("medium")
+  triggerWindowStart DateTime?
+  triggerWindowEnd   DateTime?
+  snapshot           Json
+  createdAt          DateTime                @default(now())
+  resolvedAt         DateTime?
+
+  device             Device                  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  proposals          RemediationProposal[]
+
+  @@index([deviceId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model RemediationProposal {
+  id               String               @id @default(cuid())
+  ticketId         String
+  rank             Int
+  actionType       RemediationActionType
+  title            String
+  rationale        String
+  proposedChange   Json
+  confidence       Float
+  blastRadius      String
+  blastRadiusScore Int                  @default(1)
+  applyMode        RemediationApplyMode
+  requiresApproval Boolean              @default(false)
+  approvalState    String               @default("PENDING")
+  prHookState      String               @default("NOT_REQUESTED")
+  createdAt        DateTime             @default(now())
+
+  ticket           RemediationTicket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, rank])
+  @@index([actionType, applyMode])
+}
+
+model TelemetryEvent {
+  id            String   @id @default(cuid())
+  route         String
+  level         String   @default("error")
+  errorClass    String?
+  message       String
+  stackHash     String?
+  correlationId String
+  actorType     String
+  requestMeta   Json?
+  createdAt     DateTime @default(now())
+  deviceId      String?
+
+  device        Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([route, createdAt])
+  @@index([correlationId])
+  @@index([deviceId])
 }
 
 // ─── Content + Playlists + Schedules ─────────────────────────────────────────
@@ -201,10 +347,13 @@ model Content {
   height       Int?
   uploadedById String?
   uploadedAt   DateTime       @default(now())
+  tags         String[]       @default([])
+  folder       String?
 
   items        PlaylistItem[]
 
   @@index([uploadedById])
+  @@index([folder])
 }
 
 model Playlist {
@@ -242,23 +391,42 @@ model Schedule {
   name        String
   playlistId  String
   priority    Int        @default(0)
-  // Either deviceIds OR groupName — group-based scheduling preferred at scale (Xibo pattern)
+  // Either deviceIds OR groupName OR storeIds OR cityFilter — targeting modes
   deviceIds   String[]   @default([])
   groupName   String?
+  storeIds    String[]   @default([])   // target all devices linked to these stores
+  cityFilter  String?                   // target all devices whose Store.city matches
   startAt     DateTime
   endAt       DateTime
-  recurrence  Recurrence @default(ONCE)
+  recurrence   Recurrence @default(ONCE)
+  orientation  String     @default("portrait")  // landscape | portrait | any
+  intervalMins Int?                               // null = continuous loop; N = play at most once per N minutes
   // Optional dayparting window (HH:mm). If null, runs all hours within startAt..endAt.
-  dailyStart  String?
-  dailyEnd    String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  dailyStart   String?
+  dailyEnd     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   playlist    Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
   @@index([playlistId])
   @@index([groupName])
+  @@index([cityFilter])
   @@index([startAt, endAt])
+}
+
+// ─── Screen compositions (multi-zone layouts) ────────────────────────────────
+
+model Composition {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  zones       Json     // ZoneDefinition[] — {id,label,x,y,w,h,playlistId?,playlistName?}
+  isPreset    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPreset])
 }
 
 // ─── Proof-of-play ───────────────────────────────────────────────────────────
@@ -273,6 +441,9 @@ model PlayEvent {
   endedAt    DateTime
   durationMs Int
   tag        String?   // free-form: brand/campaign external ID for billing attribution
+  // Audience impressions + cost for CPI billing model (T2)
+  impressions Int      @default(1)
+  costPaise   Int      @default(0)
   // Tamper-evident chain (T2 — sign each row with prev hash)
   prevHash   String?
   rowHash    String?
@@ -354,6 +525,76 @@ model BillItem {
   @@index([billId])
 }
 
+// ─── Product Catalogue ────────────────────────────────────────────────────────
+// product_id format: CAT-BRAND-SEQ  e.g. GRO-KC-001
+// group_id groups variants of the same product: GRO-KC (without SEQ)
+
+model Product {
+  id           String   @id               // CAT-BRAND-SEQ  e.g. GRO-KC-001
+  groupId      String                     // CAT-BRAND       e.g. GRO-KC
+  productName  String
+  brand        String
+  category     String                     // GRO|STA|CHL|HNB|NFD|HHD|BAK|TOY|LUG|HLN|FSH|DAI|FNV
+  sizeVariant  String                     // "1 Ltr", "500 ml", "30 Count"
+  unitType     String                     // ml|g|count|ltr|kg
+  mrp          Int?                       // national MRP in rupees (reference only)
+  mrpCheckedAt DateTime?                  // last time MRP was fetched from Amazon/Flipkart
+  imageUrl     String?                    // R2 public URL
+  imageIsAi    Boolean  @default(false)   // true = AI-generated placeholder; replace with real photo later
+  barcodeEan   String?                    // EAN-13 if available
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  offers       StoreOffer[]
+
+  @@index([groupId])
+  @@index([category])
+  @@index([brand])
+  @@index([isActive])
+}
+
+// ─── Store Offers ─────────────────────────────────────────────────────────────
+
+model StoreOffer {
+  id          String    @id @default(cuid())
+  storeId     String
+  productId   String?                     // links to Product catalogue (optional — freeform still allowed)
+  productName String
+  weight      String?                     // e.g. "1 kg", "500 ml", "12 pcs"
+  mrp         Int                         // MRP in rupees
+  offerPrice  Int                         // offer price in rupees
+  validUntil  DateTime?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([active])
+  @@index([validUntil])
+  @@index([productId])
+}
+
+// ─── Hourly POP aggregation ───────────────────────────────────────────────────
+
+model HourlyPop {
+  id          String   @id @default(cuid())
+  deviceId    String
+  hour        DateTime // truncated to top of hour (UTC)
+  playCount   Int      @default(0)
+  totalMs     Int      @default(0) // total duration in ms
+  campaignIds String[] // distinct campaign IDs played that hour
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([deviceId, hour])
+  @@index([deviceId])
+  @@index([hour])
+}
+
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────
 
 model AuditLog {
@@ -369,4 +610,105 @@ model AuditLog {
   @@index([actorId])
   @@index([action])
   @@index([createdAt])
+}
+
+
+
+enum ExternalSignalSource {
+  market_sentiment
+  competitor_activity
+  infra_cost_efficiency
+}
+
+model ExternalSignal {
+  id                 String               @id @default(cuid())
+  source             ExternalSignalSource
+  sourceId           String
+  observedAt         DateTime
+  expiresAt          DateTime
+  category           String
+  summary            String
+  details            Json
+  score              Float
+  trendVelocity      Float
+  confidence         Float
+  freshness          Float
+  severity           String
+  recommendedActions Json
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([source, sourceId])
+  @@index([source, observedAt])
+  @@index([expiresAt])
+}
+model ContextSyncState {
+  key       String   @id
+  watermark DateTime
+  updatedAt DateTime @updatedAt
+}
+
+model ContextDocument {
+  id          String   @id @default(cuid())
+  sourceType  String
+  sourceId    String
+  timestamp   DateTime
+  actors      String[]
+  serviceArea String
+  summary     String
+  rawRef      String
+  embedding   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([timestamp])
+  @@index([serviceArea])
+}
+
+// ─── Overlays (on-screen layouts: tickers, banners, news feeds) ──────────────
+// Rendered by ALIVE Player as a layer on top of the playlist content.
+// Same targeting model as Schedule: deviceIds / groupName / storeIds / cityFilter / "all"
+model Overlay {
+  id           String   @id @default(cuid())
+  name         String
+  type         String   // 'TICKER' | 'NEWS_TICKER' | 'BANNER' | 'INFO_BAR'
+  enabled      Boolean  @default(true)
+
+  // Content (use depends on type)
+  text         String?  // TICKER, INFO_BAR — plain text
+  feedUrl      String?  // NEWS_TICKER — RSS / JSON URL (server fetches & caches)
+  imageUrl     String?  // BANNER — image URL (R2 or external)
+  feedItems    Json?    // cached news items: [{ title, link, pubDate }]
+  feedFetchedAt DateTime?
+
+  // Visual
+  position     String   @default("BOTTOM")  // TOP | BOTTOM | LEFT | RIGHT
+  bgColor      String?
+  fgColor      String?
+  speedPxSec   Int      @default(60)        // for tickers
+  heightPct    Int      @default(8)         // % of screen height (TOP/BOTTOM) or width (LEFT/RIGHT)
+
+  // Targeting
+  deviceIds    String[] @default([])
+  groupName    String?
+  storeIds     String[] @default([])
+  cityFilter   String?
+
+  // Time window
+  startAt      DateTime?
+  endAt        DateTime?
+  dailyStart   String?                       // "HH:MM"
+  dailyEnd     String?                       // "HH:MM"
+
+  // Player constraints
+  requireWifi  Boolean  @default(false)      // only render when player reports WiFi
+  priority     Int      @default(0)          // ties broken by createdAt asc
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([enabled])
+  @@index([cityFilter])
+  @@index([groupName])
 }
