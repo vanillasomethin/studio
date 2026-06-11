@@ -11,6 +11,8 @@ export type StoreSession = {
   city?:            string;
   pincode?:         string;
   address?:         string;
+  lat?:             number;
+  lng?:             number;
   gstin?:           string;
   email?:           string;
   referralCode?:    string;
