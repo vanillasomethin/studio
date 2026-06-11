@@ -6,13 +6,13 @@ import { MapPin, LocateFixed, Loader2, CheckCircle2, AlertCircle } from 'lucide-
 // Dynamically import leaflet only on client — avoids SSR window errors
 async function loadLeaflet() {
   const L = (await import('leaflet')).default;
-  // Fix default marker icon path broken by webpack
+  // Fix default marker icon path broken by webpack — self-hosted so it works in restricted WebViews
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (L.Icon.Default.prototype as any)._getIconUrl;
   L.Icon.Default.mergeOptions({
-    iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-    shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    iconUrl:       '/leaflet/marker-icon.png',
+    iconRetinaUrl: '/leaflet/marker-icon-2x.png',
+    shadowUrl:     '/leaflet/marker-shadow.png',
   });
   return L;
 }
@@ -122,12 +122,14 @@ export default function MapPicker({ lat, lng, onLocation }: Props) {
       (err) => {
         setGeoError(
           err.code === 1
-            ? 'Location access denied — please drag the pin to your shop manually.'
-            : 'Could not detect location. Drag the pin instead.',
+            ? 'Location permission denied. Allow location access in your browser/app settings, or drag the pin to your shop.'
+            : err.code === 3
+            ? 'Location timed out. Check GPS signal and try again, or drag the pin manually.'
+            : 'Could not detect location. Drag the pin to your shop on the map.',
         );
         setGeoLoading(false);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
     );
   };
 
