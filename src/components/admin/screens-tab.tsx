@@ -371,15 +371,11 @@ function GroupPanel({ onClose, onFilterGroup }: { onClose: () => void; onFilterG
 // ─── Registration onboarding card ────────────────────────────────────────────
 const PLAY_STORE_URL = process.env.NEXT_PUBLIC_PLAY_STORE_URL ?? 'https://play.google.com/apps/internaltest/4701500416653827139';
 const APK_DIRECT_URL = process.env.NEXT_PUBLIC_APK_DIRECT_URL ?? 'https://github.com/vanillasomethin/ALIVE-Player/releases/tag/sideload-latest';
-const CLAIM_ENDPOINT = '/api/device/claim';
 
 function AddScreenCard() {
-  const [open,   setOpen]   = useState(false);
-  const [copied, setCopied] = useState(false);
-  const baseUrl   = typeof window !== 'undefined' ? window.location.origin : 'https://wearealive.in';
-  const claimUrl  = `${baseUrl}${CLAIM_ENDPOINT}`;
-  const apkUrl    = APK_DIRECT_URL.startsWith('http') ? APK_DIRECT_URL : `${baseUrl}${APK_DIRECT_URL}`;
-  const copy = (text: string) => { navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
+  const [open, setOpen] = useState(false);
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://wearealive.in';
+  const apkUrl  = APK_DIRECT_URL.startsWith('http') ? APK_DIRECT_URL : `${baseUrl}${APK_DIRECT_URL}`;
 
   return (
     <div className="rounded-2xl border-2 border-primary/20 bg-primary/5 overflow-hidden">
@@ -412,16 +408,14 @@ function AddScreenCard() {
             <div className="space-y-3">
               <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px] font-black shrink-0">2</span><p className="text-xs font-bold text-foreground">Boot &amp; auto-connect</p></div>
               <ol className="space-y-2">
-                {[['a','Open ALIVE Player on the Android TV / Fire Stick'],['b','App reads device hardware ID automatically'],['c','Calls /api/device/claim → gets a unique token'],['d','Screen appears here as "Pending" within seconds'],['e','(Optional) Enter store referral code to auto-link to store']].map(([n,t]) => (
+                {[['a','Open ALIVE Player on the Android TV / Fire Stick'],['b','TV shows a 6-character screen code'],['c','Pick ONE: enter the code here, or scan the QR on the TV with your phone'],['d','Screen appears here as "Pending" within seconds']].map(([n,t]) => (
                   <li key={n} className="flex gap-2 text-[11px] text-muted-foreground"><span className="font-bold text-primary shrink-0 w-4">{n}.</span><span>{t}</span></li>
                 ))}
               </ol>
-              <div className="rounded-xl bg-muted/40 border border-border p-3">
-                <p className="text-[10px] font-bold text-foreground mb-1.5 flex items-center gap-1.5"><QrCode className="h-3 w-3" />Claim endpoint</p>
-                <div className="flex items-center gap-2">
-                  <code className="text-[9px] font-mono text-muted-foreground flex-1 break-all">{claimUrl}</code>
-                  <button onClick={() => copy(claimUrl)} className="shrink-0 rounded-lg border border-border bg-background p-1.5 hover:bg-muted/50 transition-colors">{copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}</button>
-                </div>
+              <div className="rounded-xl bg-muted/40 border border-border p-3 space-y-2">
+                <p className="text-[10px] font-bold text-foreground flex items-center gap-1.5"><QrCode className="h-3 w-3" />Two ways to connect</p>
+                <p className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Option A</span> — click &quot;Pair screen&quot; above and type the 6-character code shown on the TV.</p>
+                <p className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Option B</span> — scan the QR code shown on the TV with your phone&apos;s camera; it opens this admin panel and connects the screen automatically.</p>
               </div>
             </div>
             <div className="space-y-3">

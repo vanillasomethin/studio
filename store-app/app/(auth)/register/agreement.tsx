@@ -72,6 +72,8 @@ export default function AgreementStep() {
         locality: form.locality,
         address: form.address,
         pincode: form.pincode,
+        lat: form.lat ? parseFloat(form.lat) : undefined,
+        lng: form.lng ? parseFloat(form.lng) : undefined,
         gstin: form.gstin || undefined,
         referralCode: result.referralCode ?? referralCode,
         referredBy: form.referredBy || undefined,
