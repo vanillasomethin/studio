@@ -11,7 +11,7 @@ import {
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, Moon, Sun, LifeBuoy, Download, Plus,
-  Megaphone, Image,
+  Megaphone, Image, Radar,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import './admin.css';
@@ -23,6 +23,7 @@ const ProgrammingTab  = dynamic(() => import('@/components/admin/programming-tab
 const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
+const FootfallTab     = dynamic(() => import('@/components/admin/footfall-tab'),     { ssr: false });
 const StorePaymentsTab = dynamic(() => import('@/components/admin/store-payments-tab'), { ssr: false });
 const SiteMediaTab     = dynamic(() => import('@/components/admin/site-media-tab'),     { ssr: false });
 const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),        { ssr: false });
@@ -56,7 +57,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'alerts' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -116,6 +117,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   layouts:    { eyebrow: 'On-screen overlays', title: 'Layouts & tickers'  },
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
+  footfall:   { eyebrow: 'In-store presence',  title: 'Footfall'           },
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
   products:   { eyebrow: 'Product catalogue',  title: 'Master Products'    },
   alerts:     { eyebrow: 'System status',      title: 'Alerts'             },
@@ -1019,6 +1021,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
       { id: 'screens' as Tab,    label: 'Screens',          icon: Tv2,             count: null },
       { id: 'programming' as Tab, label: 'Programming',       icon: LayoutGrid,      count: null },
       { id: 'monitoring' as Tab, label: 'Monitoring',       icon: Activity,        count: null },
+      { id: 'footfall' as Tab,   label: 'Footfall',         icon: Radar,           count: null },
     ],
   },
   {
@@ -1327,6 +1330,7 @@ function Dashboard() {
     screens:      'Screens',
     programming:  'Programming',
     monitoring: 'Monitoring',
+    footfall:   'Footfall',
     payments:   'Payouts',
     reports:    'Reports',
     flyers:     'Flyers',
@@ -1379,6 +1383,7 @@ function Dashboard() {
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
               {tab === 'monitoring' && <MonitoringTab />}
+              {tab === 'footfall'   && <FootfallTab />}
               {tab === 'alerts'    && <AlertsTab onNav={(t) => handleNav(t as Tab)} />}
               {tab === 'media'      && <SiteMediaTab adminPassword={adminPw} />}
               {tab === 'products'   && <ProductsTab adminPw={adminPw} />}

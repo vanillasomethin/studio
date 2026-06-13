@@ -328,3 +328,74 @@ export const updateComposition = (id: string, body: { name?: string; description
 
 export const deleteComposition = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/compositions/${id}`, { method: 'DELETE' });
+
+// ─── Footfall & Screen Presence ────────────────────────────────────────────────
+
+export type FootfallHourlyPoint = {
+  hourBucket:       string;
+  customerCount:    number;
+  unconfirmedCount: number;
+  avgConfidence:    number | null;
+  excludedCount:    number;
+};
+
+export type FootfallPresenceByCampaign = {
+  campaignId:   string;
+  campaignName: string;
+  total:        number;
+  confirmed:    number;
+  presenceRate: number | null;
+};
+
+export type FootfallResponse = {
+  storeId: string;
+  from:    string;
+  to:      string;
+  totals:  { customerCount: number; unconfirmedCount: number; excludedCount: number };
+  hourly:  FootfallHourlyPoint[];
+  presenceByCampaign: FootfallPresenceByCampaign[];
+};
+
+export type FootfallAuditResponse = {
+  storeId: string;
+  from:    string;
+  to:      string;
+  breakdown: { reason: string; count: number }[];
+  events: {
+    id: string;
+    timestamp: string;
+    exclusionReason: string | null;
+    zoneId: string | null;
+    confidenceScore: number | null;
+    detectionMethod: string | null;
+  }[];
+};
+
+export type SensorHealthResponse = {
+  storeId: string;
+  calibrationStatus: string;
+  firmwareVersion: string | null;
+  ruview:     { lastSeen: string | null; uptime: number | null; status: 'online' | 'offline' | 'unknown' };
+  espresense: { lastSeen: string | null; uptime: number | null; status: 'online' | 'offline' | 'unknown' };
+};
+
+export const getFootfall = (storeId: string, params?: { from?: string; to?: string }) => {
+  const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+  return apiFetch<FootfallResponse>(`/api/footfall/${storeId}${qs}`);
+};
+
+export const getFootfallAudit = (storeId: string, params?: { from?: string; to?: string }) => {
+  const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+  return apiFetch<FootfallAuditResponse>(`/api/footfall/${storeId}/audit${qs}`);
+};
+
+export const getSensorHealth = (storeId: string) =>
+  apiFetch<SensorHealthResponse>(`/api/health/${storeId}`);
+
+export function getFootfallExportUrl(storeId: string, params?: { from?: string; to?: string }): string {
+  const p  = { ...(params ?? {}) } as Record<string, string>;
+  const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
+  if (pw) p['admin-password'] = pw;
+  const qs = Object.keys(p).length ? '?' + new URLSearchParams(p).toString() : '';
+  return `/api/footfall/${storeId}/export/csv${qs}`;
+}
