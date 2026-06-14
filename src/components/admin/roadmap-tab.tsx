@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, CheckCircle2, MessageSquare, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { X, Copy, CheckCircle2, MessageSquare, Zap, ChevronDown, ChevronUp, Map as MapIcon, List as ListIcon, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1438,6 +1438,38 @@ const CLUSTER_ORDER = [
   'Brand Features T2',
 ];
 
+// ─── Node-graph layout (static — clusters as hubs, items orbiting each hub) ───
+
+const GRAPH_WORLD = 1900; // svg user-unit world size (square)
+
+const GRAPH_LAYOUT = (() => {
+  const cx = GRAPH_WORLD / 2;
+  const cy = GRAPH_WORLD / 2;
+  const hubRadius = 650;
+  const clusterPositions: Record<string, { x: number; y: number }> = {};
+  CLUSTER_ORDER.forEach((cluster, i) => {
+    const angle = (2 * Math.PI * i) / CLUSTER_ORDER.length - Math.PI / 2;
+    clusterPositions[cluster] = {
+      x: cx + hubRadius * Math.cos(angle),
+      y: cy + hubRadius * Math.sin(angle),
+    };
+  });
+  const itemPositions: Record<string, { x: number; y: number }> = {};
+  CLUSTER_ORDER.forEach(cluster => {
+    const items = ITEMS.filter(i => i.cluster === cluster);
+    const orbit = Math.min(220, 60 + items.length * 7);
+    const hub = clusterPositions[cluster];
+    items.forEach((item, idx) => {
+      const angle = (2 * Math.PI * idx) / items.length - Math.PI / 2;
+      itemPositions[item.id] = {
+        x: hub.x + orbit * Math.cos(angle),
+        y: hub.y + orbit * Math.sin(angle),
+      };
+    });
+  });
+  return { cx, cy, clusterPositions, itemPositions };
+})();
+
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<Status, { label: string; dot: string; badge: string }> = {
@@ -1445,6 +1477,14 @@ const STATUS_CONFIG: Record<Status, { label: string; dot: string; badge: string 
   'in-progress': { label: 'In Progress',  dot: 'bg-amber-500',  badge: 'bg-amber-50 text-amber-700 border border-amber-200'   },
   'planned':     { label: 'Planned (T1)', dot: 'bg-blue-500',   badge: 'bg-blue-50 text-blue-700 border border-blue-200'     },
   't2':          { label: 'T2 Future',    dot: 'bg-purple-500', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
+};
+
+// SVG fill/stroke classes per status, used by the node-graph view.
+const GRAPH_STATUS_COLOR: Record<Status, { fill: string; edge: string }> = {
+  'built':       { fill: 'fill-green-500',  edge: 'stroke-green-300'  },
+  'in-progress': { fill: 'fill-amber-500',  edge: 'stroke-amber-300'  },
+  'planned':     { fill: 'fill-blue-500',   edge: 'stroke-blue-300'   },
+  't2':          { fill: 'fill-purple-500', edge: 'stroke-purple-300' },
 };
 
 const FILTERS: { value: FilterValue; label: string }[] = [
@@ -1469,6 +1509,12 @@ export default function RoadmapTab() {
   const [copiedAll, setCopiedAll]   = useState(false);
   const [copiedCtx, setCopiedCtx]   = useState(false);
   const [showCtx, setShowCtx]       = useState(false);
+  const [view, setView]             = useState<'list' | 'map'>('map');
+  const [zoom, setZoom]             = useState(1);
+  const [pan, setPan]               = useState({ x: 0, y: 0 });
+  const [hoveredId, setHoveredId]   = useState<string | null>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
+  const dragRef  = useRef({ dragging: false, startX: 0, startY: 0, moved: false, panStart: { x: 0, y: 0 } });
 
   useEffect(() => {
     try {
@@ -1480,6 +1526,81 @@ export default function RoadmapTab() {
   useEffect(() => {
     if (selected) setPanelNote(notes[selected.id] ?? '');
   }, [selected, notes]);
+
+  // ── Node-graph pan/zoom ──────────────────────────────────────────────────
+  const resetView = useCallback(() => {
+    const rect = graphRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const k = Math.min(rect.width, rect.height) / GRAPH_WORLD * 0.92;
+    setZoom(k);
+    setPan({ x: rect.width / 2 - GRAPH_LAYOUT.cx * k, y: rect.height / 2 - GRAPH_LAYOUT.cy * k });
+  }, []);
+
+  useEffect(() => {
+    if (view !== 'map') return;
+    resetView();
+    const onResize = () => resetView();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [view, resetView]);
+
+  useEffect(() => {
+    const el = graphRef.current;
+    if (!el || view !== 'map') return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setZoom(prevZoom => {
+        const newZoom = Math.min(2.5, Math.max(0.15, prevZoom * factor));
+        setPan(prevPan => ({
+          x: mx - (mx - prevPan.x) * (newZoom / prevZoom),
+          y: my - (my - prevPan.y) * (newZoom / prevZoom),
+        }));
+        return newZoom;
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [view]);
+
+  const zoomBy = useCallback((factor: number) => {
+    const rect = graphRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    setZoom(prevZoom => {
+      const newZoom = Math.min(2.5, Math.max(0.15, prevZoom * factor));
+      setPan(prevPan => ({
+        x: cx - (cx - prevPan.x) * (newZoom / prevZoom),
+        y: cy - (cy - prevPan.y) * (newZoom / prevZoom),
+      }));
+      return newZoom;
+    });
+  }, []);
+
+  const onGraphPointerDown = useCallback((e: React.MouseEvent) => {
+    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, moved: false, panStart: { ...pan } };
+  }, [pan]);
+
+  const onGraphPointerMove = useCallback((e: React.MouseEvent) => {
+    if (!dragRef.current.dragging) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
+    setPan({ x: dragRef.current.panStart.x + dx, y: dragRef.current.panStart.y + dy });
+  }, []);
+
+  const onGraphPointerUp = useCallback(() => {
+    dragRef.current.dragging = false;
+  }, []);
+
+  const handleNodeClick = useCallback((item: RoadmapItem) => () => {
+    if (dragRef.current.moved) return;
+    setSelected(item);
+  }, []);
 
   const saveNote = useCallback(() => {
     if (!selected) return;
@@ -1665,24 +1786,152 @@ export default function RoadmapTab() {
         )}
       </div>
 
-      {/* Filter pills */}
-      <div className="flex flex-wrap gap-1.5">
-        {FILTERS.map(f => (
+      {/* Filter pills + view toggle */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex flex-wrap gap-1.5">
+          {FILTERS.map(f => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold border transition-all ${
+                filter === f.value
+                  ? 'bg-foreground text-background border-foreground'
+                  : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-full border border-border p-0.5 shrink-0">
           <button
-            key={f.value}
-            onClick={() => setFilter(f.value)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold border transition-all ${
-              filter === f.value
-                ? 'bg-foreground text-background border-foreground'
-                : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+            onClick={() => setView('map')}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+              view === 'map' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {f.label}
+            <MapIcon className="h-3.5 w-3.5" /> Map
           </button>
-        ))}
+          <button
+            onClick={() => setView('list')}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+              view === 'list' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ListIcon className="h-3.5 w-3.5" /> List
+          </button>
+        </div>
       </div>
 
-      {/* Clusters */}
+      {/* Node-graph (Platform Map) view */}
+      {view === 'map' && (
+        <div
+          ref={graphRef}
+          className="relative w-full h-[640px] overflow-hidden rounded-xl border border-border bg-muted/20 cursor-grab active:cursor-grabbing select-none"
+          onMouseDown={onGraphPointerDown}
+          onMouseMove={onGraphPointerMove}
+          onMouseUp={onGraphPointerUp}
+          onMouseLeave={onGraphPointerUp}
+        >
+          <div
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', width: GRAPH_WORLD, height: GRAPH_WORLD }}
+          >
+            <svg width={GRAPH_WORLD} height={GRAPH_WORLD} viewBox={`0 0 ${GRAPH_WORLD} ${GRAPH_WORLD}`}>
+              {/* Edges: hub → item */}
+              {CLUSTER_ORDER.map(cluster => {
+                const hub = GRAPH_LAYOUT.clusterPositions[cluster];
+                return visibleItems.filter(i => i.cluster === cluster).map(item => {
+                  const p = GRAPH_LAYOUT.itemPositions[item.id];
+                  return (
+                    <line
+                      key={`edge-${item.id}`}
+                      x1={hub.x} y1={hub.y} x2={p.x} y2={p.y}
+                      className={`${GRAPH_STATUS_COLOR[item.status].edge} ${hoveredId === item.id ? 'opacity-90' : 'opacity-30'}`}
+                      strokeWidth={hoveredId === item.id ? 2.5 : 1.5}
+                    />
+                  );
+                });
+              })}
+
+              {/* Hub nodes (clusters) */}
+              {CLUSTER_ORDER.filter(c => clusters.includes(c)).map(cluster => {
+                const hub = GRAPH_LAYOUT.clusterPositions[cluster];
+                const clusterItems = ITEMS.filter(i => i.cluster === cluster);
+                const built = clusterItems.filter(i => i.status === 'built').length;
+                return (
+                  <g key={`hub-${cluster}`}>
+                    <circle cx={hub.x} cy={hub.y} r={34} className="fill-card stroke-primary" strokeWidth={2} />
+                    <text x={hub.x} y={hub.y - 4} textAnchor="middle" className="fill-foreground text-[15px] font-bold" style={{ fontFamily: 'inherit' }}>
+                      {cluster}
+                    </text>
+                    <text x={hub.x} y={hub.y + 14} textAnchor="middle" className="fill-muted-foreground text-[12px]">
+                      {built}/{clusterItems.length} built
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Item nodes */}
+              {visibleItems.map(item => {
+                const p = GRAPH_LAYOUT.itemPositions[item.id];
+                const sc = GRAPH_STATUS_COLOR[item.status];
+                const isHovered = hoveredId === item.id;
+                return (
+                  <g
+                    key={item.id}
+                    transform={`translate(${p.x}, ${p.y})`}
+                    onClick={handleNodeClick(item)}
+                    onMouseEnter={() => setHoveredId(item.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    className="cursor-pointer"
+                  >
+                    <circle r={isHovered ? 12 : 9} className={`${sc.fill} stroke-white`} strokeWidth={2} />
+                    {item.critical && <circle r={isHovered ? 17 : 14} className="fill-none stroke-red-400" strokeWidth={1.5} strokeDasharray="3 3" />}
+                    <text
+                      x={0} y={isHovered ? -20 : -16}
+                      textAnchor="middle"
+                      className={`fill-foreground text-[13px] font-semibold transition-opacity ${isHovered ? 'opacity-100' : 'opacity-70'}`}
+                    >
+                      {item.label}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          {/* Zoom controls */}
+          <div className="absolute bottom-3 right-3 flex flex-col gap-1">
+            <button onClick={() => zoomBy(1.25)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shadow-sm">
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <button onClick={() => zoomBy(1 / 1.25)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shadow-sm">
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <button onClick={resetView} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shadow-sm">
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Legend */}
+          <div className="absolute bottom-3 left-3 flex flex-wrap gap-2 rounded-lg border border-border bg-card/90 px-2.5 py-1.5 text-[10px] font-semibold backdrop-blur-sm">
+            {(Object.keys(STATUS_CONFIG) as Status[]).map(s => (
+              <span key={s} className="flex items-center gap-1">
+                <span className={`h-2 w-2 rounded-full ${STATUS_CONFIG[s].dot}`} />
+                {STATUS_CONFIG[s].label}
+              </span>
+            ))}
+          </div>
+
+          {/* Hint */}
+          <div className="absolute top-3 left-3 text-[10px] text-muted-foreground/70 font-medium">
+            Scroll to zoom · drag to pan · click a node for details
+          </div>
+        </div>
+      )}
+
+      {/* Clusters (list view) */}
+      {view === 'list' && (
       <div className="space-y-8">
         {clusters.map(cluster => {
           const clusterItems = visibleItems.filter(i => i.cluster === cluster);
@@ -1745,6 +1994,7 @@ export default function RoadmapTab() {
           );
         })}
       </div>
+      )}
 
       {/* Detail panel */}
       {selected && (
