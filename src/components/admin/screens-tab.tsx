@@ -14,6 +14,7 @@ import {
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 
 // ─── Diagnostic panel (unchanged) ────────────────────────────────────────────
@@ -608,10 +609,10 @@ function timeSince(iso: string): string {
   return `${Math.floor(secs / 86400)}d ago`;
 }
 
-const STATUS_COLORS: Record<Device['status'], string> = {
-  ONLINE:  'bg-green-500/10 text-green-600 border-green-500/20',
-  OFFLINE: 'bg-red-500/10 text-red-600 border-red-500/20',
-  PENDING: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
+const STATUS_BADGE: Record<Device['status'], 'success' | 'error' | 'warning'> = {
+  ONLINE:  'success',
+  OFFLINE: 'error',
+  PENDING: 'warning',
 };
 const STATUS_ICONS: Record<Device['status'], React.ElementType> = {
   ONLINE: Wifi, OFFLINE: WifiOff, PENDING: Clock,
@@ -1077,9 +1078,9 @@ export default function ScreensTab() {
                           <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
+                          <Badge variant={STATUS_BADGE[d.status]} dot className="text-[10px] py-0.5 px-2 font-bold">
                             <StatusIcon className="h-2 w-2" />{d.status}
-                          </span>
+                          </Badge>
                         </td>
                         <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{d.currentSchedule?.name ?? '—'}</td>
                         <td className="px-3 py-2 text-muted-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</td>
@@ -1135,9 +1136,9 @@ export default function ScreensTab() {
                         <button onClick={() => doForceSync(d.id)} title="Force this screen to re-fetch its plan on next poll" className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
                           <RefreshCw className="h-3 w-3" /> Sync
                         </button>
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${STATUS_COLORS[d.status]}`}>
+                        <Badge variant={STATUS_BADGE[d.status]} dot className="text-[10px] py-0.5 px-2 font-bold">
                           <StatusIcon className="h-2.5 w-2.5" />{d.status}
-                        </span>
+                        </Badge>
                         {d.uptimePct != null && (
                           <span className={`text-[10px] font-semibold ${d.uptimePct >= 98 ? 'text-green-600' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}`}>
                             {d.uptimePct.toFixed(1)}% up
