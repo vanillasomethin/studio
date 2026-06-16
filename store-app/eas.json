@@ -20,7 +20,7 @@
       }
     },
     "production": {
-      "credentialsSource": "local",
+      "credentialsSource": "remote",
       "channel": "production",
       "android": {
         "buildType": "app-bundle"
