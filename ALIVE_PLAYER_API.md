@@ -13,6 +13,7 @@
    - [POST /api/device/claim](#post-apideviceclaim)
    - [GET /api/device/plan](#get-apideviceplan)
    - [POST /api/device/events](#post-apideviceevents)
+   - [GET /api/device/update-check](#get-apideviceupdate-check)
 3. [Data Types](#data-types)
 4. [Error Codes](#error-codes)
 5. [Polling & Timing](#polling--timing)
@@ -379,6 +380,46 @@ data class EventsBatchResponse(
     val accepted: Int
 )
 ```
+
+---
+
+### GET /api/device/update-check
+
+Returns the latest released player APK version for OTA. Configured server-side
+via env vars (`PLAYER_LATEST_VERSION_CODE`, `PLAYER_APK_URL`, `PLAYER_APK_SHA256`,
+optional `PLAYER_LATEST_VERSION_NAME`) — set these when a new build is released.
+The player is responsible for comparing `versionCode` against its own
+`BuildConfig.VERSION_CODE`.
+
+**Request**
+
+```
+GET https://wearealive.in/api/device/update-check
+Authorization: Bearer <token>
+```
+
+**Response `200 OK`**
+
+```json
+{
+  "updateAvailable": true,
+  "versionCode": 14,
+  "versionName": "1.0.14",
+  "apkUrl": "https://media.wearealive.in/releases/alive-player-1.0.14.apk",
+  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+}
+```
+
+If no release is configured, returns `{ "updateAvailable": false }`.
+
+**Player behaviour:** if `versionCode > BuildConfig.VERSION_CODE`, download the
+APK (reusing the same range-resume + SHA-256 verification path as content
+assets), then install via `PackageInstaller`. On a Device Owner-enrolled
+device running API 31+, the install is fully silent
+(`SessionParams.setRequireUserAction(USER_ACTION_NOT_REQUIRED)`); on older
+API levels or non-owner installs, Android shows its standard install-confirm
+dialog — there is no documented silent-install path below API 31, even for
+device owners.
 
 ---
 

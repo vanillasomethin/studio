@@ -12,7 +12,7 @@ export default function Index() {
       if (session?.storeName) {
         router.replace('/(dashboard)/');
       } else {
-        router.replace('/(auth)/sign-in');
+        router.replace('/(auth)/welcome');
       }
     });
   }, [router]);

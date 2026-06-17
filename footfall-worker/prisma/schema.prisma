@@ -1,0 +1,99 @@
+// ALIVE Footfall Worker — Prisma schema
+//
+// This is a deliberately small subset of the main studio schema
+// (prisma/schema.prisma in the studio repo). It points at the SAME
+// Postgres database via DATABASE_URL and only declares the models this
+// worker actually reads or writes. Table names match the studio schema
+// 1:1 (no @@map needed — Prisma's default table name is the model name).
+//
+// Source of truth for the full schema (incl. relations/indexes/migrations)
+// is the studio repo. If you add fields to FootfallEvent / FootfallHourly /
+// ScreenPresenceEvent / StoreSensorHealth / Store.excludedZoneId there,
+// mirror the change here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Written by this worker ───────────────────────────────────────────────
+
+model FootfallEvent {
+  id              String   @id @default(cuid())
+  storeId         String
+  timestamp       DateTime
+  amplitude       Float?
+  confidenceScore Float?
+  bleCorroborated Boolean  @default(false)
+  isCounted       Boolean  @default(false)
+  exclusionReason String?
+  zoneId          String?
+  detectionMethod String?
+  createdAt       DateTime @default(now())
+
+  @@index([storeId, timestamp])
+}
+
+model FootfallHourly {
+  id               String   @id @default(cuid())
+  storeId          String
+  hourBucket       DateTime
+  customerCount    Int      @default(0)
+  unconfirmedCount Int      @default(0)
+  avgConfidence    Float?
+  excludedCount    Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  @@unique([storeId, hourBucket])
+  @@index([storeId])
+}
+
+model ScreenPresenceEvent {
+  id               String   @id @default(cuid())
+  storeId          String
+  campaignId       String?
+  timestamp        DateTime
+  presenceDetected Boolean  @default(false)
+  confidenceScore  Float?
+  interactionType  String?
+  createdAt        DateTime @default(now())
+
+  @@index([storeId, timestamp])
+  @@index([campaignId])
+}
+
+model StoreSensorHealth {
+  id                 String    @id @default(cuid())
+  storeId            String    @unique
+  ruviewLastSeen     DateTime?
+  ruviewUptime       Float?
+  espresenseLastSeen DateTime?
+  espresenseUptime   Float?
+  calibrationStatus  String?
+  firmwareVersion    String?
+  updatedAt          DateTime  @updatedAt
+}
+
+// ─── Read-only lookups ─────────────────────────────────────────────────────
+
+model Store {
+  id             String  @id
+  excludedZoneId String?
+}
+
+model Device {
+  id      String  @id
+  storeId String?
+}
+
+model PlayEvent {
+  id         String   @id
+  deviceId   String
+  campaignId String?
+  startedAt  DateTime
+  endedAt    DateTime
+}

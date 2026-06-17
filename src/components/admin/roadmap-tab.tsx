@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, CheckCircle2, MessageSquare, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { X, Copy, CheckCircle2, MessageSquare, Zap, ChevronDown, ChevronUp, Map as MapIcon, List as ListIcon, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ type RoadmapItem = {
 
 const PLATFORM_CONTEXT = `# ALIVE Platform — Claude Session Context
 Repository: vanillasomethin/studio (Next.js 15 App Router)
-Branch: claude/build-alive-advertising-platform-tlG96
+Branch: claude/ecstatic-heisenberg-j93BW
 Production: wearealive.in (Vercel auto-deploy from main)
 
 ## Stack
@@ -50,7 +51,7 @@ Production: wearealive.in (Vercel auto-deploy from main)
 - Cloudflare R2 uploads: browser → signed URL → R2 directly (see src/lib/r2.ts)
 
 ## Current build state (as of today)
-Built (live): Homepage, Store Registration + Agreement, Brand Onboarding + Razorpay, Store Dashboard (overview/earnings/flyers/payout tabs), Admin Panel (stores/flyers/campaigns/screens/content/playlists/schedules/reports/monitoring/payments/site-media/roadmap tabs), Device APIs (claim/events/plan/fleet), Background cron jobs (health check, context sync, external signals), Prisma schema with all models, Cloudflare R2 media storage, ALIVE_PLAYER_API.md integration guide.
+Built (live): Homepage, Store Registration + Agreement, Brand Onboarding + Razorpay, Store Dashboard (overview/earnings/flyers/payout tabs), Admin Panel with full design system (Inter Tight + JetBrains Mono, KPI cards, live feed, ticker, ⌘K search), Admin tabs: stores/flyers/campaigns/screens/content/programming/compositions/layouts/reports/monitoring/payments/site-media/products/roadmap, Satori flyer generator (/api/generate-flyer edge route), APK sideload card, drag-drop product image upload, Device APIs (claim/events/plan/fleet), Background cron jobs (health check, context sync, external signals), Prisma schema with all models, Cloudflare R2 media storage, ALIVE_PLAYER_API.md integration guide.
 
 In progress: WhatsApp admin alerts (notifyAdminWA exists in src/lib/notify.ts, needs wiring to health cron), Auto-remediation (route exists, not auto-triggered).
 
@@ -390,12 +391,94 @@ Key files:
 - src/app/api/admin/store-payments/bulk-export/route.ts — CSV generator`,
   },
   {
-    id: 'admin-media', cluster: 'Admin Panel', label: 'Site Media Tab', sub: 'Hero images via R2',
+    id: 'admin-media', cluster: 'Admin Panel', label: 'Site Media Tab', sub: '9 homepage slots + layout preview',
     status: 'built', path: 'src/components/admin/site-media-tab.tsx',
-    description: 'Manage homepage hero images stored on Cloudflare R2. Upload via server-side proxy, list, delete.',
-    claudePrompt: `Context: Site media tab at src/components/admin/site-media-tab.tsx. Uploads hero images to R2 via /api/site-media endpoint.
+    description: 'Manage 9 named homepage media slots on Cloudflare R2 (hero-consumer, hero-brand, hero-map, etc.). Upload via server-side proxy, grouped by section. Includes visual homepage skeleton preview with green/gray block diagram showing which slots have custom vs default images. Fixed dead india-shop slot → og-cover for OG/social share.',
+    notes: ['9 slots: hero-consumer, hero-brand, hero-map, og-cover, how-it-works, flyer-sample, store-partner, brand-partner, cta-bg', 'Section grouping: Hero, Social, Marketing, Partners', 'Skeleton preview shows slot positions with color-coded state (green=custom, gray=default)'],
+    claudePrompt: `Context: Site media tab at src/components/admin/site-media-tab.tsx. 9 named R2 slots for homepage images, grouped by section. Upload via POST /api/site-media. Homepage reads slots via mediaUrl() helper.
 
 Task: [DESCRIBE YOUR CHANGE — e.g. "Add image ordering: drag-to-reorder the hero image list. Persist order to a JSON file on R2 at 'site/hero-order.json'. Homepage fetches this file to determine display sequence."]`,
+  },
+  {
+    id: 'admin-design-system', cluster: 'Admin Panel', label: 'Admin Design System', sub: 'Inter Tight + JetBrains Mono + KPI cards',
+    status: 'built', path: 'src/app/admin/page.tsx',
+    description: 'Full admin UI design system: Inter Tight font for display/headings, JetBrains Mono for badges/labels/tabular numbers. KPI cards (admin-kpi) with SVG sparklines, red gradient feature card. Section labels (N°01 · Label). Live feed with pulsing status dots. Scrolling ticker below topbar. ⌘K global search modal. Red left-border sidebar active state. Admin user chip at sidebar bottom.',
+    notes: ['Fonts scoped via src/app/admin/layout.tsx — does not affect marketing site', 'CSS classes prefixed admin- in src/app/globals.css', 'Ticker: 28s scroll animation, JetBrains Mono, 28px tall', 'Search: fetches all stores/campaigns/devices on open, client-side filter, grouped results'],
+    claudePrompt: `Context: Admin design system is fully built. CSS utilities in src/app/globals.css (prefixed admin-). Fonts loaded in src/app/admin/layout.tsx.
+
+Key classes:
+- admin-font-display (Inter Tight), admin-font-mono (JetBrains Mono)
+- admin-kpi, admin-kpi--feature (red gradient KPI card)
+- admin-kpi__icon, admin-kpi__label, admin-kpi__value, admin-kpi__sub, admin-kpi__foot, admin-kpi__delta, admin-kpi__delta--up/down
+- admin-kpi-row (4-column responsive grid)
+- admin-section-label (N°NN · LABEL pattern) — use <SectionLabel n={N} label="..." /> component
+- admin-ticker / admin-ticker__track (scrolling info band)
+- admin-live-dot, admin-live-dot--online/offline/pending (pulsing status dots)
+- admin-feed, admin-feed-item, admin-feed-item__name, admin-feed-item__meta, admin-feed-item__badge
+- admin-badge--live/paused/offline/pending (status badges)
+- admin-summary-row (4-col grid), admin-summary-tile, admin-summary-tile__label/value/delta
+- admin-chips / admin-chip / admin-chip--active (filter chips)
+- admin-rings / admin-ring (progress ring grid) — use <ProgressRing pct label sub color /> component
+
+Task: [DESCRIBE YOUR UI CHANGE — e.g. "Add a new admin-kpi card for 'Revenue' showing total paid campaign amount in ₹ with a green delta badge"]`,
+  },
+  {
+    id: 'admin-search', cluster: 'Admin Panel', label: 'Global Search (⌘K)', sub: 'Unified search across stores, campaigns, devices',
+    status: 'built', path: 'src/app/admin/page.tsx',
+    description: 'Global search modal triggered by ⌘K (or Ctrl+K on Windows) or the topbar search button. Fetches all stores, campaigns, and devices on open, then filters client-side on keystroke. Results grouped by category (max 4 per group). Click any result to navigate to the relevant tab. Closes on Escape.',
+    notes: ['Data fetched once on open — no per-keystroke API calls', 'Grouped: Stores / Campaigns / Devices', 'Navigate via click → closes modal → switches tab', 'Keyboard shortcut: metaKey+K (Mac) or ctrlKey+K (Windows/Linux)'],
+    claudePrompt: `Context: Global search modal at SearchModal component in src/app/admin/page.tsx. Opens on ⌘K, fetches all data once, client-side filter with grouped results.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add keyboard navigation: arrow keys move through results, Enter opens the selected item. Highlight matched substring in result labels."]`,
+  },
+  {
+    id: 'admin-flyer-generator', cluster: 'Admin Panel', label: 'Satori Flyer Generator', sub: 'Server-side 1080×1920 PNG via next/og',
+    status: 'built', path: 'src/app/api/generate-flyer/route.tsx',
+    description: 'Edge API route that generates dark-themed 1080×1920 PNG flyers for digital signage using Satori (next/og ImageResponse). Dark background (#0f0f0f), 3×3 product grid on #1e1e1e cards, red circular discount badges, red price pills, hero "WOW" text, QR code footer. POST with FlyerData JSON, returns PNG image.',
+    notes: ['Edge runtime — no Node.js APIs, no CSS grid (use flex+wrap)', 'FlyerData: storeName, badge, offerTitle, products[{name,mrp,price,imageUrl,discount}], footerLine1/2, contactLine, qrUrl', 'Products padded to 9 items, CELL_W=346px for 3-column flex wrap in 1080px container', 'Inline styles only — no Tailwind classes in Satori', 'GET /api/generate-flyer returns JSON schema docs'],
+    claudePrompt: `Context: Satori flyer generator at src/app/api/generate-flyer/route.tsx. Edge runtime, POST FlyerData JSON → 1080×1920 PNG. Dark theme.
+
+FlyerData interface:
+\`\`\`ts
+interface FlyerData {
+  storeName: string;
+  badge: string;           // e.g. "MEGA SALE" or "UP TO 60% OFF"
+  offerTitle: string;      // split at '—' into two lines
+  validUntil?: string;
+  products: Array<{
+    name: string; mrp: number; price: number;
+    imageUrl?: string; discount?: string;
+  }>;
+  footerLine1?: string;
+  footerLine2?: string;
+  contactLine?: string;
+  qrUrl?: string;
+}
+\`\`\`
+
+Task: [DESCRIBE YOUR CHANGE — e.g. "Add a light theme variant triggered by ?theme=light query param. Light: #ffffff bg, #f8f8f8 cards, #dc2626 accents, dark text"]`,
+  },
+  {
+    id: 'admin-apk-sideload', cluster: 'Admin Panel', label: 'APK Sideload Card', sub: 'AFTVnews downloader QR in ScreensTab',
+    status: 'built', path: 'src/components/admin/screens-tab.tsx',
+    description: 'Collapsible card in ScreensTab for sideloading the ALIVE Player APK onto Fire TV devices via AFTVnews Downloader app. Admin pastes APK URL → card shows QR code (via api.qrserver.com) + step-by-step instructions. Copy-link button for clipboard. Local state only — no API calls.',
+    notes: ['No new packages — QR via api.qrserver.com', 'Three steps: install Downloader from Fire TV Store → enter URL or scan QR → install APK', 'Works with any APK URL (Vercel, S3, R2, GitHub Releases)'],
+    claudePrompt: `Context: APK sideload card at SideloadApkCard component in src/components/admin/screens-tab.tsx. Collapsible card with URL input, copy button, QR code, and instructions.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a 'Latest APK' section that fetches GET /api/device/update to show the current version number and a pre-filled URL for the latest APK hosted on R2."]`,
+  },
+  {
+    id: 'admin-products', cluster: 'Admin Panel', label: 'Products Tab', sub: 'Master product catalogue with drag-drop images',
+    status: 'built', path: 'src/components/admin/products-tab.tsx',
+    description: 'Master product catalogue shared across flyer generation. CRUD: create product with name, MRP, sale price, category, brand. Drag-and-drop PNG image upload (no-background images work best) with preview. After creation, image auto-uploaded to R2 via server-side proxy. Products used as input to Satori flyer generator.',
+    notes: ['PNG without background recommended for flyer use (products appear on dark cards)', 'Drag-and-drop: onDragOver/onDrop handlers with visual feedback', 'Image upload: POST /api/products/[id]/image after product creation', 'Only new product form has drag-drop — existing product edit uses regular file input'],
+    claudePrompt: `Context: Products tab at src/components/admin/products-tab.tsx. Master product catalogue for kirana store items. Drag-drop PNG upload on new product form. Products feed into Satori flyer generator at /api/generate-flyer.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a 'Generate flyer from selected products' button: multi-select products via checkboxes, then call POST /api/generate-flyer with the selected products array and open the resulting PNG in a new tab."]
+
+Key files:
+- src/components/admin/products-tab.tsx — UI
+- src/app/api/generate-flyer/route.tsx — Satori edge route`,
   },
   {
     id: 'admin-moderation', cluster: 'Admin Panel', label: 'Creative Moderation Queue', sub: 'Approve / reject brand creatives',
@@ -418,8 +501,8 @@ Task: Build the creative moderation queue as a new admin tab.
   {
     id: 'admin-roadmap', cluster: 'Admin Panel', label: 'Platform Map', sub: 'Build progress + Claude prompts',
     status: 'built', path: 'src/components/admin/roadmap-tab.tsx',
-    description: 'This tab. Visual build-progress map of all ALIVE platform components. Click any item to see description, file path, implementation notes, and a ready-to-paste Claude prompt.',
-    claudePrompt: `Context: This is the Platform Map tab (src/components/admin/roadmap-tab.tsx). It tracks all 57+ platform items with status, paths, notes, and Claude prompts.
+    description: 'This tab. Visual build-progress map of all ALIVE platform components. Click any item to see description, file path, implementation notes, and a ready-to-paste Claude prompt. 60+ items across 8 clusters: Marketing Site, Store Dashboard, Admin Panel, Device APIs, Background Jobs, Data & Infra, Android Player, Brand Features T2.',
+    claudePrompt: `Context: This is the Platform Map tab (src/components/admin/roadmap-tab.tsx). It tracks all 60+ platform items with status, paths, notes, and Claude prompts.
 
 Task: [DESCRIBE YOUR CHANGE — e.g. "Add a 'Dependencies' field to each RoadmapItem listing which items must be built first (by ID). Show a dependency warning in the panel if any dependency is not yet 'built'. Block the Claude prompt copy with 'Build X first' message."]`,
   },
@@ -746,7 +829,7 @@ Start WatchdogService from PlayerActivity.onCreate() and from BootReceiver.`,
   },
   {
     id: 'player-ntp', cluster: 'Android Player', label: 'NTPSyncManager', sub: 'Clock accuracy for POP timestamps',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'NTP client that syncs the device clock offset for accurate proof-of-play timestamps. Critical for billing accuracy. RICE score: 405 — build before POPEmitter.',
     notes: ['NTP server: pool.ntp.org or time.google.com', 'Compute clockOffset = ntpTime - systemTime, store in SharedPreferences', 'Apply offset to all POP timestamps: correctedTime = System.currentTimeMillis() + clockOffset', 'Re-sync every 24h or on network reconnect'],
     claudePrompt: `Context: POP timestamps must be accurate for billing. NTPSyncManager syncs clock offset and all proof-of-play timestamps must be corrected by this offset. ALIVE backend at POST /api/device/events accepts ISO timestamp strings.
@@ -788,7 +871,7 @@ Use NTPSyncManager.nowIso() for all startedAt/endedAt timestamps in POPEmitter.`
   },
   {
     id: 'player-cache', cluster: 'Android Player', label: 'ContentCache', sub: 'Local creative store + MD5 verify',
-    status: 'planned',
+    status: 'built',
     description: 'Downloads and caches ad creatives (video/image) locally. MD5 verification before serving to avoid corrupt file playback. Cache lives in app-specific external storage.',
     notes: ['Cache dir: context.getExternalFilesDir("creatives")', 'Download with OkHttp, verify MD5 before marking ready', 'Eviction: LRU by last-accessed time, keep max 2GB'],
     claudePrompt: `Context: Android player receives content URLs and MD5s from GET /api/device/plan. ContentCache downloads files locally and serves from cache. MD5 check skips re-download if file matches.
@@ -830,7 +913,7 @@ object ContentCache {
   },
   {
     id: 'player-sync', cluster: 'Android Player', label: 'SyncManager', sub: 'Delta schedule + content pull',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'Polls GET /api/device/plan?hours=72 every 15 minutes. Compares new plan with cached plan, downloads only new/changed content. Stores schedule in local SQLite for offline operation.',
     notes: ['Poll interval: 15 min normally, 5 min if plan is empty or device just came online', 'Store JWT in SharedPreferences key alive_device_token', 'Schedule stored as JSON in SQLite table device_plan (one row, upsert)'],
     claudePrompt: `Context: SyncManager polls GET /api/device/plan from wearealive.in/api/device/plan. Auth: Bearer token from SharedPreferences. Plan response: {items: [{mediaUrl, md5, startAt, endAt, durationMs, layoutId, tag}]}. See ALIVE_PLAYER_API.md for full spec.
@@ -870,7 +953,7 @@ Schedule sync via WorkManager with PeriodicWorkRequest (15 min interval, NETWORK
   },
   {
     id: 'player-playback', cluster: 'Android Player', label: 'PlaybackEngine', sub: 'ExoPlayer video + image renderer',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'ExoPlayer-based video player and image renderer. Reads local schedule from SQLite. Transitions between media items based on durationMs. Notifies POPEmitter after each play.',
     notes: ['ExoPlayer 2.x or Media3: implementation "androidx.media3:media3-exoplayer:1.3.0"', 'Image rendering: Glide fullscreen with center-crop, duration from schedule item', 'Preload next item during current item playback for gapless transition'],
     claudePrompt: `Context: PlaybackEngine is the core of the ALIVE Player. It reads the locally-cached schedule (from SyncManager), plays content in order using ExoPlayer for video and Glide for images, and fires POPEmitter after each play.
@@ -917,7 +1000,7 @@ Dependencies in build.gradle:
   },
   {
     id: 'player-pop', cluster: 'Android Player', label: 'POPEmitter', sub: 'Per-play log + offline SQLite buffer',
-    status: 'planned', critical: true,
+    status: 'in-progress', critical: true,
     description: 'Records each play event as a PlayEvent row in local SQLite. Batches and POSTs to POST /api/device/events when online. Uses NTPSyncManager.nowIso() for accurate timestamps. Hash-chains events for tamper evidence.',
     notes: ['SQLite table: pop_events (id, mediaId, layoutId, campaignId, startedAt, endedAt, durationMs, tag, prevHash, rowHash, synced BOOL)', 'Batch size: 50 events per POST to /api/device/events', 'Retry failed batches with exponential backoff'],
     claudePrompt: `Context: POPEmitter records proof-of-play events and POSTs them to wearealive.in/api/device/events. Auth: Bearer token. Events buffered in local SQLite when offline. See ALIVE_PLAYER_API.md section 2 for exact API contract.
@@ -1037,6 +1120,180 @@ class UpdateChecker(private val context: Context) {
 \`\`\`
 
 Check for updates in SyncManager.sync() once every 24 hours.`,
+  },
+
+  // ── Android Player — Resilience ──────────────────────────────────────────────
+  {
+    id: 'player-exoplayer-guard', cluster: 'Android Player', label: 'ExoPlayer Resilience', sub: 'Double-release guard + Glide bitmap leak fix',
+    status: 'built', critical: true,
+    description: 'Prevents ExoPlayer double-release race condition (captured null before mainHandler.post) and Glide bitmap accumulation (Glide.clear before each image swap in both renderItem and restartCurrentItem). Critical for 24/7 unattended devices.',
+    notes: ['PlaybackEngine.kt: capture exoPlayer → null before posting release to avoid second call racing', 'Glide.with(context).clear(iv) called before every .into(iv) to release previous bitmap', 'restartCurrentItem() also patched — same bug was duplicated there'],
+  },
+  {
+    id: 'player-asset-integrity', cluster: 'Android Player', label: 'Asset Download Hardening', sub: 'Free-space check + tmp cleanup + renameTo fallback',
+    status: 'built', critical: true,
+    description: 'AssetDownloader now checks StatFs free bytes against Content-Length before writing (refuses download if < content + 50 MB buffer). Cleans up corrupt .tmp on exception. Falls back to copy+delete if renameTo fails cross-filesystem.',
+    notes: ['StatFs check after connection, before stream copy', 'catch(ex) { tmp.delete(); throw ex } wraps stream copy', 'tmp.renameTo(final) fallback: tmp.copyTo(final, overwrite=true) + tmp.delete()'],
+  },
+  {
+    id: 'player-ntp-impl', cluster: 'Android Player', label: 'NTP Clock Sync', sub: 'Raw UDP SNTP client, offset stored in DevicePrefs',
+    status: 'built', critical: true,
+    description: 'NtpSyncManager.kt uses raw UDP datagrams to query pool.ntp.org (no external library). Clock offset stored in DevicePrefs and applied to all POP timestamps. PlanFetchWorker calls sync() after every successful plan fetch. PlaybackEngine uses NtpSyncManager.now() for playStartMs and stop() times.',
+    notes: ['48-byte NTP packet, transmit timestamp at bytes 40-47', 'clockOffset = ntpTime − requestTime − (RTT/2)', 'DevicePrefs.getClockOffsetMs() defaults to 0 until first sync — no invalid offset on first boot', 'PopUploadWorker applies offset to startedAt/endedAt before upload'],
+  },
+  {
+    id: 'player-captive-portal', cluster: 'Android Player', label: 'Captive Portal Detection', sub: 'NET_CAPABILITY_VALIDATED guard on all workers',
+    status: 'built',
+    description: 'PlanFetchWorker and DownloadWorker check NetworkCapabilities.NET_CAPABILITY_VALIDATED before making network requests. Captive portals pass the CONNECTED constraint but can\'t reach the backend — this prevents silent failures that look like server errors.',
+    notes: ['isValidatedNetwork(): ConnectivityManager → activeNetwork → getNetworkCapabilities → hasCapability(VALIDATED)', 'Worker returns Result.retry() on captive portal, not Result.failure() — will auto-retry when portal is dismissed'],
+  },
+  {
+    id: 'player-pop-poison', cluster: 'Android Player', label: 'POP Poison Isolation', sub: 'failCount column + batch limit 50',
+    status: 'built', critical: true,
+    description: 'ProofEvent entity now has failCount column. getPending() excludes events with failCount >= 3 (poison rows that repeatedly fail upload). Batch capped at 50 events. On upload failure, incrementFailCount() is called so stuck events don\'t block the queue forever.',
+    notes: ['AppDatabase version bumped to 3 — fallbackToDestructiveMigration handles upgrade', 'getPending(): WHERE uploaded=0 AND fail_count<3 LIMIT 50', 'incrementFailCount(eventIds): UPDATE SET fail_count=fail_count+1'],
+  },
+  {
+    id: 'player-screen-off', cluster: 'Android Player', label: 'Screen-Off POP Pause', sub: 'Suspend POP emission when HDMI-CEC turns off display',
+    status: 'planned',
+    description: 'Register BroadcastReceiver for ACTION_SCREEN_OFF and ACTION_SCREEN_ON. While screen is off: stop emitting ProofEvents (no proof of play on a dark screen), pause ExoPlayer to save resources. Resume on ACTION_SCREEN_ON.',
+    notes: ['Must register dynamically (not manifest) — ACTION_SCREEN_OFF not delivered to manifest receivers', 'PlaybackActivity.onResume/onPause already handles config changes; the broadcast covers HDMI-CEC off', 'POP events emitted = 0 while screenOff=true regardless of playback state'],
+    claudePrompt: `Task: Add screen-off POP pause to ALIVE Player.
+
+Register a BroadcastReceiver in PlaybackActivity (or the foreground PlaybackService) for Intent.ACTION_SCREEN_OFF and Intent.ACTION_SCREEN_ON.
+
+\`\`\`kotlin
+// In PlaybackActivity or PlaybackService:
+private var screenOff = false
+
+private val screenReceiver = object : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        when (intent.action) {
+            Intent.ACTION_SCREEN_OFF -> {
+                screenOff = true
+                playbackEngine.pauseForScreenOff()
+            }
+            Intent.ACTION_SCREEN_ON -> {
+                screenOff = false
+                playbackEngine.resumeFromScreenOff()
+            }
+        }
+    }
+}
+
+// In onCreate:
+registerReceiver(screenReceiver, IntentFilter().apply {
+    addAction(Intent.ACTION_SCREEN_OFF)
+    addAction(Intent.ACTION_SCREEN_ON)
+})
+
+// In onDestroy:
+unregisterReceiver(screenReceiver)
+\`\`\`
+
+In PlaybackEngine: add pauseForScreenOff() that sets a flag suppressing emitCompleteEvent(), and resumeFromScreenOff() that re-arms.`,
+  },
+  {
+    id: 'player-plan-staleness', cluster: 'Android Player', label: 'Plan Staleness Fallback', sub: 'Detect expired plan + serve offline default',
+    status: 'planned',
+    description: 'If the cached plan is older than 72 hours (the plan window) and no new plan has been fetched, show a static offline fallback asset instead of playing potentially expired schedule windows.',
+    notes: ['PlanLoader checks fetchedAtEpochMs < now - 72h → return fallback plan', 'Fallback: a bundled default_offline.mp4 in res/raw or assets/', 'FetchStatus.NO_CONTENT shown on screen with human-readable countdown'],
+    claudePrompt: `Task: Add plan staleness detection to ALIVE Player PlanLoader.
+
+In PlanLoader.kt (or wherever you load from Room), after loading the cached PlanCache:
+\`\`\`kotlin
+val maxAgeMs = 72 * 60 * 60 * 1000L // 72h matches the server-side plan window
+if (existing != null && System.currentTimeMillis() - existing.fetchedAtEpochMs > maxAgeMs) {
+    // Plan too old — return a fallback plan so the screen doesn't go blank
+    return Plan(windows = emptyList(), fallbackItems = listOf(PlanItem.offline()))
+}
+\`\`\`
+
+Add PlanItem.offline() companion that returns a local file URI pointing to res/raw/offline_default.mp4 (a short branded "No Schedule" video).`,
+  },
+  {
+    id: 'player-thermal', cluster: 'Android Player', label: 'Thermal Adaptation', sub: 'Detect throttle + downgrade resolution',
+    status: 'planned',
+    description: 'Use PowerManager.getThermalHeadroom(1) (API 29+) to detect thermal throttling. When headroom < 0.4, downgrade ExoPlayer video quality. When headroom drops below 0.2, suspend video rendering and show static image fallback to prevent forced reboot.',
+    notes: ['getThermalHeadroom(1) = forecast 1 second ahead (0.0=critical, 1.0=cool)', 'Check every 30 seconds in a coroutine loop', 'ExoPlayer: setVideoScalingMode or switch to lower-res track via TrackSelector'],
+    claudePrompt: `Task: Add thermal adaptation to PlaybackEngine.
+
+\`\`\`kotlin
+private fun startThermalMonitor() {
+    CoroutineScope(Dispatchers.IO).launch {
+        while (isActive) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val headroom = if (Build.VERSION.SDK_INT >= 29) pm.getThermalHeadroom(1) else 1.0f
+            mainHandler.post {
+                when {
+                    headroom < 0.2f -> exoPlayer?.playWhenReady = false  // emergency pause
+                    headroom < 0.4f -> exoPlayer?.setForegroundMode(true) // prioritize decode
+                    else -> exoPlayer?.playWhenReady = true
+                }
+            }
+            delay(30_000)
+        }
+    }
+}
+\`\`\``,
+  },
+  {
+    id: 'player-refresh-rate', cluster: 'Android Player', label: 'Refresh Rate Matching', sub: 'Switch display mode to match content framerate',
+    status: 'planned',
+    description: 'Read Display.getSupportedModes() and switch to a mode whose refresh rate matches the content\'s framerate (24fps→24/48/120Hz, 30fps→30/60Hz). Reduces judder on 60Hz TVs playing 24fps content. Applied per-item when type is video.',
+    notes: ['WindowManager.LayoutParams.preferredDisplayModeId = bestMode.modeId', 'Match by mode.refreshRate divisibility with content fps', 'Only switch if a matching mode exists — no-op otherwise'],
+    claudePrompt: `Task: Add refresh rate matching to PlaybackEngine.
+
+\`\`\`kotlin
+private fun matchRefreshRate(contentFps: Float) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    val display = (context as? Activity)?.windowManager?.defaultDisplay ?: return
+    val modes = display.supportedModes
+    val best = modes.filter { it.refreshRate % contentFps < 0.1f }
+        .maxByOrNull { it.refreshRate } ?: return
+    val params = (context as Activity).window.attributes
+    params.preferredDisplayModeId = best.modeId
+    (context as Activity).window.attributes = params
+}
+\`\`\`
+
+Call matchRefreshRate() in renderItem() for video items, using item's declared fps (add fps field to PlanItem, default 30.0f).`,
+  },
+  {
+    id: 'player-watchdog-xproc', cluster: 'Android Player', label: 'Cross-Process Watchdog', sub: 'Broadcast heartbeat from playback to watchdog service',
+    status: 'planned',
+    description: 'PlaybackEngine sends a LocalBroadcast heartbeat every 15 seconds. WatchdogService listens; if no heartbeat for 60 seconds, it restarts the playback activity. This catches ANRs and frozen activity states that don\'t crash but stop media.',
+    notes: ['Use LocalBroadcastManager for intra-process, or explicit broadcast with permission for cross-process', 'Heartbeat intent action: com.alive.player.HEARTBEAT', 'WatchdogService: AlarmManager.setRepeating every 60s to check last heartbeat timestamp'],
+  },
+  {
+    id: 'player-input-intercept', cluster: 'Android Player', label: 'Kiosk Input Hardening', sub: 'Intercept home/back/recents on Fire TV',
+    status: 'planned',
+    description: 'Override dispatchKeyEvent in PlaybackActivity to consume Home, Back, Menu, and Search keys so accidental remote presses don\'t exit the player. ALIVE Player is a kiosk — users should not be able to navigate away.',
+    notes: ['dispatchKeyEvent: consume KEYCODE_HOME, KEYCODE_BACK, KEYCODE_MENU, KEYCODE_SEARCH', 'Admin unlock: triple-press Select within 2 seconds to allow exit (maintenance mode)', 'Test with Fire TV Stick remote — d-pad and select keys vary by model'],
+  },
+  {
+    id: 'player-firmware-resilience', cluster: 'Android Player', label: 'Firmware Update Resilience', sub: 'Re-register hardwareKey if device identity changes',
+    status: 'planned',
+    description: 'Some Fire TV firmware updates reset the Android ID, breaking the hardwareKey used for device identity. On startup, compare the current hardwareKey with the stored one. If different, re-register with /api/device/claim and update the stored token.',
+    notes: ['hardwareKey = ANDROID_ID (or MAC as fallback)', 'On mismatch: call claim() with new key, store new token, keep all local SQLite data', 'Edge case: two devices swapping keys — backend deduplicates by hardwareKey'],
+  },
+  {
+    id: 'player-burn-in', cluster: 'Android Player', label: 'Burn-In Mitigation', sub: 'Pixel shift + content rotation for long-lived installs',
+    status: 'planned',
+    description: 'Kiosk screens run 16+ hours/day. Apply subtle pixel shift (±2px) every 5 minutes and rotate logo/bug position to reduce static burn-in on OLED and VA panels commonly used in budget TVs.',
+    notes: ['View.animate().translationX(shift) on the container — 2-3px imperceptible shift', 'Track cumulative shift and reset on new content item', 'Not needed for IPS panels (no burn-in), but safe to apply universally'],
+  },
+  {
+    id: 'player-webview-isolation', cluster: 'Android Player', label: 'WebView Process Isolation', sub: 'Run WebView in separate process to prevent main crash',
+    status: 'planned',
+    description: 'WebView crashes (e.g. from malformed HTML ad creative) can bring down the main process. Wrap WebView in a separate :webview process. If it crashes, only that process dies and the main playback loop skips to the next item.',
+    notes: ['AndroidManifest: <activity android:name=".WebViewActivity" android:process=":webview">', 'Use startActivityForResult to load URL in WebViewActivity', 'On onActivityResult: if result OK, advance; if RESULT_CANCELED, skip item'],
+  },
+  {
+    id: 'player-hdcp-probe', cluster: 'Android Player', label: 'HDCP / Codec Probing', sub: 'Detect DRM and codec support at boot, skip incompatible content',
+    status: 'planned',
+    description: 'Some cheap HDMI receivers enforce HDCP restrictions. MediaDrm.isCryptoSchemeSupported() and MediaCodecList probing at startup builds a device capability map. PlanLoader uses this map to skip DRM-protected items the device can\'t play.',
+    notes: ['MediaCodecList(ALL_CODECS).codecInfos — enumerate supported MIME types', 'Store capability bitmap in DevicePrefs for quick lookup at runtime', 'Content marked drm:true in plan response → check capability before queuing'],
   },
 
   // ── Brand Features T2 ────────────────────────────────────────────────────────
@@ -1182,6 +1439,38 @@ const CLUSTER_ORDER = [
   'Brand Features T2',
 ];
 
+// ─── Node-graph layout (static — clusters as hubs, items orbiting each hub) ───
+
+const GRAPH_WORLD = 1900; // svg user-unit world size (square)
+
+const GRAPH_LAYOUT = (() => {
+  const cx = GRAPH_WORLD / 2;
+  const cy = GRAPH_WORLD / 2;
+  const hubRadius = 650;
+  const clusterPositions: Record<string, { x: number; y: number }> = {};
+  CLUSTER_ORDER.forEach((cluster, i) => {
+    const angle = (2 * Math.PI * i) / CLUSTER_ORDER.length - Math.PI / 2;
+    clusterPositions[cluster] = {
+      x: cx + hubRadius * Math.cos(angle),
+      y: cy + hubRadius * Math.sin(angle),
+    };
+  });
+  const itemPositions: Record<string, { x: number; y: number }> = {};
+  CLUSTER_ORDER.forEach(cluster => {
+    const items = ITEMS.filter(i => i.cluster === cluster);
+    const orbit = Math.min(220, 60 + items.length * 7);
+    const hub = clusterPositions[cluster];
+    items.forEach((item, idx) => {
+      const angle = (2 * Math.PI * idx) / items.length - Math.PI / 2;
+      itemPositions[item.id] = {
+        x: hub.x + orbit * Math.cos(angle),
+        y: hub.y + orbit * Math.sin(angle),
+      };
+    });
+  });
+  return { cx, cy, clusterPositions, itemPositions };
+})();
+
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<Status, { label: string; dot: string; badge: string }> = {
@@ -1189,6 +1478,21 @@ const STATUS_CONFIG: Record<Status, { label: string; dot: string; badge: string 
   'in-progress': { label: 'In Progress',  dot: 'bg-amber-500',  badge: 'bg-amber-50 text-amber-700 border border-amber-200'   },
   'planned':     { label: 'Planned (T1)', dot: 'bg-blue-500',   badge: 'bg-blue-50 text-blue-700 border border-blue-200'     },
   't2':          { label: 'T2 Future',    dot: 'bg-purple-500', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
+};
+
+const STATUS_BADGE_VARIANT: Record<Status, 'success' | 'warning' | 'info' | 'purple'> = {
+  'built':       'success',
+  'in-progress': 'warning',
+  'planned':     'info',
+  't2':          'purple',
+};
+
+// SVG fill/stroke classes per status, used by the node-graph view.
+const GRAPH_STATUS_COLOR: Record<Status, { fill: string; edge: string }> = {
+  'built':       { fill: 'fill-green-500',  edge: 'stroke-green-300'  },
+  'in-progress': { fill: 'fill-amber-500',  edge: 'stroke-amber-300'  },
+  'planned':     { fill: 'fill-blue-500',   edge: 'stroke-blue-300'   },
+  't2':          { fill: 'fill-purple-500', edge: 'stroke-purple-300' },
 };
 
 const FILTERS: { value: FilterValue; label: string }[] = [
@@ -1213,6 +1517,12 @@ export default function RoadmapTab() {
   const [copiedAll, setCopiedAll]   = useState(false);
   const [copiedCtx, setCopiedCtx]   = useState(false);
   const [showCtx, setShowCtx]       = useState(false);
+  const [view, setView]             = useState<'list' | 'map'>('map');
+  const [zoom, setZoom]             = useState(1);
+  const [pan, setPan]               = useState({ x: 0, y: 0 });
+  const [hoveredId, setHoveredId]   = useState<string | null>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
+  const dragRef  = useRef({ dragging: false, startX: 0, startY: 0, moved: false, panStart: { x: 0, y: 0 } });
 
   useEffect(() => {
     try {
@@ -1224,6 +1534,81 @@ export default function RoadmapTab() {
   useEffect(() => {
     if (selected) setPanelNote(notes[selected.id] ?? '');
   }, [selected, notes]);
+
+  // ── Node-graph pan/zoom ──────────────────────────────────────────────────
+  const resetView = useCallback(() => {
+    const rect = graphRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const k = Math.min(rect.width, rect.height) / GRAPH_WORLD * 0.92;
+    setZoom(k);
+    setPan({ x: rect.width / 2 - GRAPH_LAYOUT.cx * k, y: rect.height / 2 - GRAPH_LAYOUT.cy * k });
+  }, []);
+
+  useEffect(() => {
+    if (view !== 'map') return;
+    resetView();
+    const onResize = () => resetView();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [view, resetView]);
+
+  useEffect(() => {
+    const el = graphRef.current;
+    if (!el || view !== 'map') return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setZoom(prevZoom => {
+        const newZoom = Math.min(2.5, Math.max(0.15, prevZoom * factor));
+        setPan(prevPan => ({
+          x: mx - (mx - prevPan.x) * (newZoom / prevZoom),
+          y: my - (my - prevPan.y) * (newZoom / prevZoom),
+        }));
+        return newZoom;
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [view]);
+
+  const zoomBy = useCallback((factor: number) => {
+    const rect = graphRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    setZoom(prevZoom => {
+      const newZoom = Math.min(2.5, Math.max(0.15, prevZoom * factor));
+      setPan(prevPan => ({
+        x: cx - (cx - prevPan.x) * (newZoom / prevZoom),
+        y: cy - (cy - prevPan.y) * (newZoom / prevZoom),
+      }));
+      return newZoom;
+    });
+  }, []);
+
+  const onGraphPointerDown = useCallback((e: React.MouseEvent) => {
+    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, moved: false, panStart: { ...pan } };
+  }, [pan]);
+
+  const onGraphPointerMove = useCallback((e: React.MouseEvent) => {
+    if (!dragRef.current.dragging) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
+    setPan({ x: dragRef.current.panStart.x + dx, y: dragRef.current.panStart.y + dy });
+  }, []);
+
+  const onGraphPointerUp = useCallback(() => {
+    dragRef.current.dragging = false;
+  }, []);
+
+  const handleNodeClick = useCallback((item: RoadmapItem) => () => {
+    if (dragRef.current.moved) return;
+    setSelected(item);
+  }, []);
 
   const saveNote = useCallback(() => {
     if (!selected) return;
@@ -1409,24 +1794,152 @@ export default function RoadmapTab() {
         )}
       </div>
 
-      {/* Filter pills */}
-      <div className="flex flex-wrap gap-1.5">
-        {FILTERS.map(f => (
+      {/* Filter pills + view toggle */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex flex-wrap gap-1.5">
+          {FILTERS.map(f => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold border transition-all ${
+                filter === f.value
+                  ? 'bg-foreground text-background border-foreground'
+                  : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-full border border-border p-0.5 shrink-0">
           <button
-            key={f.value}
-            onClick={() => setFilter(f.value)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold border transition-all ${
-              filter === f.value
-                ? 'bg-foreground text-background border-foreground'
-                : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+            onClick={() => setView('map')}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+              view === 'map' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {f.label}
+            <MapIcon className="h-3.5 w-3.5" /> Map
           </button>
-        ))}
+          <button
+            onClick={() => setView('list')}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+              view === 'list' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ListIcon className="h-3.5 w-3.5" /> List
+          </button>
+        </div>
       </div>
 
-      {/* Clusters */}
+      {/* Node-graph (Platform Map) view */}
+      {view === 'map' && (
+        <div
+          ref={graphRef}
+          className="relative w-full h-[640px] overflow-hidden rounded-xl border border-border bg-muted/20 cursor-grab active:cursor-grabbing select-none"
+          onMouseDown={onGraphPointerDown}
+          onMouseMove={onGraphPointerMove}
+          onMouseUp={onGraphPointerUp}
+          onMouseLeave={onGraphPointerUp}
+        >
+          <div
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', width: GRAPH_WORLD, height: GRAPH_WORLD }}
+          >
+            <svg width={GRAPH_WORLD} height={GRAPH_WORLD} viewBox={`0 0 ${GRAPH_WORLD} ${GRAPH_WORLD}`}>
+              {/* Edges: hub → item */}
+              {CLUSTER_ORDER.map(cluster => {
+                const hub = GRAPH_LAYOUT.clusterPositions[cluster];
+                return visibleItems.filter(i => i.cluster === cluster).map(item => {
+                  const p = GRAPH_LAYOUT.itemPositions[item.id];
+                  return (
+                    <line
+                      key={`edge-${item.id}`}
+                      x1={hub.x} y1={hub.y} x2={p.x} y2={p.y}
+                      className={`${GRAPH_STATUS_COLOR[item.status].edge} ${hoveredId === item.id ? 'opacity-90' : 'opacity-30'}`}
+                      strokeWidth={hoveredId === item.id ? 2.5 : 1.5}
+                    />
+                  );
+                });
+              })}
+
+              {/* Hub nodes (clusters) */}
+              {CLUSTER_ORDER.filter(c => clusters.includes(c)).map(cluster => {
+                const hub = GRAPH_LAYOUT.clusterPositions[cluster];
+                const clusterItems = ITEMS.filter(i => i.cluster === cluster);
+                const built = clusterItems.filter(i => i.status === 'built').length;
+                return (
+                  <g key={`hub-${cluster}`}>
+                    <circle cx={hub.x} cy={hub.y} r={34} className="fill-card stroke-primary" strokeWidth={2} />
+                    <text x={hub.x} y={hub.y - 4} textAnchor="middle" className="fill-foreground text-[15px] font-bold" style={{ fontFamily: 'inherit' }}>
+                      {cluster}
+                    </text>
+                    <text x={hub.x} y={hub.y + 14} textAnchor="middle" className="fill-muted-foreground text-[12px]">
+                      {built}/{clusterItems.length} built
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Item nodes */}
+              {visibleItems.map(item => {
+                const p = GRAPH_LAYOUT.itemPositions[item.id];
+                const sc = GRAPH_STATUS_COLOR[item.status];
+                const isHovered = hoveredId === item.id;
+                return (
+                  <g
+                    key={item.id}
+                    transform={`translate(${p.x}, ${p.y})`}
+                    onClick={handleNodeClick(item)}
+                    onMouseEnter={() => setHoveredId(item.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    className="cursor-pointer"
+                  >
+                    <circle r={isHovered ? 12 : 9} className={`${sc.fill} stroke-white`} strokeWidth={2} />
+                    {item.critical && <circle r={isHovered ? 17 : 14} className="fill-none stroke-red-400" strokeWidth={1.5} strokeDasharray="3 3" />}
+                    <text
+                      x={0} y={isHovered ? -20 : -16}
+                      textAnchor="middle"
+                      className={`fill-foreground text-[13px] font-semibold transition-opacity ${isHovered ? 'opacity-100' : 'opacity-70'}`}
+                    >
+                      {item.label}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          {/* Zoom controls */}
+          <div className="absolute bottom-3 right-3 flex flex-col gap-1">
+            <button onClick={() => zoomBy(1.25)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shadow-sm">
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <button onClick={() => zoomBy(1 / 1.25)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shadow-sm">
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <button onClick={resetView} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shadow-sm">
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Legend */}
+          <div className="absolute bottom-3 left-3 flex flex-wrap gap-2 rounded-lg border border-border bg-card/90 px-2.5 py-1.5 text-[10px] font-semibold backdrop-blur-sm">
+            {(Object.keys(STATUS_CONFIG) as Status[]).map(s => (
+              <span key={s} className="flex items-center gap-1">
+                <span className={`h-2 w-2 rounded-full ${STATUS_CONFIG[s].dot}`} />
+                {STATUS_CONFIG[s].label}
+              </span>
+            ))}
+          </div>
+
+          {/* Hint */}
+          <div className="absolute top-3 left-3 text-[10px] text-muted-foreground/70 font-medium">
+            Scroll to zoom · drag to pan · click a node for details
+          </div>
+        </div>
+      )}
+
+      {/* Clusters (list view) */}
+      {view === 'list' && (
       <div className="space-y-8">
         {clusters.map(cluster => {
           const clusterItems = visibleItems.filter(i => i.cluster === cluster);
@@ -1436,10 +1949,10 @@ export default function RoadmapTab() {
               <div className="flex items-center gap-2 mb-3">
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{cluster}</h2>
                 {clusterNotes > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                  <Badge variant="warning" className="text-[10px] py-0.5 px-2 font-bold">
                     <MessageSquare className="h-2.5 w-2.5" />
                     {clusterNotes} {clusterNotes === 1 ? 'note' : 'notes'}
-                  </span>
+                  </Badge>
                 )}
                 <div className="flex-1 h-px bg-border" />
               </div>
@@ -1463,14 +1976,14 @@ export default function RoadmapTab() {
                               {item.label}
                             </span>
                             {item.critical && (
-                              <span className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase bg-red-50 text-red-600 border border-red-200 leading-tight shrink-0">
+                              <Badge variant="error" className="px-1.5 py-px text-[9px] font-bold uppercase leading-tight shrink-0">
                                 critical
-                              </span>
+                              </Badge>
                             )}
                             {hasPrompt && (
-                              <span className="rounded-full px-1.5 py-px text-[9px] font-bold bg-primary/10 text-primary border border-primary/20 leading-tight shrink-0">
+                              <Badge variant="brand" className="px-1.5 py-px text-[9px] font-bold leading-tight shrink-0">
                                 prompt
-                              </span>
+                              </Badge>
                             )}
                             {hasNote && (
                               <MessageSquare className="h-3 w-3 text-amber-500 shrink-0" />
@@ -1489,6 +2002,7 @@ export default function RoadmapTab() {
           );
         })}
       </div>
+      )}
 
       {/* Detail panel */}
       {selected && (
@@ -1499,11 +2013,11 @@ export default function RoadmapTab() {
             <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_CONFIG[selected.status].badge}`}>
+                  <Badge variant={STATUS_BADGE_VARIANT[selected.status]} className="px-2 py-0.5 text-[10px] font-bold">
                     {STATUS_CONFIG[selected.status].label}
-                  </span>
+                  </Badge>
                   {selected.critical && (
-                    <span className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase bg-red-50 text-red-600 border border-red-200">critical</span>
+                    <Badge variant="error" className="px-1.5 py-px text-[9px] font-bold uppercase">critical</Badge>
                   )}
                 </div>
                 <h3 className="text-base font-bold text-foreground leading-tight">{selected.label}</h3>

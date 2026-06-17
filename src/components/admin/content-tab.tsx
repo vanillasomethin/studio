@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { getContent, deleteContent, initiateUpload, updateContentMeta, type Content } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 
@@ -333,12 +334,10 @@ export default function ContentTab() {
                   </td>
                   <td className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate">{c.name}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      c.type === 'video' ? 'bg-purple-500/10 text-purple-600' : 'bg-blue-500/10 text-blue-600'
-                    }`}>
+                    <Badge variant={c.type === 'video' ? 'purple' : 'info'} className="text-[10px] py-0.5 px-2 font-bold">
                       {c.type === 'video' ? <Film className="h-2.5 w-2.5" /> : <ImageIcon className="h-2.5 w-2.5" />}
                       {c.type}
-                    </span>
+                    </Badge>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{fmtBytes(c.sizeBytes)}</td>
                   <td className="px-4 py-3 text-muted-foreground/60">{fmtDate(c.createdAt)}</td>

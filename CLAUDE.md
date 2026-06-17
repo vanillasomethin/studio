@@ -249,6 +249,10 @@ TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
 ADMIN_WHATSAPP                  # default +917411324448
 RESEND_API_KEY                  # email alerts (optional)
+PLAYER_LATEST_VERSION_CODE      # ALIVE Player OTA — latest released versionCode (optional)
+PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionName (optional)
+PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
+PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
 ```
 
 ---

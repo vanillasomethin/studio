@@ -88,10 +88,39 @@ eas build --platform android --profile production
 
 ## Updating the app
 
-Every new release to Play Store **must** bump `versionCode` in `app.json`:
+There are two kinds of updates — pick the cheaper one:
+
+### A. JS/UI-only changes → OTA update (no Play Store review, minutes to reach users)
+
+Use this for almost everything: screens, styles, copy, business logic, bug fixes, new
+API calls — anything that doesn't touch native code, permissions, or app.json's
+native config.
+
+```bash
+eas update --branch production --message "Fix KYC upload bug"
+```
+
+- Already-installed apps check for an update on launch and download the new JS bundle
+  in the background, then apply it on the next restart.
+- This is the **same mechanism Expo Go / CodePush use** and is fully allowed by
+  Google Play policy — you are not bypassing review, just updating your own app's
+  JS bundle (same as a web page updating its JS).
+- Each build profile maps to a channel (see `eas.json` → `build.<profile>.channel`):
+  `production` AABs use the `production` channel, `preview` APKs use `preview`, etc.
+  Always push updates to the channel matching the build your users have installed.
+
+### B. Native changes → new build + Play Store submission (versionCode bump required)
+
+You only need this when you:
+- Add/remove a native module or Expo plugin
+- Change `app.json`'s `android` config (permissions, package name, icon, etc.)
+- Upgrade the Expo SDK / React Native version
+- Change `runtimeVersion` (this happens automatically with `policy: "appVersion"`
+  whenever you bump `version` in `app.json` — so bump `versionCode` too)
 
 ```json
-"versionCode": 2   ← increment this each time
+"version": "1.1.0",     ← bump for a new runtimeVersion (native change)
+"versionCode": 5         ← always increment for every Play Store upload
 ```
 
 Then rebuild + submit:
@@ -100,6 +129,10 @@ Then rebuild + submit:
 eas build --platform android --profile production
 eas submit --platform android --profile production
 ```
+
+> **Note:** OTA updates only apply to devices running a build with a **matching
+> runtimeVersion**. If you bump `version` (and therefore `runtimeVersion`), you must
+> ship a new AAB before `eas update` will reach those devices again.
 
 ---
 

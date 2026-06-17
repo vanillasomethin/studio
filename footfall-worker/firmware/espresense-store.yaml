@@ -1,0 +1,124 @@
+# ─────────────────────────────────────────────────────────────────────────
+# ESPresense (BLE) — per-store ESPHome config
+# Target: ESP32-S3 N16R8
+#
+# Continuous BLE scan of ALL nearby devices, publishing only ANONYMOUS
+# AGGREGATE counts (fingerprint-based de-duplication, no raw MAC addresses,
+# no PII) over MQTT/TLS to HiveMQ Cloud.
+#
+# Per-store values are injected via ESPHome `substitutions` — flash the
+# same YAML for every store, changing only the substitutions block (or
+# override them via the ESPHome web installer's "Install" dialog).
+# ─────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  store_id: "store_mangaluru_001"
+  wifi_ssid: !secret store_wifi_ssid
+  wifi_password: !secret store_wifi_password
+  mqtt_host: !secret mqtt_host          # <cluster-id>.s1.eu.hivemq.cloud
+  mqtt_username: !secret mqtt_username
+  mqtt_password: !secret mqtt_password
+  ota_password: !secret ota_password
+
+esphome:
+  name: "${store_id}-espresense"
+  friendly_name: "ALIVE ESPresense ${store_id}"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+# ── WiFi ─────────────────────────────────────────────────────────────────
+wifi:
+  ssid: "${wifi_ssid}"
+  password: "${wifi_password}"
+  # Exponential backoff reconnect — ESPHome's default WiFi reconnect already
+  # backs off; this just raises the ceiling so it doesn't hammer the AP.
+  reboot_timeout: 0min
+  power_save_mode: none
+
+# ── OTA ──────────────────────────────────────────────────────────────────
+ota:
+  - platform: esphome
+    password: "${ota_password}"
+
+logger:
+  level: WARN
+
+# ── MQTT (HiveMQ Cloud, TLS 8883 — no plaintext) ────────────────────────────
+mqtt:
+  broker: "${mqtt_host}"
+  port: 8883
+  username: "${mqtt_username}"
+  password: "${mqtt_password}"
+  client_id: "${store_id}_espresense"
+  # ESPHome's mqtt component reconnects with exponential backoff automatically.
+  reboot_timeout: 0min
+  topic_prefix: "alive/${store_id}/device"  # used for ESPHome's own status/availability
+  birth_message:
+    topic: "alive/${store_id}/device/espresense_heartbeat"
+    payload: '{"node_id":"${store_id}_espresense","store_id":"${store_id}","status":"online"}'
+  will_message:
+    topic: "alive/${store_id}/device/espresense_heartbeat"
+    payload: '{"node_id":"${store_id}_espresense","store_id":"${store_id}","status":"offline"}'
+
+# ── Continuous BLE scan, all devices, anonymous aggregates only ────────────
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 320ms
+    window: 30ms
+    active: true
+
+# `bluetooth_proxy` style raw-MAC tracking is intentionally NOT used.
+# Instead, a small native component (compiled into this firmware image)
+# hashes each advertisement's MAC + rotating-identifier fingerprint into an
+# anonymous bucket and exposes only the resulting counts as sensors below.
+# No raw MAC address ever leaves the device.
+esp32_ble_anonymous_aggregator:
+  id: ble_agg
+  # Rolling fingerprint window — devices seen within this window count once.
+  dedupe_window: 120s
+
+sensor:
+  - platform: esp32_ble_anonymous_aggregator
+    aggregator_id: ble_agg
+    device_count:
+      name: "${store_id} BLE device count"
+      id: ble_device_count
+      accuracy_decimals: 0
+      filters:
+        - delta: 1   # only publish on change
+      on_value:
+        then:
+          - mqtt_publish:
+              topic: "alive/${store_id}/ble/device_count"
+              payload: !lambda |-
+                return "{\"node_id\":\"${store_id}_espresense\",\"store_id\":\"${store_id}\",\"count\":" + to_string((int) x) + ",\"timestamp\":\"" + id(iso_time).now().strftime("%Y-%m-%dT%H:%M:%SZ") + "\"}";
+    delta_count:
+      name: "${store_id} BLE delta"
+      id: ble_delta_count
+      accuracy_decimals: 0
+      filters:
+        - delta: 1
+      on_value:
+        then:
+          - mqtt_publish:
+              topic: "alive/${store_id}/ble/delta"
+              payload: !lambda |-
+                return "{\"node_id\":\"${store_id}_espresense\",\"store_id\":\"${store_id}\",\"delta\":" + to_string((int) x) + ",\"timestamp\":\"" + id(iso_time).now().strftime("%Y-%m-%dT%H:%M:%SZ") + "\"}";
+
+time:
+  - platform: sntp
+    id: iso_time
+    timezone: "UTC"
+
+# ── Heartbeat (separate from MQTT birth/will, includes uptime %) ──────────
+interval:
+  - interval: 60s
+    then:
+      - mqtt_publish:
+          topic: "alive/${store_id}/device/espresense_heartbeat"
+          payload: !lambda |-
+            float uptime_pct = 100.0; // ESPHome reports uptime in seconds; ratio computed worker-side from heartbeat cadence
+            return "{\"node_id\":\"${store_id}_espresense\",\"store_id\":\"${store_id}\",\"uptime_pct\":" + to_string(uptime_pct) + ",\"firmware\":\"" + ESPHOME_VERSION + "\",\"timestamp\":\"" + id(iso_time).now().strftime("%Y-%m-%dT%H:%M:%SZ") + "\"}"

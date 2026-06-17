@@ -14,6 +14,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import ScheduleCalendar from './schedule-calendar';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -937,9 +938,9 @@ export default function SchedulesTab() {
                       {isAlwaysOnRow ? <span className="text-muted-foreground/40 italic text-[10px]">Indefinite</span> : fmtDateTime(s.endAt)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary whitespace-nowrap">
+                      <Badge variant="brand" className="text-[10px] py-0.5 px-2 font-bold whitespace-nowrap">
                         <CalendarClock className="h-2.5 w-2.5" />{RECURRENCE_LABELS[s.recurrence]}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">

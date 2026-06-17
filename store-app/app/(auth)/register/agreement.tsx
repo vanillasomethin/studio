@@ -31,14 +31,39 @@ export default function AgreementStep() {
     if (!agreed) { Alert.alert('Agreement required', 'Please read and accept the agreement to continue.'); return; }
     setBusy(true); setError('');
     const referralCode = makeReferralCode(form.storeName, form.ownerName);
+    const result = await storeRegister({
+      ...form,
+      gstin: form.gstin ? form.gstin.toUpperCase() : undefined as unknown as string,
+      referralCode,
+      agreedAt: new Date().toISOString(),
+    });
+
+    if (result.statusCode === 409) {
+      setBusy(false);
+      Alert.alert(
+        'Account already exists',
+        'This WhatsApp number is already registered. Sign in to your dashboard instead.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign in',
+            onPress: () => router.replace({
+              pathname: '/(auth)/sign-in',
+              params: { prefillPhone: form.whatsapp },
+            }),
+          },
+        ],
+      );
+      return;
+    }
+
+    if (result.error) {
+      setBusy(false);
+      setError(result.error);
+      return;
+    }
+
     try {
-      const result = await storeRegister({
-        ...form,
-        gstin: form.gstin ? form.gstin.toUpperCase() : undefined as unknown as string,
-        referralCode,
-        agreedAt: new Date().toISOString(),
-      });
-      if (result.error) { setError(result.error); return; }
       await saveSession({
         storeName: form.storeName,
         ownerName: form.ownerName,
@@ -47,6 +72,8 @@ export default function AgreementStep() {
         locality: form.locality,
         address: form.address,
         pincode: form.pincode,
+        lat: form.lat ? parseFloat(form.lat) : undefined,
+        lng: form.lng ? parseFloat(form.lng) : undefined,
         gstin: form.gstin || undefined,
         referralCode: result.referralCode ?? referralCode,
         referredBy: form.referredBy || undefined,
