@@ -30,6 +30,7 @@ const SiteMediaTab     = dynamic(() => import('@/components/admin/site-media-tab
 const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),        { ssr: false });
 const ProductsTab      = dynamic(() => import('@/components/admin/products-tab'),       { ssr: false });
 const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'),         { ssr: false });
+const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-panel'),   { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1370,7 +1371,10 @@ function Dashboard() {
               {tab === 'overview'   && <OverviewPanel onNav={handleNav} />}
               {tab === 'flyers'     && (
                 <div className="grid-2">
-                  <UploadPanel onSaved={() => setRefreshKey((k) => k + 1)} />
+                  <div className="space-y-4">
+                    <AutoFlyerPanel adminPassword={adminPw} onSaved={() => setRefreshKey((k) => k + 1)} />
+                    <UploadPanel onSaved={() => setRefreshKey((k) => k + 1)} />
+                  </div>
                   <FlyersList refresh={refreshKey} />
                 </div>
               )}
