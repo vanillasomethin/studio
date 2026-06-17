@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Copy, CheckCircle2, MessageSquare, Zap, ChevronDown, ChevronUp, Map as MapIcon, List as ListIcon, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1479,6 +1480,13 @@ const STATUS_CONFIG: Record<Status, { label: string; dot: string; badge: string 
   't2':          { label: 'T2 Future',    dot: 'bg-purple-500', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
 };
 
+const STATUS_BADGE_VARIANT: Record<Status, 'success' | 'warning' | 'info' | 'purple'> = {
+  'built':       'success',
+  'in-progress': 'warning',
+  'planned':     'info',
+  't2':          'purple',
+};
+
 // SVG fill/stroke classes per status, used by the node-graph view.
 const GRAPH_STATUS_COLOR: Record<Status, { fill: string; edge: string }> = {
   'built':       { fill: 'fill-green-500',  edge: 'stroke-green-300'  },
@@ -1941,10 +1949,10 @@ export default function RoadmapTab() {
               <div className="flex items-center gap-2 mb-3">
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{cluster}</h2>
                 {clusterNotes > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                  <Badge variant="warning" className="text-[10px] py-0.5 px-2 font-bold">
                     <MessageSquare className="h-2.5 w-2.5" />
                     {clusterNotes} {clusterNotes === 1 ? 'note' : 'notes'}
-                  </span>
+                  </Badge>
                 )}
                 <div className="flex-1 h-px bg-border" />
               </div>
@@ -1968,14 +1976,14 @@ export default function RoadmapTab() {
                               {item.label}
                             </span>
                             {item.critical && (
-                              <span className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase bg-red-50 text-red-600 border border-red-200 leading-tight shrink-0">
+                              <Badge variant="error" className="px-1.5 py-px text-[9px] font-bold uppercase leading-tight shrink-0">
                                 critical
-                              </span>
+                              </Badge>
                             )}
                             {hasPrompt && (
-                              <span className="rounded-full px-1.5 py-px text-[9px] font-bold bg-primary/10 text-primary border border-primary/20 leading-tight shrink-0">
+                              <Badge variant="brand" className="px-1.5 py-px text-[9px] font-bold leading-tight shrink-0">
                                 prompt
-                              </span>
+                              </Badge>
                             )}
                             {hasNote && (
                               <MessageSquare className="h-3 w-3 text-amber-500 shrink-0" />
@@ -2005,11 +2013,11 @@ export default function RoadmapTab() {
             <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_CONFIG[selected.status].badge}`}>
+                  <Badge variant={STATUS_BADGE_VARIANT[selected.status]} className="px-2 py-0.5 text-[10px] font-bold">
                     {STATUS_CONFIG[selected.status].label}
-                  </span>
+                  </Badge>
                   {selected.critical && (
-                    <span className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase bg-red-50 text-red-600 border border-red-200">critical</span>
+                    <Badge variant="error" className="px-1.5 py-px text-[9px] font-bold uppercase">critical</Badge>
                   )}
                 </div>
                 <h3 className="text-base font-bold text-foreground leading-tight">{selected.label}</h3>
