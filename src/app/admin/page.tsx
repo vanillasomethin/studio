@@ -14,6 +14,7 @@ import {
   Megaphone, Image, Radar,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { Badge } from '@/components/ui/badge';
 import './admin.css';
 
 const ScreensTab      = dynamic(() => import('@/components/admin/screens-tab'),       { ssr: false });
@@ -639,10 +640,10 @@ function CampaignsPanel() {
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{c.screens} × {c.months}mo</td>
                     <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{fmt(c.totalAmount ?? 0)}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${isPaid ? 'bg-green-500/10 text-green-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
+                      <Badge variant={isPaid ? 'success' : 'warning'} className="text-[10px] py-0.5 px-2 font-bold whitespace-nowrap">
                         {isPaid ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
                         {isPaid ? 'Paid' : 'Pay later'}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">

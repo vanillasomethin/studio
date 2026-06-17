@@ -22,6 +22,7 @@ const badgeVariants = cva(
         info:    "border-blue-200 bg-blue-50 text-blue-700",
         brand:   "border-primary/20 bg-primary/5 text-primary",
         gray:    "border-gray-200 bg-gray-50 text-gray-700",
+        purple:  "border-purple-200 bg-purple-50 text-purple-700",
       },
     },
     defaultVariants: {
@@ -38,6 +39,7 @@ const badgeDotColor: Record<string, string> = {
   info:    "bg-blue-500",
   brand:   "bg-primary",
   gray:    "bg-gray-400",
+  purple:  "bg-purple-500",
 };
 
 export interface BadgeProps

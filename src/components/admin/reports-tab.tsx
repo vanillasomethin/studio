@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Loader2, Download, AlertCircle, PlayCircle, Filter, BarChart3, FileBarChart2, FileText, Activity, MapPin } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { getEvents, getEventsExportUrl, getDevices, type PlayEvent, type Device } from '@/lib/backend-api';
 
 function fmtHours(ms: number): string {
@@ -249,7 +250,7 @@ export default function ReportsTab() {
                   <tr key={`${c.mediaId}|${c.campaignTag ?? ''}`} className="hover:bg-muted/20">
                     <td className="px-3 py-2">
                       {c.campaignTag
-                        ? <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">{c.campaignTag}</span>
+                        ? <Badge variant="brand" className="text-[10px] py-0.5 px-2 font-bold">{c.campaignTag}</Badge>
                         : <span className="text-muted-foreground/50 text-[10px] italic">Untagged</span>}
                       <p className="text-[9px] text-muted-foreground/40 mt-0.5">Last played {fmtDateShort(c.lastPlayedAt)}</p>
                     </td>
