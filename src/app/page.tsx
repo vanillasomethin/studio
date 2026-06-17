@@ -306,9 +306,9 @@ export default function Home() {
         </div>
         <div className="vessels-grid">
           {[
-            { imgKey: 'hero-brand',  img: '/for-brands.jpg',   tag: 'Audience 01', title: 'Reach the shelf,', em: 'not the feed.', desc: 'Launch in-store campaigns in three steps. Pay for plays. Measure by uplift, not impressions.', num: 'N°01', icon: 'Package', alt: '' },
+            { imgKey: 'vessel-brand',  img: '/for-brands.jpg',   tag: 'Audience 01', title: 'Reach the shelf,', em: 'not the feed.', desc: 'Launch in-store campaigns in three steps. Pay for plays. Measure by uplift, not impressions.', num: 'N°01', icon: 'Package', alt: '' },
             { imgKey: 'kirana-shop', img: '/kirana-shop.jpg',  tag: 'Audience 02', title: 'Earn more from', em: 'your shelves.',  desc: 'One screen. Zero investment. A new monthly revenue stream paid in cash or stock credit.',       num: 'N°02', icon: 'Store',   alt: '' },
-            { imgKey: 'hero-consumer', img: '/india-street.jpg', tag: 'Audience 03', title: 'Discover your',  em: 'next favorite.', desc: 'Relevant. Hyper-local. Already in stock. No tracking, no scrolling — just a play above the counter.', num: 'N°03', icon: 'Bag',     alt: '' },
+            { imgKey: 'vessel-consumer', img: '/india-street.jpg', tag: 'Audience 03', title: 'Discover your',  em: 'next favorite.', desc: 'Relevant. Hyper-local. Already in stock. No tracking, no scrolling — just a play above the counter.', num: 'N°03', icon: 'Bag',     alt: '' },
           ].map((v, i) => (
             <article key={v.tag} className="vessel">
               <div className="pic img-wrap reveal" style={{ aspectRatio: '4/5', position: 'relative' }}>
@@ -430,7 +430,7 @@ export default function Home() {
         </div>
         <div className="stewards-grid">
           {[
-            { imgKey: 'hero-kirana',  img: '/kirana-best-practice.jpg', quote: 'My shop earned ₹6,400 last month doing nothing extra. The screen runs. The customers watch. I count the cash.', nm: 'Ramesh Kumar', role: 'Kirana Owner · Lajpat Nagar' },
+            { imgKey: 'testimonial-kirana',  img: '/kirana-best-practice.jpg', quote: 'My shop earned ₹6,400 last month doing nothing extra. The screen runs. The customers watch. I count the cash.', nm: 'Ramesh Kumar', role: 'Kirana Owner · Lajpat Nagar' },
             { imgKey: 'store-shelf',  img: '/store-shelf.jpg',          quote: "We moved the launch SKU two times faster in Alive pincodes. The control set didn't budge. That's the cleanest read we've had in years.", nm: 'Priya Menon', role: 'Brand Manager · FMCG Top-10' },
             { imgKey: 'store-aisle',  img: '/store-aisle.jpg',          quote: "I saw the chai mix on the screen above Suresh's counter. Picked it up the same trip. Honestly, better than scrolling Instagram.", nm: 'Aanya Sharma', role: 'Shopper · Bengaluru' },
             { imgKey: 'alive-after',  img: '/alive-after.png',          quote: 'Onboarding the kirana took fifteen minutes. The hardware came in a single box. The first play went live the next morning.', nm: 'Vikram Patel', role: 'Field Lead · Alive Network' },

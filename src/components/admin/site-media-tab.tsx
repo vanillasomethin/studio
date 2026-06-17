@@ -3,15 +3,17 @@ import { useState, useEffect, useRef } from 'react';
 import { Upload, RotateCcw, Link } from 'lucide-react';
 
 const MEDIA_SLOTS = [
-  { key: 'hero-brand',    label: 'Hero — Brands',     hint: '/for-brands.jpg' },
-  { key: 'hero-kirana',   label: 'Hero — Kiranas',    hint: '/kirana-best-practice.jpg' },
-  { key: 'hero-consumer', label: 'Hero — Consumers',  hint: '/india-street.jpg' },
-  { key: 'product-shot',  label: 'Product shot',       hint: '/alive-product-shot.png' },
-  { key: 'kirana-shop',   label: 'Kirana shop',        hint: '/kirana-shop.jpg' },
-  { key: 'india-shop',    label: 'India shop',         hint: '/india-street.jpg' },
-  { key: 'store-shelf',   label: 'Store shelf',        hint: '/store-shelf.jpg' },
-  { key: 'store-aisle',   label: 'Store aisle',        hint: '/store-aisle.jpg' },
-  { key: 'alive-after',   label: 'After — Alive',      hint: '/alive-after.png' },
+  { key: 'hero-brand',      label: 'Hero — Brands',              hint: '/for-brands.jpg' },
+  { key: 'hero-kirana',     label: 'Hero — Kiranas',             hint: '/kirana-best-practice.jpg' },
+  { key: 'hero-consumer',   label: 'Hero — Consumers',           hint: '/india-street.jpg' },
+  { key: 'product-shot',    label: 'Product shot',                hint: '/alive-product-shot.png' },
+  { key: 'kirana-shop',     label: 'Audience card — Kiranas',     hint: '/kirana-shop.jpg' },
+  { key: 'vessel-brand',    label: 'Audience card — Brands',      hint: '/for-brands.jpg' },
+  { key: 'vessel-consumer', label: 'Audience card — Consumers',   hint: '/india-street.jpg' },
+  { key: 'testimonial-kirana', label: 'Testimonial — Kirana Owner', hint: '/kirana-best-practice.jpg' },
+  { key: 'store-shelf',     label: 'Testimonial — Brand Manager', hint: '/store-shelf.jpg' },
+  { key: 'store-aisle',     label: 'Testimonial — Shopper',       hint: '/store-aisle.jpg' },
+  { key: 'alive-after',     label: 'Testimonial — Field Lead',    hint: '/alive-after.png' },
 ];
 
 export default function SiteMediaTab({ adminPassword }: { adminPassword: string }) {
