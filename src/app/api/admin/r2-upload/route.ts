@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     await putObject(key, Buffer.from(bytes), file.type || 'application/octet-stream');
 
-    return NextResponse.json({ publicUrl: publicUrl(key) });
+    return NextResponse.json({ publicUrl: `${publicUrl(key)}?v=${Date.now()}` });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

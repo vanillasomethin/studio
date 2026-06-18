@@ -290,7 +290,7 @@ Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a CSV export button that download
   {
     id: 'admin-flyers', cluster: 'Admin Panel', label: 'Flyers Tab', sub: 'Upload and manage flyers',
     status: 'built', path: 'src/app/admin/page.tsx',
-    description: 'Admin uploads flyers via client-side Canvas compression (1200px JPEG 0.75) then POST /api/flyers/save. Shows card grid with delete action.',
+    description: 'Admin uploads flyers via client-side Canvas compression (1200px JPEG 0.75) then POST /api/flyers/save. Also includes an auto-generate panel: pick a store + up to 9 of its active StoreOffer rows, renders a flyer via /api/generate-flyer (Satori), then publishes the same way. Shows card grid with delete action.',
     claudePrompt: `Context: Admin flyers tab in src/app/admin/page.tsx. Flyers stored in Postgres via Prisma Flyer model (or Redis legacy). Upload uses Canvas compression.
 
 Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Migrate flyer image storage from Redis base64 to Cloudflare R2. On upload, use the existing R2 upload pattern from src/lib/r2.ts: get signed URL from /api/admin/r2-upload, PUT directly to R2, save the R2 object key to the Flyer model instead of base64."]`,

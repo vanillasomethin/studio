@@ -53,6 +53,23 @@ function splitTitle(title: string): [string, string] {
   return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
 }
 
+// "alive" wordmark + red dot — mirrors src/components/icons/logo.tsx, rendered inline so
+// no logo image file is needed (Satori can't load custom webfonts without a fetch, so this
+// uses the flyer's existing sans-serif rather than Poppins).
+function AliveLogo({ size = 34 }: { size?: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <span style={{ fontSize: size, fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1 }}>
+        alive
+      </span>
+      <div style={{
+        width: size * 0.16, height: size * 0.16, borderRadius: '50%', backgroundColor: '#dc2626',
+        marginLeft: size * 0.06, transform: `translateY(${size * 0.02}px)`,
+      }} />
+    </div>
+  );
+}
+
 function FlyerImage({ data }: { data: FlyerData }) {
   const badge = parseBadgeText(data.headerBadgeText);
   const [titleLine1, titleLine2] = splitTitle(data.headerTitle);
@@ -101,19 +118,21 @@ function FlyerImage({ data }: { data: FlyerData }) {
             marginBottom: 16,
           }}
         >
-          {/* Brand logo */}
-          {data.brandLogoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={data.brandLogoUrl}
-              width={140}
-              height={50}
-              style={{ objectFit: 'contain' }}
-              alt="brand logo"
-            />
-          ) : (
-            <div style={{ width: 140, height: 50, display: 'flex' }} />
-          )}
+          {/* Brand logo — custom URL if provided, else the ALIVE wordmark */}
+          <div style={{ width: 140, height: 50, display: 'flex', alignItems: 'center' }}>
+            {data.brandLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={data.brandLogoUrl}
+                width={140}
+                height={50}
+                style={{ objectFit: 'contain' }}
+                alt="brand logo"
+              />
+            ) : (
+              <AliveLogo />
+            )}
+          </div>
 
           {/* Discount badge */}
           <div
@@ -575,7 +594,7 @@ export async function GET() {
     description:
       'Renders a 1080×1920 digital advertising flyer as a PNG image using next/og (Satori).',
     schema: {
-      brandLogoUrl: 'string — URL to brand logo image',
+      brandLogoUrl: 'string (optional) — URL to a custom brand logo image. Leave empty to show the ALIVE wordmark.',
       headerTitle: 'string — headline text (split into 2 lines)',
       headerDate: 'string — date shown in header (e.g. "25 MAY")',
       headerBadgeText:

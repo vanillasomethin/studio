@@ -4,19 +4,22 @@ import { Upload, RotateCcw, Link, Eye } from 'lucide-react';
 
 const MEDIA_SLOTS = [
   // Hero carousel (3 rotating panels)
-  { key: 'hero-brand',    label: 'Hero — Brands',      hint: '/for-brands.jpg',              section: 'Hero carousel' },
-  { key: 'hero-kirana',   label: 'Hero — Kiranas',     hint: '/kirana-best-practice.jpg',    section: 'Hero carousel' },
-  { key: 'hero-consumer', label: 'Hero — Consumers',   hint: '/india-street.jpg',            section: 'Hero carousel' },
-  // Audience cards (the 3-column "who it's for" grid)
-  { key: 'kirana-shop',   label: 'Audience — Kiranas', hint: '/kirana-shop.jpg',             section: 'Audience cards' },
+  { key: 'hero-brand',      label: 'Hero — Brands',               hint: '/for-brands.jpg',              section: 'Hero carousel' },
+  { key: 'hero-kirana',     label: 'Hero — Kiranas',              hint: '/kirana-best-practice.jpg',    section: 'Hero carousel' },
+  { key: 'hero-consumer',   label: 'Hero — Consumers',            hint: '/india-street.jpg',            section: 'Hero carousel' },
+  // Audience cards (the 3-column "who it's for" grid) — independent of the hero slots above
+  { key: 'vessel-brand',    label: 'Audience card — Brands',      hint: '/for-brands.jpg',               section: 'Audience cards' },
+  { key: 'kirana-shop',     label: 'Audience card — Kiranas',     hint: '/kirana-shop.jpg',              section: 'Audience cards' },
+  { key: 'vessel-consumer', label: 'Audience card — Consumers',   hint: '/india-street.jpg',             section: 'Audience cards' },
   // Product / proof section
-  { key: 'product-shot',  label: 'Product shot',        hint: '/alive-product-shot.png',      section: 'Product section' },
-  // Testimonials (4 quotes with headshots)
-  { key: 'store-shelf',   label: 'Testimonial — Brand', hint: '/store-shelf.jpg',             section: 'Testimonials' },
-  { key: 'store-aisle',   label: 'Testimonial — Shopper', hint: '/store-aisle.jpg',          section: 'Testimonials' },
-  { key: 'alive-after',   label: 'Testimonial — Field', hint: '/alive-after.png',             section: 'Testimonials' },
+  { key: 'product-shot',    label: 'Product shot',                 hint: '/alive-product-shot.png',      section: 'Product section' },
+  // Testimonials (4 quotes with headshots) — independent of the hero slots above
+  { key: 'testimonial-kirana', label: 'Testimonial — Kirana Owner', hint: '/kirana-best-practice.jpg',   section: 'Testimonials' },
+  { key: 'store-shelf',     label: 'Testimonial — Brand Manager',  hint: '/store-shelf.jpg',              section: 'Testimonials' },
+  { key: 'store-aisle',     label: 'Testimonial — Shopper',        hint: '/store-aisle.jpg',              section: 'Testimonials' },
+  { key: 'alive-after',     label: 'Testimonial — Field Lead',     hint: '/alive-after.png',              section: 'Testimonials' },
   // OG / social share
-  { key: 'og-cover',      label: 'OG / Social cover',   hint: '/og-image.jpg',               section: 'Meta' },
+  { key: 'og-cover',        label: 'OG / Social cover',            hint: '/og-image.jpg',                 section: 'Meta' },
 ];
 
 type Slot = typeof MEDIA_SLOTS[number];
@@ -107,7 +110,7 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
       <div className="mb-2">
         <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-primary mb-0.5">Site management</p>
         <h1 className="admin-font-display text-3xl font-bold text-foreground tracking-tight">
-          <em className="not-italic text-primary">9</em> homepage slots.
+          <em className="not-italic text-primary">{MEDIA_SLOTS.length}</em> homepage slots.
         </h1>
         <p className="text-sm text-muted-foreground mt-1">Upload per-slot images · R2 CDN · reflects live within 60 s</p>
       </div>
@@ -132,7 +135,7 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
           </div>
           {/* Audience cards skeleton */}
           <div className="flex border-b border-border/40">
-            {['hero-brand','kirana-shop','hero-consumer'].map((k, i) => (
+            {['vessel-brand','kirana-shop','vessel-consumer'].map((k, i) => (
               <div key={k} className={`flex-1 h-14 flex items-center justify-center text-[8px] font-mono ${media[k]?'bg-green-50 text-green-700':'bg-muted/40 text-muted-foreground'} ${i<2?'border-r border-border/40':''}`}>
                 {['brands','kiranas','consumers'][i]}
               </div>
@@ -144,9 +147,9 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
           </div>
           {/* Testimonials */}
           <div className="flex">
-            {['store-shelf','store-aisle','alive-after','hero-kirana'].map((k, i) => (
+            {['testimonial-kirana','store-shelf','store-aisle','alive-after'].map((k, i) => (
               <div key={k} className={`flex-1 h-12 flex items-center justify-center text-[8px] font-mono ${media[k]?'bg-green-50 text-green-700':'bg-muted/40 text-muted-foreground'} ${i<3?'border-r border-border/40':''}`}>
-                {['shelf','aisle','after','kirana'][i]}
+                {['kirana','shelf','aisle','after'][i]}
               </div>
             ))}
           </div>
