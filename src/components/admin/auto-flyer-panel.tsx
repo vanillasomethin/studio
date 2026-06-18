@@ -43,7 +43,10 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
   const [ok,          setOk]         = useState(false);
 
   useEffect(() => {
-    fetch('/api/stores/save', { headers }).then(r => r.ok ? r.json() : []).then(setStores).catch(() => setStores([]));
+    fetch('/api/stores/save', { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then((body) => setStores(Array.isArray(body) ? body : (body?.data ?? [])))
+      .catch(() => setStores([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminPassword]);
 
