@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Wand2, Loader2, CheckSquare, Square, Save, RefreshCw } from 'lucide-react';
+import { Wand2, Loader2, CheckSquare, Square, Save, RefreshCw, Search } from 'lucide-react';
+import { CATEGORY_OPTIONS } from '@/lib/product-id';
 
 type StoreRow = { id: string; storeName: string };
 type Offer = {
@@ -12,6 +13,15 @@ type Offer = {
   productImageUrl: string | null;
   validUntil: string | null;
 };
+type CatalogueProduct = {
+  id: string;
+  productName: string;
+  brand: string;
+  sizeVariant: string;
+  mrp: number | null;
+  imageUrl: string | null;
+};
+type FlyerItem = { productName: string; productImageUrl: string; mrp: number; offerPrice: number; validUntil: string | null };
 
 const inp  = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary';
 const lbl  = 'block text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1';
@@ -29,6 +39,13 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
   const [offers,   setOffers]   = useState<Offer[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loadingOffers, setLoadingOffers] = useState(false);
+
+  const [source, setSource] = useState<'offers' | 'catalogue'>('offers');
+  const [catQuery,    setCatQuery]    = useState('');
+  const [catCategory, setCatCategory] = useState('');
+  const [catResults,  setCatResults]  = useState<CatalogueProduct[]>([]);
+  const [catLoading,  setCatLoading]  = useState(false);
+  const [catSelected, setCatSelected] = useState<Map<string, FlyerItem>>(new Map());
 
   const [title,       setTitle]       = useState("This Week's Best Deals");
   const [footerLine1, setFooterLine1] = useState('ALIVE — Live At Your Local Kirana');
@@ -62,6 +79,23 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId]);
 
+  useEffect(() => {
+    if (source !== 'catalogue') return;
+    setCatLoading(true);
+    const t = setTimeout(() => {
+      const params = new URLSearchParams();
+      if (catQuery.trim())    params.set('q', catQuery.trim());
+      if (catCategory)        params.set('category', catCategory);
+      fetch(`/api/admin/products?${params.toString()}`, { headers })
+        .then(r => r.json() as Promise<{ products: CatalogueProduct[] }>)
+        .then(body => setCatResults(body.products ?? []))
+        .catch(() => setCatResults([]))
+        .finally(() => setCatLoading(false));
+    }, 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, catQuery, catCategory]);
+
   const selectedStore = stores.find(s => s.id === storeId);
 
   const toggleOffer = (id: string) => {
@@ -73,7 +107,42 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
     });
   };
 
-  const selectedOffers = useMemo(() => offers.filter(o => selected.has(o.id)), [offers, selected]);
+  const toggleCatalogueProduct = (p: CatalogueProduct) => {
+    setCatSelected(prev => {
+      const next = new Map(prev);
+      if (next.has(p.id)) next.delete(p.id);
+      else if (next.size < 9) next.set(p.id, {
+        productName:     p.sizeVariant ? `${p.productName} (${p.sizeVariant})` : p.productName,
+        productImageUrl: p.imageUrl ?? '',
+        mrp:             p.mrp ?? 0,
+        offerPrice:      p.mrp ?? 0,
+        validUntil:      null,
+      });
+      return next;
+    });
+  };
+
+  const updateCatalogueItem = (id: string, field: 'mrp' | 'offerPrice', value: number) => {
+    setCatSelected(prev => {
+      const next = new Map(prev);
+      const item = next.get(id);
+      if (item) next.set(id, { ...item, [field]: value });
+      return next;
+    });
+  };
+
+  const selectedOffers: FlyerItem[] = useMemo(() => {
+    if (source === 'catalogue') return Array.from(catSelected.values());
+    return offers.filter(o => selected.has(o.id)).map(o => ({
+      productName:     o.weight ? `${o.productName} (${o.weight})` : o.productName,
+      productImageUrl: o.productImageUrl ?? '',
+      mrp:             o.mrp,
+      offerPrice:      o.offerPrice,
+      validUntil:      o.validUntil,
+    }));
+  }, [source, offers, selected, catSelected]);
+
+  const selectedCount = source === 'catalogue' ? catSelected.size : selected.size;
 
   const maxDiscountPercent = useMemo(() => {
     const pcts = selectedOffers.map(o => o.mrp > 0 ? Math.round(((o.mrp - o.offerPrice) / o.mrp) * 100) : 0);
@@ -99,8 +168,8 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
         contactPhone,
         qrCodeUrl,
         offers: selectedOffers.map(o => ({
-          productName:     o.weight ? `${o.productName} (${o.weight})` : o.productName,
-          productImageUrl: o.productImageUrl ?? '',
+          productName:     o.productName,
+          productImageUrl: o.productImageUrl,
           mrp:             o.mrp,
           discountPercent: o.mrp > 0 ? Math.round(((o.mrp - o.offerPrice) / o.mrp) * 100) : 0,
           offerPrice:      o.offerPrice,
@@ -153,7 +222,7 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
       if (!res.ok || resBody.error) throw new Error(resBody.error ?? `HTTP ${res.status}`);
 
       setOk(true); setTimeout(() => setOk(false), 4000);
-      setPreviewUrl(null); setPreviewBlob(null); setSelected(new Set());
+      setPreviewUrl(null); setPreviewBlob(null); setSelected(new Set()); setCatSelected(new Map());
       onSaved();
     } catch (e) {
       setError((e as Error).message ?? 'Failed to save flyer');
@@ -168,7 +237,7 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
         <Wand2 className="h-4 w-4 text-primary" />
         <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Auto-generate flyer</h2>
       </div>
-      <p className="text-[11px] text-muted-foreground/70 -mt-2">Pick a store and its active offers — a flyer is rendered from the live product catalogue, no design work needed.</p>
+      <p className="text-[11px] text-muted-foreground/70 -mt-2">Pick a store, then choose offers from its active deals or hand-pick any products from the master catalogue — a flyer is rendered automatically, no design work needed.</p>
 
       <div>
         <label className={lbl}>Store</label>
@@ -178,7 +247,20 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
         </select>
       </div>
 
-      {storeId && (
+      <div className="flex gap-1.5 rounded-lg border border-border p-1">
+        {(['offers', 'catalogue'] as const).map(s => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setSource(s)}
+            className={`flex-1 rounded-md py-1.5 text-[11px] font-semibold transition-colors ${source === s ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted/50'}`}
+          >
+            {s === 'offers' ? 'Active store offers' : 'Master product list'}
+          </button>
+        ))}
+      </div>
+
+      {source === 'offers' && storeId && (
         <div>
           <label className={lbl}>Offers ({selected.size}/9 selected)</label>
           {loadingOffers ? (
@@ -209,6 +291,78 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
         </div>
       )}
 
+      {source === 'catalogue' && (
+        <div className="space-y-2">
+          <label className={lbl}>Master catalogue ({catSelected.size}/9 selected)</label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+              <input
+                type="text"
+                value={catQuery}
+                onChange={e => setCatQuery(e.target.value)}
+                placeholder="Search product or brand…"
+                className={`${inp} pl-7`}
+              />
+            </div>
+            <select value={catCategory} onChange={e => setCatCategory(e.target.value)} className={`${inp} w-36`}>
+              <option value="">All categories</option>
+              {CATEGORY_OPTIONS.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+            </select>
+          </div>
+
+          {catLoading ? (
+            <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : !catResults.length ? (
+            <p className="text-xs text-muted-foreground/60 py-3">No products found.</p>
+          ) : (
+            <div className="max-h-56 overflow-y-auto space-y-1 rounded-lg border border-border p-2">
+              {catResults.map(p => {
+                const checked = catSelected.has(p.id);
+                const disabled = !checked && catSelected.size >= 9;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => toggleCatalogueProduct(p)}
+                    disabled={disabled}
+                    className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${checked ? 'bg-primary/10' : 'hover:bg-muted/50'} disabled:opacity-40 disabled:cursor-not-allowed`}
+                  >
+                    {checked ? <CheckSquare className="h-3.5 w-3.5 text-primary shrink-0" /> : <Square className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />}
+                    <span className="flex-1 truncate">{p.productName} <span className="text-muted-foreground/50">({p.brand}{p.sizeVariant ? `, ${p.sizeVariant}` : ''})</span></span>
+                    {p.mrp ? <span className="text-muted-foreground/60 shrink-0">MRP ₹{p.mrp}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {catSelected.size > 0 && (
+            <div className="space-y-1.5 rounded-lg border border-border p-2">
+              {Array.from(catSelected.entries()).map(([id, item]) => (
+                <div key={id} className="flex items-center gap-2 text-xs">
+                  <span className="flex-1 truncate">{item.productName}</span>
+                  <input
+                    type="number"
+                    value={item.mrp || ''}
+                    onChange={e => updateCatalogueItem(id, 'mrp', Number(e.target.value) || 0)}
+                    placeholder="MRP"
+                    className="w-20 rounded border border-border bg-background px-1.5 py-1 text-[11px]"
+                  />
+                  <input
+                    type="number"
+                    value={item.offerPrice || ''}
+                    onChange={e => updateCatalogueItem(id, 'offerPrice', Number(e.target.value) || 0)}
+                    placeholder="Offer ₹"
+                    className="w-20 rounded border border-border bg-background px-1.5 py-1 text-[11px]"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div><label className={lbl}>Offer title</label>
         <input type="text" value={title} onChange={e => setTitle(e.target.value)} className={inp} /></div>
       <div className="grid grid-cols-2 gap-3">
@@ -224,7 +378,7 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
       <button
         type="button"
         onClick={() => void generate()}
-        disabled={generating || !selectedOffers.length}
+        disabled={generating || !selectedCount}
         className="w-full flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-bold text-foreground transition-all hover:bg-muted/50 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <><RefreshCw className="h-4 w-4" /> {previewUrl ? 'Regenerate preview' : 'Generate preview'}</>}
