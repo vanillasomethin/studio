@@ -9,6 +9,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../../lib/colors';
 import { validateForm, FORM_INIT, passwordScore, type FormData, type FieldErrors } from '../../../lib/validation';
+import { buildStaticMapTiles } from '../../../lib/static-tile-map';
+
+const MAP_ZOOM = 16;
+const MAP_HEIGHT = 140;
 
 export default function RegisterStep1() {
   const router = useRouter();
@@ -16,6 +20,12 @@ export default function RegisterStep1() {
   const [touched, setTouched] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const [mapWidth, setMapWidth] = useState(0);
+
+  const mapTiles = useMemo(() => {
+    if (!form.lat || !form.lng || mapWidth === 0) return [];
+    return buildStaticMapTiles(parseFloat(form.lat), parseFloat(form.lng), MAP_ZOOM, mapWidth, MAP_HEIGHT);
+  }, [form.lat, form.lng, mapWidth]);
 
   const set = (k: keyof FormData, v: string) => setForm((p) => ({ ...p, [k]: v }));
   const errors = useMemo(() => validateForm(form), [form]);
@@ -140,12 +150,21 @@ export default function RegisterStep1() {
           </TouchableOpacity>
           {form.lat && form.lng ? (
             <View style={s.mapPreview}>
-              {/* Static OSM tile — z=16, 400×200 */}
-              <Image
-                source={{ uri: `https://staticmap.openstreetmap.de/staticmap.php?center=${form.lat},${form.lng}&zoom=16&size=400x160&markers=${form.lat},${form.lng},red-pushpin` }}
-                style={s.mapImg}
-                resizeMode="cover"
-              />
+              <View
+                style={s.mapTiles}
+                onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}
+              >
+                {mapTiles.map((tile, i) => (
+                  <Image
+                    key={i}
+                    source={{ uri: tile.uri }}
+                    style={[s.mapTile, { left: tile.left, top: tile.top }]}
+                  />
+                ))}
+                <View pointerEvents="none" style={s.mapPin}>
+                  <Ionicons name="location" size={28} color={C.primary} />
+                </View>
+              </View>
               <View style={s.mapPinBadge}>
                 <Ionicons name="location" size={12} color={C.primary} />
                 <Text style={s.mapPinText}>Your shop pin</Text>
@@ -281,7 +300,9 @@ const s = StyleSheet.create({
   },
   gpsBtnText: { fontSize: 13, color: C.primary, fontWeight: '600', flex: 1 },
   mapPreview: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: C.border, marginTop: 8 },
-  mapImg: { width: '100%', height: 140 },
+  mapTiles: { width: '100%', height: 140, overflow: 'hidden', backgroundColor: '#e9e7e2' },
+  mapTile: { position: 'absolute', width: 256, height: 256 },
+  mapPin: { position: 'absolute', left: '50%', top: '50%', marginLeft: -14, marginTop: -28 },
   mapPinBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 8, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border },
   mapPinText: { fontSize: 11, color: C.textSub, fontWeight: '500' },
   btn: {
