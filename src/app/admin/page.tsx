@@ -31,6 +31,7 @@ const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),
 const ProductsTab      = dynamic(() => import('@/components/admin/products-tab'),       { ssr: false });
 const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'),         { ssr: false });
 const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-panel'),   { ssr: false });
+const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1200,6 +1201,9 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
 
       <SectionLabel n={2} label="Network" />
       <DeviceFeedCard devices={devices} />
+
+      <SectionLabel n={3} label="Store app" />
+      <AppPreviewCard />
     </>
   );
 }
