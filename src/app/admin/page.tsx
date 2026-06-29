@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
-  IndianRupee, Eye, Package,
+  IndianRupee, Eye, Package, Ticket,
   Tv2, CalendarClock, FileBarChart2, Activity,
   ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
   // New icons for the redesign
@@ -32,6 +32,7 @@ const ProductsTab      = dynamic(() => import('@/components/admin/products-tab')
 const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'),         { ssr: false });
 const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-panel'),   { ssr: false });
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
+const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -78,6 +79,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'products',   label: 'Products',    icon: Package     },
       { id: 'campaigns',  label: 'Campaigns',   icon: BarChart3   },
       { id: 'payments',   label: 'Payments',    icon: IndianRupee },
+      { id: 'coupons',    label: 'Coupons',     icon: Ticket      },
     ],
   },
   {
@@ -113,6 +115,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   stores:     { eyebrow: 'Store partners',     title: 'Registered stores'  },
   campaigns:  { eyebrow: 'Brand campaigns',    title: 'All campaigns'      },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
+  coupons:    { eyebrow: 'Brand discounts',    title: 'Coupons'            },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
   content:    { eyebrow: 'Media library',      title: 'Content'            },
   programming:  { eyebrow: 'Screen programming', title: 'Programming'        },
@@ -1031,6 +1034,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     group: 'Finance',
     items: [
       { id: 'payments' as Tab,   label: 'Payouts',          icon: IndianRupee,     count: null },
+      { id: 'coupons' as Tab,    label: 'Coupons',          icon: Ticket,          count: null },
       { id: 'reports' as Tab,    label: 'Reports',          icon: FileBarChart2,   count: null },
     ],
   },
@@ -1338,6 +1342,7 @@ function Dashboard() {
     monitoring: 'Monitoring',
     footfall:   'Footfall',
     payments:   'Payouts',
+    coupons:    'Coupons',
     reports:    'Reports',
     flyers:     'Flyers',
     layouts:    'Layouts',
@@ -1385,6 +1390,7 @@ function Dashboard() {
               {tab === 'stores'     && <StoresPanel />}
               {tab === 'campaigns'  && <CampaignsPanel />}
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
+              {tab === 'coupons'    && <CouponsTab />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'programming'   && <ProgrammingTab />}

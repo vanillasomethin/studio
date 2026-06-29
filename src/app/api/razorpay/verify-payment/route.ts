@@ -18,6 +18,7 @@ type Body = {
     startDate:      string;
     pricePerScreen: number;
     totalAmount:    number;
+    couponCode?:    string;
   };
 };
 
@@ -60,11 +61,20 @@ export async function POST(req: NextRequest) {
             startDate:      new Date(campaign.startDate),
             pricePerScreen: campaign.pricePerScreen,
             totalAmount:    campaign.totalAmount,
+            couponCode:     campaign.couponCode ?? null,
             paymentId:      razorpay_payment_id,
             orderId:        razorpay_order_id,
             status:         'active',
           },
         });
+
+        // Count the redemption against the coupon's usage cap (best-effort).
+        if (campaign.couponCode) {
+          await db.coupon.updateMany({
+            where: { code: campaign.couponCode.toUpperCase() },
+            data:  { redemptions: { increment: 1 } },
+          }).catch(() => {});
+        }
       }
     }
 

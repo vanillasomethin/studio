@@ -853,23 +853,48 @@ function StepPayment({
 }) {
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState<string | null>(null);
-  const [promoCode, setPromoCode] = useState('');
   const [promoInput, setPromoInput] = useState('');
   const [showPromo, setShowPromo] = useState(false);
-
-  const VALID_PROMOS: Record<string, number> = { GETALIVENOW: 100 };
-  const promoDiscount = promoCode ? (VALID_PROMOS[promoCode.toUpperCase()] ?? 0) : 0;
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; type: 'FLAT' | 'PERCENT'; value: number } | null>(null);
+  const [promoBusy, setPromoBusy] = useState(false);
 
   const pricePerScreen = getScreenPrice(data.screens);
   const baseSubtotal   = pricePerScreen * data.screens * data.months;
+  // Discount derived live from the coupon rule so it stays correct if the buyer
+  // changes screens/months after applying (esp. PERCENT coupons).
+  const promoCode      = appliedCoupon?.code ?? '';
+  const promoDiscount  = !appliedCoupon ? 0 : appliedCoupon.type === 'PERCENT'
+    ? Math.min(baseSubtotal, Math.round((baseSubtotal * appliedCoupon.value) / 100))
+    : Math.min(baseSubtotal, appliedCoupon.value);
   const subtotal       = Math.max(0, baseSubtotal - promoDiscount);
   const gstAmount      = Math.round(subtotal * 0.18);
   const total          = isTrial ? 0 : subtotal + gstAmount;
 
-  const applyPromo = () => {
+  // Validate the code server-side against the admin-managed coupon list.
+  const applyPromo = async () => {
     const code = promoInput.trim().toUpperCase();
-    if (VALID_PROMOS[code]) { setPromoCode(code); setShowPromo(false); }
-    else { setError('Invalid promo code'); }
+    if (!code) return;
+    setPromoBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, subtotal: baseSubtotal }),
+      });
+      const body = await res.json() as { valid: boolean; code?: string; type?: 'FLAT' | 'PERCENT'; value?: number; error?: string };
+      if (body.valid && body.type && body.value) {
+        setAppliedCoupon({ code: body.code ?? code, type: body.type, value: body.value });
+        setShowPromo(false);
+      } else {
+        setAppliedCoupon(null);
+        setError(body.error ?? 'Invalid promo code');
+      }
+    } catch {
+      setError('Could not validate code. Please try again.');
+    } finally {
+      setPromoBusy(false);
+    }
   };
 
   const startDate = data.startDate ? new Date(data.startDate + 'T00:00:00') : null;
@@ -901,8 +926,6 @@ function StepPayment({
         description: `${data.screens} screen${data.screens > 1 ? 's' : ''} · ${data.months} month${data.months > 1 ? 's' : ''}`,
         order_id: body.id,
         handler: async (response: RazorpayResponse) => {
-          const subtotal    = pricePerScreen * data.screens * data.months;
-          const totalAmount = subtotal + Math.round(subtotal * 0.18);
           const verify = await fetch('/api/razorpay/verify-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -918,7 +941,8 @@ function StepPayment({
                 months:         data.months,
                 startDate:      data.startDate,
                 pricePerScreen,
-                totalAmount,
+                totalAmount:    total, // actual charged amount, incl. any promo discount + GST
+                couponCode:     promoCode || undefined,
               },
             }),
           });

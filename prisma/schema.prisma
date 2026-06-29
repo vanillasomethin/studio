@@ -190,6 +190,7 @@ model Campaign {
   startDate      DateTime
   pricePerScreen Int
   totalAmount    Int
+  couponCode     String?  // coupon applied at checkout, if any
   paymentId      String?
   orderId        String?
   status         String   @default("upcoming") // upcoming | active | completed | cancelled
@@ -204,6 +205,29 @@ model Campaign {
   @@index([brandId])
   @@index([status])
   @@index([email])
+}
+
+// ─── Coupons (brand onboarding discounts) ────────────────────────────────────
+
+enum CouponType {
+  FLAT     // `value` = flat rupees off the subtotal
+  PERCENT  // `value` = percent off the subtotal (1–100)
+}
+
+model Coupon {
+  id             String     @id @default(cuid())
+  code           String     @unique // stored uppercase
+  type           CouponType @default(FLAT)
+  value          Int        // rupees (FLAT) or percent (PERCENT)
+  active         Boolean    @default(true)
+  expiresAt      DateTime?  // null = never expires
+  maxRedemptions Int?       // null = unlimited
+  redemptions    Int        @default(0)
+  note           String?    // internal label, e.g. "Diwali 2026"
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([active])
 }
 
 // ─── Devices (screens) ───────────────────────────────────────────────────────
