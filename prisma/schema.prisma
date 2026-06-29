@@ -117,6 +117,8 @@ model Store {
   kycVerifiedAt     DateTime? // timestamp when admin approved
   kycRejectedReason String? // admin's rejection note
   excludedZoneId    String? // footfall sensor zone ID to exclude from counts (staff area)
+  tier              String    @default("standard") // standard | premium — set via gated premium signup link
+  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

@@ -117,6 +117,7 @@ type RegistrationBody = {
   referredBy?:  string;
   referralCode: string;
   agreedAt:     string;
+  premiumKey?:  string; // secret from the gated premium signup link; validated server-side
 };
 
 export async function POST(req: NextRequest) {
@@ -153,6 +154,12 @@ export async function POST(req: NextRequest) {
     const lat          = body.lat ? parseFloat(body.lat) : null;
     const lng          = body.lng ? parseFloat(body.lng) : null;
 
+    // Premium tier is decided server-side from the secret key in the gated
+    // premium signup link — never trusted from a client-set flag.
+    const isPremium = !!process.env.PREMIUM_SIGNUP_KEY && body.premiumKey === process.env.PREMIUM_SIGNUP_KEY;
+    const tier      = isPremium ? 'premium' : 'standard';
+    const compPaise = isPremium ? Number(process.env.PREMIUM_MONTHLY_PAISE ?? 100000) : 50000;
+
     // Create user only — no nested store.create so Prisma doesn't touch Store at all
     const user = await db.user.create({
       data: { phone, passwordHash, name: body.ownerName, role: 'STORE_PARTNER' },
@@ -165,14 +172,15 @@ export async function POST(req: NextRequest) {
       INSERT INTO "Store" (
         "id", "userId", "storeName", "ownerName", "whatsapp", "address",
         "gstin", "locality", "city", "pincode", "lat", "lng",
-        "referralCode", "referredBy", "agreedAt", "createdAt", "updatedAt"
+        "referralCode", "referredBy", "agreedAt",
+        "tier", "monthlyCompensationPaise", "createdAt", "updatedAt"
       ) VALUES (
         ${storeId}, ${user.id}, ${body.storeName}, ${body.ownerName},
         ${body.whatsapp}, ${body.address},
         ${body.gstin || null}, ${body.locality || null}, ${body.city || null},
         ${body.pincode || null}, ${lat}, ${lng},
         ${body.referralCode}, ${body.referredBy || null}, ${agreedAt},
-        ${now}, ${now}
+        ${tier}, ${compPaise}, ${now}, ${now}
       )
     `;
 

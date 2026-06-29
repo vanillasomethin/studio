@@ -14,7 +14,7 @@ import MapPicker from '@/components/map-picker';
 // ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
 // Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
 // to update both this web page and the mobile app simultaneously.
-import { AGREEMENT_TERMS } from '@shared/agreement-terms';
+import { AGREEMENT_TERMS, agreementTermsFor } from '@shared/agreement-terms';
 import {
   validateForm, makeReferralCode, FORM_INIT,
   type FieldErrors, type FormData,
@@ -89,12 +89,14 @@ function Field({ label, value, onChange, type = 'text', placeholder, prefix, err
 
 // ─── Agreement step ───────────────────────────────────────────────────────────
 
-function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }: {
+function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, premium, premiumMonthly }: {
   form: Form; agreed: boolean; setAgreed: (v: boolean) => void;
   onBack: () => void; onSubmit: () => void; busy: boolean; err: string;
+  premium: boolean; premiumMonthly: number;
 }) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const gstin = form.gstin ? form.gstin.toUpperCase() : null;
+  const terms = premium ? agreementTermsFor(premiumMonthly) : AGREEMENT_TERMS;
   const fullAddress = [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', ');
 
   return (
@@ -123,6 +125,12 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2</p>
         <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
         <p className="text-xs text-gray-500 mt-0.5">Read the key terms below, then sign digitally.</p>
+        {premium && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
+            <Star className="h-3 w-3 text-amber-500" />
+            <span className="text-[11px] font-bold text-amber-700">Premium partner — ₹{premiumMonthly.toLocaleString('en-IN')}/month + electricity</span>
+          </div>
+        )}
       </div>
 
       {/* Parties block */}
@@ -150,7 +158,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
           <p className="text-[10px] text-gray-400 mt-0.5">Scroll to read all terms before signing</p>
         </div>
         <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
-          {AGREEMENT_TERMS.map(({ heading, body }) => (
+          {terms.map(({ heading, body }) => (
             <div key={heading} className="px-4 py-3 flex gap-3 text-xs">
               <span className="font-bold text-gray-800 shrink-0 w-28">{heading}</span>
               <span className="text-gray-500 leading-relaxed">{body}</span>
@@ -160,7 +168,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between bg-gray-50/40">
           <p className="text-[10px] text-gray-400">Full legal document</p>
           <a
-            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}) }).toString()}`}
+            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}), ...(premium ? { monthly: String(premiumMonthly) } : {}) }).toString()}`}
             target="_blank" rel="noreferrer"
             className="text-[11px] text-red-500 hover:text-red-600 font-semibold flex items-center gap-1"
           >
@@ -215,12 +223,30 @@ function RegistrationForm() {
   const [err,     setErr]     = useState('');
   const [done,    setDone]    = useState(false);
   const [touched, setTouched] = useState(false);
+  // Premium signup — only enabled by a valid key from the gated premium link
+  // (?premium=KEY). Validated server-side; this state is for display only.
+  const [premiumKey,     setPremiumKey]     = useState<string | null>(null);
+  const [premium,        setPremium]        = useState(false);
+  const [premiumMonthly, setPremiumMonthly] = useState(500); // rupees
 
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
       if (saved && saved.trim()) setForm(JSON.parse(saved) as Form);
     } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    let key: string | null = null;
+    try { key = new URLSearchParams(window.location.search).get('premium'); } catch { /* ignore */ }
+    if (!key) return;
+    setPremiumKey(key);
+    fetch(`/api/stores/premium-validate?key=${encodeURIComponent(key)}`)
+      .then((r) => r.ok ? r.json() as Promise<{ premium: boolean; monthlyPaise: number }> : null)
+      .then((d) => {
+        if (d?.premium) { setPremium(true); setPremiumMonthly(Math.round(d.monthlyPaise / 100)); }
+      })
+      .catch(() => { /* invalid key → stays standard */ });
   }, []);
 
   useEffect(() => {
@@ -249,6 +275,7 @@ function RegistrationForm() {
       gstin:        form.gstin ? form.gstin.toUpperCase() : undefined,
       referralCode: code,
       agreedAt:     new Date().toISOString(),
+      premiumKey:   premiumKey ?? undefined, // server re-validates; grants premium tier
     };
     try {
       const controller = new AbortController();
@@ -329,7 +356,7 @@ function RegistrationForm() {
   );
 
   if (step === 2) return (
-    <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} />
+    <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} premium={premium} premiumMonthly={premiumMonthly} />
   );
 
   const fe = (k: keyof Form) => touched ? (errors as FieldErrors)[k] : undefined;
