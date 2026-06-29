@@ -214,7 +214,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, p
 
 const DRAFT_KEY = 'alive_store_draft';
 
-function RegistrationForm() {
+function RegistrationForm({ premium, premiumMonthly, premiumKey }: {
+  premium: boolean; premiumMonthly: number; premiumKey: string | null;
+}) {
   const router    = useRouter();
   const [form,    setForm]    = useState<Form>(INIT);
   const [step,    setStep]    = useState<1 | 2>(1);
@@ -223,30 +225,12 @@ function RegistrationForm() {
   const [err,     setErr]     = useState('');
   const [done,    setDone]    = useState(false);
   const [touched, setTouched] = useState(false);
-  // Premium signup — only enabled by a valid key from the gated premium link
-  // (?premium=KEY). Validated server-side; this state is for display only.
-  const [premiumKey,     setPremiumKey]     = useState<string | null>(null);
-  const [premium,        setPremium]        = useState(false);
-  const [premiumMonthly, setPremiumMonthly] = useState(500); // rupees
 
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
       if (saved && saved.trim()) setForm(JSON.parse(saved) as Form);
     } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    let key: string | null = null;
-    try { key = new URLSearchParams(window.location.search).get('premium'); } catch { /* ignore */ }
-    if (!key) return;
-    setPremiumKey(key);
-    fetch(`/api/stores/premium-validate?key=${encodeURIComponent(key)}`)
-      .then((r) => r.ok ? r.json() as Promise<{ premium: boolean; monthlyPaise: number }> : null)
-      .then((d) => {
-        if (d?.premium) { setPremium(true); setPremiumMonthly(Math.round(d.monthlyPaise / 100)); }
-      })
-      .catch(() => { /* invalid key → stays standard */ });
   }, []);
 
   useEffect(() => {
@@ -476,6 +460,25 @@ function RegistrationForm() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function StorePage() {
+  // Premium signup is enabled only by a valid key from the gated premium link
+  // (?premium=KEY), validated server-side. Drives both the pitch and the form.
+  const [premium,        setPremium]        = useState(false);
+  const [premiumMonthly, setPremiumMonthly] = useState(500); // rupees
+  const [premiumKey,     setPremiumKey]     = useState<string | null>(null);
+
+  useEffect(() => {
+    let key: string | null = null;
+    try { key = new URLSearchParams(window.location.search).get('premium'); } catch { /* ignore */ }
+    if (!key) return;
+    setPremiumKey(key);
+    fetch(`/api/stores/premium-validate?key=${encodeURIComponent(key)}`)
+      .then((r) => r.ok ? r.json() as Promise<{ premium: boolean; monthlyPaise: number }> : null)
+      .then((d) => { if (d?.premium) { setPremium(true); setPremiumMonthly(Math.round(d.monthlyPaise / 100)); } })
+      .catch(() => { /* invalid key → stays standard */ });
+  }, []);
+
+  const monthlyLabel = premiumMonthly.toLocaleString('en-IN');
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
@@ -499,13 +502,19 @@ export default function StorePage() {
             </h1>
             <p className="text-base text-gray-600 leading-relaxed">
               Alive installs a free digital screen in your store. Brands pay to advertise on it.
-              You earn <span className="text-gray-900 font-semibold">₹500 + electricity every month</span> — without lifting a finger.
+              You earn <span className="text-gray-900 font-semibold">₹{monthlyLabel} + electricity every month</span> — without lifting a finger.
             </p>
+            {premium && (
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
+                <Star className="h-3 w-3 text-amber-500" />
+                <span className="text-[11px] font-bold text-amber-700">Premium partner invite — ₹{monthlyLabel}/month</span>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
             {[
-              { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed. Paid every month via UPI.' },
+              { icon: IndianRupee, label: `₹${monthlyLabel} + electricity/month`, sub: 'Fixed. Paid every month via UPI.' },
               { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.' },
               { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.' },
               { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
@@ -527,7 +536,7 @@ export default function StorePage() {
             {[
               { n: '01', t: 'Register below',     d: 'Takes 2 minutes.' },
               { n: '02', t: 'We visit & install', d: 'Free screen within 48 h.' },
-              { n: '03', t: 'Earn every month',   d: '₹500 + electricity to your account.' },
+              { n: '03', t: 'Earn every month',   d: `₹${monthlyLabel} + electricity to your account.` },
             ].map(({ n, t, d }) => (
               <div key={n} className="flex items-start gap-3">
                 <span className="text-[11px] font-black text-red-400 mt-0.5 w-5 shrink-0">{n}</span>
@@ -540,7 +549,7 @@ export default function StorePage() {
           </div>
 
           <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {['₹0 installation', '₹500 + electricity/month', 'UPI payout', '24/7 support'].map((t) => (
+            {['₹0 installation', `₹${monthlyLabel} + electricity/month`, 'UPI payout', '24/7 support'].map((t) => (
               <span key={t} className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
                 <Check className="h-3 w-3 text-red-500" /> {t}
               </span>
@@ -571,7 +580,7 @@ export default function StorePage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Deposit &amp; payout</p>
             {[
               { label: 'Security deposit', value: '₹0',            note: 'No deposit ever. Equipment is fully free.' },
-              { label: 'Monthly payout',   value: '₹500+',          note: 'Credited within 10 working days of month end.' },
+              { label: 'Monthly payout',   value: `₹${monthlyLabel}+`,   note: 'Credited within 10 working days of month end.' },
               { label: 'Electricity',      value: 'Reimbursed',     note: 'At rated power × hours × tariff rate.' },
               { label: 'Exit clause',      value: '30-day notice',  note: 'Cancel anytime with 30 days notice.' },
             ].map(({ label, value, note }) => (
@@ -595,7 +604,7 @@ export default function StorePage() {
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Join the network</p>
             <h2 className="text-xl font-black text-gray-900">Register your store</h2>
           </div>
-          <RegistrationForm />
+          <RegistrationForm premium={premium} premiumMonthly={premiumMonthly} premiumKey={premiumKey} />
         </motion.div>
       </div>
 
