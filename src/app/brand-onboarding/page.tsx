@@ -909,9 +909,13 @@ function StepPayment({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount:  total,
-          receipt: `alive_${Date.now()}`,
-          notes:   { brand: data.brandName, email: data.email, screens: data.screens, months: data.months },
+          // Server recomputes the charge from these — `total` is display-only.
+          screens:    data.screens,
+          months:     data.months,
+          couponCode: promoCode || undefined,
+          applyGst:   true,
+          receipt:    `alive_${Date.now()}`,
+          notes:      { brand: data.brandName, email: data.email, screens: data.screens, months: data.months },
         }),
       });
       const body = await res.json() as { id?: string; amount?: number; error?: string };
