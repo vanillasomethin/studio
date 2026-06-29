@@ -53,12 +53,13 @@ export async function GET(req: NextRequest) {
       onboardingStage: string | null; payoutStatus: string | null;
       payoutNotes: string | null; liveAt: Date | null;
       upiId: string | null; payoutMethod: string | null;
+      tier: string | null; monthlyCompensationPaise: number | null;
     };
     let extraMap = new Map<string, ExtraRow>();
     try {
       const extraRows = await db.$queryRaw<ExtraRow[]>`
         SELECT "id", "onboardingStage", "payoutStatus", "payoutNotes", "liveAt",
-               "upiId", "payoutMethod"
+               "upiId", "payoutMethod", "tier", "monthlyCompensationPaise"
         FROM "Store"
       `;
       extraMap = new Map(extraRows.map((r) => [r.id, r]));
@@ -77,6 +78,8 @@ export async function GET(req: NextRequest) {
         liveAt:          ex?.liveAt instanceof Date ? ex.liveAt.toISOString() : (ex?.liveAt ?? null),
         upiId:           ex?.upiId           ?? null,
         payoutMethod:    ex?.payoutMethod    ?? null,
+        tier:            ex?.tier ?? 'standard',
+        monthlyCompensationPaise: Number(ex?.monthlyCompensationPaise ?? 50000),
         deviceCount:     Number(s.deviceCount),
       };
     });
