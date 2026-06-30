@@ -249,9 +249,11 @@ TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
 ADMIN_WHATSAPP                  # default +917411324448
 RESEND_API_KEY                  # email alerts (optional)
-MSG91_AUTH_KEY                  # MSG91 SMS OTP — account auth key (optional; falls back to WhatsApp OTP if absent)
-MSG91_OTP_TEMPLATE_ID           # MSG91 DLT-approved OTP template id
-MSG91_OTP_EXPIRY_MIN            # MSG91 OTP validity in minutes (default 10)
+MSG91_AUTH_KEY                  # MSG91 account auth key (WhatsApp OTP; falls back to Twilio WhatsApp if absent)
+MSG91_WHATSAPP_NUMBER           # MSG91 integrated (sender) WhatsApp business number
+MSG91_WHATSAPP_OTP_TEMPLATE     # approved WhatsApp authentication template name (body + copy-code button)
+MSG91_WHATSAPP_NAMESPACE        # WhatsApp template namespace (optional, if your WABA requires it)
+MSG91_WHATSAPP_LANG             # WhatsApp template language code (default en_US)
 PLAYER_LATEST_VERSION_CODE      # ALIVE Player OTA — latest released versionCode (optional)
 PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionName (optional)
 PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
