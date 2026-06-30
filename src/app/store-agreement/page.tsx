@@ -181,6 +181,16 @@ function AgreementContent() {
   const gstin     = params.get('gstin')   ?? '';
   const today     = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const isPrefilled = params.get('name');
+  // Premium partners are paid more; the gated premium signup link passes ?monthly=1000.
+  const monthly   = Number(params.get('monthly')) || 500;
+
+  // Clause 3.3 carries the monthly remuneration — substitute the premium amount when present.
+  const clauseText = (sub: { heading: string; text?: string }): string | undefined => {
+    if (sub.heading === '3.3' && monthly !== 500) {
+      return `Pay the Shop Owner a fixed monthly remuneration of ₹${monthly.toLocaleString('en-IN')} per screen. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
+    }
+    return sub.text;
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -289,7 +299,7 @@ function AgreementContent() {
                     <div key={sub.heading} className="flex gap-3">
                       <span className="shrink-0 font-semibold text-foreground w-10">{sub.heading}</span>
                       <div className="flex-1 space-y-2">
-                        {'text' in sub && sub.text && <p>{sub.text}</p>}
+                        {'text' in sub && sub.text && <p>{clauseText(sub)}</p>}
                         {'bullets' in sub && sub.bullets && (
                           <ul className="space-y-1.5 pl-2">
                             {sub.bullets.map((b, i) => (

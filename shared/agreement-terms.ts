@@ -50,3 +50,14 @@ export const AGREEMENT_TERMS: { heading: string; body: string }[] = [
     body: 'This agreement is executed electronically under the Information Technology Act, 2000. Electronic acceptance constitutes valid execution without physical signatures or witnesses.',
   },
 ];
+
+// Premium store partners are paid a higher monthly remuneration (e.g. ₹1000).
+// Returns the terms with the Remuneration clause amount substituted; all other
+// clauses (including the separate ₹500 referral reward) are unchanged.
+export function agreementTermsFor(monthlyRupees: number): { heading: string; body: string }[] {
+  return AGREEMENT_TERMS.map((t) =>
+    t.heading === 'Remuneration'
+      ? { ...t, body: `VS Collective LLP shall pay a fixed monthly remuneration of ₹${monthlyRupees} per screen, within 10 working days of month end via UPI/NEFT.` }
+      : t,
+  );
+}

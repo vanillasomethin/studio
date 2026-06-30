@@ -842,7 +842,9 @@ function PendingPaymentCard({
       await loadRazorpay();
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: total, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName } }),
+        // Server recomputes the charge from screens/months (no GST on this
+        // pay-later flow, preserving existing behaviour).
+        body: JSON.stringify({ screens: pending.screens, months: pending.months, applyGst: false, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName } }),
       });
       const body = await res.json() as { id?: string; amount?: number; error?: string };
       if (!res.ok) throw new Error(body.error ?? 'Could not create order');
@@ -1018,9 +1020,12 @@ function NewCampaignModal({
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount:  total,
-          receipt: `alive_${Date.now()}`,
-          notes:   { brand: prefill.brandName, email: prefill.email, screens: modalForm.screens, months: modalForm.months },
+          // Server recomputes the charge from screens/months (+18% GST, as today).
+          screens:  modalForm.screens,
+          months:   modalForm.months,
+          applyGst: true,
+          receipt:  `alive_${Date.now()}`,
+          notes:    { brand: prefill.brandName, email: prefill.email, screens: modalForm.screens, months: modalForm.months },
         }),
       });
       const body = await res.json() as { id?: string; amount?: number; error?: string };

@@ -3,6 +3,7 @@ import { Redis } from '@upstash/redis';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import { notifyStoreWA } from '@/lib/notify';
+import { isWhatsappOtpConfigured, sendWhatsappOtp } from '@/lib/msg91';
 
 function getRedis(): Redis | null {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
@@ -34,21 +35,29 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
-      const otp = String(Math.floor(100000 + Math.random() * 900000));
-
+      // We generate + store the OTP ourselves (Redis) and deliver it over
+      // WhatsApp. MSG91 WhatsApp is the preferred transport; if it isn't
+      // configured (or the send fails) we fall back to Twilio WhatsApp.
       const kv = getRedis();
       if (!kv) return NextResponse.json({ error: 'Reset service unavailable. Contact hello@wearealive.in.' }, { status: 503 });
 
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
       await kv.set(otpKey(phone), otp, { ex: OTP_TTL });
 
-      await notifyStoreWA(phone, [
-        `🔐 *ALIVE Password Reset*`,
-        ``,
-        `Your one-time code is: *${otp}*`,
-        ``,
-        `This code expires in 10 minutes.`,
-        `If you did not request this, ignore this message.`,
-      ].join('\n'));
+      let delivered = false;
+      if (isWhatsappOtpConfigured()) {
+        delivered = await sendWhatsappOtp(phone, otp);
+      }
+      if (!delivered) {
+        await notifyStoreWA(phone, [
+          `🔐 *ALIVE Password Reset*`,
+          ``,
+          `Your one-time code is: *${otp}*`,
+          ``,
+          `This code expires in 10 minutes.`,
+          `If you did not request this, ignore this message.`,
+        ].join('\n'));
+      }
 
       return NextResponse.json({ ok: true });
     }

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
-  IndianRupee, Eye, Package,
+  IndianRupee, Eye, Package, Ticket, Star,
   Tv2, CalendarClock, FileBarChart2, Activity,
   ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
   // New icons for the redesign
@@ -31,6 +31,8 @@ const RoadmapTab       = dynamic(() => import('@/components/admin/roadmap-tab'),
 const ProductsTab      = dynamic(() => import('@/components/admin/products-tab'),       { ssr: false });
 const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'),         { ssr: false });
 const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-panel'),   { ssr: false });
+const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
+const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 import { Logo } from '@/components/icons/logo';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -44,6 +46,7 @@ type StoreReg = {
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
   lat?: string; lng?: string; gstin?: string; email?: string; createdAt: string;
   onboardingStage?: string | null; payoutStatus?: string | null; payoutMethod?: string | null; upiId?: string | null;
+  tier?: string | null; monthlyCompensationPaise?: number | null;
   bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
   referralCode?: string; referredBy?: string | null; agreedAt?: string | null; liveAt?: string | null;
@@ -59,7 +62,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -77,6 +80,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'products',   label: 'Products',    icon: Package     },
       { id: 'campaigns',  label: 'Campaigns',   icon: BarChart3   },
       { id: 'payments',   label: 'Payments',    icon: IndianRupee },
+      { id: 'coupons',    label: 'Coupons',     icon: Ticket      },
     ],
   },
   {
@@ -112,6 +116,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   stores:     { eyebrow: 'Store partners',     title: 'Registered stores'  },
   campaigns:  { eyebrow: 'Brand campaigns',    title: 'All campaigns'      },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
+  coupons:    { eyebrow: 'Brand discounts',    title: 'Coupons'            },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
   content:    { eyebrow: 'Media library',      title: 'Content'            },
   programming:  { eyebrow: 'Screen programming', title: 'Programming'        },
@@ -418,18 +423,20 @@ function StoresPanel() {
   const live     = stores.filter((s) => s.onboardingStage === 'live').length;
   const pending  = stores.filter((s) => !s.onboardingStage || s.onboardingStage === 'new').length;
   const screened = stores.filter((s) => (s.deviceCount ?? 0) > 0).length;
+  const premium  = stores.filter((s) => s.tier === 'premium').length;
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
           { label: 'Registered',  value: stores.length },
           { label: 'Live',        value: live },
           { label: 'Pending',     value: pending },
           { label: 'With screen', value: screened },
+          { label: 'Premium',     value: premium },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center">
             <p className="text-2xl font-bold text-foreground">{s.value}</p>
@@ -460,10 +467,22 @@ function StoresPanel() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 flex-wrap">
                       <div>
-                        <p className="text-sm font-semibold text-foreground">{s.storeName}</p>
+                        <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                          {s.storeName}
+                          {s.tier === 'premium' && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                              <Star className="h-2.5 w-2.5" /> Premium
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-muted-foreground">{s.ownerName}</p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        {s.tier === 'premium' && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                            ₹{Math.round((s.monthlyCompensationPaise ?? 100000) / 100).toLocaleString('en-IN')}/mo
+                          </span>
+                        )}
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STAGE_COLORS[stage] ?? 'bg-gray-100 text-gray-500'}`}>
                           {STAGE_LABELS[stage] ?? stage}
                         </span>
@@ -1030,6 +1049,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     group: 'Finance',
     items: [
       { id: 'payments' as Tab,   label: 'Payouts',          icon: IndianRupee,     count: null },
+      { id: 'coupons' as Tab,    label: 'Coupons',          icon: Ticket,          count: null },
       { id: 'reports' as Tab,    label: 'Reports',          icon: FileBarChart2,   count: null },
     ],
   },
@@ -1200,6 +1220,9 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
 
       <SectionLabel n={2} label="Network" />
       <DeviceFeedCard devices={devices} />
+
+      <SectionLabel n={3} label="Store app" />
+      <AppPreviewCard />
     </>
   );
 }
@@ -1334,6 +1357,7 @@ function Dashboard() {
     monitoring: 'Monitoring',
     footfall:   'Footfall',
     payments:   'Payouts',
+    coupons:    'Coupons',
     reports:    'Reports',
     flyers:     'Flyers',
     layouts:    'Layouts',
@@ -1381,6 +1405,7 @@ function Dashboard() {
               {tab === 'stores'     && <StoresPanel />}
               {tab === 'campaigns'  && <CampaignsPanel />}
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
+              {tab === 'coupons'    && <CouponsTab />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'programming'   && <ProgrammingTab />}

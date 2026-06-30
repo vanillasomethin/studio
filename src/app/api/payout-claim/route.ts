@@ -21,13 +21,14 @@ export const POST = withApiHandler('/api/payout-claim', 'user', async (req: Next
   if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
 
   const claimMonth = month ?? new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const monthlyRupees = Math.round((store.monthlyCompensationPaise ?? 50000) / 100);
 
   await db.auditLog.create({
     data: {
       actorId: session.user.id,
       action:  'PAYOUT_CLAIM',
       target:  store.id,
-      meta:    { storeName: store.storeName, month: claimMonth, amount: '₹500 + electricity' },
+      meta:    { storeName: store.storeName, month: claimMonth, amount: `₹${monthlyRupees.toLocaleString('en-IN')} + electricity` },
     },
   });
 

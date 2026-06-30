@@ -14,7 +14,7 @@ import MapPicker from '@/components/map-picker';
 // ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
 // Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
 // to update both this web page and the mobile app simultaneously.
-import { AGREEMENT_TERMS } from '@shared/agreement-terms';
+import { AGREEMENT_TERMS, agreementTermsFor } from '@shared/agreement-terms';
 import {
   validateForm, makeReferralCode, FORM_INIT,
   type FieldErrors, type FormData,
@@ -89,12 +89,14 @@ function Field({ label, value, onChange, type = 'text', placeholder, prefix, err
 
 // ─── Agreement step ───────────────────────────────────────────────────────────
 
-function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }: {
+function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, premium, premiumMonthly }: {
   form: Form; agreed: boolean; setAgreed: (v: boolean) => void;
   onBack: () => void; onSubmit: () => void; busy: boolean; err: string;
+  premium: boolean; premiumMonthly: number;
 }) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const gstin = form.gstin ? form.gstin.toUpperCase() : null;
+  const terms = premium ? agreementTermsFor(premiumMonthly) : AGREEMENT_TERMS;
   const fullAddress = [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', ');
 
   return (
@@ -123,6 +125,12 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2</p>
         <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
         <p className="text-xs text-gray-500 mt-0.5">Read the key terms below, then sign digitally.</p>
+        {premium && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
+            <Star className="h-3 w-3 text-amber-500" />
+            <span className="text-[11px] font-bold text-amber-700">Premium partner — ₹{premiumMonthly.toLocaleString('en-IN')}/month + electricity</span>
+          </div>
+        )}
       </div>
 
       {/* Parties block */}
@@ -150,7 +158,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
           <p className="text-[10px] text-gray-400 mt-0.5">Scroll to read all terms before signing</p>
         </div>
         <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
-          {AGREEMENT_TERMS.map(({ heading, body }) => (
+          {terms.map(({ heading, body }) => (
             <div key={heading} className="px-4 py-3 flex gap-3 text-xs">
               <span className="font-bold text-gray-800 shrink-0 w-28">{heading}</span>
               <span className="text-gray-500 leading-relaxed">{body}</span>
@@ -160,7 +168,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
         <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between bg-gray-50/40">
           <p className="text-[10px] text-gray-400">Full legal document</p>
           <a
-            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}) }).toString()}`}
+            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}), ...(premium ? { monthly: String(premiumMonthly) } : {}) }).toString()}`}
             target="_blank" rel="noreferrer"
             className="text-[11px] text-red-500 hover:text-red-600 font-semibold flex items-center gap-1"
           >
@@ -206,7 +214,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err }:
 
 const DRAFT_KEY = 'alive_store_draft';
 
-function RegistrationForm() {
+function RegistrationForm({ premium, premiumMonthly, premiumKey }: {
+  premium: boolean; premiumMonthly: number; premiumKey: string | null;
+}) {
   const router    = useRouter();
   const [form,    setForm]    = useState<Form>(INIT);
   const [step,    setStep]    = useState<1 | 2>(1);
@@ -249,6 +259,7 @@ function RegistrationForm() {
       gstin:        form.gstin ? form.gstin.toUpperCase() : undefined,
       referralCode: code,
       agreedAt:     new Date().toISOString(),
+      premiumKey:   premiumKey ?? undefined, // server re-validates; grants premium tier
     };
     try {
       const controller = new AbortController();
@@ -329,7 +340,7 @@ function RegistrationForm() {
   );
 
   if (step === 2) return (
-    <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} />
+    <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} premium={premium} premiumMonthly={premiumMonthly} />
   );
 
   const fe = (k: keyof Form) => touched ? (errors as FieldErrors)[k] : undefined;
@@ -449,6 +460,25 @@ function RegistrationForm() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function StorePage() {
+  // Premium signup is enabled only by a valid key from the gated premium link
+  // (?premium=KEY), validated server-side. Drives both the pitch and the form.
+  const [premium,        setPremium]        = useState(false);
+  const [premiumMonthly, setPremiumMonthly] = useState(500); // rupees
+  const [premiumKey,     setPremiumKey]     = useState<string | null>(null);
+
+  useEffect(() => {
+    let key: string | null = null;
+    try { key = new URLSearchParams(window.location.search).get('premium'); } catch { /* ignore */ }
+    if (!key) return;
+    setPremiumKey(key);
+    fetch(`/api/stores/premium-validate?key=${encodeURIComponent(key)}`)
+      .then((r) => r.ok ? r.json() as Promise<{ premium: boolean; monthlyPaise: number }> : null)
+      .then((d) => { if (d?.premium) { setPremium(true); setPremiumMonthly(Math.round(d.monthlyPaise / 100)); } })
+      .catch(() => { /* invalid key → stays standard */ });
+  }, []);
+
+  const monthlyLabel = premiumMonthly.toLocaleString('en-IN');
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
@@ -472,13 +502,19 @@ export default function StorePage() {
             </h1>
             <p className="text-base text-gray-600 leading-relaxed">
               Alive installs a free digital screen in your store. Brands pay to advertise on it.
-              You earn <span className="text-gray-900 font-semibold">₹500 + electricity every month</span> — without lifting a finger.
+              You earn <span className="text-gray-900 font-semibold">₹{monthlyLabel} + electricity every month</span> — without lifting a finger.
             </p>
+            {premium && (
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
+                <Star className="h-3 w-3 text-amber-500" />
+                <span className="text-[11px] font-bold text-amber-700">Premium partner invite — ₹{monthlyLabel}/month</span>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
             {[
-              { icon: IndianRupee, label: '₹500 + electricity/month', sub: 'Fixed. Paid every month via UPI.' },
+              { icon: IndianRupee, label: `₹${monthlyLabel} + electricity/month`, sub: 'Fixed. Paid every month via UPI.' },
               { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.' },
               { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.' },
               { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
@@ -500,7 +536,7 @@ export default function StorePage() {
             {[
               { n: '01', t: 'Register below',     d: 'Takes 2 minutes.' },
               { n: '02', t: 'We visit & install', d: 'Free screen within 48 h.' },
-              { n: '03', t: 'Earn every month',   d: '₹500 + electricity to your account.' },
+              { n: '03', t: 'Earn every month',   d: `₹${monthlyLabel} + electricity to your account.` },
             ].map(({ n, t, d }) => (
               <div key={n} className="flex items-start gap-3">
                 <span className="text-[11px] font-black text-red-400 mt-0.5 w-5 shrink-0">{n}</span>
@@ -513,7 +549,7 @@ export default function StorePage() {
           </div>
 
           <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {['₹0 installation', '₹500 + electricity/month', 'UPI payout', '24/7 support'].map((t) => (
+            {['₹0 installation', `₹${monthlyLabel} + electricity/month`, 'UPI payout', '24/7 support'].map((t) => (
               <span key={t} className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
                 <Check className="h-3 w-3 text-red-500" /> {t}
               </span>
@@ -544,7 +580,7 @@ export default function StorePage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Deposit &amp; payout</p>
             {[
               { label: 'Security deposit', value: '₹0',            note: 'No deposit ever. Equipment is fully free.' },
-              { label: 'Monthly payout',   value: '₹500+',          note: 'Credited within 10 working days of month end.' },
+              { label: 'Monthly payout',   value: `₹${monthlyLabel}+`,   note: 'Credited within 10 working days of month end.' },
               { label: 'Electricity',      value: 'Reimbursed',     note: 'At rated power × hours × tariff rate.' },
               { label: 'Exit clause',      value: '30-day notice',  note: 'Cancel anytime with 30 days notice.' },
             ].map(({ label, value, note }) => (
@@ -568,7 +604,7 @@ export default function StorePage() {
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Join the network</p>
             <h2 className="text-xl font-black text-gray-900">Register your store</h2>
           </div>
-          <RegistrationForm />
+          <RegistrationForm premium={premium} premiumMonthly={premiumMonthly} premiumKey={premiumKey} />
         </motion.div>
       </div>
 

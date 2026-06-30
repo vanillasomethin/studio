@@ -27,6 +27,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(envelope, { status: 400 });
     }
 
+    const email = body.email.trim().toLowerCase();
+
+    // C1: a free (₹0) campaign — the "free trial" path — is allowed only once
+    // per brand. Without this, anyone could repeatedly create ₹0 campaigns via
+    // the ?trial=1 link. Paid bookings (totalAmount > 0) are unaffected.
+    if (Number(body.totalAmount) <= 0) {
+      const priorFreeTrials = await db.campaign.count({
+        where: { email, totalAmount: { lte: 0 } },
+      });
+      if (priorFreeTrials > 0) {
+        const envelope = await respond({ error: 'A free trial has already been used for this account.' }, { route, request: { email }, outcome: 'invalid_request', policyFlags: ['trial_already_used'], errorCategory: 'validation', startedAtMs });
+        return NextResponse.json(envelope, { status: 403 });
+      }
+    }
+
     // Look up brand by email — optional link
     const brand = await db.brand.findFirst({ where: { email: body.email } });
 

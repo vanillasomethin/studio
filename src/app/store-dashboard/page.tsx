@@ -49,6 +49,8 @@ type StoreInfo = {
   liveAt?:           string;
   onboardingStage?:  string;
   deviceCount?:      number;
+  tier?:                     string;
+  monthlyCompensationPaise?: number;
   payoutMethod?: string; upiId?: string; bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
 };
 
@@ -521,19 +523,21 @@ function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-// Pro-rate ₹500 for the first partial month based on onboarding date.
-// Returns amount in paise for consistency with PaymentRecord.
-function proRateFirstMonth(onboardedAt: Date, monthStart: Date): number {
+// Pro-rate the monthly remuneration for the first partial month based on
+// onboarding date. Returns amount in paise for consistency with PaymentRecord.
+function proRateFirstMonth(onboardedAt: Date, monthStart: Date, monthlyPaise: number): number {
   const monthEnd   = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
   const totalDays  = (monthEnd.getTime() - monthStart.getTime()) / 86400000;
   // Days from onboarding date to end of month (inclusive of onboarding day)
   const daysActive = (monthEnd.getTime() - onboardedAt.getTime()) / 86400000;
   const fraction   = Math.min(1, Math.max(0, daysActive / totalDays));
-  return Math.round(500 * fraction * 100); // in paise
+  return Math.round(monthlyPaise * fraction); // in paise
 }
 
 function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: (monthKey: string, amountPaise: number) => void }) {
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
+  const monthlyPaise = store.monthlyCompensationPaise ?? 50000;
+  const monthlyRupees = Math.round(monthlyPaise / 100);
 
   useEffect(() => {
     fetch('/api/stores/payments')
@@ -566,10 +570,10 @@ function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: (month
     const isCur    = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
     const mo       = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
     const isFirst  = !firstMonthProcessed;
-    // Pro-rate first month; full ₹500 (50000 paise) for subsequent months
+    // Pro-rate first month; full monthly remuneration for subsequent months
     const amountPaise = (isFirst && onboardedAt)
-      ? proRateFirstMonth(onboardedAt, start)
-      : 50000;
+      ? proRateFirstMonth(onboardedAt, start, monthlyPaise)
+      : monthlyPaise;
     if (isFirst) firstMonthProcessed = true;
     months.push({
       label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
@@ -588,7 +592,7 @@ function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: (month
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-bold text-foreground">Payment timeline</h2>
-          <p className="text-[10px] text-muted-foreground mt-0.5">₹500 + electricity per month · paid by 10th of following month</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">₹{monthlyRupees.toLocaleString('en-IN')} + electricity per month · paid by 10th of following month</p>
         </div>
         <Calendar className="h-4 w-4 text-muted-foreground/40" />
       </div>
@@ -797,6 +801,7 @@ function ClaimModal({ store, onClose, claimMonthKey, claimAmountPaise }: {
 
 function AgreementCard({ store }: { store: StoreInfo }) {
   const agreedAt = store.agreedAt;
+  const monthlyRupees = Math.round((store.monthlyCompensationPaise ?? 50000) / 100);
   const date = agreedAt
     ? new Date(agreedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
     : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -833,7 +838,7 @@ function AgreementCard({ store }: { store: StoreInfo }) {
       {/* Key terms compact */}
       <div className="divide-y divide-border">
         {[
-          { t: 'Remuneration', d: '₹500/month per screen, fixed. Paid within 10 working days of month end via UPI/NEFT.' },
+          { t: 'Remuneration', d: `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen, fixed. Paid within 10 working days of month end via UPI/NEFT.` },
           { t: 'Electricity',  d: 'Reimbursed at screen rated power × actual hours × prevailing tariff.' },
           { t: 'Equipment',    d: 'Screen installed free. Remains ALIVE property at all times.' },
           { t: 'Exit',         d: '30 days written notice by either party. ALIVE removes screen at its cost.' },
@@ -899,7 +904,7 @@ function OffersAndPayoutSettings({ store, onSaved }: { store: StoreInfo; onSaved
   return <div className="space-y-4">
     <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
       <h2 className="text-sm font-bold">Payout method</h2>
-      <p className="text-xs text-muted-foreground">Where should we send your monthly ₹500 + electricity reimbursement?</p>
+      <p className="text-xs text-muted-foreground">Where should we send your monthly ₹{Math.round((store.monthlyCompensationPaise ?? 50000) / 100).toLocaleString('en-IN')} + electricity reimbursement?</p>
       <div className="grid grid-cols-2 gap-2">
         <button onClick={()=>setPayout((p)=>({...p,payoutMethod:'upi'}))} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${payout.payoutMethod==='upi' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>UPI</button>
         <button onClick={()=>setPayout((p)=>({...p,payoutMethod:'bank'}))} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${payout.payoutMethod==='bank' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>Bank transfer</button>
@@ -943,6 +948,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
   const [claimAmountPaise, setClaimAmountPaise] = useState(50000);
 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
+  const monthlyRupees = Math.round((storeData.monthlyCompensationPaise ?? 50000) / 100);
 
   const saveEmail = (email: string) => {
     setStoreData((prev) => ({ ...prev, email }));
@@ -986,7 +992,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
             </div>
             <div className="flex gap-2 shrink-0">
               <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-center">
-                <p className="text-base font-bold text-white">₹500</p>
+                <p className="text-base font-bold text-white">₹{monthlyRupees.toLocaleString('en-IN')}</p>
                 <p className="text-[9px] text-white/40">/month</p>
               </div>
               {storeData.liveAt ? (
@@ -1139,7 +1145,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               <div className="rounded-2xl border border-border bg-card px-5 py-3 flex items-center divide-x divide-border">
                 {[
                   { label: 'Total earned', value: '₹0',   accent: false },
-                  { label: 'This month',   value: '₹500', accent: true  },
+                  { label: 'This month',   value: `₹${monthlyRupees.toLocaleString('en-IN')}`, accent: true  },
                   { label: 'Per referral', value: '₹500', accent: false },
                 ].map((s) => (
                   <div key={s.label} className="flex-1 text-center px-3 py-1">

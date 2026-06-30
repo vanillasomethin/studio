@@ -37,13 +37,17 @@ export async function GET() {
     let liveAt: string | null = null;
     let onboardingStage: string | null = null;
     let deviceCount = 0;
+    let tier = 'standard';
+    let monthlyCompensationPaise = 50000;
     try {
-      const extra = await db.$queryRaw<{ liveAt: Date | null; onboardingStage: string | null }[]>`
-        SELECT "liveAt", "onboardingStage" FROM "Store" WHERE "userId" = ${session.user.id} LIMIT 1
+      const extra = await db.$queryRaw<{ liveAt: Date | null; onboardingStage: string | null; tier: string | null; monthlyCompensationPaise: number | null }[]>`
+        SELECT "liveAt", "onboardingStage", "tier", "monthlyCompensationPaise" FROM "Store" WHERE "userId" = ${session.user.id} LIMIT 1
       `;
       const v = extra[0]?.liveAt;
       liveAt = v instanceof Date ? v.toISOString() : (v ?? null);
       onboardingStage = extra[0]?.onboardingStage ?? null;
+      tier = extra[0]?.tier ?? 'standard';
+      monthlyCompensationPaise = Number(extra[0]?.monthlyCompensationPaise ?? 50000);
     } catch { /* column not yet migrated — safe default null */ }
 
     // Count linked devices for store overview
@@ -74,6 +78,8 @@ export async function GET() {
       liveAt,
       onboardingStage,
       deviceCount,
+      tier,
+      monthlyCompensationPaise,
       createdAt:       s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
       // from User join
       email:        (s as unknown as { email?: string }).email ?? null,
