@@ -10,6 +10,7 @@
 import { ai } from '@/ai/genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import { z } from 'genkit';
+import { isNvidiaImageConfigured, generateImageNvidia } from '@/lib/nvidia-image';
 
 const GenerateProductImageInputSchema = z.object({
   productName: z.string(),
@@ -45,6 +46,13 @@ const generateProductImageFlow = ai.defineFlow(
       `Single product centred on a pure white seamless background, soft even studio lighting, ` +
       `sharp focus, realistic packaging, no text overlays, no watermark, no people, no props. ` +
       `Square 1:1 framing suitable for a retail catalogue thumbnail.`;
+
+    // Preferred: NVIDIA hosted image model. Falls through to Gemini if NVIDIA
+    // isn't configured or the call fails.
+    if (isNvidiaImageConfigured()) {
+      const dataUri = await generateImageNvidia(prompt);
+      if (dataUri) return { dataUri };
+    }
 
     const { media } = await ai.generate({
       model: googleAI.model('gemini-2.5-flash-image'),
