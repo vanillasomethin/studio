@@ -208,13 +208,15 @@ export async function GET(req: NextRequest) {
                 order:      true,
                 content: {
                   select: {
-                    id:            true,
-                    objectKey:     true,
-                    md5:           true,
-                    type:          true,
-                    durationMs:    true,
-                    hevcObjectKey: true,
-                    hevcMd5:       true,
+                    id:                true,
+                    objectKey:         true,
+                    md5:               true,
+                    type:              true,
+                    durationMs:        true,
+                    hevcObjectKey:     true,
+                    hevcMd5:           true,
+                    baselineObjectKey: true,
+                    baselineMd5:       true,
                   },
                 },
               },
@@ -248,15 +250,17 @@ export async function GET(req: NextRequest) {
     const schedule = currentSlot ? scheduleMap.get(currentSlot.scheduleId) : undefined;
 
     const items = schedule?.playlist.items.map((item) => ({
-      contentId:  item.content.id,
-      objectKey:  item.content.objectKey,
-      url:        publicUrl(item.content.objectKey),
-      md5:        item.content.md5,
-      type:       item.content.type,
-      durationMs: item.durationMs,
-      order:      item.order,
-      hevcUrl:    item.content.hevcObjectKey ? publicUrl(item.content.hevcObjectKey) : undefined,
-      hevcMd5:    item.content.hevcMd5 ?? undefined,
+      contentId:   item.content.id,
+      objectKey:   item.content.objectKey,
+      url:         publicUrl(item.content.objectKey),
+      md5:         item.content.md5,
+      type:        item.content.type,
+      durationMs:  item.durationMs,
+      order:       item.order,
+      hevcUrl:     item.content.hevcObjectKey ? publicUrl(item.content.hevcObjectKey) : undefined,
+      hevcMd5:     item.content.hevcMd5 ?? undefined,
+      baselineUrl: item.content.baselineObjectKey ? publicUrl(item.content.baselineObjectKey) : undefined,
+      baselineMd5: item.content.baselineMd5 ?? undefined,
     })) ?? [];
 
     // Build the full timeline for the 72-hr window
@@ -341,22 +345,24 @@ export async function GET(req: NextRequest) {
             select: {
               durationMs: true,
               order:      true,
-              content:    { select: { id: true, objectKey: true, md5: true, type: true, durationMs: true, hevcObjectKey: true, hevcMd5: true } },
+              content:    { select: { id: true, objectKey: true, md5: true, type: true, durationMs: true, hevcObjectKey: true, hevcMd5: true, baselineObjectKey: true, baselineMd5: true } },
             },
             orderBy: { order: 'asc' },
           },
         },
       });
       fallback = fp?.items.map((item) => ({
-        contentId:  item.content.id,
-        objectKey:  item.content.objectKey,
-        url:        publicUrl(item.content.objectKey),
-        md5:        item.content.md5,
-        type:       item.content.type,
-        durationMs: item.durationMs,
-        order:      item.order,
-        hevcUrl:    item.content.hevcObjectKey ? publicUrl(item.content.hevcObjectKey) : undefined,
-        hevcMd5:    item.content.hevcMd5 ?? undefined,
+        contentId:   item.content.id,
+        objectKey:   item.content.objectKey,
+        url:         publicUrl(item.content.objectKey),
+        md5:         item.content.md5,
+        type:        item.content.type,
+        durationMs:  item.durationMs,
+        order:       item.order,
+        hevcUrl:     item.content.hevcObjectKey ? publicUrl(item.content.hevcObjectKey) : undefined,
+        hevcMd5:     item.content.hevcMd5 ?? undefined,
+        baselineUrl: item.content.baselineObjectKey ? publicUrl(item.content.baselineObjectKey) : undefined,
+        baselineMd5: item.content.baselineMd5 ?? undefined,
       })) ?? [];
     }
 
@@ -381,6 +387,11 @@ export async function GET(req: NextRequest) {
       validUntil: windowEnd.toISOString(),
       forceSyncAt: device.forceSyncAt?.toISOString() ?? null,
       orientation: device.orientation,
+      // Device-level, not per-item, same reasoning as orientation: HEVC (default) means
+      // "no negative signal yet, use your local decoder-capability heuristic as today."
+      // H264_MAIN/H264_BASELINE mean this device has already demonstrably failed a
+      // higher tier — hard override, ignore the local heuristic. See src/lib/rendition.ts.
+      preferredRendition: device.renditionTier,
       transition,
       fallback,
       config: {

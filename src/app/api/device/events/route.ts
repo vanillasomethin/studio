@@ -13,6 +13,7 @@ import { verifyDeviceToken } from '@/lib/device-auth';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { respond } from '@/lib/api-envelope';
+import { downgradeTier } from '@/lib/rendition';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -52,6 +53,16 @@ function telemetryToDeviceData(t: TelemetryInput) {
     ...(t.lastStallReason ? { lastStallReason: t.lastStallReason } : {}),
     ...(stallAt           ? { lastStallAt:     stallAt           } : {}),
   };
+}
+
+/** A device only downgrades once per distinct stall — compare against the device row's
+ *  CURRENT lastStallAt (fetched before this request's update) so re-reporting the same
+ *  stall on later heartbeats doesn't cascade the tier down repeatedly. */
+function maybeDowngradeForStall(device: { lastStallAt: Date | null; renditionTier: import('@prisma/client').RenditionTier }, t: TelemetryInput) {
+  if (typeof t.lastStallMs !== 'number' || t.lastStallMs <= 0) return {};
+  const stallAt = new Date(t.lastStallMs);
+  if (device.lastStallAt && stallAt.getTime() <= device.lastStallAt.getTime()) return {};
+  return { renditionTier: downgradeTier(device.renditionTier) };
 }
 
 async function authenticate(req: NextRequest) {
@@ -100,6 +111,7 @@ export async function POST(req: NextRequest) {
           data:  {
             lastSeen: new Date(), status: 'ONLINE',
             ...telemetryToDeviceData(telemetry),
+            ...maybeDowngradeForStall(device, telemetry),
           },
         }).catch(() => { /* telemetry columns may not exist yet */ });
         const envelope = await respond({ accepted: 0, telemetry: true }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'success', policyFlags: ['telemetry_only'], startedAtMs });
@@ -183,6 +195,7 @@ export async function POST(req: NextRequest) {
       data:  {
         lastSeen: new Date(), status: 'ONLINE',
         ...(telemetry ? telemetryToDeviceData(telemetry) : {}),
+        ...(telemetry ? maybeDowngradeForStall(device, telemetry) : {}),
       },
     }).catch(() => { /* telemetry columns may not exist yet */ });
 

@@ -252,6 +252,15 @@ enum DeviceOrientation {
   AUTO
 }
 
+// Ordered most- to least-efficient. Content.hevcObjectKey is always the HEVC asset,
+// Content.objectKey the H.264 Main@4.1 asset, Content.baselineObjectKey the H.264
+// Baseline@3.1 asset — this enum just names which one a given device should be served.
+enum RenditionTier {
+  HEVC
+  H264_MAIN
+  H264_BASELINE
+}
+
 model Device {
   id               String            @id @default(cuid())
   hardwareKey      String            @unique
@@ -280,6 +289,16 @@ model Device {
   playbackAliveAt  DateTime?
   lastStallReason  String?
   lastStallAt      DateTime?
+
+  // Per-device learned-safe video rendition. Starts at HEVC (= "no negative signal
+  // yet, let the player's local decoder-capability heuristic choose"). A real playback
+  // stall (lastStallAt, above) or a failed "Test screen" liveness check downgrades this
+  // one notch — HEVC -> H264_MAIN -> H264_BASELINE — so a device that has demonstrably
+  // failed to play a rendition converges on one it can actually decode, instead of the
+  // fleet-wide guess repeatedly failing the same box. See src/lib/rendition.ts.
+  renditionTier       RenditionTier @default(HEVC)
+  lastTestDowngradeAt DateTime? // dedup key: one downgrade per failed test run (keyed by that test's startedAt)
+
   updatedAt        DateTime          @updatedAt
 
   store              Store?              @relation(fields: [storeId], references: [id], onDelete: SetNull)
@@ -410,6 +429,14 @@ model Content {
   hevcObjectKey String? @unique
   hevcMd5       String?
   hevcSizeBytes BigInt?
+
+  // Third, most-conservative rendition: H.264 Baseline Profile / Level 3.1. Best-effort,
+  // same as the HEVC rendition above — served only to devices whose renditionTier has
+  // been downgraded all the way down (see Device.renditionTier), i.e. that have already
+  // demonstrably failed to play both HEVC and H.264 Main@4.1.
+  baselineObjectKey String? @unique
+  baselineMd5       String?
+  baselineSizeBytes BigInt?
 
   items PlaylistItem[]
 

@@ -4,11 +4,12 @@
 // endpoint can overwrite a Content row's objectKey/md5.
 //
 // Body (success): { contentId, status: 'done', objectKey, md5, sizeBytes, durationMs, width?, height?,
-//                    hevcObjectKey?, hevcMd5?, hevcSizeBytes? }
+//                    hevcObjectKey?, hevcMd5?, hevcSizeBytes?,
+//                    baselineObjectKey?, baselineMd5?, baselineSizeBytes? }
 // Body (failure): { contentId, status: 'error', message }
 //
-// hevc* fields are present only when the Lambda's best-effort HEVC pass succeeded —
-// absent means this content has no HEVC rendition (yet).
+// hevc*/baseline* fields are present only when the Lambda's best-effort pass for that
+// rendition succeeded — absent means this content doesn't have it (yet).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -23,6 +24,7 @@ type Body =
       contentId: string; status: 'done'; objectKey: string; md5: string; sizeBytes: number;
       durationMs?: number; width?: number; height?: number;
       hevcObjectKey?: string; hevcMd5?: string; hevcSizeBytes?: number;
+      baselineObjectKey?: string; baselineMd5?: string; baselineSizeBytes?: number;
     }
   | { contentId: string; status: 'error'; message: string };
 
@@ -60,6 +62,9 @@ export async function POST(req: NextRequest) {
           hevcObjectKey:   body.hevcObjectKey ?? undefined,
           hevcMd5:         body.hevcMd5 ?? undefined,
           hevcSizeBytes:   body.hevcSizeBytes ?? undefined,
+          baselineObjectKey: body.baselineObjectKey ?? undefined,
+          baselineMd5:       body.baselineMd5 ?? undefined,
+          baselineSizeBytes: body.baselineSizeBytes ?? undefined,
         },
       });
     } catch {
@@ -69,7 +74,9 @@ export async function POST(req: NextRequest) {
             "durationMs" = ${body.durationMs ?? null}, width = ${body.width ?? null}, height = ${body.height ?? null},
             "transcodeStatus" = 'done', "transcodeError" = NULL,
             "hevcObjectKey" = ${body.hevcObjectKey ?? null}, "hevcMd5" = ${body.hevcMd5 ?? null},
-            "hevcSizeBytes" = ${body.hevcSizeBytes ?? null}
+            "hevcSizeBytes" = ${body.hevcSizeBytes ?? null},
+            "baselineObjectKey" = ${body.baselineObjectKey ?? null}, "baselineMd5" = ${body.baselineMd5 ?? null},
+            "baselineSizeBytes" = ${body.baselineSizeBytes ?? null}
         WHERE id = ${body.contentId}
       `;
     }

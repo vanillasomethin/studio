@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushPlanUpdated } from '@/lib/fcm';
+import { downgradeTier } from '@/lib/rendition';
 
 const TEST_DURATION_MINS = 3;
 
@@ -103,11 +104,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const device = await db.device.findUnique({
       where:  { id },
-      select: { lastSeen: true, playbackAliveAt: true, lastStallReason: true, lastStallAt: true },
+      select: {
+        lastSeen: true, playbackAliveAt: true, lastStallReason: true, lastStallAt: true,
+        renditionTier: true, lastTestDowngradeAt: true,
+      },
     });
 
+    const confirmed = play != null;
+    // A test run is over TEST_DURATION_MINS after it started. Only downgrade once per
+    // distinct run (keyed by sinceDate) so repeated polling of the same failed test
+    // doesn't cascade the tier down on every 3s poll after expiry.
+    const expired = Date.now() - sinceDate.getTime() > TEST_DURATION_MINS * 60 * 1000;
+    if (device && !confirmed && expired &&
+        (!device.lastTestDowngradeAt || device.lastTestDowngradeAt.getTime() < sinceDate.getTime())) {
+      await db.device.update({
+        where: { id },
+        data:  { renditionTier: downgradeTier(device.renditionTier), lastTestDowngradeAt: sinceDate },
+      });
+    }
+
     return NextResponse.json({
-      confirmed:       play != null,
+      confirmed,
       playedAt:        play?.startedAt?.toISOString() ?? null,
       durationMs:      play?.durationMs ?? null,
       lastSeen:        device?.lastSeen?.toISOString() ?? null,
