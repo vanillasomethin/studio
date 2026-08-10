@@ -623,14 +623,32 @@ const STATUS_ICONS: Record<Device['status'], React.ElementType> = {
 const PAGE_SIZE = 50;
 
 // ─── Sideload APK card ────────────────────────────────────────────────────────
+// Defaults to the same APK_DIRECT_URL the "Register a new screen" card already links
+// to, so this card isn't blank on first load — same env var, same fallback. Any admin
+// override (e.g. a fresher build's direct URL) persists to localStorage, mirroring
+// AppPreviewCard's pattern above.
+const SIDELOAD_APK_LS_KEY = 'alive_sideload_apk_url';
+
 function SideloadApkCard() {
   const [open,   setOpen]   = useState(false);
   const [apkUrl, setApkUrl] = useState('');
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    const baseUrl = window.location.origin;
+    const envDefault = APK_DIRECT_URL.startsWith('http') ? APK_DIRECT_URL : `${baseUrl}${APK_DIRECT_URL}`;
+    setApkUrl(localStorage.getItem(SIDELOAD_APK_LS_KEY) || envDefault);
+  }, []);
+
   const copy = () => {
     if (!apkUrl) return;
     navigator.clipboard.writeText(apkUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  const updateUrl = (next: string) => {
+    setApkUrl(next);
+    if (next) localStorage.setItem(SIDELOAD_APK_LS_KEY, next);
+    else localStorage.removeItem(SIDELOAD_APK_LS_KEY);
   };
 
   return (
@@ -654,7 +672,7 @@ function SideloadApkCard() {
               <input
                 type="url"
                 value={apkUrl}
-                onChange={(e) => setApkUrl(e.target.value)}
+                onChange={(e) => updateUrl(e.target.value)}
                 placeholder="https://example.com/alive-player.apk"
                 className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />

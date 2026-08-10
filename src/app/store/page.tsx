@@ -558,16 +558,6 @@ export default function StorePage() {
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
-              <Gift className="h-4 w-4 text-gray-400 shrink-0" />
-              <p className="text-sm font-bold text-gray-900">Joining bonus — ₹500</p>
-            </div>
-            <p className="text-xs text-gray-500 leading-relaxed">
-              We credit ₹500 to your account the day your screen goes live — no conditions, no waiting period.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
-            <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-gray-400 shrink-0" />
               <p className="text-sm font-bold text-gray-900">Publish your own offers</p>
             </div>
