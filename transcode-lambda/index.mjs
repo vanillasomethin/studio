@@ -23,7 +23,12 @@
 //      AVC decoder (falls back to CPU-bound software decode) but a working hardware
 //      HEVC decoder — the player prefers this rendition on those devices. Failure here
 //      doesn't fail the job; the H.264 rendition is always the required baseline.
-//   5. Calls back to the studio app with the result(s) so it can update the Content row.
+//   5. Best-effort: also re-encodes to H.264 Baseline Profile / Level 3.1, capped at
+//      720p — a third, even more conservative rendition for the handful of devices
+//      that fail BOTH renditions above. Server-selected per-device via
+//      Device.renditionTier once a real playback failure is reported (see
+//      src/lib/rendition.ts in the studio app) — never picked by fleet-wide default.
+//   6. Calls back to the studio app with the result(s) so it can update the Content row.
 //
 // Required Lambda configuration (see ../TRANSCODE_LAMBDA.md for full deploy steps):
 //   Memory:    >= 2048 MB (more memory = more CPU in Lambda, needed for ffmpeg)
@@ -77,6 +82,7 @@ export const handler = async (event) => {
   const tmpIn = `/tmp/${randomUUID()}-in`;
   const tmpOut = `/tmp/${randomUUID()}-out.mp4`;
   const tmpOutHevc = `/tmp/${randomUUID()}-out-hevc.mp4`;
+  const tmpOutBaseline = `/tmp/${randomUUID()}-out-baseline.mp4`;
 
   try {
     if (!contentId || !inputUrl) throw new Error('contentId and inputUrl are required');
@@ -152,10 +158,42 @@ export const handler = async (event) => {
       console.error('HEVC transcode failed (non-fatal, H.264 rendition still used):', err);
     }
 
+    // 6. Best-effort third rendition: H.264 Baseline Profile / Level 3.1, capped at
+    //    720p. The most conservative encode this pipeline produces — no B-frames, no
+    //    CABAC (both disabled implicitly by Baseline Profile), lower resolution/bitrate
+    //    than the Main@4.1 rendition above. Reserved for devices that have already
+    //    failed BOTH the HEVC and Main@4.1 renditions (see Device.renditionTier) — the
+    //    small handful of chips in the field too weak/broken even for the fleet-wide
+    //    default. Never blocks the required H.264 Main rendition: on failure, just log.
+    let baselineResult;
+    try {
+      await run(ffmpegPath.path, [
+        '-y', '-i', tmpIn,
+        '-c:v', 'libx264', '-profile:v', 'baseline', '-level', '3.1', '-pix_fmt', 'yuv420p',
+        '-vf', "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+        '-r', '30', '-b:v', '3M', '-maxrate', '4M', '-bufsize', '6M',
+        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
+        tmpOutBaseline,
+      ]);
+      const baselineBytes = await readFile(tmpOutBaseline);
+      const baselineMd5 = createHash('md5').update(baselineBytes).digest('hex');
+      const baselineObjectKey = `content/${contentId}-transcoded-baseline-${Date.now()}.mp4`;
+      await r2Client().send(new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: baselineObjectKey,
+        Body: baselineBytes,
+        ContentType: 'video/mp4',
+      }));
+      baselineResult = { baselineObjectKey, baselineMd5, baselineSizeBytes: baselineBytes.length };
+    } catch (err) {
+      console.error('Baseline transcode failed (non-fatal, H.264 Main rendition still used):', err);
+    }
+
     await callback({
       contentId, status: 'done', objectKey, md5,
       sizeBytes: outBytes.length, durationMs, width, height,
       ...hevcResult,
+      ...baselineResult,
     });
   } catch (err) {
     console.error('Transcode failed:', err);
@@ -164,5 +202,6 @@ export const handler = async (event) => {
     await unlink(tmpIn).catch(() => {});
     await unlink(tmpOut).catch(() => {});
     await unlink(tmpOutHevc).catch(() => {});
+    await unlink(tmpOutBaseline).catch(() => {});
   }
 };

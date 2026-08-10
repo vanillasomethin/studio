@@ -9,6 +9,13 @@ format-support pre-check reported it as playable — a known Realtek OMX
 capability-reporting quirk, not an app bug. See `transcode-lambda/index.mjs`
 for the full failure-mode writeup.
 
+Also produces two further best-effort renditions of the same upload: HEVC/H.265 (for
+devices with a broken hardware AVC decoder but a working HEVC one) and H.264 Baseline
+Profile / Level 3.1 capped at 720p (the most conservative fallback, for the handful of
+devices that fail even the Main@4.1 rendition). Neither is picked by fleet-wide default —
+`Device.renditionTier` in the studio app selects per-device once a real playback failure
+is reported, see `src/lib/rendition.ts`.
+
 ## Why Lambda (same reasoning as Remotion — see REMOTION.md)
 
 ffmpeg can't run on Vercel serverless: the binary is too large to bundle and
