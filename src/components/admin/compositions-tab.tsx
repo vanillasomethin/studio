@@ -92,8 +92,8 @@ function ZonePreview({
 }) {
   return (
     <div
-      className={`relative bg-gray-900 rounded-lg overflow-hidden border border-border ${small ? 'w-full' : 'w-full'}`}
-      style={{ aspectRatio: '16/9' }}
+      className={`relative bg-gray-900 rounded-lg overflow-hidden border border-border mx-auto ${small ? 'w-full max-w-[120px]' : 'w-full max-w-[220px]'}`}
+      style={{ aspectRatio: '9/16' }}
     >
       {zones.map((z, i) => {
         const c = zc(i);
@@ -187,8 +187,8 @@ function DrawCanvas({
   return (
     <div
       ref={ref}
-      className={`relative bg-gray-900 rounded-xl overflow-hidden border-2 border-border select-none ${drawMode ? 'cursor-crosshair' : 'cursor-default'}`}
-      style={{ aspectRatio: '16/9' }}
+      className={`relative bg-gray-900 rounded-xl overflow-hidden border-2 border-border select-none mx-auto w-full max-w-[360px] ${drawMode ? 'cursor-crosshair' : 'cursor-default'}`}
+      style={{ aspectRatio: '9/16' }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
@@ -336,7 +336,7 @@ function EditorModal({
             {/* Canvas */}
             <div className="lg:col-span-2 space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Canvas (16:9)</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Canvas (9:16)</label>
                 <button
                   onClick={() => setDrawMode((v) => !v)}
                   className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${drawMode ? 'border-primary/50 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
