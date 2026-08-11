@@ -16,7 +16,12 @@
 FROM public.ecr.aws/lambda/nodejs:20
 
 COPY package.json ${LAMBDA_TASK_ROOT}/
-RUN npm install --omit=dev --prefix ${LAMBDA_TASK_ROOT}
+# The postinstall-set executable bit on the ffmpeg/ffprobe platform binaries doesn't
+# reliably survive BuildKit's layer export to ECR (observed: spawn .../ffprobe EACCES
+# at runtime despite a clean local build) -- chmod explicitly rather than trust it.
+RUN npm install --omit=dev --prefix ${LAMBDA_TASK_ROOT} \
+ && chmod +x ${LAMBDA_TASK_ROOT}/node_modules/@ffmpeg-installer/linux-x64/ffmpeg \
+             ${LAMBDA_TASK_ROOT}/node_modules/@ffprobe-installer/linux-x64/ffprobe
 
 COPY index.mjs ${LAMBDA_TASK_ROOT}/
 
