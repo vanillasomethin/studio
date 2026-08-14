@@ -197,14 +197,25 @@ export async function GET(req: NextRequest) {
     let transition: 'NONE' | 'FADE' | 'SLIDE' = 'NONE';
     let scheduleId: string | null    = null;
 
+    // ── Slot loop (slot-mode stores) ───────────────────────────────────────────
+    // Built first, then attached as the plan's FALLBACK rather than replacing the
+    // schedule. Slot inventory and scheduling are two different settings that have to
+    // coexist: the loop is a store's base programming all day, and any schedule
+    // targeting this device still wins for its own window (priority + dayparting are
+    // unchanged). A store can therefore sell slots AND run scheduled content.
+    //
+    // Only today's loop, and only while the store is actually open — a loop playing to
+    // a shuttered shop would bank proof-of-play rows for hours the brands did not buy.
+    // The 15-min poll (plus FCM push) rolls it over at open/close and at midnight.
+    let slotLoop: WireItem[] = [];
     if (slotMode) {
-      // ── Slot mode: fixed loop of N 10s ad slots, sold by position+date ─────────
-      // Today's loop only (bookings differ per day and the plan format shares one
-      // item list across windows); the 15-min poll + midnight hash change roll the
-      // loop over to the next day's bookings.
       const store = deviceWithStore!;
       const today = istToday(now);
-      if (isOpenOn(store.openDays, today)) {
+      const openNow = isOpenOn(store.openDays, today)
+        && now >= new Date(`${today}T${store.hoursStart}:00+05:30`)
+        && now <  new Date(`${today}T${store.hoursEnd}:00+05:30`);
+
+      if (openNow) {
         const bookings = await db.slotBooking.findMany({
           where:  { storeId: store.id, date: new Date(`${today}T00:00:00Z`) },
           select: {
@@ -231,7 +242,7 @@ export async function GET(req: NextRequest) {
           : [];
         const contentMap = new Map(contents.map((c) => [c.id, c]));
 
-        items = loop.flatMap((a) => {
+        slotLoop = loop.flatMap((a) => {
           const c = contentMap.get(a.contentId);
           if (!c) return [];
           return [{
@@ -249,22 +260,14 @@ export async function GET(req: NextRequest) {
             campaignId:   a.campaignId,
           }];
         });
-
-        const winStart = new Date(`${today}T${store.hoursStart}:00+05:30`);
-        const winEnd   = new Date(`${today}T${store.hoursEnd}:00+05:30`);
-        if (items.length > 0 && winEnd > now) {
-          scheduleId = `slotloop:${today}`;
-          timeline = [{
-            scheduleId, priority: 0,
-            startAt: winStart.toISOString(), endAt: winEnd.toISOString(),
-            playlistId: null, name: `Slot loop ${today}`,
-          }];
-        }
       }
-      // Closed day or nothing playable: empty items/timeline — the player falls back
-      // to the fallback playlist / waiting screen, same as a schedule gap.
-    } else {
-      // ── Schedule mode (existing behaviour) ─────────────────────────────────────
+    }
+
+    // ── Schedules ──────────────────────────────────────────────────────────────
+    // Runs for every device, slot-mode or not. Where a schedule window is active it
+    // takes precedence over the slot loop; the rest of the time the player falls
+    // through to `fallback` below.
+    {
       // Find all schedules active in the next 72-hr window for this device, group, store, or city.
       const scheduleOrConditions = [
         { deviceIds: { has: device.id } },
@@ -401,11 +404,16 @@ export async function GET(req: NextRequest) {
       where: { id: 1 }, update: {}, create: { id: 1 },
     });
 
-    // Xibo-style default layout: content to play when no schedule window is active,
-    // instead of the idle "waiting for content" screen. Flattened only — the fallback
-    // loops in full anyway, so nesting adds nothing here.
+    // What plays when no schedule window is active, instead of the idle "waiting for
+    // content" screen. For a slot-mode store during opening hours that is the sold ad
+    // loop — which is how slot inventory and scheduling combine: the loop is the base
+    // programming, a schedule overrides it for its window, and the loop resumes after.
+    // Otherwise it is the Xibo-style default layout (flattened; the fallback loops in
+    // full anyway, so nesting adds nothing).
     let fallback: typeof items = [];
-    if (playerConfig.fallbackPlaylistId) {
+    if (slotLoop.length > 0) {
+      fallback = slotLoop;
+    } else if (playerConfig.fallbackPlaylistId) {
       fallback = (await resolvePlaylistTree(playerConfig.fallbackPlaylistId)).flat;
     }
 

@@ -125,6 +125,16 @@ model Store {
   // Kept nullable rather than defaulted so enabling this feature never silently
   // flips existing stores from their scheduled playlists to a house-ads loop.
   loopSlotCount    Int?
+  // Installed screen (the TV, not the Android box — see Device for that). Captured at
+  // install per docs/SCREEN_SURVEY_SOP.md: photograph the model plate and the power
+  // rating label, then type the wattage in. Null screenWatts = fall back to the fleet
+  // default in PlayerConfig, which is a guess and dominates the electricity estimate's
+  // error — the photos exist so that guess can be replaced with the real figure.
+  screenWatts          Int?
+  screenModel          String?
+  screenPlatePhotoUrl  String? // photo of the model/serial plate
+  screenRatingPhotoUrl String? // photo of the power rating label (the W figure)
+  screenSurveyedAt     DateTime?
   openDays         Int    @default(127) // bitmask, bit0=Mon … bit6=Sun; closed days excluded from availability
   hoursStart       String @default("09:00") // IST, loop plays hoursStart–hoursEnd
   hoursEnd         String @default("21:00")
@@ -932,5 +942,11 @@ model PlayerConfig {
   // Default house-ads campaign for slot-loop filler (Store.fillerCampaignId overrides
   // per store). Plain id, not a relation — a deleted campaign just means no filler.
   fillerCampaignId         String?
+  // Electricity estimation. defaultScreenWatts is the fleet fallback when a store has
+  // no measured screenWatts; paisePerKwh is the tariff applied to estimated units.
+  // Both are assumptions — see lib/power.ts on why the result is an estimate, not a
+  // meter reading, and must always be labelled as such to partners.
+  defaultScreenWatts       Int      @default(60)  // 32–43" LED TV + Android box
+  electricityPaisePerKwh   Int      @default(800) // ₹8.00 per unit
   updatedAt                DateTime @updatedAt
 }

@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "verify:slots": "node --experimental-strip-types scripts/verify-slots.mjs"
+    "verify:slots": "node --experimental-strip-types scripts/verify-slots.mjs",
+    "verify:power": "node --experimental-strip-types scripts/verify-power.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

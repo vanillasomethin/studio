@@ -15,6 +15,7 @@ import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
 import KycTab from '@/components/store/kyc-tab';
+import ScreenPowerCard from '@/components/store/screen-power-card';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
@@ -1165,6 +1166,10 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               </div>
 
               {/* 12-month timeline */}
+              {/* Screen + electricity estimate — see components/store/screen-power-card.
+                  Needs a persisted store id; a draft session that hasn't saved yet has none. */}
+              {storeData.id && <ScreenPowerCard storeId={storeData.id} />}
+
               <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 
             </motion.div>
