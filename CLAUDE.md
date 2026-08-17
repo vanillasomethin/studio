@@ -8,8 +8,8 @@
 - **Shoppers** — see deals/offers at their local kirana store
 
 **Company:** VS Collective LLP · GST 29AAXFV2589C1ZE · LLP IN-KA43598411418020V  
-**Contact:** hello@wearealive.in · +91 74113 24448  
-**Address:** #13 First Floor Highland Manor, Falnir, Mangalore 575002
+**Contact:** hello@wearealive.in · +91 96060 72227  
+**Address:** 217, Milestone 25, Balmatta, Mangalore
 
 ---
 
@@ -255,7 +255,7 @@ AUTH_SECRET
 ADMIN_PASSWORD
 TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
-ADMIN_WHATSAPP                  # default +917411324448
+ADMIN_WHATSAPP                  # default +919606072227
 RESEND_API_KEY                  # email alerts (optional)
 MSG91_AUTH_KEY                  # MSG91 account auth key (WhatsApp OTP; falls back to Twilio WhatsApp if absent)
 MSG91_WHATSAPP_NUMBER           # MSG91 integrated (sender) WhatsApp business number

@@ -796,10 +796,10 @@ function StepAgreement({
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
                 <p className="text-muted-foreground">LLP IN-KA43598411418020V</p>
-                <p className="text-muted-foreground">#13, First Floor, Highland Manor</p>
-                <p className="text-muted-foreground">Falnir, Mangaluru 575002, Karnataka</p>
+                <p className="text-muted-foreground">217, Milestone 25, Balmatta</p>
+                <p className="text-muted-foreground">Mangalore, Karnataka</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
-                <p className="text-muted-foreground">hello@wearealive.in · +91 74113 24448</p>
+                <p className="text-muted-foreground">hello@wearealive.in · +91 96060 72227</p>
                 <p className="text-muted-foreground">Operating as: ALIVE advertising platform</p>
               </div>
               <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
@@ -840,7 +840,7 @@ function StepAgreement({
               <div className="space-y-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
-                <p className="text-muted-foreground">#13, First Floor, Highland Manor, Falnir, Mangaluru 575002</p>
+                <p className="text-muted-foreground">217, Milestone 25, Balmatta, Mangalore</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
                 <p className="text-muted-foreground">Authorised by: ALIVE Platform (automated)</p>
                 <p className="text-muted-foreground">Date: {effectiveDate}</p>

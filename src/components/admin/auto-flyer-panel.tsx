@@ -50,7 +50,7 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
   const [title,       setTitle]       = useState("This Week's Best Deals");
   const [footerLine1, setFooterLine1] = useState('ALIVE — Live At Your Local Kirana');
   const [contactWebsite, setContactWebsite] = useState('wearealive.in');
-  const [contactPhone,   setContactPhone]   = useState('+91 74113 24448');
+  const [contactPhone,   setContactPhone]   = useState('+91 96060 72227');
 
   const [generating, setGenerating] = useState(false);
   const [saving,      setSaving]     = useState(false);

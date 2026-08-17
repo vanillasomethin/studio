@@ -1115,7 +1115,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Quick actions</h2>
                 {[
                   { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
-                  { icon: Phone,         label: 'Call us',           desc: '+91 74113 24448',   href: 'tel:+919741324448', color: 'text-blue-500' },
+                  { icon: Phone,         label: 'Call us',           desc: '+91 96060 72227',   href: 'tel:+919606072227', color: 'text-blue-500' },
                 ].map((a) => (
                   <a key={a.label} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
                     className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/30 hover:bg-muted/30 transition-all group"

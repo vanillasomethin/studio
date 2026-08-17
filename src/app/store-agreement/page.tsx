@@ -235,11 +235,11 @@ function AgreementContent() {
               </div>
               <div className="text-right space-y-0.5 text-xs text-muted-foreground">
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
-                <p>#13, First Floor, Highland Manor</p>
-                <p>Falnir, Mangalore, Karnataka 575002</p>
+                <p>217, Milestone 25, Balmatta</p>
+                <p>Mangalore, Karnataka</p>
                 <p className="pt-1">GST: 29AAXFV2589C1ZE · PAN: AAXFV2589C</p>
                 <p>LLP: IN-KA43598411418020V</p>
-                <p className="pt-1">+91 74113 24448 · hello@wearealive.in</p>
+                <p className="pt-1">+91 96060 72227 · hello@wearealive.in</p>
               </div>
             </div>
 
@@ -269,7 +269,7 @@ function AgreementContent() {
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Party A — Company</p>
                 <p className="font-semibold text-foreground">VS COLLECTIVE LLP</p>
                 <p className="text-xs mt-0.5">Registered under the Limited Liability Partnership Act, 2008.</p>
-                <p className="text-xs">Office: #13, First Floor, Highland Manor, Falnir, Mangalore, Karnataka 575002.</p>
+                <p className="text-xs">Office: 217, Milestone 25, Balmatta, Mangalore, Karnataka.</p>
                 <p className="text-xs">LLP No: IN-KA43598411418020V · GSTIN: 29AAXFV2589C1ZE</p>
                 <p className="text-xs italic mt-0.5">(hereinafter referred to as &ldquo;<strong>VS COLLECTIVE LLP</strong>&rdquo; or &ldquo;<strong>the Company</strong>&rdquo;)</p>
               </div>

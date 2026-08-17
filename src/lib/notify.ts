@@ -1,7 +1,7 @@
 // Notification helper — WhatsApp via Twilio (graceful no-op if env vars missing)
 // Also supports simple email via Resend if RESEND_API_KEY is set.
 
-const ADMIN_WA = process.env.ADMIN_WHATSAPP ?? '+917411324448'; // VS Collective LLP
+const ADMIN_WA = process.env.ADMIN_WHATSAPP ?? '+919606072227'; // VS Collective LLP
 
 async function sendTwilioWhatsApp(to: string, body: string): Promise<void> {
   const sid   = process.env.TWILIO_ACCOUNT_SID;

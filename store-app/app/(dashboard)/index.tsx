@@ -164,7 +164,7 @@ export default function Overview() {
         <Text style={s.cardTitle}>Quick actions</Text>
         {[
           { icon: 'logo-whatsapp', label: 'WhatsApp support', sub: 'Chat with our team', color: '#25D366', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.' },
-          { icon: 'call-outline', label: 'Call us', sub: '+91 74113 24448', color: C.primary, href: 'tel:+917411324448' },
+          { icon: 'call-outline', label: 'Call us', sub: '+91 96060 72227', color: C.primary, href: 'tel:+919606072227' },
         ].map((a) => (
           <TouchableOpacity key={a.label} style={s.actionRow} onPress={() => Linking.openURL(a.href)}>
             <Ionicons name={a.icon as 'call-outline'} size={20} color={a.color} />
