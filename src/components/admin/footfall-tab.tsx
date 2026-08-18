@@ -183,7 +183,7 @@ export default function FootfallTab() {
           <div className="admin-kpi-row">
             <div className="admin-kpi">
               <div className="admin-kpi__icon"><Users className="h-3.5 w-3.5" /></div>
-              <div className="admin-kpi__label">Confirmed visits</div>
+              <div className="admin-kpi__label">Verified Footfall</div>
               <div className="admin-kpi__value">{totals.customerCount.toLocaleString('en-IN')}</div>
               <div className="admin-kpi__sub">{storeName}</div>
             </div>

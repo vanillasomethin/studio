@@ -16,7 +16,7 @@ import {
   Monitor, TrendingUp, Eye, IndianRupee, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
   CreditCard, X, Loader2, Plus, Check, Upload, FileVideo, ImageIcon, Download,
-  Gift, Printer, ExternalLink, Sheet,
+  Gift, Printer, ExternalLink, Sheet, Radar,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
@@ -46,6 +46,16 @@ type SlotStats = {
   // Slot moves from a store resizing its ad loop. Surfaced here rather than emailed —
   // nothing the brand bought changes, so it belongs beside their numbers.
   recentMoves?:        { storeName: string; dates: string[]; at: string }[];
+};
+
+// Verified Footfall (sensor-covered stores) vs Estimated Reach (everywhere else) —
+// see /api/reach/:campaignId. The two are never blended into one number.
+type ReachStats = {
+  verifiedFootfall:    number;
+  verifiedStoreCount:  number;
+  estimatedReach:      number;
+  estimatedStoreCount: number;
+  totalStoreCount:     number;
 };
 
 // ─── Animations ────────────────────────────────────────────────────────────────
@@ -128,6 +138,7 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
   const [sheetUrl,  setSheetUrl]  = useState<string | null>(null);
   const [exportErr, setExportErr] = useState('');
   const [slotStats, setSlotStats] = useState<SlotStats | null>(null);
+  const [reachStats, setReachStats] = useState<ReachStats | null>(null);
 
   // Slot-loop plays: guaranteed (booked slots × loop repeats/day) vs bonus (empty
   // slots redistributed to this campaign). Only rendered once the campaign actually
@@ -137,6 +148,15 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
     fetch(`/api/brand/slot-stats?campaignId=${c.id}`)
       .then((r) => r.ok ? r.json() as Promise<SlotStats> : null)
       .then((s) => { if (live && s && (s.guaranteedPerDay > 0 || s.cumulativeSlotPlays > 0)) setSlotStats(s); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [c.id]);
+
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/reach/${c.id}`)
+      .then((r) => r.ok ? r.json() as Promise<ReachStats> : null)
+      .then((s) => { if (live && s && s.totalStoreCount > 0) setReachStats(s); })
       .catch(() => {});
     return () => { live = false; };
   }, [c.id]);
@@ -210,6 +230,48 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
               ))}
             </p>
           )}
+        </div>
+      )}
+
+      {reachStats && (reachStats.verifiedFootfall > 0 || reachStats.estimatedReach > 0) && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Audience</p>
+          <div className="mt-2 space-y-2">
+            {reachStats.verifiedFootfall > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1 text-[11px] text-foreground">
+                  <Radar className="h-3 w-3 text-green-700" />Verified Footfall
+                </span>
+                <span className="text-sm font-black text-foreground">
+                  {reachStats.verifiedFootfall.toLocaleString('en-IN')}
+                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                    · {reachStats.verifiedStoreCount} store{reachStats.verifiedStoreCount === 1 ? '' : 's'}
+                  </span>
+                </span>
+              </div>
+            )}
+            {reachStats.estimatedReach > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <Eye className="h-3 w-3" />Estimated Reach
+                </span>
+                <span className="text-sm font-bold text-foreground">
+                  {reachStats.estimatedReach.toLocaleString('en-IN')}
+                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                    · {reachStats.estimatedStoreCount} store{reachStats.estimatedStoreCount === 1 ? '' : 's'}
+                  </span>
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="mt-2 border-t border-border/60 pt-2 text-[10px] leading-relaxed text-muted-foreground">
+            {reachStats.verifiedFootfall > 0
+              ? 'Verified Footfall is sensor-counted passersby in screen range, not confirmed ad viewership. '
+              : ''}
+            {reachStats.estimatedReach > 0
+              ? 'Estimated Reach covers screens without a footfall sensor yet, based on ad plays.'
+              : ''}
+          </p>
         </div>
       )}
 
