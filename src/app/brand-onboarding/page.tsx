@@ -702,6 +702,7 @@ function StepAgreement({
         `The monthly fee is ${monthlyFee} plus applicable GST.`,
         'Campaign dates are confirmed after payment and creative submission.',
         'Minimum play guarantee: once your screens are booked, we guarantee the "Guaranteed plays/day" figure shown on your dashboard. If we fall short of that guarantee in a billing month, we will add the missed plays to your rotation the following month at no extra cost (make-good); if there is no following month, we will issue a pro-rated bill credit for the shortfall instead. We will never apply both remedies for the same shortfall.',
+        'Peak-window frequency: during peak viewing windows (9–11am, 12:30–2:30pm, 5:30–7:30pm, 7:30–9:30pm), screens with a Peak Boost add-on active play more often than screens without it. Your ad still plays every rotation cycle even without Peak Boost — only its frequency during those specific windows is reduced relative to boosted campaigns. Outside peak windows, all screens rotate equally regardless of Peak Boost.',
       ],
     },
     {

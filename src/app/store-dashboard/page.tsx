@@ -16,6 +16,7 @@ import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
 import KycTab from '@/components/store/kyc-tab';
 import ScreenPowerCard from '@/components/store/screen-power-card';
+import SoundAdMuteCard from '@/components/store/sound-ad-mute-card';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
@@ -1169,6 +1170,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               {/* Screen + electricity estimate — see components/store/screen-power-card.
                   Needs a persisted store id; a draft session that hasn't saved yet has none. */}
               {storeData.id && <ScreenPowerCard storeId={storeData.id} />}
+              {storeData.id && <SoundAdMuteCard storeId={storeData.id} />}
 
               <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 

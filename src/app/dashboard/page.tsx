@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession, signOut as nextAuthSignOut } from 'next-auth/react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,7 +16,7 @@ import {
   Monitor, TrendingUp, Eye, IndianRupee, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
   CreditCard, X, Loader2, Plus, Check, Upload, FileVideo, ImageIcon, Download,
-  Gift, Printer, ExternalLink, Sheet, Radar, ShieldCheck,
+  Gift, Printer, ExternalLink, Sheet, Radar, ShieldCheck, Radio, Volume2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
@@ -827,6 +827,142 @@ function CreativesTab({ campaigns }: { campaigns: Campaign[] }) {
         );
       })}
     </motion.div>
+  );
+}
+
+// ─── Add-ons Tab (Peak Boost / Sound Ad) ──────────────────────────────────────
+
+type AddonType = 'peak_boost' | 'sound_ad';
+type AddonStatus = 'none' | 'active' | 'waitlisted';
+type StoreAddonState = {
+  storeId: string; storeName: string;
+  peakBoost: { status: AddonStatus; activeCount: number };
+  soundAd: { status: AddonStatus; takenByOther: boolean };
+};
+
+function AddOnRow({ campaignId, store, onChange }: { campaignId: string; store: StoreAddonState; onChange: () => void }) {
+  const [busy, setBusy] = useState<AddonType | null>(null);
+
+  async function purchase(type: AddonType) {
+    setBusy(type);
+    try {
+      const res = await fetch('/api/brand/addons', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId, storeId: store.storeId, type }),
+      });
+      const data = await res.json() as { status?: AddonStatus; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to add');
+      toast.success(data.status === 'active' ? 'Added!' : "Added to the waitlist — we'll activate it as a slot frees up.");
+      onChange();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const badge = (status: AddonStatus) => status === 'active'
+    ? <span className="text-[10px] font-bold text-green-700">Active</span>
+    : status === 'waitlisted'
+    ? <span className="text-[10px] font-bold text-amber-600">Waitlisted</span>
+    : null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border first:border-t-0">
+      <p className="text-sm font-semibold text-foreground">{store.storeName}</p>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <Radio className="h-3.5 w-3.5 text-muted-foreground" />
+          {store.peakBoost.status === 'none' ? (
+            <button
+              onClick={() => purchase('peak_boost')}
+              disabled={busy === 'peak_boost'}
+              className="inline-flex items-center rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
+            >
+              {busy === 'peak_boost' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Add Peak Boost'}
+            </button>
+          ) : badge(store.peakBoost.status)}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
+          {store.soundAd.status !== 'none' ? badge(store.soundAd.status)
+            : store.soundAd.takenByOther ? <span className="text-[10px] text-muted-foreground">Taken</span>
+            : (
+              <button
+                onClick={() => purchase('sound_ad')}
+                disabled={busy === 'sound_ad'}
+                className="inline-flex items-center rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
+              >
+                {busy === 'sound_ad' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Add Sound Ad'}
+              </button>
+            )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddOnsTab({ campaigns }: { campaigns: Campaign[] }) {
+  const eligible = campaigns.filter((c) => c.paymentId); // gated behind an active base subscription
+  const [selected, setSelected] = useState<string>(eligible[0]?.id ?? '');
+  const [stores, setStores] = useState<StoreAddonState[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback((campaignId: string) => {
+    if (!campaignId) { setStores([]); return; }
+    setLoading(true);
+    fetch(`/api/brand/addons?campaignId=${campaignId}`)
+      .then((r) => r.ok ? r.json() as Promise<{ stores: StoreAddonState[] }> : { stores: [] })
+      .then((d) => setStores(d.stores))
+      .catch(() => setStores([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { if (selected) load(selected); }, [selected, load]);
+
+  if (eligible.length === 0) return (
+    <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-muted-foreground text-sm">
+      No active campaigns yet. Book a campaign first to add Peak Boost or Sound Ad.
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-semibold text-muted-foreground">Campaign</label>
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
+        >
+          {eligible.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.brandName} — {c.startDate ? format(parseISO(c.startDate), 'd MMM yyyy') : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-4 space-y-2 text-xs text-muted-foreground">
+        <p><span className="font-semibold text-foreground">Peak Boost</span> — 2-3x insertion during peak windows (9-11am, 12:30-2:30pm, 5:30-7:30pm, 7:30-9:30pm). Outside those windows your ad plays at the normal rate. Max 4 screens per store.</p>
+        <p><span className="font-semibold text-foreground">Sound Ad</span> — one 10s audio-on play per hour, not looped; base ads always stay silent. Max 1 per screen — store owners can mute it any time from the Alive Partner app, with no refund.</p>
+        <p>Both are first-come-first-served — once a store hits its cap, you&apos;re added to a waitlist, not a discounted extra slot.</p>
+      </div>
+
+      {loading || stores === null ? (
+        <Skeleton className="h-40 rounded-xl" />
+      ) : stores.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center text-muted-foreground text-sm">
+          No booked screens yet for this campaign — book slots first.
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          {stores.map((s) => (
+            <AddOnRow key={s.storeId} campaignId={selected} store={s} onChange={() => load(selected)} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1786,6 +1922,7 @@ export default function DashboardPage() {
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
             <TabsTrigger value="creatives">Creatives</TabsTrigger>
+            <TabsTrigger value="addons">Add-ons</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="network">Our Network</TabsTrigger>
@@ -1859,6 +1996,13 @@ export default function DashboardPage() {
             {fetching
               ? <div className="space-y-4">{[0,1].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
               : <CreativesTab campaigns={campaigns} />
+            }
+          </TabsContent>
+
+          <TabsContent value="addons">
+            {fetching
+              ? <Skeleton className="h-40 rounded-xl" />
+              : <AddOnsTab campaigns={campaigns} />
             }
           </TabsContent>
 

@@ -67,17 +67,22 @@ type BookingRow = { slotPosition: number; campaignId: string; slotContentId: str
  * A booked campaign without a slot creative counts as SOLD for availability but
  * cannot render, so its positions join the redistribution set rather than going dark.
  *
- * `makegoodWeights` (campaignId -> extra pool entries, see lib/sla.ts) lets a campaign
- * that's owed a Minimum Play Guarantee makegood get a bigger share of the round-robin
- * bonus pool — "carried forward and added to next cycle's rotation, on top of normal
- * quota" — without a second scheduling engine. Empty/omitted = today's plain
- * round-robin, unchanged.
+ * `poolWeights` (campaignId -> extra pool entries) lets a campaign get a bigger share
+ * of the round-robin bonus pool without a second scheduling engine — the mechanism
+ * two different add-ons both reuse:
+ *   - Minimum Play Guarantee makegood (lib/sla.ts): a campaign owed a shortfall makegood
+ *     gets extra entries until it's paid down — "carried forward and added to next
+ *     cycle's rotation, on top of normal quota".
+ *   - Peak Boost (lib/addons.ts): a boosted campaign gets extra entries during peak
+ *     windows only — the caller is responsible for zeroing this out outside a window.
+ * Callers merge both sources into one map before calling. Empty/omitted = today's
+ * plain round-robin, unchanged.
  */
 export function buildSlotLoop(
   loopSlotCount: number,
   bookings: BookingRow[],
   filler: { campaignId: string; contentId: string } | null,
-  makegoodWeights: Map<string, number> = new Map(),
+  poolWeights: Map<string, number> = new Map(),
 ): SlotAssignment[] {
   const byPosition = new Map<number, BookingRow>();
   for (const b of bookings) {
@@ -85,15 +90,15 @@ export function buildSlotLoop(
   }
 
   // Playable sold campaigns in first-appearance (position) order — the round-robin pool.
-  // A campaign with an outstanding makegood balance gets extra entries, biasing the
-  // round-robin selection below in its favour without changing who is eligible.
+  // A campaign with extra pool weight (makegood and/or Peak Boost) gets extra entries,
+  // biasing the round-robin selection below in its favour without changing eligibility.
   const pool: { campaignId: string; contentId: string }[] = [];
   const seen = new Set<string>();
   for (let pos = 0; pos < loopSlotCount; pos++) {
     const b = byPosition.get(pos);
     if (b?.slotContentId && !seen.has(b.campaignId)) {
       seen.add(b.campaignId);
-      const copies = 1 + Math.max(0, makegoodWeights.get(b.campaignId) ?? 0);
+      const copies = 1 + Math.max(0, poolWeights.get(b.campaignId) ?? 0);
       for (let i = 0; i < copies; i++) pool.push({ campaignId: b.campaignId, contentId: b.slotContentId });
     }
   }

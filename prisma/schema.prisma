@@ -139,6 +139,11 @@ model Store {
   hoursStart       String @default("09:00") // IST, loop plays hoursStart–hoursEnd
   hoursEnd         String @default("21:00")
   fillerCampaignId String? // override of the default house-ads filler campaign
+  // Sound Ad add-on: store-owner mute override (Alive Partner app). Forces the
+  // designated sound slot silent regardless of the once/hour cadence — read by
+  // /api/device/plan and enforced by the player's PlaybackEngine.resolveVolume().
+  // No refund logic when muted.
+  soundAdMuted     Boolean @default(false)
 
   tier              String    @default("standard") // standard | premium — set via gated premium signup link
   monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium
@@ -156,6 +161,7 @@ model Store {
   footfallHourly       FootfallHourly[]
   screenPresenceEvents ScreenPresenceEvent[]
   sensorHealth         StoreSensorHealth?
+  slotAddons           SlotAddon[]
 
   @@index([city])
   @@index([pincode])
@@ -236,10 +242,33 @@ model Campaign {
   playEvents           PlayEvent[]
   screenPresenceEvents ScreenPresenceEvent[]
   playGuaranteeCycles  PlayGuaranteeCycle[]
+  slotAddons           SlotAddon[]
 
   @@index([brandId])
   @@index([status])
   @@index([email])
+}
+
+// Peak Boost / Sound Ad add-ons — both are flags on top of an existing slot booking,
+// scoped to (store, campaign, type) so a campaign can hold the add-on at each store it
+// has booked independently. First-come-first-served: status is decided once at
+// purchase time against that store's cap (see src/lib/addons.ts) and never revisited,
+// so there is no cancel/refund flow to keep consistent — matches the spec's "no
+// discount/5th slot" stance on going over cap.
+model SlotAddon {
+  id         String   @id @default(cuid())
+  storeId    String
+  campaignId String
+  type       String // 'peak_boost' | 'sound_ad'
+  status     String   @default("active") // 'active' | 'waitlisted'
+  createdAt  DateTime @default(now())
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, type])
+  @@index([storeId, type, status])
+  @@index([campaignId])
 }
 
 // Minimum Play Guarantee (SLA) — one row per closed billing cycle (calendar month
