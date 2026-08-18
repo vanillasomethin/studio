@@ -235,10 +235,41 @@ model Campaign {
   slotBookings         SlotBooking[]
   playEvents           PlayEvent[]
   screenPresenceEvents ScreenPresenceEvent[]
+  playGuaranteeCycles  PlayGuaranteeCycle[]
 
   @@index([brandId])
   @@index([status])
   @@index([email])
+}
+
+// Minimum Play Guarantee (SLA) — one row per closed billing cycle (calendar month
+// of a campaign's flight) once shortfall has been checked (see src/lib/sla.ts).
+// promised/delivered are snapshotted at close time so past cycles read consistently
+// even if slot config changes later. makegoodBalance is the shortfall GRANTED at
+// close — the remaining balance is derived at read time from bonus plays delivered
+// since (see getMakegoodWeights in src/lib/sla-db.ts), not decremented here, so this
+// table stays a pure append-only ledger.
+model PlayGuaranteeCycle {
+  id             String    @id @default(cuid())
+  campaignId     String
+  cycleIndex     Int // 0-based month index within the campaign's flight
+  cycleStart     DateTime  @db.Date
+  cycleEnd       DateTime  @db.Date
+  promisedPlays  Int
+  deliveredPlays Int
+  shortfallPlays Int       @default(0)
+  remedyType     String? // 'makegood' | 'credit' — null when no shortfall
+  // makegood: extra plays owed, redistributed as weighted bonus plays in later cycles.
+  makegoodBalance Int      @default(0)
+  // credit: pro-rated bill credit in rupees (same unit as Campaign.pricePerScreen).
+  creditAmount    Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, cycleIndex])
+  @@index([campaignId])
+  @@index([remedyType, makegoodBalance])
 }
 
 // ─── Coupons (brand onboarding discounts) ────────────────────────────────────

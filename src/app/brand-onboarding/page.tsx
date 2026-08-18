@@ -701,6 +701,7 @@ function StepAgreement({
         `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}.`,
         `The monthly fee is ${monthlyFee} plus applicable GST.`,
         'Campaign dates are confirmed after payment and creative submission.',
+        'Minimum play guarantee: once your screens are booked, we guarantee the "Guaranteed plays/day" figure shown on your dashboard. If we fall short of that guarantee in a billing month, we will add the missed plays to your rotation the following month at no extra cost (make-good); if there is no following month, we will issue a pro-rated bill credit for the shortfall instead. We will never apply both remedies for the same shortfall.',
       ],
     },
     {

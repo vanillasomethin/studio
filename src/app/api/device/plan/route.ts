@@ -16,6 +16,7 @@ import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetr
 import { resolvePlaylistTree, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
 import { istToday, isOpenOn, buildSlotLoop, SLOT_DURATION_MS } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
+import { getMakegoodWeights } from '@/lib/sla-db';
 
 async function authenticate(req: NextRequest) {
   const auth  = req.headers.get('authorization') ?? '';
@@ -224,6 +225,9 @@ export async function GET(req: NextRequest) {
           },
         });
         const filler = await resolveFillerCampaign(store.fillerCampaignId);
+        // Minimum Play Guarantee makegood: campaigns owed a shortfall makegood get
+        // extra weight in the bonus round-robin below (see lib/sla.ts / sla-db.ts).
+        const makegoodWeights = await getMakegoodWeights([...new Set(bookings.map((b) => b.campaignId))]);
         const loop = buildSlotLoop(
           store.loopSlotCount!,
           bookings.map((b) => ({
@@ -231,6 +235,7 @@ export async function GET(req: NextRequest) {
             slotContentId: b.campaign.slotContentId,
           })),
           filler,
+          makegoodWeights,
         );
 
         const contentIds = [...new Set(loop.map((a) => a.contentId))];

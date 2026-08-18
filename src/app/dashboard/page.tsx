@@ -16,7 +16,7 @@ import {
   Monitor, TrendingUp, Eye, IndianRupee, LogOut, Mail,
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
   CreditCard, X, Loader2, Plus, Check, Upload, FileVideo, ImageIcon, Download,
-  Gift, Printer, ExternalLink, Sheet, Radar,
+  Gift, Printer, ExternalLink, Sheet, Radar, ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
@@ -56,6 +56,19 @@ type ReachStats = {
   estimatedReach:      number;
   estimatedStoreCount: number;
   totalStoreCount:     number;
+};
+
+// Minimum Play Guarantee — see /api/brand/sla-stats. `current` is the running,
+// not-yet-closed cycle; `cycles` are past closed cycles with their remedy, if any.
+type GuaranteeCycle = {
+  cycleIndex: number; cycleStart: string; cycleEnd: string;
+  promisedPlays: number; deliveredPlays: number; shortfallPlays: number;
+  remedyType: 'makegood' | 'credit' | null;
+  makegoodBalance: number; creditAmount: number;
+};
+type SlaSummary = {
+  cycles: GuaranteeCycle[];
+  current: { cycleIndex: number; cycleStart: string; cycleEnd: string; promisedPlays: number; deliveredPlays: number } | null;
 };
 
 // ─── Animations ────────────────────────────────────────────────────────────────
@@ -139,6 +152,7 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
   const [exportErr, setExportErr] = useState('');
   const [slotStats, setSlotStats] = useState<SlotStats | null>(null);
   const [reachStats, setReachStats] = useState<ReachStats | null>(null);
+  const [slaStats, setSlaStats] = useState<SlaSummary | null>(null);
 
   // Slot-loop plays: guaranteed (booked slots × loop repeats/day) vs bonus (empty
   // slots redistributed to this campaign). Only rendered once the campaign actually
@@ -160,6 +174,19 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
       .catch(() => {});
     return () => { live = false; };
   }, [c.id]);
+
+  // Minimum Play Guarantee: only rendered once there's a promised figure to show
+  // against — a campaign with no slot bookings yet has nothing to guarantee.
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/brand/sla-stats?campaignId=${c.id}`)
+      .then((r) => r.ok ? r.json() as Promise<SlaSummary> : null)
+      .then((s) => { if (live && s && (s.current?.promisedPlays ?? 0) + s.cycles.length > 0) setSlaStats(s); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [c.id]);
+
+  const lastRemedy = slaStats?.cycles.slice().reverse().find((cy) => cy.remedyType) ?? null;
 
   const handleExport = async () => {
     setExporting(true);
@@ -272,6 +299,29 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
               ? 'Estimated Reach covers screens without a footfall sensor yet, based on ad plays.'
               : ''}
           </p>
+        </div>
+      )}
+
+      {slaStats?.current && slaStats.current.promisedPlays > 0 && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <div className="flex items-baseline justify-between">
+            <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              <ShieldCheck className="h-3 w-3" />Minimum play guarantee
+            </p>
+            <p className="text-sm font-black text-foreground">
+              {slaStats.current.deliveredPlays.toLocaleString('en-IN')} / {slaStats.current.promisedPlays.toLocaleString('en-IN')}
+            </p>
+          </div>
+          <p className="mt-1 text-[10px] text-muted-foreground">Plays delivered vs promised, this billing month</p>
+          {lastRemedy && (
+            <p className="mt-2 border-t border-border/60 pt-2 text-[10px] leading-relaxed text-muted-foreground">
+              {lastRemedy.remedyType === 'makegood' ? (
+                <>We fell short by <span className="font-semibold text-foreground">{lastRemedy.shortfallPlays.toLocaleString('en-IN')}</span> plays last cycle — those are being added to your rotation now, on top of your normal quota, at no extra cost.</>
+              ) : (
+                <>We fell short by <span className="font-semibold text-foreground">{lastRemedy.shortfallPlays.toLocaleString('en-IN')}</span> plays in your final cycle — a <span className="font-semibold text-green-700">₹{lastRemedy.creditAmount.toLocaleString('en-IN')}</span> bill credit has been issued.</>
+              )}
+            </p>
+          )}
         </div>
       )}
 
