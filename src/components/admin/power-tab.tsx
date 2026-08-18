@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, AlertCircle, Zap, Camera, Check, X, Tv2, Wifi, WifiOff } from 'lucide-react';
+import { compressImageFile, readJsonOrThrow, PROXY_UPLOAD_LIMIT_BYTES } from '@/lib/client-upload';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 
@@ -231,17 +232,19 @@ function SurveyDialog({ store, onClose, onSaved }: {
   const [busy,   setBusy]   = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Phone photos are far under Vercel's ~4.5 MB request cap, so the server-side proxy
-  // is the right upload path here (no CORS setup needed) — same as KYC docs.
+  // Goes through the server-side proxy (no CORS setup needed, same as KYC docs), which
+  // means it is subject to the platform's ~4.5 MB request-body cap. A raw phone photo
+  // frequently exceeds that, so downscale first — a label only needs to be legible.
   const upload = async (file: File, kind: 'plate' | 'rating') => {
     setBusy(kind);
     try {
+      const image = await compressImageFile(file);
+      if (image.size > PROXY_UPLOAD_LIMIT_BYTES) throw new Error('That photo is too large. Please retake it at a lower resolution.');
       const form = new FormData();
-      form.append('file', file);
-      form.append('key', `screens/${store.id}/${kind}-${Date.now()}-${file.name}`);
+      form.append('file', image);
+      form.append('key', `screens/${store.id}/${kind}-${Date.now()}-${image.name}`);
       const res = await fetch('/api/admin/r2-upload', { method: 'POST', headers: adminPw(), body: form });
-      if (!res.ok) throw new Error(await res.text());
-      const { publicUrl } = await res.json() as { publicUrl: string };
+      const { publicUrl } = await readJsonOrThrow<{ publicUrl: string }>(res);
       if (kind === 'plate') setPlateUrl(publicUrl); else setRatingUrl(publicUrl);
     } catch (e) {
       toast({ variant: 'destructive', title: 'Upload failed', description: (e as Error).message });

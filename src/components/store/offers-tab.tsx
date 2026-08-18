@@ -1,5 +1,6 @@
 'use client';
 
+import { compressImageFile, readJsonOrThrow, PROXY_UPLOAD_LIMIT_BYTES } from '@/lib/client-upload';
 import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
 import { Loader2, Plus, Trash2, Tag, TrendingDown, AlertCircle, Search, CheckCircle2, ImagePlus, X } from 'lucide-react';
 
@@ -116,14 +117,14 @@ export default function OffersTab() {
 
   const uploadImage = async (file: File) => {
     if (!file.type.startsWith('image/')) { setError('Only image files allowed.'); return; }
-    if (file.size > 4 * 1024 * 1024)   { setError('Image too large — keep under 4 MB. Try TinyPNG to compress.'); return; }
     setImgUploading(true); setError(null);
     try {
+      const upload = await compressImageFile(file);
+      if (upload.size > PROXY_UPLOAD_LIMIT_BYTES) throw new Error('Image too large — keep under 4 MB. Try TinyPNG to compress.');
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', upload);
       const res = await fetch('/api/stores/upload', { method: 'POST', body: fd });
-      const data = await res.json() as { url?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      const data = await readJsonOrThrow<{ url?: string }>(res);
       set('imageUrl', data.url ?? null);
     } catch (e) { setError((e as Error).message); }
     finally { setImgUploading(false); }

@@ -1,5 +1,6 @@
 'use client';
 
+import { compressImageFile, readJsonOrThrow, PROXY_UPLOAD_LIMIT_BYTES } from '@/lib/client-upload';
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import {
   Loader2, ShieldCheck, AlertCircle, Clock, CheckCircle2, Camera, FileText, IdCard, X, Upload,
@@ -68,14 +69,16 @@ export default function KycTab() {
 
   const uploadFile = async (slot: DocSlot, file: File) => {
     if (!file.type.startsWith('image/')) { setError('Only image files allowed.'); return; }
-    if (file.size > 4 * 1024 * 1024)     { setError('Image too large — keep under 4 MB.'); return; }
     setUploadingSlot(slot); setError(null);
     try {
+      // Downscale first: a phone photo is routinely bigger than the platform's
+      // request-body cap, and rejecting the partner's camera shot is not an option.
+      const upload = await compressImageFile(file);
+      if (upload.size > PROXY_UPLOAD_LIMIT_BYTES) throw new Error('Image too large — keep under 4 MB.');
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', upload);
       const res = await fetch('/api/stores/upload', { method: 'POST', body: fd });
-      const d   = await res.json() as { url?: string; error?: string };
-      if (!res.ok) throw new Error(d.error ?? 'Upload failed');
+      const d   = await readJsonOrThrow<{ url?: string }>(res);
       setUploads((u) => ({ ...u, [slot]: d.url ?? null }));
     } catch (e) { setError((e as Error).message); }
     finally { setUploadingSlot(null); }
