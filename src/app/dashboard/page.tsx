@@ -1882,7 +1882,7 @@ export default function DashboardPage() {
       <header className="sticky top-0 z-50 border-b border-border/30 bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-4">
-            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity">
+            <a href="/" className="hover:opacity-80 transition-opacity">
               <Logo />
             </a>
             <div className="hidden sm:block h-5 w-px bg-border" />
