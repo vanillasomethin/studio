@@ -15,7 +15,8 @@
     "verify:power": "node --experimental-strip-types scripts/verify-power.mjs",
     "verify:reach": "node --experimental-strip-types scripts/verify-reach.mjs",
     "verify:sla": "node --experimental-strip-types scripts/verify-sla.mjs",
-    "verify:addons": "node --experimental-strip-types scripts/verify-addons.mjs"
+    "verify:addons": "node --experimental-strip-types scripts/verify-addons.mjs",
+    "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

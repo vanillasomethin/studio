@@ -144,9 +144,14 @@ model Store {
   // /api/device/plan and enforced by the player's PlaybackEngine.resolveVolume().
   // No refund logic when muted.
   soundAdMuted     Boolean @default(false)
+  // Slot pricing tier ('standard'|'growth'|'flagship' — see src/lib/slot-pricing.ts).
+  // Admin-assigned per store. For a slot-mode store this drives BOTH the per-slot
+  // price a brand is billed and the store's payout, replacing monthlyCompensationPaise
+  // below (which stays the flat figure for stores not in slot mode).
+  slotPricingTier  String  @default("standard")
 
   tier              String    @default("standard") // standard | premium — set via gated premium signup link
-  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium
+  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium — flat-rate stores only (slot-mode stores compute dynamically, see slot-pricing-db.ts)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

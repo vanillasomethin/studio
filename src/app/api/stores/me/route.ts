@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { resolveStoreId } from '@/lib/store-partner-auth';
+import { computeStoreMonthlyPayoutPaise } from '@/lib/slot-pricing-db';
 
 // Base columns guaranteed from init migration — no optional columns here
 type StoreRow = {
@@ -61,6 +62,13 @@ export async function GET(req: NextRequest) {
         bankName:        extra[0]?.bankName        ?? null,
       };
     } catch { /* column not yet migrated — safe default null */ }
+
+    // Slot-mode stores compute their payout dynamically (fill count × tier rate) —
+    // see slot-pricing-db.ts. Falls back to the flat monthlyCompensationPaise above
+    // for stores not in slot mode, or if the slot columns aren't migrated yet.
+    try {
+      monthlyCompensationPaise = await computeStoreMonthlyPayoutPaise(storeId);
+    } catch { /* slot columns not yet migrated — keep the flat default above */ }
 
     // Count linked devices for store overview
     try {

@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, storeName: true, city: true,
         loopSlotCount: true, openDays: true, hoursStart: true, hoursEnd: true,
-        fillerCampaignId: true,
+        fillerCampaignId: true, slotPricingTier: true,
       },
       orderBy: [{ city: 'asc' }, { storeName: 'asc' }],
     });

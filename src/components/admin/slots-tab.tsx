@@ -15,6 +15,9 @@ import {
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
+import { SLOT_TIERS, SLOT_TIER_RATE_RUPEES, type SlotTier } from '@/lib/slot-pricing';
+
+const TIER_LABEL: Record<SlotTier, string> = { standard: 'Standard', growth: 'Growth', flagship: 'Flagship' };
 
 type AdminCampaign = { id: string; brandName: string; status: string; slotContentId: string | null };
 
@@ -137,7 +140,7 @@ export default function SlotsTab() {
                 <tr key={s.id} className="border-b border-border/60 last:border-0">
                   <td className="sticky left-0 z-10 bg-card px-3 py-2 min-w-[150px]">
                     <p className="text-[11px] font-semibold text-foreground truncate">{s.storeName}</p>
-                    <p className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots · {s.hoursStart}–{s.hoursEnd}</p>
+                    <p className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots · {s.hoursStart}–{s.hoursEnd} · {TIER_LABEL[(s.slotPricingTier as SlotTier) || 'standard']}</p>
                   </td>
                   {dates.map((d) => {
                     const sold = s.sold?.[d];
@@ -325,6 +328,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
   const [start,    setStart]    = useState(store.hoursStart);
   const [end,      setEnd]      = useState(store.hoursEnd);
   const [filler,   setFiller]   = useState(store.fillerCampaignId ?? '');
+  const [tier,     setTier]     = useState(store.slotPricingTier || 'standard');
   const [saving,   setSaving]   = useState(false);
 
   const save = async () => {
@@ -335,6 +339,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
         loopSlotCount: enabled ? count : null,
         openDays, hoursStart: start, hoursEnd: end,
         fillerCampaignId: filler || null,
+        slotPricingTier: tier,
       });
       const moved = res.reassigned ?? [];
       toast(moved.length
@@ -377,6 +382,23 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
                     Reducing from {store.loopSlotCount}. Upcoming bookings above slot {count} move down into free slots automatically, and the brands see it on their dashboard. Only a day with more bookings than {count} will block the change.
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                  Pricing tier <span className="font-normal normal-case tracking-normal text-muted-foreground/70">— price per slot, and the store's payout</span>
+                </label>
+                <div className="flex gap-1.5">
+                  {SLOT_TIERS.map((t) => (
+                    <button key={t} onClick={() => setTier(t)}
+                      className={`flex-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition-colors ${
+                        tier === t ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground/70'
+                      }`}>
+                      {TIER_LABEL[t]}<br />₹{SLOT_TIER_RATE_RUPEES[t].toLocaleString('en-IN')}/slot
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">Not shown to the store partner — their dashboard only shows the resulting payout total.</p>
               </div>
 
               <div>

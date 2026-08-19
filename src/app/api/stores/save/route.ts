@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import { notifyAdminWA, storeRegistrationMsg } from '@/lib/notify';
 import { respond } from '@/lib/api-envelope';
+import { computeStoreMonthlyPayoutPaiseBatch } from '@/lib/slot-pricing-db';
 
 // ─── Redis (dual-write for admin panel backward compat during migration) ──────
 
@@ -54,16 +55,29 @@ export async function GET(req: NextRequest) {
       payoutNotes: string | null; liveAt: Date | null;
       upiId: string | null; payoutMethod: string | null;
       tier: string | null; monthlyCompensationPaise: number | null;
+      loopSlotCount: number | null; slotPricingTier: string | null;
     };
     let extraMap = new Map<string, ExtraRow>();
     try {
       const extraRows = await db.$queryRaw<ExtraRow[]>`
         SELECT "id", "onboardingStage", "payoutStatus", "payoutNotes", "liveAt",
-               "upiId", "payoutMethod", "tier", "monthlyCompensationPaise"
+               "upiId", "payoutMethod", "tier", "monthlyCompensationPaise",
+               "loopSlotCount", "slotPricingTier"
         FROM "Store"
       `;
       extraMap = new Map(extraRows.map((r) => [r.id, r]));
     } catch { /* columns not yet migrated — omit gracefully */ }
+
+    // Slot-mode stores' payout is computed dynamically (fill count × tier rate),
+    // batched in one grouped query rather than one per store — see slot-pricing-db.ts.
+    const payoutByStore = await computeStoreMonthlyPayoutPaiseBatch(
+      [...extraMap.values()].map((ex) => ({
+        id: ex.id,
+        loopSlotCount: ex.loopSlotCount,
+        slotPricingTier: ex.slotPricingTier ?? 'standard',
+        monthlyCompensationPaise: Number(ex.monthlyCompensationPaise ?? 50000),
+      })),
+    ).catch(() => new Map<string, number>());
 
     const result = stores.map((s) => {
       const ex = extraMap.get(s.id);
@@ -79,7 +93,7 @@ export async function GET(req: NextRequest) {
         upiId:           ex?.upiId           ?? null,
         payoutMethod:    ex?.payoutMethod    ?? null,
         tier:            ex?.tier ?? 'standard',
-        monthlyCompensationPaise: Number(ex?.monthlyCompensationPaise ?? 50000),
+        monthlyCompensationPaise: payoutByStore.get(s.id) ?? Number(ex?.monthlyCompensationPaise ?? 50000),
         deviceCount:     Number(s.deviceCount),
       };
     });

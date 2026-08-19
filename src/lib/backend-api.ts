@@ -414,6 +414,7 @@ export type SlotStore = {
   loopSlotCount: number | null; openDays: number;
   hoursStart: string; hoursEnd: string;
   fillerCampaignId: string | null;
+  slotPricingTier: string; // 'standard' | 'growth' | 'flagship' — see lib/slot-pricing.ts
   sold: Record<string, number | null> | null; // date → sold count; null = closed that day
 };
 
@@ -455,6 +456,7 @@ export type SlotSettingsResult = {
 export const updateSlotSettings = (body: {
   storeId?: string; loopSlotCount?: number | null; openDays?: number;
   hoursStart?: string; hoursEnd?: string; fillerCampaignId?: string | null;
+  slotPricingTier?: string;
   defaultFillerCampaignId?: string | null;
   campaignId?: string; slotContentId?: string | null;
 }) => apiFetch<SlotSettingsResult>('/api/slots/settings', { method: 'PATCH', body: JSON.stringify(body) });

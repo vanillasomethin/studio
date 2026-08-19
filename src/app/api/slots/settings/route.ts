@@ -11,6 +11,7 @@ import { db } from '@/lib/db';
 import { parseHHmm } from '@/lib/slots';
 import { applySlotMoves, planSlotCompaction, type SlotMove } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
+import { isSlotTier } from '@/lib/slot-pricing';
 
 /**
  * Writes the reassignment note. This is also what the brand dashboard reads back to
@@ -56,6 +57,7 @@ type Body = {
   hoursStart?: string;
   hoursEnd?: string;
   fillerCampaignId?: string | null;
+  slotPricingTier?: string;
   defaultFillerCampaignId?: string | null;
   campaignId?: string;
   slotContentId?: string | null;
@@ -119,6 +121,9 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: `${f} must be HH:mm` }, { status: 400 });
       }
     }
+    if (body.slotPricingTier !== undefined && !isSlotTier(body.slotPricingTier)) {
+      return NextResponse.json({ error: "slotPricingTier must be 'standard', 'growth' or 'flagship'" }, { status: 400 });
+    }
 
     // Re-home the stranded bookings BEFORE narrowing the loop, so there is no window
     // where a device could fetch a plan that drops slots the brands have paid for.
@@ -132,10 +137,11 @@ export async function PATCH(req: NextRequest) {
         ...(body.hoursStart       !== undefined ? { hoursStart:       body.hoursStart }       : {}),
         ...(body.hoursEnd         !== undefined ? { hoursEnd:         body.hoursEnd }         : {}),
         ...(body.fillerCampaignId !== undefined ? { fillerCampaignId: body.fillerCampaignId } : {}),
+        ...(body.slotPricingTier  !== undefined ? { slotPricingTier:  body.slotPricingTier }  : {}),
       },
       select: {
         id: true, storeName: true, loopSlotCount: true, openDays: true,
-        hoursStart: true, hoursEnd: true, fillerCampaignId: true,
+        hoursStart: true, hoursEnd: true, fillerCampaignId: true, slotPricingTier: true,
       },
     });
 

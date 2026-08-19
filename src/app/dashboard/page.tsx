@@ -71,6 +71,14 @@ type SlaSummary = {
   current: { cycleIndex: number; cycleStart: string; cycleEnd: string; promisedPlays: number; deliveredPlays: number } | null;
 };
 
+// Which slot-mode stores in the network don't carry this campaign yet — see
+// /api/brand/expansion-stores.
+type ExpansionStats = {
+  totalSlotStores: number;
+  coveredStores: number;
+  missingStores: { storeId: string; storeName: string; city: string | null }[];
+};
+
 // ─── Animations ────────────────────────────────────────────────────────────────
 
 const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.06, delayChildren: 0.04 } } };
@@ -153,6 +161,7 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
   const [slotStats, setSlotStats] = useState<SlotStats | null>(null);
   const [reachStats, setReachStats] = useState<ReachStats | null>(null);
   const [slaStats, setSlaStats] = useState<SlaSummary | null>(null);
+  const [expansion, setExpansion] = useState<ExpansionStats | null>(null);
 
   // Slot-loop plays: guaranteed (booked slots × loop repeats/day) vs bonus (empty
   // slots redistributed to this campaign). Only rendered once the campaign actually
@@ -187,6 +196,15 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
   }, [c.id]);
 
   const lastRemedy = slaStats?.cycles.slice().reverse().find((cy) => cy.remedyType) ?? null;
+
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/brand/expansion-stores?campaignId=${c.id}`)
+      .then((r) => r.ok ? r.json() as Promise<ExpansionStats> : null)
+      .then((s) => { if (live && s && s.missingStores.length > 0) setExpansion(s); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [c.id]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -322,6 +340,30 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
               )}
             </p>
           )}
+        </div>
+      )}
+
+      {expansion && expansion.missingStores.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <div className="flex items-baseline justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Network coverage</p>
+            <p className="text-sm font-black text-foreground">{expansion.coveredStores}<span className="font-normal text-muted-foreground">/{expansion.totalSlotStores} stores</span></p>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {expansion.missingStores.slice(0, 6).map((s) => (
+              <span key={s.storeId} className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
+                {s.storeName}{s.city ? ` · ${s.city}` : ''}
+              </span>
+            ))}
+            {expansion.missingStores.length > 6 && (
+              <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
+                +{expansion.missingStores.length - 6} more
+              </span>
+            )}
+          </div>
+          <p className="mt-2 border-t border-border/60 pt-2 text-[10px] leading-relaxed text-muted-foreground">
+            These stores don&apos;t carry your campaign yet — contact your Account Manager to expand there.
+          </p>
         </div>
       )}
 
