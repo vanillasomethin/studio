@@ -323,7 +323,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
   onClose: () => void; onSaved: () => void;
 }) {
   const [enabled,  setEnabled]  = useState(store.loopSlotCount != null);
-  const [count,    setCount]    = useState(store.loopSlotCount ?? 6);
+  const [count,    setCount]    = useState(store.loopSlotCount ?? 30);
   const [openDays, setOpenDays] = useState(store.openDays);
   const [start,    setStart]    = useState(store.hoursStart);
   const [end,      setEnd]      = useState(store.hoursEnd);
