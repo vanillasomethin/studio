@@ -17,7 +17,9 @@ import {
   CalendarDays, CheckCircle2, Clock, AlertCircle, ArrowRight,
   CreditCard, X, Loader2, Plus, Check, Upload, FileVideo, ImageIcon, Download,
   Gift, Printer, ExternalLink, Sheet, Radar, ShieldCheck, Radio, Volume2,
+  Zap, Ticket, CalendarClock,
 } from 'lucide-react';
+import { SLOT_WINDOWS, type WindowId } from '@/lib/slot-windows';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
 
@@ -772,12 +774,24 @@ function TrialBanner() {
 
 // ─── Creatives Tab ────────────────────────────────────────────────────────────
 
+type ContentQuota = { tier: string; used: number; remaining: number | null; allowed: boolean };
+
 function CreativesTab({ campaigns }: { campaigns: Campaign[] }) {
   const [uploading, setUploading]   = useState<string | null>(null);
   const [localUrls, setLocalUrls]   = useState<Record<string, string[]>>({});
+  const [quotas, setQuotas]         = useState<Record<string, ContentQuota>>({});
   const fileRefs                    = useRef<Record<string, HTMLInputElement | null>>({});
 
   const getUrls = (c: Campaign) => [...(c.creativeUrls ?? []), ...(localUrls[c.id] ?? [])];
+
+  const loadQuota = useCallback((campaignId: string) => {
+    fetch(`/api/brand/content-quota?campaignId=${campaignId}`)
+      .then((r) => r.ok ? r.json() as Promise<ContentQuota> : null)
+      .then((q) => { if (q) setQuotas((prev) => ({ ...prev, [campaignId]: q })); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { campaigns.forEach((c) => loadQuota(c.id)); }, [campaigns, loadQuota]);
 
   async function upload(campaignId: string, paymentId: string, file: File) {
     const MAX = 4 * 1024 * 1024;
@@ -795,6 +809,7 @@ function CreativesTab({ campaigns }: { campaigns: Campaign[] }) {
       if (!res.ok) throw new Error(data.error ?? 'Upload failed');
       setLocalUrls((prev) => ({ ...prev, [campaignId]: [...(prev[campaignId] ?? []), data.url!] }));
       toast.success('Creative uploaded!', { id: tid });
+      loadQuota(campaignId);
     } catch (e) {
       toast.error((e as Error).message, { id: tid });
     } finally {
@@ -818,18 +833,28 @@ function CreativesTab({ campaigns }: { campaigns: Campaign[] }) {
             <div className="px-5 py-4 border-b border-border flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-foreground">{c.brandName}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{period} · {c.screens} screen{c.screens !== 1 ? 's' : ''}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {period} · {c.screens} screen{c.screens !== 1 ? 's' : ''}
+                  {quotas[c.id] && (
+                    <span className="ml-1.5">
+                      · {quotas[c.id].remaining == null ? 'Unlimited changes' : `${quotas[c.id].remaining} change${quotas[c.id].remaining === 1 ? '' : 's'} left this month`}
+                    </span>
+                  )}
+                </p>
               </div>
               {c.paymentId && (
-                <label className="cursor-pointer">
+                <label className={quotas[c.id]?.allowed === false ? 'cursor-not-allowed' : 'cursor-pointer'}>
                   <input
                     ref={(el) => { fileRefs.current[c.id] = el; }}
                     type="file"
                     accept="image/jpeg,image/png,image/webp,video/mp4"
                     className="sr-only"
+                    disabled={quotas[c.id]?.allowed === false}
                     onChange={(e) => { const f = e.target.files?.[0]; if (f && c.paymentId) upload(c.id, c.paymentId, f); e.target.value = ''; }}
                   />
-                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-all">
+                  <span className={`inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs font-semibold transition-all ${
+                    quotas[c.id]?.allowed === false ? 'text-muted-foreground/40' : 'text-muted-foreground hover:border-primary/40 hover:text-primary'
+                  }`}>
                     {uploading === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                     Upload
                   </span>
@@ -1006,6 +1031,236 @@ function AddOnsTab({ campaigns }: { campaigns: Campaign[] }) {
       )}
     </div>
   );
+}
+
+// ─── Book Slots Tab (self-serve request-only booking) ─────────────────────────
+
+type CreditBalance = { granted: number; consumed: number; available: number };
+type SlotRequestRow = {
+  id: string; storeId: string; storeName: string; city: string | null;
+  window: WindowId; creditsCost: number; status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  note: string | null; requestedAt: string; decidedAt: string | null;
+};
+type StoreAvailabilityRow = {
+  storeId: string; storeName: string; city: string | null;
+  loopSlotCount: number; filledCount: number; openSlots: number;
+};
+
+const REQUEST_STATUS_BADGE: Record<SlotRequestRow['status'], string> = {
+  pending: 'bg-amber-50 text-amber-700 border border-amber-200',
+  approved: 'bg-green-50 text-green-700 border border-green-200',
+  rejected: 'bg-red-50 text-red-700 border border-red-200',
+  cancelled: 'bg-muted text-muted-foreground border border-border',
+};
+
+function BookSlotsTab({ campaigns }: { campaigns: Campaign[] }) {
+  const eligible = campaigns.filter((c) => c.paymentId);
+  const [selected, setSelected] = useState<string>(eligible[0]?.id ?? '');
+  const [balance, setBalance] = useState<CreditBalance | null>(null);
+  const [requests, setRequests] = useState<SlotRequestRow[] | null>(null);
+  const [stores, setStores] = useState<StoreAvailabilityRow[] | null>(null);
+  const [pickedStore, setPickedStore] = useState('');
+  const [pickedWindow, setPickedWindow] = useState<WindowId | ''>('');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadCredits = useCallback((campaignId: string) => {
+    if (!campaignId) { setBalance(null); setRequests([]); return; }
+    fetch(`/api/brand/slot-credits?campaignId=${campaignId}`)
+      .then((r) => r.ok ? r.json() as Promise<{ balance: CreditBalance; requests: SlotRequestRow[] }> : null)
+      .then((d) => { if (d) { setBalance(d.balance); setRequests(d.requests); } })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadCredits(selected); }, [selected, loadCredits]);
+
+  useEffect(() => {
+    fetch('/api/brand/store-availability')
+      .then((r) => r.ok ? r.json() as Promise<{ stores: StoreAvailabilityRow[] }> : { stores: [] })
+      .then((d) => setStores(d.stores))
+      .catch(() => setStores([]));
+  }, []);
+
+  const creditCost = pickedWindow ? (SLOT_WINDOWS.find((w) => w.id === pickedWindow)?.peak ? 2 : 1) : 0;
+  const canSubmit = selected && pickedStore && pickedWindow && balance != null && balance.available >= creditCost;
+
+  async function submitRequest() {
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/brand/slot-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: selected, storeId: pickedStore, window: pickedWindow, note: note || undefined }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Request failed');
+      toast.success('Request sent — ALIVE will review and confirm your booking.');
+      setPickedStore(''); setPickedWindow(''); setNote('');
+      loadCredits(selected);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function cancel(id: string) {
+    try {
+      const res = await fetch(`/api/brand/slot-requests?id=${id}&campaignId=${selected}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Could not cancel');
+      toast.success('Request cancelled — credits returned.');
+      loadCredits(selected);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  if (eligible.length === 0) return (
+    <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-muted-foreground text-sm">
+      No active campaigns yet. Book a campaign first to request slots.
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-semibold text-muted-foreground">Campaign</label>
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
+        >
+          {eligible.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.brandName} — {c.startDate ? format(parseISO(c.startDate), 'd MMM yyyy') : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {balance && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+              <Ticket className="h-4 w-4 text-muted-foreground" /> Slot credits
+            </p>
+            <p className="text-sm font-black text-foreground">
+              {balance.available}<span className="font-normal text-muted-foreground">/{balance.granted} available</span>
+            </p>
+          </div>
+          <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${balance.granted > 0 ? (balance.consumed / balance.granted) * 100 : 0}%` }} />
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            1 credit per off-peak window, 2 credits per peak window (marked <Zap className="inline h-3 w-3 text-amber-500" />). Requests hold their credits until ALIVE approves, rejects, or you cancel.
+          </p>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <p className="px-4 py-3 border-b border-border text-xs font-bold uppercase tracking-widest text-muted-foreground">Time-window pricing</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="px-3 py-2 font-semibold">Window</th>
+                <th className="px-3 py-2 font-semibold">Time</th>
+                <th className="px-3 py-2 font-semibold text-right">Footfall</th>
+                <th className="px-3 py-2 font-semibold text-right">Ads/day</th>
+                <th className="px-3 py-2 font-semibold text-right">₹/month</th>
+                <th className="px-3 py-2 font-semibold text-right">Credits</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SLOT_WINDOWS.map((w) => (
+                <tr key={w.id} className="border-b border-border/60 last:border-0">
+                  <td className="px-3 py-2 font-semibold text-foreground flex items-center gap-1">
+                    {w.peak && <Zap className="h-3 w-3 text-amber-500" />} {w.id}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{w.label}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">{w.averageFootfall}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">{w.adsPerDay}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-foreground">₹{w.costPerMonth.toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">{w.peak ? 2 : 1}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+          <CalendarClock className="h-4 w-4 text-muted-foreground" /> Request a slot
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Store</label>
+            <select value={pickedStore} onChange={(e) => setPickedStore(e.target.value)} className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs">
+              <option value="">Choose a store…</option>
+              {(stores ?? []).map((s) => (
+                <option key={s.storeId} value={s.storeId} disabled={s.openSlots === 0}>
+                  {s.storeName}{s.city ? ` · ${s.city}` : ''} — {s.openSlots} open
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Time window</label>
+            <select value={pickedWindow} onChange={(e) => setPickedWindow(e.target.value as WindowId)} className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs">
+              <option value="">Choose a window…</option>
+              {SLOT_WINDOWS.map((w) => (
+                <option key={w.id} value={w.id}>{w.id} · {w.label} · {w.peak ? '2 credits' : '1 credit'}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Note to ALIVE (optional)</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything we should know?"
+            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs" />
+        </div>
+        <button onClick={submitRequest} disabled={!canSubmit || submitting}
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40">
+          {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `Send request${creditCost ? ` (${creditCost} credit${creditCost > 1 ? 's' : ''})` : ''}`}
+        </button>
+        {pickedWindow && balance && balance.available < creditCost && (
+          <p className="text-[11px] text-red-600">Not enough credits — this window needs {creditCost}, you have {balance.available}.</p>
+        )}
+      </div>
+
+      {requests && requests.length > 0 && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <p className="px-4 py-3 border-b border-border text-xs font-bold uppercase tracking-widest text-muted-foreground">Your requests</p>
+          <div className="divide-y divide-border">
+            {requests.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">{r.storeName}{r.city ? ` · ${r.city}` : ''} — {r.window}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{r.creditsCost} credit{r.creditsCost > 1 ? 's' : ''} · requested {timeAgoDashboard(r.requestedAt)}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${REQUEST_STATUS_BADGE[r.status]}`}>{r.status}</span>
+                  {r.status === 'pending' && (
+                    <button onClick={() => cancel(r.id)} className="text-[10px] font-semibold text-muted-foreground hover:text-red-600 transition-colors">Cancel</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function timeAgoDashboard(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 // ─── Invoices Tab ─────────────────────────────────────────────────────────────
@@ -1965,6 +2220,7 @@ export default function DashboardPage() {
             <TabsTrigger value="performance">Performance</TabsTrigger>
             <TabsTrigger value="creatives">Creatives</TabsTrigger>
             <TabsTrigger value="addons">Add-ons</TabsTrigger>
+            <TabsTrigger value="book-slots">Book Slots</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="network">Our Network</TabsTrigger>
@@ -2045,6 +2301,13 @@ export default function DashboardPage() {
             {fetching
               ? <Skeleton className="h-40 rounded-xl" />
               : <AddOnsTab campaigns={campaigns} />
+            }
+          </TabsContent>
+
+          <TabsContent value="book-slots">
+            {fetching
+              ? <Skeleton className="h-40 rounded-xl" />
+              : <BookSlotsTab campaigns={campaigns} />
             }
           </TabsContent>
 

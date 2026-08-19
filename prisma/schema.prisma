@@ -167,6 +167,7 @@ model Store {
   screenPresenceEvents ScreenPresenceEvent[]
   sensorHealth         StoreSensorHealth?
   slotAddons           SlotAddon[]
+  slotRequests         SlotRequest[]
 
   @@index([city])
   @@index([pincode])
@@ -237,6 +238,10 @@ model Campaign {
   // uploads without the md5/type the player cache needs, so slot playback goes
   // through a proper Content row. A booked campaign without one plays as filler.
   slotContentId  String?
+  // Governs this campaign's monthly creative-change quota (see lib/content-quota.ts) —
+  // admin-assigned, independent of a store's own slotPricingTier (a campaign can run
+  // across many stores with different tiers; this is the brand's own plan).
+  slotPricingTier String  @default("standard")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -248,10 +253,37 @@ model Campaign {
   screenPresenceEvents ScreenPresenceEvent[]
   playGuaranteeCycles  PlayGuaranteeCycle[]
   slotAddons           SlotAddon[]
+  slotRequests         SlotRequest[]
 
   @@index([brandId])
   @@index([status])
   @@index([email])
+}
+
+// Self-serve slot booking, request-only: a brand spends credits (their Campaign.screens
+// count) requesting a store + time-window; nothing actually books until ALIVE admin
+// approves and assigns the real SlotBooking (unchanged, still admin-only — see
+// lib/slots.ts). Pending AND approved requests both hold their credits reserved;
+// rejected/cancelled release them. See lib/slot-requests-db.ts.
+model SlotRequest {
+  id          String    @id @default(cuid())
+  campaignId  String
+  storeId     String
+  window      String // '1A'|'1B'|'2A'|'2B'|'3A'|'3B'|'3C'|'FULL_DAY' — see lib/slot-windows.ts
+  creditsCost Int // snapshotted at request time (1 off-peak, 2 peak) — a later rate
+  // change must not silently reprice an outstanding request
+  status      String    @default("pending") // 'pending' | 'approved' | 'rejected' | 'cancelled'
+  note        String? // brand's optional note to admin
+  requestedAt DateTime  @default(now())
+  decidedAt   DateTime?
+  decidedBy   String? // free-text, same loose-actor convention as AuditLog.actorId
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([storeId])
+  @@index([status])
 }
 
 // Peak Boost / Sound Ad add-ons — both are flags on top of an existing slot booking,

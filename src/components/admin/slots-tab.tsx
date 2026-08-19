@@ -111,6 +111,8 @@ export default function SlotsTab() {
         </div>
       </div>
 
+      <SlotRequestsPanel />
+
       {/* Grid */}
       {!slotStores.length ? (
         <div className="rounded-xl border border-dashed border-border bg-muted/10 py-12 text-center">
@@ -309,6 +311,79 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pending slot requests (self-serve intake, admin approves) ────────────────
+//
+// A SlotRequest is not a booking — it's a brand spending credits to ask for a
+// store + time-window. Approving just marks it decided; the admin still picks the
+// exact loop position via the grid below (SlotEditor / assignSlot), same as always.
+
+type SlotRequestRow = {
+  id: string; campaignId: string; brandName: string;
+  storeId: string; storeName: string; city: string | null;
+  window: string; creditsCost: number; status: string; note: string | null;
+  requestedAt: string;
+};
+
+function SlotRequestsPanel() {
+  const [requests, setRequests] = useState<SlotRequestRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
+    fetch('/api/admin/slot-requests?status=pending', { headers: { 'admin-password': pw } })
+      .then((r) => r.ok ? r.json() as Promise<{ requests: SlotRequestRow[] }> : { requests: [] })
+      .then((d) => setRequests(d.requests))
+      .catch(() => setRequests([]));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function decide(id: string, decision: 'approved' | 'rejected') {
+    setBusy(id);
+    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
+    try {
+      await fetch('/api/admin/slot-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'admin-password': pw },
+        body: JSON.stringify({ id, decision }),
+      });
+      toast({ title: decision === 'approved' ? 'Approved — assign the exact slot below ✓' : 'Rejected' });
+      load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!requests || requests.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+      <p className="px-4 py-2.5 text-xs font-bold text-amber-700">{requests.length} pending slot request{requests.length > 1 ? 's' : ''}</p>
+      <div className="divide-y divide-border">
+        {requests.map((r) => (
+          <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-foreground truncate">
+                {r.brandName} → {r.storeName}{r.city ? ` · ${r.city}` : ''} · {r.window} ({r.creditsCost} credit{r.creditsCost > 1 ? 's' : ''})
+              </p>
+              {r.note && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">&ldquo;{r.note}&rdquo;</p>}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={() => decide(r.id, 'approved')} disabled={busy === r.id}
+                className="rounded-md border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700 hover:bg-green-100 transition-colors disabled:opacity-40">
+                Approve
+              </button>
+              <button onClick={() => decide(r.id, 'rejected')} disabled={busy === r.id}
+                className="rounded-md border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40">
+                Reject
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

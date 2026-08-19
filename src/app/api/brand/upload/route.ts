@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { putObject, publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
+import { getContentQuotaStatus } from '@/lib/content-quota-db';
 
 export const maxDuration = 60;
 
@@ -24,6 +25,13 @@ export async function POST(req: NextRequest) {
     select: { id: true, name: true, creativeUrls: true },
   });
   if (!campaign) return NextResponse.json({ error: 'Campaign not found for this payment' }, { status: 404 });
+
+  const quota = await getContentQuotaStatus(campaign.id);
+  if (!quota.allowed) {
+    return NextResponse.json({
+      error: `You've used your ${quota.used} creative change${quota.used === 1 ? '' : 's'} for this month on your plan. Upgrade your plan for more, or wait until next month.`,
+    }, { status: 429 });
+  }
 
   try {
     const form = await req.formData();
@@ -50,6 +58,9 @@ export async function POST(req: NextRequest) {
       where: { id: campaign.id },
       data:  { creativeUrls: { push: url } },
     });
+    await db.auditLog.create({
+      data: { action: 'creative_change', target: campaign.id, meta: { url } },
+    }).catch(() => { /* the quota tracker is best-effort — never fail the upload over it */ });
 
     return NextResponse.json({ url, campaignId: campaign.id, campaignName: campaign.name });
   } catch (e) {
