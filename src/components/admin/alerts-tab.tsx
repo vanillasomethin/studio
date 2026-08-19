@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, AlertTriangle, CheckCircle2, Store, BarChart3, Tv2,
-  RefreshCw, X, ChevronRight,
+  RefreshCw, X, ChevronRight, MessageSquare, UserCircle2, Check, RotateCcw, Send,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,6 +32,27 @@ type CampaignRow = {
   id: string; brandName: string; totalAmount: number; status: string;
   paymentId?: string; createdAt: string;
 };
+
+// Durable, team-visible action state layered on top of a computed alert — see
+// /api/admin/alerts. Distinct from `dismissed`, which is a personal, local-only hide.
+type AlertTeam = 'tech' | 'operations' | 'marketing';
+type AlertActionState = {
+  alertId: string;
+  team: AlertTeam | null;
+  assignee: string | null;
+  status: 'open' | 'closed';
+  closedAt: string | null;
+  closedBy: string | null;
+  commentCount: number;
+};
+type AlertCommentRow = { id: string; author: string | null; body: string; createdAt: string };
+
+const TEAM_CONFIG: Record<AlertTeam, { label: string; badge: string }> = {
+  tech:       { label: 'Tech Team',  badge: 'bg-violet-50 text-violet-700 border border-violet-200' },
+  operations: { label: 'Operations', badge: 'bg-cyan-50 text-cyan-700 border border-cyan-200' },
+  marketing:  { label: 'Marketing',  badge: 'bg-pink-50 text-pink-700 border border-pink-200' },
+};
+const ACTOR_NAME_KEY = 'alive_admin_actor_name';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -179,11 +200,218 @@ function buildAlerts(
   });
 }
 
+// ─── Alert Actions (assign / comment / close) ─────────────────────────────────
+
+function getActorName(): string {
+  try { return localStorage.getItem(ACTOR_NAME_KEY) ?? ''; } catch { return ''; }
+}
+function saveActorName(name: string) {
+  try { localStorage.setItem(ACTOR_NAME_KEY, name); } catch { /* ignore */ }
+}
+
+function AlertActionsPanel({
+  alertId, action, onChange,
+}: {
+  alertId: string;
+  action?: AlertActionState;
+  onChange: () => void;
+}) {
+  const [open, setOpen] = useState<'assign' | 'comments' | null>(null);
+  const [team, setTeam] = useState<AlertTeam | ''>(action?.team ?? '');
+  const [assignee, setAssignee] = useState(action?.assignee ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const [comments, setComments] = useState<AlertCommentRow[] | null>(null);
+  const [newComment, setNewComment] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [actorName, setActorName] = useState(getActorName());
+
+  const pw = () => sessionStorage.getItem('alive_admin_pw') ?? '';
+
+  async function postAction(body: Record<string, unknown>) {
+    setSaving(true);
+    try {
+      await fetch('/api/admin/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'admin-password': pw() },
+        body: JSON.stringify({ alertId, ...body }),
+      });
+      onChange();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadComments() {
+    setComments(null);
+    const res = await fetch(`/api/admin/alerts/comments?alertId=${encodeURIComponent(alertId)}`, {
+      headers: { 'admin-password': pw() },
+    });
+    const data = res.ok ? await res.json() as { comments: AlertCommentRow[] } : { comments: [] };
+    setComments(data.comments);
+  }
+
+  async function addComment() {
+    const body = newComment.trim();
+    if (!body) return;
+    setPosting(true);
+    try {
+      saveActorName(actorName.trim());
+      await fetch('/api/admin/alerts/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'admin-password': pw() },
+        body: JSON.stringify({ alertId, author: actorName.trim() || null, body }),
+      });
+      setNewComment('');
+      await loadComments();
+      onChange(); // refresh comment count on the parent
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  const isClosed = action?.status === 'closed';
+
+  return (
+    <div className="mt-2.5">
+      {/* Status row: team / assignee / closed badges */}
+      {(action?.team || action?.assignee || isClosed) && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          {action?.team && (
+            <span className={`admin-badge ${TEAM_CONFIG[action.team].badge}`}>{TEAM_CONFIG[action.team].label}</span>
+          )}
+          {action?.assignee && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <UserCircle2 className="h-3 w-3" /> {action.assignee}
+            </span>
+          )}
+          {isClosed && (
+            <span className="admin-badge bg-green-50 text-green-700 border border-green-200 flex items-center gap-1">
+              <Check className="h-3 w-3" /> Closed{action.closedBy ? ` by ${action.closedBy}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setOpen(open === 'assign' ? null : 'assign')}
+          className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/60 transition-colors"
+        >
+          <UserCircle2 className="h-3 w-3" /> {action?.team || action?.assignee ? 'Reassign' : 'Assign'}
+        </button>
+        <button
+          onClick={() => { const next = open === 'comments' ? null : 'comments'; setOpen(next); if (next === 'comments' && comments === null) loadComments(); }}
+          className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/60 transition-colors"
+        >
+          <MessageSquare className="h-3 w-3" /> Comment{action && action.commentCount > 0 ? ` (${action.commentCount})` : ''}
+        </button>
+        {isClosed ? (
+          <button
+            onClick={() => postAction({ action: 'reopen' })}
+            disabled={saving}
+            className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+          >
+            <RotateCcw className="h-3 w-3" /> Reopen
+          </button>
+        ) : (
+          <button
+            onClick={() => { saveActorName(actorName.trim()); postAction({ action: 'close', closedBy: actorName.trim() || null }); }}
+            disabled={saving}
+            className="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700 hover:bg-green-100 transition-colors disabled:opacity-50"
+          >
+            <Check className="h-3 w-3" /> Close
+          </button>
+        )}
+      </div>
+
+      {/* Assign panel */}
+      {open === 'assign' && (
+        <div className="mt-2 rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Team</label>
+            {(['tech', 'operations', 'marketing'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTeam(team === t ? '' : t)}
+                className={`admin-chip${team === t ? ' admin-chip--active' : ''}`}
+              >
+                {TEAM_CONFIG[t].label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground shrink-0">Person</label>
+            <input
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+              placeholder="Who's on this?"
+              className="flex-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
+            />
+          </div>
+          <button
+            onClick={async () => { await postAction({ action: 'assign', team: team || null, assignee }); setOpen(null); }}
+            disabled={saving}
+            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+          </button>
+        </div>
+      )}
+
+      {/* Comments panel */}
+      {open === 'comments' && (
+        <div className="mt-2 rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+          {comments === null ? (
+            <div className="flex justify-center py-3"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /></div>
+          ) : comments.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">No comments yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {comments.map((c) => (
+                <div key={c.id} className="text-[11px]">
+                  <span className="font-semibold text-foreground">{c.author || 'Admin'}</span>
+                  <span className="ml-1.5 text-muted-foreground/70">{timeSince(c.createdAt)}</span>
+                  <p className="text-muted-foreground mt-0.5 leading-relaxed">{c.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 pt-1 border-t border-border/60">
+            <input
+              value={actorName}
+              onChange={(e) => setActorName(e.target.value)}
+              placeholder="Your name"
+              className="w-24 shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-[11px]"
+            />
+            <input
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addComment(); }}
+              placeholder="Add a comment…"
+              className="flex-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px]"
+            />
+            <button
+              onClick={addComment}
+              disabled={posting || !newComment.trim()}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {posting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) {
   const [alerts,    setAlerts]    = useState<Alert[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [actions,   setActions]   = useState<Map<string, AlertActionState>>(new Map());
   const [loading,   setLoading]   = useState(true);
   const [filter,    setFilter]    = useState<'all' | 'active' | AlertSeverity>('active');
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
@@ -209,7 +437,18 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
+  // Team-visible assignment/close/comment state — separate fetch (and separate
+  // refresh trigger) from the computed alerts themselves, see /api/admin/alerts.
+  const fetchActions = useCallback(async () => {
+    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
+    try {
+      const res = await fetch('/api/admin/alerts', { headers: { 'admin-password': pw } });
+      const data = res.ok ? await res.json() as { actions: AlertActionState[] } : { actions: [] };
+      setActions(new Map(data.actions.map((a) => [a.alertId, a])));
+    } catch { /* non-critical */ }
+  }, []);
+
+  useEffect(() => { fetchAlerts(); fetchActions(); }, [fetchAlerts, fetchActions]);
 
   const dismiss = (id: string) => {
     const next = new Set(dismissed).add(id);
@@ -262,7 +501,7 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
               <X className="h-3 w-3" /> Dismiss all
             </button>
           )}
-          <button onClick={() => fetchAlerts()} disabled={loading}
+          <button onClick={() => { fetchAlerts(); fetchActions(); }} disabled={loading}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary/90 transition-colors disabled:opacity-50">
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Refresh
@@ -320,12 +559,13 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
       ) : (
         <div className="space-y-2">
           {filtered.map((a) => {
-            const sev  = SEV_CONFIG[a.severity];
-            const Icon = sev.icon;
-            const Cat  = CAT_ICON[a.category];
+            const sev    = SEV_CONFIG[a.severity];
+            const Icon   = sev.icon;
+            const Cat    = CAT_ICON[a.category];
+            const action = actions.get(a.id);
             return (
               <div key={a.id}
-                className={`relative rounded-xl border border-border bg-card p-4 border-l-4 ${sev.border} ${a.dismissed ? 'opacity-40' : ''} transition-opacity`}
+                className={`relative rounded-xl border border-border bg-card p-4 border-l-4 ${sev.border} ${a.dismissed || action?.status === 'closed' ? 'opacity-40' : ''} transition-opacity`}
               >
                 <div className="flex items-start gap-3">
                   {/* Category icon */}
@@ -346,6 +586,7 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
                         {a.link.label} <ChevronRight className="h-3 w-3" />
                       </button>
                     )}
+                    <AlertActionsPanel alertId={a.id} action={action} onChange={fetchActions} />
                   </div>
 
                   {/* Dismiss */}
@@ -364,7 +605,7 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
 
       {/* Footer note */}
       <p className="text-[10px] text-muted-foreground/50 admin-font-mono text-center pt-2">
-        Alerts auto-generate from device status, store registrations, and campaign data. Dismissed alerts persist in browser storage.
+        Alerts auto-generate from device status, store registrations, and campaign data. Dismiss just hides an alert for you; Assign/Comment/Close are saved for the whole team.
       </p>
     </div>
   );

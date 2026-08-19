@@ -816,6 +816,42 @@ model AuditLog {
   @@index([createdAt])
 }
 
+// ─── Alerts & Notifications (admin panel) ─────────────────────────────────────
+//
+// The alerts themselves are computed at read time from live device/store/campaign
+// data (see AlertsTab.buildAlerts on the client) — they have no row of their own.
+// These two tables hold the durable, team-visible state layered on top of a
+// computed alert, keyed by its deterministic client-side id (e.g.
+// "device-offline-<deviceId>"). No admin user accounts exist (single shared
+// ADMIN_PASSWORD — see CLAUDE.md), so assignee/author are free text, same
+// loose-actor convention as AuditLog.actorId.
+
+model AlertAction {
+  id        String    @id @default(cuid())
+  alertId   String    @unique
+  team      String? // 'tech' | 'operations' | 'marketing'
+  assignee  String? // free-text person in charge
+  status    String    @default("open") // 'open' | 'closed'
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+  @@index([team])
+}
+
+model AlertComment {
+  id        String   @id @default(cuid())
+  alertId   String
+  author    String?
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([alertId])
+  @@index([createdAt])
+}
+
 enum ExternalSignalSource {
   market_sentiment
   competitor_activity
