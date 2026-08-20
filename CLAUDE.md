@@ -199,6 +199,25 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 ## Design Conventions
 
+### Make state visible — the overriding UI rule
+
+Every screen must answer "what's going on?" at a glance, without reading. This
+outranks brevity and outranks matching whatever pattern is already on the page.
+When a generic control and a graphical one both work, use the graphical one.
+
+- **Show status as colour and shape, not words in a cell.** Slot occupancy is a
+  grid of coloured pills, not a count. Online/offline is a strong visual state on
+  the card, not a grey label someone has to hunt for.
+- **Don't hide identity behind IDs.** Pick things by photo, name, and thumbnail —
+  a bare `<select>` of campaign names or store IDs is not acceptable for anything
+  an operator uses daily. Show the creative, show the store.
+- **Progressive disclosure.** Card faces carry identity + status only. Detail
+  belongs behind a click, not crammed onto the surface.
+- **Any list an operator scans needs sort and filter.** Screens, stores,
+  campaigns, content.
+- **Interactive things must look interactive** — real hover states, obvious
+  affordances. A button that does nothing is a bug; wire it or delete it.
+
 **Never:**
 - Neon colours, glowing buttons, rainbow palettes
 - Floating orbs, blobs, decorative shapes in backgrounds
@@ -207,6 +226,10 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
+- Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
+  with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
+  — never hand-roll the markup, and never restyle its font, weight, or colour.
+  PWA icons are generated from it with `npm run icons:pwa`.
 - Primary red: `#ef4444` / `#b91c1c` — CTAs and key labels only
 - Backgrounds: `bg-white` or `bg-gray-50` / `bg-background`
 - Cards: white + `border border-border` — no shadow stacks

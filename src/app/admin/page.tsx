@@ -976,13 +976,15 @@ function Ticker({ stats }: { stats: OpsStats | null }) {
   return (
     <div className="ticker">
       <div className="ticker__pill">Live wire</div>
-      <div className="ticker__track">
-        {[...items, ...items].map((text, i) => (
-          <span key={i} className="ticker__item">
-            <span>{text}</span>
-            <span className="ticker__dot">●</span>
-          </span>
-        ))}
+      <div className="ticker__viewport">
+        <div className="ticker__track">
+          {[...items, ...items].map((text, i) => (
+            <span key={i} className="ticker__item">
+              <span>{text}</span>
+              <span className="ticker__dot">●</span>
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -996,7 +998,7 @@ const PALETTE_GROUPS = [
     items: [
       { icon: LayoutDashboard, label: 'Go to Overview',        hint: 'G then O' },
       { icon: Megaphone,       label: 'Go to Campaigns',       hint: 'G then C' },
-      { icon: Store,           label: 'Go to Kirana partners', hint: 'G then K' },
+      { icon: Store,           label: 'Go to Store partners', hint: 'G then K' },
       { icon: IndianRupee,     label: 'Go to Payouts',         hint: 'G then P' },
     ],
   },
@@ -1028,7 +1030,7 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
   const tabMap: Record<string, Tab> = {
     'Go to Overview': 'overview',
     'Go to Campaigns': 'campaigns',
-    'Go to Kirana partners': 'stores',
+    'Go to Store partners': 'stores',
     'Go to Payouts': 'payments',
   };
 
@@ -1095,7 +1097,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
   {
     group: 'Network',
     items: [
-      { id: 'stores' as Tab,     label: 'Kirana partners',  icon: Store,           count: null },
+      { id: 'stores' as Tab,     label: 'Store partners',  icon: Store,           count: null },
       { id: 'screens' as Tab,    label: 'Screens',          icon: Tv2,             count: null },
       { id: 'programming' as Tab, label: 'Programming',       icon: LayoutGrid,      count: null },
       { id: 'slots' as Tab,      label: 'Slot inventory',   icon: Grid3x3,         count: null },
@@ -1172,11 +1174,32 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
 
 // ─── New Topbar ───────────────────────────────────────────────────────────────
 
-function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, unread }: {
+function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, unread, stats, onNav }: {
   section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
   theme: 'light' | 'dark'; setTheme: (t: 'light' | 'dark') => void; unread: number;
+  stats: OpsStats | null; onNav: (t: Tab) => void;
 }) {
   const isDark = theme === 'dark';
+
+  const exportSnapshot = () => {
+    if (!stats) return;
+    const rows: [string, number][] = [
+      ['Screens online', stats.screens.online],
+      ['Screens offline', stats.screens.offline],
+      ['Active schedules', stats.schedules.active],
+      ['Store partners', stats.stores.total],
+      ['Campaigns', stats.campaigns.total],
+      ['Campaigns paid', stats.campaigns.paid],
+      ['Content files', stats.content.count],
+    ];
+    const csv = ['Metric,Value', ...rows.map(([k, v]) => `${k},${v}`)].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alive-snapshot-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <header className="tb">
       <div className="tb__crumbs">
@@ -1194,7 +1217,7 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, u
       <div className="tb__spacer"></div>
       <span className="live-pill">Live · {liveCount} screens</span>
       <div className="tb__divider"></div>
-      <button className="tb__icon-btn" title="Network status"><Activity className="h-4 w-4" /></button>
+      <button className="tb__icon-btn" title="Network status" onClick={() => onNav('monitoring')}><Activity className="h-4 w-4" /></button>
       <button
         className={`tb__icon-btn${unread > 0 ? ' tb__icon-btn--dot' : ''}`}
         title="Notifications"
@@ -1209,10 +1232,14 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, u
       >
         {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </button>
-      <button className="tb__icon-btn" title="Help"><LifeBuoy className="h-4 w-4" /></button>
+      <button className="tb__icon-btn" title="Help" onClick={() => onNav('roadmap')}><LifeBuoy className="h-4 w-4" /></button>
       <div className="tb__divider"></div>
-      <button className="btn btn--outline btn--sm"><Download className="h-3 w-3" /> Export</button>
-      <button className="btn btn--primary btn--sm"><Plus className="h-3 w-3" /> New Campaign</button>
+      <button className="btn btn--outline btn--sm" onClick={exportSnapshot} disabled={!stats} title="Download today's network snapshot as CSV">
+        <Download className="h-3 w-3" /> Export
+      </button>
+      <button className="btn btn--primary btn--sm" onClick={() => onNav('campaigns')}>
+        <Plus className="h-3 w-3" /> New Campaign
+      </button>
     </header>
   );
 }
@@ -1433,7 +1460,7 @@ function Dashboard() {
     power:      'Power',
     content:    'Creatives',
     compositions: 'Compositions',
-    stores:       'Kirana Partners',
+    stores:       'Store Partners',
     screens:      'Screens',
     programming:  'Programming',
     monitoring: 'Monitoring',
@@ -1463,6 +1490,8 @@ function Dashboard() {
           theme={theme}
           setTheme={setTheme}
           unread={alertCount}
+          stats={tickerStats}
+          onNav={handleNav}
         />
         <Ticker stats={tickerStats} />
 

@@ -715,13 +715,18 @@ input, select, textarea { font-family: inherit; }
   padding: 4px 8px; border-radius: 4px;
   flex-shrink: 0;
 }
+/* Clips the scrolling track to the space right of the pill, so items can't
+   slide over it. */
+.ticker__viewport { flex: 1; min-width: 0; overflow: hidden; }
 .ticker__track {
-  display: flex; align-items: center; gap: 24px;
+  display: flex; align-items: center;
   animation: ticker-scroll 60s linear infinite;
   white-space: nowrap;
-  flex-shrink: 0;
+  width: max-content;
 }
-.ticker__item { display: inline-flex; align-items: center; gap: 10px; font: 400 12px var(--font-body); color: var(--ink-2); }
+/* Spacing lives inside each item, not as a track gap — the -50% loop only lands
+   seamlessly if every item occupies an identical advance. */
+.ticker__item { display: inline-flex; align-items: center; gap: 10px; padding-right: 24px; font: 400 12px var(--font-body); color: var(--ink-2); }
 .ticker__red { font: 500 10px var(--font-mono); letter-spacing: 0.10em; color: var(--adm-primary); }
 .ticker__dot { color: var(--neutral-400); }
 @keyframes ticker-scroll {
