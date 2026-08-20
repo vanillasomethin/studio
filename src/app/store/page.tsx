@@ -14,7 +14,7 @@ import MapPicker from '@/components/map-picker';
 // ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
 // Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
 // to update both this web page and the mobile app simultaneously.
-import { AGREEMENT_TERMS, agreementTermsFor } from '@shared/agreement-terms';
+import { AGREEMENT_TERMS, agreementTermsFor, agreementTermsForTier, type AgreementTier } from '@shared/agreement-terms';
 import {
   validateForm, makeReferralCode, FORM_INIT,
   type FieldErrors, type FormData,
@@ -89,14 +89,16 @@ function Field({ label, value, onChange, type = 'text', placeholder, prefix, err
 
 // ─── Agreement step ───────────────────────────────────────────────────────────
 
-function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, premium, premiumMonthly }: {
+function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, premium, premiumMonthly, tierName }: {
   form: Form; agreed: boolean; setAgreed: (v: boolean) => void;
   onBack: () => void; onSubmit: () => void; busy: boolean; err: string;
-  premium: boolean; premiumMonthly: number;
+  premium: boolean; premiumMonthly: number; tierName: AgreementTier | null;
 }) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const gstin = form.gstin ? form.gstin.toUpperCase() : null;
-  const terms = premium ? agreementTermsFor(premiumMonthly) : AGREEMENT_TERMS;
+  const terms = tierName ? agreementTermsForTier(tierName)
+    : premium ? agreementTermsFor(premiumMonthly)
+    : AGREEMENT_TERMS;
   const fullAddress = [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', ');
 
   return (
@@ -214,8 +216,9 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, p
 
 const DRAFT_KEY = 'alive_store_draft';
 
-function RegistrationForm({ premium, premiumMonthly, premiumKey }: {
+function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierKey }: {
   premium: boolean; premiumMonthly: number; premiumKey: string | null;
+  tierName: AgreementTier | null; tierKey: string | null;
 }) {
   const router    = useRouter();
   const [form,    setForm]    = useState<Form>(INIT);
@@ -260,6 +263,7 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey }: {
       referralCode: code,
       agreedAt:     new Date().toISOString(),
       premiumKey:   premiumKey ?? undefined, // server re-validates; grants premium tier
+      tierKey:      tierKey ?? undefined,     // server re-validates; sets slotPricingTier
     };
     try {
       const controller = new AbortController();
@@ -340,7 +344,7 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey }: {
   );
 
   if (step === 2) return (
-    <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} premium={premium} premiumMonthly={premiumMonthly} />
+    <AgreementStep form={form} agreed={agreed} setAgreed={setAgreed} onBack={() => setStep(1)} onSubmit={submit} busy={busy} err={err} premium={premium} premiumMonthly={premiumMonthly} tierName={tierName} />
   );
 
   const fe = (k: keyof Form) => touched ? (errors as FieldErrors)[k] : undefined;
@@ -466,6 +470,13 @@ export default function StorePage() {
   const [premiumMonthly, setPremiumMonthly] = useState(500); // rupees
   const [premiumKey,     setPremiumKey]     = useState<string | null>(null);
 
+  // Slot pricing tier comes from its own gated link (?tier=KEY). When one is
+  // present the pitch and agreement show that tier's guaranteed monthly minimum
+  // instead of the flat ₹500 figure.
+  const [tierKey,     setTierKey]     = useState<string | null>(null);
+  const [tierName,    setTierName]    = useState<AgreementTier | null>(null);
+  const [tierMonthly, setTierMonthly] = useState<number | null>(null);
+
   useEffect(() => {
     let key: string | null = null;
     try { key = new URLSearchParams(window.location.search).get('premium'); } catch { /* ignore */ }
@@ -477,7 +488,18 @@ export default function StorePage() {
       .catch(() => { /* invalid key → stays standard */ });
   }, []);
 
-  const monthlyLabel = premiumMonthly.toLocaleString('en-IN');
+  useEffect(() => {
+    let key: string | null = null;
+    try { key = new URLSearchParams(window.location.search).get('tier'); } catch { /* ignore */ }
+    if (!key) return;
+    setTierKey(key);
+    fetch(`/api/stores/tier-validate?key=${encodeURIComponent(key)}`)
+      .then((r) => r.ok ? r.json() as Promise<{ tier: AgreementTier; gated: boolean; monthlyMinimumRupees: number }> : null)
+      .then((d) => { if (d?.gated) { setTierName(d.tier); setTierMonthly(d.monthlyMinimumRupees); } })
+      .catch(() => { /* invalid key → stays standard */ });
+  }, []);
+
+  const monthlyLabel = (tierMonthly ?? premiumMonthly).toLocaleString('en-IN');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -604,7 +626,7 @@ export default function StorePage() {
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500 mb-0.5">Join the network</p>
             <h2 className="text-xl font-black text-gray-900">Register your store</h2>
           </div>
-          <RegistrationForm premium={premium} premiumMonthly={premiumMonthly} premiumKey={premiumKey} />
+          <RegistrationForm premium={premium} premiumMonthly={premiumMonthly} premiumKey={premiumKey} tierName={tierName} tierKey={tierKey} />
         </motion.div>
       </div>
 

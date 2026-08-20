@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { notifyAdminWA, storeRegistrationMsg } from '@/lib/notify';
 import { respond } from '@/lib/api-envelope';
 import { computeStoreMonthlyPayoutPaiseBatch } from '@/lib/slot-pricing-db';
+import { tierForSignupKey } from '@/lib/store-signup-links';
 
 // ─── Redis (dual-write for admin panel backward compat during migration) ──────
 
@@ -141,6 +142,7 @@ type RegistrationBody = {
   referralCode: string;
   agreedAt:     string;
   premiumKey?:  string; // secret from the gated premium signup link; validated server-side
+  tierKey?:     string; // secret from the gated per-tier signup link; validated server-side
 };
 
 export async function POST(req: NextRequest) {
@@ -183,6 +185,10 @@ export async function POST(req: NextRequest) {
     const tier      = isPremium ? 'premium' : 'standard';
     const compPaise = isPremium ? Number(process.env.PREMIUM_MONTHLY_PAISE ?? 100000) : 50000;
 
+    // Slot pricing tier comes from the gated per-tier link, resolved server-side.
+    // Unknown/absent key => standard, so the plain /store link is unchanged.
+    const slotPricingTier = tierForSignupKey(body.tierKey ?? null);
+
     // Create user only — no nested store.create so Prisma doesn't touch Store at all
     const user = await db.user.create({
       data: { phone, passwordHash, name: body.ownerName, role: 'STORE_PARTNER' },
@@ -196,14 +202,14 @@ export async function POST(req: NextRequest) {
         "id", "userId", "storeName", "ownerName", "whatsapp", "address",
         "gstin", "locality", "city", "pincode", "lat", "lng",
         "referralCode", "referredBy", "agreedAt",
-        "tier", "monthlyCompensationPaise", "createdAt", "updatedAt"
+        "tier", "monthlyCompensationPaise", "slotPricingTier", "createdAt", "updatedAt"
       ) VALUES (
         ${storeId}, ${user.id}, ${body.storeName}, ${body.ownerName},
         ${body.whatsapp}, ${body.address},
         ${body.gstin || null}, ${body.locality || null}, ${body.city || null},
         ${body.pincode || null}, ${lat}, ${lng},
         ${body.referralCode}, ${body.referredBy || null}, ${agreedAt},
-        ${tier}, ${compPaise}, ${now}, ${now}
+        ${tier}, ${compPaise}, ${slotPricingTier}, ${now}, ${now}
       )
     `;
 

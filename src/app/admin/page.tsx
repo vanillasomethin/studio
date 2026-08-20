@@ -412,6 +412,69 @@ function PremiumLinkCard() {
   );
 }
 
+// ─── Gated per-tier signup links ──────────────────────────────────────────────
+// Each link carries the secret that fixes the new store's pricing tier, so this
+// panel is admin-only and the URLs are never rendered anywhere public.
+
+type SignupLink = {
+  tier: string; label: string; envVar: string;
+  monthlyMinimumRupees: number; configured: boolean; url: string | null;
+};
+
+function SignupLinksPanel() {
+  const [links,  setLinks]  = useState<SignupLink[] | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    fetch('/api/admin/signup-links', { headers: { 'admin-password': pw } })
+      .then((r) => r.ok ? r.json() : { links: [] })
+      .then((b) => setLinks(b.links ?? []))
+      .catch(() => setLinks([]));
+  }, []);
+
+  const copy = (l: SignupLink) => {
+    if (!l.url) return;
+    navigator.clipboard.writeText(l.url)
+      .then(() => { setCopied(l.tier); setTimeout(() => setCopied(null), 2000); })
+      .catch(() => {});
+  };
+
+  if (!links || links.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 mb-4">
+      <p className="text-sm font-bold text-foreground">Store signup links</p>
+      <p className="text-[11px] text-muted-foreground mt-0.5 mb-3">
+        One per pricing tier — the link decides the store&apos;s tier, so share the right one. Keep these private.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {links.map((l) => (
+          <div key={l.tier} className="rounded-lg border border-border p-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs font-bold text-foreground">{l.label}</span>
+              <span className="text-[10px] text-muted-foreground">₹{l.monthlyMinimumRupees.toLocaleString('en-IN')}/mo min</span>
+            </div>
+            {l.configured ? (
+              <button
+                onClick={() => copy(l)}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              >
+                {copied === l.tier ? <CheckCircle2 className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                {copied === l.tier ? 'Copied' : 'Copy link'}
+              </button>
+            ) : (
+              <p className="mt-2 text-[10px] text-amber-600">
+                Set <code className="font-mono">{l.envVar}</code> to enable
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StoresPanel() {
   const [stores,   setStores]   = useState<StoreReg[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -499,6 +562,7 @@ function StoresPanel() {
         ))}
       </div>
 
+      <SignupLinksPanel />
       <PremiumLinkCard />
 
       <input type="search" placeholder="Search by name, owner, city, phone, referral code…" value={search} onChange={(e) => setSearch(e.target.value)} className={inp} />
