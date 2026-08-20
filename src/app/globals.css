@@ -218,7 +218,7 @@ nav.nav .cta .cta-dot{width:6px;height:6px;border-radius:50%;background:#fff;}
 /* Sections — homepage only (scoped via body.home-page to avoid breaking dashboard) */
 body.home-page section{position:relative;padding:0 32px;}
 /* Higher-specificity overrides for sections that need vertical padding */
-body.home-page section.hero{padding-top:108px;padding-bottom:56px;}
+body.home-page section.hero{position:sticky;top:0;padding-top:108px;padding-bottom:56px;}
 body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 @media(min-width:1101px){body.home-page section{padding-right:80px;}.proof,.join{padding-right:100px;}footer.f{padding-right:100px;}}
 

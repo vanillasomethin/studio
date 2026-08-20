@@ -1132,8 +1132,7 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
   return (
     <aside className="sb">
       <div className="sb__logo">
-        <span>alive</span>
-        <span className="sb__logo-dot"></span>
+        <Logo />
       </div>
 
       {NAV_DESIGN.map((section, si) => (

@@ -81,12 +81,8 @@ input, select, textarea { font-family: inherit; }
 }
 .sb__logo {
   display: flex; align-items: center; gap: 8px;
-  font: 700 22px var(--font-display);
-  letter-spacing: -0.03em;
   padding: 4px 10px 18px;
-  color: var(--ink);
 }
-.sb__logo-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--adm-primary); box-shadow: 0 0 12px rgba(220,38,38,.6); animation: pulse-soft 2.4s ease-in-out infinite; }
 .sb__logo-sub { font: 500 9.5px var(--font-mono); letter-spacing: 0.18em; color: var(--adm-muted); text-transform: uppercase; margin-left: auto; font-style: normal; }
 .sb__group { margin-top: 14px; padding: 0 10px 6px; font: 500 9.5px var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--neutral-400); }
 .sb__item {
@@ -251,11 +247,6 @@ input, select, textarea { font-family: inherit; }
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.6); transform: scale(1); }
   50% { box-shadow: 0 0 0 5px rgba(255,255,255,0); transform: scale(1.15); }
 }
-@keyframes pulse-soft {
-  0%, 100% { box-shadow: 0 0 12px rgba(220,38,38,.5); }
-  50% { box-shadow: 0 0 4px rgba(220,38,38,.2); }
-}
-
 /* Date range pill */
 .range {
   display: inline-flex; align-items: stretch; height: 38px;
