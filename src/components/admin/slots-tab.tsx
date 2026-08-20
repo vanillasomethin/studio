@@ -32,6 +32,15 @@ const dayLabel = (d: string) => {
   return { dow: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][(dt.getUTCDay() + 6) % 7], day: dt.getUTCDate() };
 };
 
+/** What a single loop position is doing, and how it reads in the grid. */
+type SlotState = 'sold' | 'filler' | 'open';
+
+const SLOT_STATE: Record<SlotState, { label: string; pill: string; swatch: string }> = {
+  sold:   { label: 'Filled',      pill: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100',          swatch: 'border-red-300 bg-red-400' },
+  filler: { label: 'ALIVE filler', pill: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100', swatch: 'border-amber-300 bg-amber-400' },
+  open:   { label: 'Open',        pill: 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100',  swatch: 'border-green-300 bg-green-400' },
+};
+
 /** Heat colour by sold ratio — sold-out is a strong signal, not an alarm. */
 function heat(sold: number, total: number): string {
   if (total <= 0) return 'bg-muted text-muted-foreground';
@@ -217,6 +226,7 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
   const [loop,     setLoop]     = useState<SlotLoopEntry[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [busy,     setBusy]     = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
 
   const load = useCallback(() => {
     getSlotBookings(store.id, date)
@@ -253,62 +263,112 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
   const loopByPos = new Map(loop.map((l) => [l.slotPosition, l]));
   const campaignName = (id: string) => campaigns.find((c) => c.id === id)?.brandName ?? id.slice(0, 8);
   const sellable = campaigns.filter((c) => c.status !== 'cancelled');
+  const total = store.loopSlotCount ?? 0;
+
+  const stateOf = (pos: number): SlotState =>
+    byPos.has(pos) ? 'sold' : loopByPos.has(pos) ? 'filler' : 'open';
+
+  const counts = Array.from({ length: total }, (_, p) => stateOf(p))
+    .reduce((acc, s) => ({ ...acc, [s]: acc[s] + 1 }), { sold: 0, filler: 0, open: 0 } as Record<SlotState, number>);
+
+  const selBooking = selected == null ? undefined : byPos.get(selected);
+  const selPlaying = selected == null ? undefined : loopByPos.get(selected);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+      <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div>
             <p className="text-sm font-bold text-foreground">{store.storeName}</p>
-            <p className="text-[11px] text-muted-foreground">{date} · {bookings.length}/{store.loopSlotCount} sold</p>
+            <p className="text-[11px] text-muted-foreground">{date} · {bookings.length}/{total} sold</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
 
         {loading ? (
-          <div className="p-5 space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
+          <div className="p-5 grid grid-cols-10 gap-2">{Array.from({ length: 30 }, (_, i) => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
         ) : (
-          <div className="divide-y divide-border">
-            {Array.from({ length: store.loopSlotCount ?? 0 }, (_, pos) => {
-              const booking = byPos.get(pos);
-              const playing = loopByPos.get(pos);
-              return (
-                <div key={pos} className="flex items-center gap-3 px-5 py-2.5">
-                  <span className="w-6 text-[10px] font-bold text-muted-foreground/60">#{pos + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    {booking ? (
-                      <>
-                        <p className="text-xs font-semibold text-foreground truncate">{booking.campaignName}</p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {booking.hasCreative
-                            ? 'Sold · guaranteed'
-                            : <span className="text-amber-600">Sold but no 10s creative — plays as bonus/house fill</span>}
-                        </p>
-                      </>
-                    ) : playing ? (
-                      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <Gift className="h-3 w-3 text-green-600" />
-                        Empty — bonus play for <span className="font-semibold text-foreground">{campaignName(playing.campaignId)}</span>
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-muted-foreground/60">Empty — no filler creative configured</p>
-                    )}
-                  </div>
-                  <select
-                    value={booking?.campaignId ?? ''}
-                    disabled={busy === pos}
-                    onChange={(e) => e.target.value ? assign(pos, e.target.value) : booking && unassign(booking)}
-                    className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary max-w-[200px]"
+          <div className="p-5 space-y-4">
+            {/* Legend — the loop at a glance */}
+            <div className="flex flex-wrap items-center gap-4">
+              {(['sold', 'filler', 'open'] as SlotState[]).map((s) => (
+                <span key={s} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className={`h-3 w-3 rounded-full border ${SLOT_STATE[s].swatch}`} />
+                  {SLOT_STATE[s].label}
+                  <span className="font-bold text-foreground">{counts[s]}</span>
+                </span>
+              ))}
+            </div>
+
+            {/* The loop itself — one pill per position */}
+            <div className="grid grid-cols-6 gap-2 sm:grid-cols-10">
+              {Array.from({ length: total }, (_, pos) => {
+                const s = stateOf(pos);
+                const isSel = selected === pos;
+                return (
+                  <button
+                    key={pos}
+                    onClick={() => setSelected(isSel ? null : pos)}
+                    title={byPos.get(pos)?.campaignName
+                      ?? (loopByPos.has(pos) ? `Bonus play — ${campaignName(loopByPos.get(pos)!.campaignId)}` : 'Open')}
+                    className={`relative flex h-11 items-center justify-center rounded-lg border text-[11px] font-bold transition-colors ${SLOT_STATE[s].pill} ${
+                      isSel ? 'ring-2 ring-foreground ring-offset-1 ring-offset-card' : ''
+                    }`}
                   >
-                    <option value="">— empty —</option>
+                    {busy === pos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : pos + 1}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Detail for the clicked pill */}
+            {selected == null ? (
+              <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-[11px] text-muted-foreground">
+                Click a slot to see what plays there and reassign it.
+              </p>
+            ) : (
+              <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-foreground">Slot #{selected + 1}</p>
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${SLOT_STATE[stateOf(selected)].pill}`}>
+                    {SLOT_STATE[stateOf(selected)].label}
+                  </span>
+                </div>
+
+                {selBooking ? (
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{selBooking.campaignName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {selBooking.hasCreative
+                        ? 'Sold · guaranteed play'
+                        : <span className="text-amber-600">Sold but no 10s creative — plays as bonus/house fill</span>}
+                    </p>
+                  </div>
+                ) : selPlaying ? (
+                  <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Gift className="h-3.5 w-3.5 text-amber-600" />
+                    Unsold — bonus play for <span className="font-semibold text-foreground">{campaignName(selPlaying.campaignId)}</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70">Unsold, and no filler creative is configured — this position plays nothing.</p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selBooking?.campaignId ?? ''}
+                    disabled={busy === selected}
+                    onChange={(e) => e.target.value ? assign(selected, e.target.value) : selBooking && unassign(selBooking)}
+                    className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] text-foreground focus:border-primary focus:outline-none"
+                  >
+                    <option value="">— leave open —</option>
                     {sellable.map((c) => (
                       <option key={c.id} value={c.id}>{c.brandName}{c.slotContentId ? '' : ' (no creative)'}</option>
                     ))}
                   </select>
-                  {busy === pos && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                  {busy === selected && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                 </div>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
       </div>

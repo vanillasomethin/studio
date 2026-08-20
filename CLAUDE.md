@@ -146,6 +146,28 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 
 ---
 
+## Two playback modes — don't build a playlist per store
+
+A screen gets its content one of two ways. Which one applies is decided by
+`Store.loopSlotCount`:
+
+- **Slot mode (`loopSlotCount` set, default 30) — the primary model.** The loop is
+  generated per store per day from `SlotBooking` rows by `buildSlotLoop()`
+  (`src/lib/slots.ts`), called from `/api/device/plan`. A booking points at a
+  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`).
+  **No Playlist is involved at all** — one campaign with one creative serves every
+  store it's booked into, so there is never a reason to hand-build a playlist per
+  store. Unsold positions fill themselves: first as bonus replays of sold campaigns
+  (round-robin), then from the house filler campaign.
+- **Playlist/schedule mode (`loopSlotCount` null).** The older path — `Playlist` →
+  `Schedule` → devices. Use it for screens that aren't selling slots.
+
+Schedules still win over the slot loop where their windows overlap, so a store can
+do both. Admin UI for all of this lives under one tab: Programming → Slots /
+Creatives / Playlists / Schedules / Calendar.
+
+---
+
 ## Key Routes
 
 | Route | Description |

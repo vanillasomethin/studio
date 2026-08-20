@@ -1090,7 +1090,6 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     items: [
       { id: 'overview' as Tab,   label: 'Overview',         icon: LayoutDashboard, count: null },
       { id: 'campaigns' as Tab,  label: 'Campaigns',        icon: Megaphone,       count: null },
-      { id: 'content' as Tab,    label: 'Creatives',        icon: Image,           count: null },
       { id: 'compositions' as Tab, label: 'Compositions',     icon: CalendarClock,   count: null },
     ],
   },
@@ -1099,8 +1098,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     items: [
       { id: 'stores' as Tab,     label: 'Store partners',  icon: Store,           count: null },
       { id: 'screens' as Tab,    label: 'Screens',          icon: Tv2,             count: null },
-      { id: 'programming' as Tab, label: 'Programming',       icon: LayoutGrid,      count: null },
-      { id: 'slots' as Tab,      label: 'Slot inventory',   icon: Grid3x3,         count: null },
+      { id: 'programming' as Tab, label: 'Programming',      icon: LayoutGrid,      count: null },
       { id: 'power' as Tab,      label: 'Power',            icon: Zap,             count: null },
       { id: 'monitoring' as Tab, label: 'Monitoring',       icon: Activity,        count: null },
       { id: 'footfall' as Tab,   label: 'Footfall',         icon: Radar,           count: null },
