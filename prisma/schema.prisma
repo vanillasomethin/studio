@@ -135,6 +135,9 @@ model Store {
   screenPlatePhotoUrl  String? // photo of the model/serial plate
   screenRatingPhotoUrl String? // photo of the power rating label (the W figure)
   screenSurveyedAt     DateTime?
+  // Storefront photo — how an operator recognises this store at a glance in the
+  // admin (screen cards, pickers). R2 public URL. Not the screen, the shop.
+  photoUrl             String?
   openDays         Int    @default(127) // bitmask, bit0=Mon … bit6=Sun; closed days excluded from availability
   hoursStart       String @default("09:00") // IST, loop plays hoursStart–hoursEnd
   hoursEnd         String @default("21:00")
