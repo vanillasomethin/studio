@@ -767,7 +767,31 @@ type OpsStats = {
   content:   { count: number; totalMB: number };
   stores:    { total: number; live: number };
   campaigns: { total: number; paid: number };
+  // Today's slot occupancy across every slot-mode store. capacity 0 = none configured.
+  slots:     { sold: number; capacity: number };
 };
+
+/** Today's IST calendar date — slot inventory is keyed by IST day, not UTC. */
+const istToday = () => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+
+/**
+ * Network-wide slot occupancy for today, from /api/slots/availability.
+ * `sold` is per store per date; a null entry means the store is closed that day
+ * and contributes no capacity.
+ */
+function slotTotals(res: unknown): { sold: number; capacity: number } {
+  const stores = (res as { stores?: { loopSlotCount: number | null; sold: Record<string, number | null> | null }[] })?.stores ?? [];
+  const day = istToday();
+  let sold = 0, capacity = 0;
+  for (const s of stores) {
+    if (s.loopSlotCount == null) continue;      // not a slot-mode store
+    const n = s.sold?.[day];
+    if (n == null) continue;                    // closed today
+    sold += n;
+    capacity += s.loopSlotCount;
+  }
+  return { sold, capacity };
+}
 
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
 
@@ -825,7 +849,7 @@ function DateRange({ active, onChange }: { active: string; onChange: (v: string)
 
 // ─── KPI Row ──────────────────────────────────────────────────────────────────
 
-function KpiRow({ stats }: { stats: OpsStats | null }) {
+function KpiRow({ stats, onNav }: { stats: OpsStats | null; onNav: (t: Tab) => void }) {
   if (!stats) return (
     <div className="kpi-row">
       {[0,1,2,3].map((i) => (
@@ -837,41 +861,59 @@ function KpiRow({ stats }: { stats: OpsStats | null }) {
     </div>
   );
 
-  const cards = [
+  // What an operator actually needs off the landing screen: what is broken, what
+  // is earning, who is live, what is running. Library file counts are inventory
+  // trivia and belong in Creatives, not here.
+  const dark = stats.screens.offline + stats.screens.pending;
+  const slotPct = stats.slots.capacity > 0
+    ? Math.round((stats.slots.sold / stats.slots.capacity) * 100)
+    : null;
+
+  const cards: {
+    label: string; icon: React.ReactNode; value: string; sub?: string; note: string;
+    tab: Tab; alarm?: boolean;
+  }[] = [
     {
-      label: 'Online screens', icon: <MonitorPlay className="h-4 w-4" />,
-      value: stats.screens.online.toLocaleString(),
+      label: 'Screens dark', icon: <MonitorPlay className="h-4 w-4" />,
+      value: dark.toLocaleString(),
       sub: `/ ${stats.screens.total}`,
-      note: stats.screens.pending > 0 ? `${stats.screens.pending} pending` : `${stats.screens.offline} offline`,
-      feature: false,
+      note: stats.screens.pending > 0
+        ? `${stats.screens.offline} offline · ${stats.screens.pending} pending`
+        : dark > 0 ? 'needs attention' : 'all screens live',
+      tab: 'screens',
+      alarm: dark > 0,
     },
     {
-      label: 'Active schedules', icon: <CalendarClock className="h-4 w-4" />,
-      value: stats.schedules.active.toLocaleString(),
-      sub: `/ ${stats.schedules.total} total`,
-      note: 'running now',
-      feature: true,
+      label: 'Slots filled today', icon: <Grid3x3 className="h-4 w-4" />,
+      value: slotPct == null ? '—' : `${slotPct}%`,
+      sub: slotPct == null ? undefined : `${stats.slots.sold} / ${stats.slots.capacity}`,
+      note: slotPct == null ? 'no slot-mode stores' : 'sold across the network',
+      tab: 'programming',
     },
     {
-      label: 'Content files', icon: <ImageIcon className="h-4 w-4" />,
-      value: stats.content.count.toLocaleString(),
-      sub: stats.content.totalMB > 0 ? `${stats.content.totalMB.toFixed(0)} MB` : undefined,
-      note: 'in library',
-      feature: false,
+      label: 'Stores live', icon: <Store className="h-4 w-4" />,
+      value: stats.stores.live.toLocaleString(),
+      sub: `/ ${stats.stores.total}`,
+      note: 'partners running',
+      tab: 'stores',
     },
     {
-      label: 'Store partners', icon: <Store className="h-4 w-4" />,
-      value: stats.stores.total.toLocaleString(),
-      sub: `${stats.stores.live} live`,
-      note: 'registered',
-      feature: false,
+      label: 'Campaigns paid', icon: <Megaphone className="h-4 w-4" />,
+      value: stats.campaigns.paid.toLocaleString(),
+      sub: `/ ${stats.campaigns.total}`,
+      note: 'booked and paid',
+      tab: 'campaigns',
     },
   ];
 
   return (
     <div className="kpi-row">
-      {cards.map((k, i) => (
-        <div key={i} className={`kpi${k.feature ? ' kpi--feature' : ''}`}>
+      {cards.map((k) => (
+        <button
+          key={k.label}
+          onClick={() => onNav(k.tab)}
+          className={`kpi kpi--link${k.alarm ? ' kpi--alarm' : ''}`}
+        >
           <div className="kpi__head">
             <span className="kpi__icon">{k.icon}</span>
             <span className="kpi__label">{k.label}</span>
@@ -883,7 +925,7 @@ function KpiRow({ stats }: { stats: OpsStats | null }) {
           <div className="kpi__foot">
             <span className="kpi__period">{k.note}</span>
           </div>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -1259,7 +1301,9 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
       fetch('/api/content',        { headers: h }).then((r) => r.ok ? r.json() : { content: [], totalBytes: 0 }),
       fetch('/api/stores/save',    { headers: h }).then((r) => r.ok ? r.json() : []),
       fetch('/api/campaigns/admin',{ headers: h }).then((r) => r.ok ? r.json() : []),
-    ]).then(([devR, schR, ctR, stR, cmR]) => {
+      fetch(`/api/slots/availability?from=${istToday()}&to=${istToday()}`, { headers: h })
+        .then((r) => r.ok ? r.json() : { stores: [] }),
+    ]).then(([devR, schR, ctR, stR, cmR, slR]) => {
       const devs = (devR.devices ?? []) as DeviceRow2[];
       const schs = (schR.schedules ?? []) as { startAt: string; endAt: string }[];
       const cts  = (ctR.content ?? []) as unknown[];
@@ -1280,6 +1324,7 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
         content:   { count: cts.length, totalMB: ctR.totalBytes ? ctR.totalBytes / (1024 * 1024) : 0 },
         stores:    { total: sts.length, live: sts.filter((s: { onboardingStage?: string }) => s.onboardingStage === 'live').length },
         campaigns: { total: cms.length, paid: cms.filter((c: { paymentId?: string }) => c.paymentId && c.paymentId !== 'pending').length },
+        slots:     slotTotals(slR),
       });
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -1300,7 +1345,7 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
       </div>
 
       <SectionLabel n={1} label="Performance" />
-      <KpiRow stats={stats} />
+      <KpiRow stats={stats} onNav={onNav} />
 
       <SectionLabel n={2} label="Network" />
       <DeviceFeedCard devices={devices} />
@@ -1423,6 +1468,7 @@ function Dashboard() {
         content:   { count: cts.length, totalMB: ctR.totalBytes ? ctR.totalBytes / (1024 * 1024) : 0 },
         stores:    { total: sts.length, live: sts.filter((s: { onboardingStage?: string }) => s.onboardingStage === 'live').length },
         campaigns: { total: cms.length, paid: cms.filter((c: { paymentId?: string }) => c.paymentId && c.paymentId !== 'pending').length },
+        slots:     { sold: 0, capacity: 0 },
       });
     }).catch(() => {});
   }, []);
