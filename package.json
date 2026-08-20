@@ -17,7 +17,8 @@
     "verify:sla": "node --experimental-strip-types scripts/verify-sla.mjs",
     "verify:addons": "node --experimental-strip-types scripts/verify-addons.mjs",
     "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs",
-    "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs"
+    "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs",
+    "icons:pwa": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
