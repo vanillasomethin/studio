@@ -146,6 +146,143 @@ function Kpis({ data, loading }: { data: PlaysResponse | null; loading: boolean 
   );
 }
 
+// ─── Visual pickers ────────────────────────────────────────────────────────────
+// A report is worthless if you picked the wrong screen or the wrong cut, and a
+// dropdown of names makes that easy to do. Both pickers show the thing itself —
+// the storefront, the creative's first frame — and filter as you type.
+
+const screenLabel = (d: Device) =>
+  d.storeName || d.linkedStoreName || `Screen #${(d.hardwareKey ?? d.id).slice(-4).toUpperCase()}`;
+
+const DOT_TONE: Record<Device['status'], string> = {
+  ONLINE: 'bg-green-500', OFFLINE: 'bg-red-500', PENDING: 'bg-amber-400',
+};
+
+function PickerShell({ label, count, query, onQuery, children }: {
+  label: string; count: number; query: string; onQuery: (v: string) => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</label>
+        <span className="text-[10px] text-muted-foreground/60">{count} available</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder="Filter…"
+          className="ml-auto w-44 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none"
+        />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ScreenPicker({ devices, value, onChange }: {
+  devices: Device[]; value: string; onChange: (id: string) => void;
+}) {
+  const [q, setQ] = useState('');
+  const shown = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    if (!n) return devices;
+    return devices.filter((d) =>
+      `${screenLabel(d)} ${d.linkedStoreName ?? ''} ${d.city ?? ''} ${d.groupName ?? ''} ${d.hardwareKey ?? ''}`
+        .toLowerCase().includes(n));
+  }, [devices, q]);
+
+  return (
+    <PickerShell label="Screen" count={devices.length} query={q} onQuery={setQ}>
+      {shown.length === 0 ? (
+        <p className="py-6 text-center text-xs text-muted-foreground">No screens match “{q}”.</p>
+      ) : (
+        <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+          {shown.map((d) => {
+            const on = value === d.id;
+            return (
+              <button
+                key={d.id}
+                onClick={() => onChange(on ? '' : d.id)}
+                className={`flex items-center gap-2.5 rounded-xl border p-2 text-left transition-colors ${
+                  on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:border-primary/40'
+                }`}
+              >
+                {d.storePhotoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={d.storePhotoUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover" />
+                ) : (
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40">
+                    <Tv2 className="h-4 w-4 text-muted-foreground/50" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-semibold text-foreground">{screenLabel(d)}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {d.linkedStoreName ?? 'Unlinked'}{d.city ? ` · ${d.city}` : ''}
+                  </p>
+                </div>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${DOT_TONE[d.status]}`} title={d.status} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </PickerShell>
+  );
+}
+
+function AdPicker({ items, value, onChange }: {
+  items: Content[]; value: string; onChange: (id: string) => void;
+}) {
+  const [q, setQ] = useState('');
+  const shown = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    return n ? items.filter((c) => c.name.toLowerCase().includes(n)) : items;
+  }, [items, q]);
+
+  return (
+    <PickerShell label="Ad creative" count={items.length} query={q} onQuery={setQ}>
+      {shown.length === 0 ? (
+        <p className="py-6 text-center text-xs text-muted-foreground">No creatives match “{q}”.</p>
+      ) : (
+        <div className="grid max-h-80 grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-4 lg:grid-cols-6">
+          {shown.map((c) => {
+            const on = value === c.id;
+            return (
+              <button
+                key={c.id}
+                onClick={() => onChange(on ? '' : c.id)}
+                className={`overflow-hidden rounded-xl border text-left transition-colors ${
+                  on ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/40'
+                }`}
+              >
+                <div className="relative aspect-video bg-muted/50">
+                  {c.type === 'video' ? (
+                    // preload=metadata paints the first frame without streaming the file
+                    <video src={c.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.url} alt="" className="h-full w-full object-cover" />
+                  )}
+                  {c.durationMs != null && (
+                    <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[9px] font-semibold text-white">
+                      {Math.round(c.durationMs / 1000)}s
+                    </span>
+                  )}
+                  {c.type !== 'video' && (
+                    <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[9px] font-semibold text-white">IMG</span>
+                  )}
+                </div>
+                <p className="truncate px-2 py-1.5 text-[10px] font-semibold text-foreground">{c.name}</p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </PickerShell>
+  );
+}
+
 // ─── Main tab ───────────────────────────────────────────────────────────────────
 
 export default function ProofOfPlayTab() {
@@ -275,28 +412,10 @@ export default function ProofOfPlayTab() {
       {/* Per-lens primary selector */}
       <div className="rounded-xl border border-border bg-card p-4">
         {mode === 'screen' && (
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Screen</label>
-            <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className={`${inp} min-w-[280px]`}>
-              <option value="">Select a screen…</option>
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {(d.storeName || d.linkedStoreName || 'Screen') + (d.groupName ? ` · ${d.groupName}` : '') + ` · #${(d.hardwareKey ?? d.id).slice(-4).toUpperCase()}`}
-                </option>
-              ))}
-            </select>
-          </div>
+          <ScreenPicker devices={devices} value={deviceId} onChange={setDeviceId} />
         )}
         {mode === 'ad' && (
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Ad video</label>
-            <select value={mediaId} onChange={(e) => setMediaId(e.target.value)} className={`${inp} min-w-[280px]`}>
-              <option value="">Select a video…</option>
-              {videos.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}{c.type !== 'video' ? ` (${c.type})` : ''}</option>
-              ))}
-            </select>
-          </div>
+          <AdPicker items={videos} value={mediaId} onChange={setMediaId} />
         )}
         {mode === 'group' && (
           <div className="space-y-2">
