@@ -841,6 +841,28 @@ model HourlyPop {
 
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────
 
+// A named person with access to the admin console. Replaces the shared
+// ADMIN_PASSWORD as the thing a human types: everyone signs in as themselves so
+// AuditLog.actorId names a real person instead of "whoever had the password".
+//
+// The shared secret still exists, but only server-side — middleware injects it
+// downstream after verifying the session, so it never reaches a browser.
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  team         String    // operations | founder | tech — shown on audit entries
+  passwordHash String?   // null until they accept their invite and set one
+  inviteToken  String?   @unique
+  inviteSentAt DateTime?
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([active])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   actorId   String?

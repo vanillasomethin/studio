@@ -19,6 +19,8 @@
     "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs",
     "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs",
     "verify:tier-links": "node --experimental-strip-types scripts/verify-tier-links.mjs",
+    "verify:admin-session": "node --experimental-strip-types scripts/verify-admin-session.mjs",
+    "admin:seed": "node --experimental-strip-types scripts/seed-admins.mjs",
     "icons:pwa": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {

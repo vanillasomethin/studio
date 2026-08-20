@@ -1423,6 +1423,7 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
 // ─── Password gate ────────────────────────────────────────────────────────────
 
 function PasswordGate({ onAuth }: { onAuth: () => void }) {
+  const [email, setEmail] = useState('');
   const [pw,   setPw]   = useState('');
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState<string | null>(null);
@@ -1431,10 +1432,18 @@ function PasswordGate({ onAuth }: { onAuth: () => void }) {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      const res  = await fetch('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-      const body = await res.json() as { ok: boolean };
-      if (body.ok) { sessionStorage.setItem('alive_admin', '1'); sessionStorage.setItem(SS_PW, pw); onAuth(); }
-      else setErr('Incorrect password.');
+      const res  = await fetch('/api/admin/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password: pw }),
+      });
+      const body = await res.json() as { ok: boolean; error?: string };
+      if (body.ok) {
+        // The session lives in an httpOnly cookie; middleware turns it into the
+        // shared secret downstream, so nothing sensitive is kept in the browser.
+        sessionStorage.setItem('alive_admin', '1');
+        sessionStorage.removeItem(SS_PW);
+        onAuth();
+      } else setErr(body.error ?? 'Incorrect email or password.');
     } catch { setErr('Failed to verify.'); }
     finally   { setBusy(false); }
   };
@@ -1445,18 +1454,24 @@ function PasswordGate({ onAuth }: { onAuth: () => void }) {
         <div>
           <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1">Admin</p>
-          <h1 className="text-3xl font-bold text-foreground">Enter password</h1>
-          <p className="text-sm text-muted-foreground mt-1">Restricted to Alive staff.</p>
+          <h1 className="text-3xl font-bold text-foreground">Sign in</h1>
+          <p className="text-sm text-muted-foreground mt-1">Use your own ALIVE account — every change is recorded against you.</p>
         </div>
         <form onSubmit={submit} className="space-y-3">
-          <input type="password" required autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
-            placeholder="Admin password"
+          <input type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@wearealive.in" autoComplete="username"
+            className="w-full h-12 rounded-xl border border-border bg-card px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+          <input type="password" required value={pw} onChange={(e) => setPw(e.target.value)}
+            placeholder="Password" autoComplete="current-password"
             className="w-full h-12 rounded-xl border border-border bg-card px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
           {err && <p className="text-xs text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">{err}</p>}
           <button type="submit" disabled={busy || !pw}
             className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enter dashboard'}
           </button>
+          <p className="text-[11px] text-muted-foreground">
+            No account yet? Ask a founder to run the admin invite — you&apos;ll get a link to set your password.
+          </p>
         </form>
       </div>
     </div>
@@ -1558,7 +1573,11 @@ function Dashboard() {
   const signOut = () => {
     sessionStorage.removeItem('alive_admin');
     sessionStorage.removeItem(SS_PW);
-    window.location.reload();
+    // Clears the httpOnly session cookie server-side — removing the
+    // sessionStorage flag alone would leave the session live.
+    fetch('/api/admin/auth', { method: 'DELETE' })
+      .catch(() => {})
+      .finally(() => window.location.reload());
   };
 
   const sectionName: Record<Tab, string> = {

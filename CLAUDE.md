@@ -72,7 +72,16 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 **Auth — the biggest trap:**
 - Store partners (web): next-auth Credentials — the dashboard login calls `signIn('phone-password')`, which sets a session cookie. `localStorage` key `alive_store_session` is a *cache* of the store payload for instant render, and the fallback when no cookie exists yet (fresh registration, admin open-as-partner).
 - Store-partner API routes: authenticate with `resolveStoreId()` from `src/lib/store-partner-auth.ts` — accepts an explicit `storeId` param (mobile app, impersonation) and falls back to the next-auth session (web). Don't hand-roll `auth()` checks in these routes.
-- Admin routes: `admin-password` header checked against `ADMIN_PASSWORD` env var
+- Admin console: **named accounts** (`AdminUser`). A person signs in at `/admin`
+  with their own email + password; `/api/admin/auth` sets an httpOnly
+  `alive_admin_session` cookie. Edge middleware verifies that cookie and injects
+  the shared `admin-password` secret plus `x-admin-*` identity headers into the
+  forwarded request — so the ~74 existing admin routes keep their header check
+  unchanged and the browser never holds `ADMIN_PASSWORD`. Read the actor with
+  `adminActor(req)` and audit with `recordAdminAction(req, …)`
+  (`src/lib/admin-actor.ts`). The shared password is accepted only while zero
+  `AdminUser` rows exist, so the first person in can seed the team
+  (`npm run admin:seed`, add `-- --send` to email the invites).
 - Brands/admin: next-auth session via `auth()`
 
 **R2 uploads — two paths, pick by size:**
@@ -297,7 +306,8 @@ R2_SECRET_ACCESS_KEY
 R2_BUCKET
 R2_PUBLIC_BASE
 AUTH_SECRET
-ADMIN_PASSWORD
+ADMIN_PASSWORD                  # shared secret — now server-side only, injected by middleware
+ADMIN_BASE_URL                  # origin used in admin invite links (default https://wearealive.in)
 TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
 ADMIN_WHATSAPP                  # default +919606072227

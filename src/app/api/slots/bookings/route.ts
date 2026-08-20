@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { recordAdminAction } from '@/lib/admin-actor';
 import { buildSlotLoop } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
     });
 
     pushStoreDevices(storeId).catch(() => {});
+    void recordAdminAction(req, 'slot_assign', `${storeId}:${date}:${slotPosition}`, { campaignId });
     return NextResponse.json({ booking });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -100,8 +102,9 @@ export async function DELETE(req: NextRequest) {
   try {
     const id = req.nextUrl.searchParams.get('id') ?? '';
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-    const booking = await db.slotBooking.delete({ where: { id }, select: { storeId: true } });
+    const booking = await db.slotBooking.delete({ where: { id }, select: { storeId: true, date: true, slotPosition: true, campaignId: true } });
     pushStoreDevices(booking.storeId).catch(() => {});
+    void recordAdminAction(req, 'slot_unassign', `${booking.storeId}:${booking.date.toISOString().slice(0, 10)}:${booking.slotPosition}`, { campaignId: booking.campaignId });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

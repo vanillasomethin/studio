@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { recordAdminAction } from '@/lib/admin-actor';
 
 function checkAdmin(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -29,5 +30,6 @@ export async function PATCH(req: NextRequest) {
   if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
 
   await db.store.update({ where: { id: storeId }, data: { photoUrl } });
+  void recordAdminAction(req, photoUrl ? 'store_photo_set' : 'store_photo_cleared', storeId);
   return NextResponse.json({ photoUrl });
 }
