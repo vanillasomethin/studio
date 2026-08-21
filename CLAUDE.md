@@ -81,7 +81,9 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
   `adminActor(req)` and audit with `recordAdminAction(req, …)`
   (`src/lib/admin-actor.ts`). The shared password is accepted only while zero
   `AdminUser` rows exist, so the first person in can seed the team
-  (`npm run admin:seed`, add `-- --send` to email the invites).
+  (`npm run admin:seed`, add `-- --send` to email the invites — Zoho SMTP when
+  `ZOHO_SMTP_*` is set, else Resend). Invites carry a single-use link, never a
+  password.
 - Brands/admin: next-auth session via `auth()`
 
 **R2 uploads — two paths, pick by size:**
@@ -308,6 +310,11 @@ R2_PUBLIC_BASE
 AUTH_SECRET
 ADMIN_PASSWORD                  # shared secret — now server-side only, injected by middleware
 ADMIN_BASE_URL                  # origin used in admin invite links (default https://wearealive.in)
+ZOHO_SMTP_USER                  # Zoho mailbox for admin invites (app-specific password, not the account one)
+ZOHO_SMTP_PASSWORD
+ZOHO_SMTP_HOST                  # default smtp.zoho.in — use smtp.zoho.com for a .com account
+ZOHO_SMTP_PORT                  # default 465 (SSL)
+ADMIN_MAIL_FROM                 # default "ALIVE <hello@wearealive.in>"
 TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
 ADMIN_WHATSAPP                  # default +919606072227
