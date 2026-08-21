@@ -172,6 +172,34 @@ const clauses = [
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
+/**
+ * Amount in words for the remuneration clause — a rupee figure in a contract is
+ * conventionally followed by its written form. Covers 0–99,999, which is well
+ * clear of any monthly per-screen figure.
+ */
+function rupeesInWords(n: number): string {
+  const ones = ['Zero','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
+    'Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+
+  const under100 = (v: number): string =>
+    v < 20 ? ones[v] : tens[Math.floor(v / 10)] + (v % 10 ? ` ${ones[v % 10]}` : '');
+
+  const under1000 = (v: number): string => {
+    const h = Math.floor(v / 100), r = v % 100;
+    return [h ? `${ones[h]} Hundred` : '', r ? under100(r) : ''].filter(Boolean).join(' ');
+  };
+
+  const v = Math.max(0, Math.round(n));
+  const thousands = Math.floor(v / 1000), rest = v % 1000;
+  const words = [
+    thousands ? `${under1000(thousands)} Thousand` : '',
+    rest ? under1000(rest) : '',
+  ].filter(Boolean).join(' ') || 'Zero';
+
+  return `Rupees ${words} Only`;
+}
+
 function AgreementContent() {
   const params    = useSearchParams();
   const storeName = params.get('name')    ?? '______________________';
@@ -181,13 +209,21 @@ function AgreementContent() {
   const gstin     = params.get('gstin')   ?? '';
   const today     = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const isPrefilled = params.get('name');
-  // Premium partners are paid more; the gated premium signup link passes ?monthly=1000.
-  const monthly   = Number(params.get('monthly')) || 500;
+  // Gated signup links carry the partner's remuneration: ?monthly=1000 for the
+  // premium link, ?monthly=650|1150|1650 plus ?tier= for the slot pricing tiers.
+  const monthly = Number(params.get('monthly')) || 500;
+  const tier    = params.get('tier');
 
-  // Clause 3.3 carries the monthly remuneration — substitute the premium amount when present.
+  // Clause 3.3 carries the monthly remuneration. Slot-tier partners are paid a
+  // guaranteed base plus a performance-linked incentive settled against the target
+  // schedule shared with them — the incentive formula stays out of the agreement.
   const clauseText = (sub: { heading: string; text?: string }): string | undefined => {
-    if (sub.heading === '3.3' && monthly !== 500) {
-      return `Pay the Shop Owner a fixed monthly remuneration of ₹${monthly.toLocaleString('en-IN')} per screen. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
+    if (sub.heading !== '3.3') return sub.text;
+    if (tier) {
+      return `Pay the Shop Owner a guaranteed monthly remuneration of ₹${monthly.toLocaleString('en-IN')} (${rupeesInWords(monthly)}) per screen, together with a performance-linked incentive settled against the monthly target schedule communicated to the Shop Owner. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
+    }
+    if (monthly !== 500) {
+      return `Pay the Shop Owner a fixed monthly remuneration of ₹${monthly.toLocaleString('en-IN')} (${rupeesInWords(monthly)}) per screen. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
     }
     return sub.text;
   };

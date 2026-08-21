@@ -14,7 +14,8 @@ import MapPicker from '@/components/map-picker';
 // ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
 // Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
 // to update both this web page and the mobile app simultaneously.
-import { AGREEMENT_TERMS, agreementTermsFor, agreementTermsForTier, type AgreementTier } from '@shared/agreement-terms';
+import { AGREEMENT_TERMS, agreementTermsFor, agreementTermsForTier, TIER_MONTHLY_MINIMUM_RUPEES, type AgreementTier } from '@shared/agreement-terms';
+import { TIER_LABEL } from '@/lib/store-signup-links';
 import {
   validateForm, makeReferralCode, FORM_INIT,
   type FieldErrors, type FormData,
@@ -127,12 +128,19 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, p
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-red-500">Step 2 of 2</p>
         <h3 className="text-base font-black text-gray-900 mt-0.5">Store Partner Agreement</h3>
         <p className="text-xs text-gray-500 mt-0.5">Read the key terms below, then sign digitally.</p>
-        {premium && (
+        {tierName ? (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
+            <Star className="h-3 w-3 text-amber-500" />
+            <span className="text-[11px] font-bold text-amber-700">
+              {TIER_LABEL[tierName]} partner — ₹{TIER_MONTHLY_MINIMUM_RUPEES[tierName].toLocaleString('en-IN')}/month guaranteed + electricity
+            </span>
+          </div>
+        ) : premium ? (
           <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
             <Star className="h-3 w-3 text-amber-500" />
             <span className="text-[11px] font-bold text-amber-700">Premium partner — ₹{premiumMonthly.toLocaleString('en-IN')}/month + electricity</span>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Parties block */}
@@ -170,7 +178,7 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, p
         <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between bg-gray-50/40">
           <p className="text-[10px] text-gray-400">Full legal document</p>
           <a
-            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}), ...(premium ? { monthly: String(premiumMonthly) } : {}) }).toString()}`}
+            href={`/store-agreement?${new URLSearchParams({ name: form.storeName, owner: form.ownerName, address: fullAddress, phone: form.whatsapp, ...(gstin ? { gstin } : {}), ...(tierName ? { monthly: String(TIER_MONTHLY_MINIMUM_RUPEES[tierName]), tier: tierName } : premium ? { monthly: String(premiumMonthly) } : {}) }).toString()}`}
             target="_blank" rel="noreferrer"
             className="text-[11px] text-red-500 hover:text-red-600 font-semibold flex items-center gap-1"
           >
