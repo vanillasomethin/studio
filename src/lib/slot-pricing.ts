@@ -7,11 +7,11 @@
 // Brand price for N positions bought at a store = N × the store's tier rate — this is
 // a live formula, not restricted to any fixed package size.
 //
-// Store payout: whichever is greater of the tier's guaranteed monthly base
-// (₹650/₹1,150/₹1,650) and the per-filled-slot incentive. The base is paid every
-// month irrespective of occupancy, so a partner is never worse off for having
-// sold slots; the incentive takes over only once it exceeds the base (10 filled
-// at any tier — see the reference table in verify-slot-pricing.mjs).
+// Store payout: the tier's guaranteed monthly base (₹650/₹1,150/₹1,650), paid
+// every month irrespective of occupancy, PLUS the per-filled-slot incentive on
+// top. The base is never traded against the incentive — the reference table in
+// verify-slot-pricing.mjs lists the incentive component alone, so a Standard
+// store with 5 filled earns ₹650 + ₹500 = ₹1,150.
 //
 // Plays/day for a slot is unrelated to tier (tier is pricing/payout only, not
 // playback frequency) — see loopRepeatsPerDay in lib/slots.ts for that, unchanged.
@@ -53,10 +53,11 @@ export function storeSlotIncentivePaise(tier: SlotTier): number {
 }
 
 /**
- * Store's monthly slot payout: the greater of the tier's guaranteed base and the
- * per-slot incentive. Never below the base, and never falls as occupancy rises.
+ * Store's monthly slot payout: the tier's guaranteed base plus the per-slot
+ * incentive for every filled slot. The base is unconditional, so payout starts
+ * at the base and only ever rises with occupancy.
  */
 export function storeSlotPayoutPaise(tier: SlotTier, filledCount: number): number {
   const filled = Math.max(0, filledCount);
-  return Math.max(STORE_PAYOUT_BASE_PAISE[tier], storeSlotIncentivePaise(tier) * filled);
+  return STORE_PAYOUT_BASE_PAISE[tier] + storeSlotIncentivePaise(tier) * filled;
 }
