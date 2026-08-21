@@ -29,37 +29,56 @@ eq('30 positions, flagship', slotBookingPriceRupees('flagship', 30), 90000);
 eq('any arbitrary count works, not just the reference sizes', slotBookingPriceRupees('standard', 7), 7000);
 eq('zero positions costs nothing', slotBookingPriceRupees('flagship', 0), 0);
 
-console.log('storeSlotPayoutPaise — guaranteed base every month, plus a per-slot incentive');
-// The base is unconditional: it is paid irrespective of occupancy and is never
-// traded against the incentive, so payout only ever rises as slots fill.
-eq('zero filled -> standard base', storeSlotPayoutPaise('standard', 0), STORE_PAYOUT_BASE_PAISE.standard);
-eq('zero filled -> growth base', storeSlotPayoutPaise('growth', 0), STORE_PAYOUT_BASE_PAISE.growth);
-eq('zero filled -> flagship base', storeSlotPayoutPaise('flagship', 0), STORE_PAYOUT_BASE_PAISE.flagship);
-// standard: ₹650 base + ₹100 per filled slot
-eq('1 filled, standard: ₹650 + ₹100', storeSlotPayoutPaise('standard', 1), 75_000);
-eq('5 filled, standard: ₹650 + ₹500', storeSlotPayoutPaise('standard', 5), 115_000);
-eq('10 filled, standard: ₹650 + ₹1,000', storeSlotPayoutPaise('standard', 10), 165_000);
-eq('30 filled, standard: ₹650 + ₹3,000', storeSlotPayoutPaise('standard', 30), 365_000);
-// growth: ₹1,150 base + ₹200/slot · flagship: ₹1,650 base + ₹300/slot
-eq('5 filled, growth: ₹1,150 + ₹1,000', storeSlotPayoutPaise('growth', 5), 215_000);
-eq('30 filled, flagship: ₹1,650 + ₹9,000', storeSlotPayoutPaise('flagship', 30), 1_065_000);
+console.log('storeSlotPayoutPaise — greater of the tier base and the per-slot incentive');
+// Pinned to the reference incentive table (raw incentive, before the base floor):
+//   filled  Standard(₹1,000/slot)  Growth(₹2,000/slot)  Flagship(₹3,000/slot)
+//   Base    ₹650                   ₹1,150               ₹1,650
+//   5       ₹500                   ₹1,000               ₹1,500
+//   10      ₹1,000                 ₹2,000               ₹3,000
+//   15      ₹1,500                 ₹3,000               ₹4,500
+//   20      ₹2,000                 ₹4,000               ₹6,000
+//   30      ₹3,000                 ₹6,000               ₹9,000
+// Rows below a tier's base are paid at the base instead — that is the whole point
+// of the base: it is paid every month irrespective of how little is sold.
+const RUPEES = (p) => p / 100;
+const INCENTIVE_TABLE = {
+  standard: { 5: 500,  10: 1000, 15: 1500, 20: 2000, 30: 3000 },
+  growth:   { 5: 1000, 10: 2000, 15: 3000, 20: 4000, 30: 6000 },
+  flagship: { 5: 1500, 10: 3000, 15: 4500, 20: 6000, 30: 9000 },
+};
+const BASE_RUPEES = { standard: 650, growth: 1150, flagship: 1650 };
+
+eq('base row, standard', RUPEES(storeSlotPayoutPaise('standard', 0)), 650);
+eq('base row, growth',   RUPEES(storeSlotPayoutPaise('growth',   0)), 1150);
+eq('base row, flagship', RUPEES(storeSlotPayoutPaise('flagship', 0)), 1650);
+
+for (const [tier, rows] of Object.entries(INCENTIVE_TABLE)) {
+  for (const [filled, incentive] of Object.entries(rows)) {
+    const expected = Math.max(BASE_RUPEES[tier], incentive);
+    const note = incentive < BASE_RUPEES[tier] ? ` (incentive ₹${incentive} is under base — base wins)` : '';
+    eq(`${tier}, ${filled} filled -> ₹${expected}${note}`,
+       RUPEES(storeSlotPayoutPaise(tier, Number(filled))), expected);
+  }
+}
+
 eq('per-slot incentive, standard', storeSlotIncentivePaise('standard'), 10_000);
-eq('per-slot incentive, growth', storeSlotIncentivePaise('growth'), 20_000);
+eq('per-slot incentive, growth',   storeSlotIncentivePaise('growth'),   20_000);
 eq('per-slot incentive, flagship', storeSlotIncentivePaise('flagship'), 30_000);
 eq('negative filled clamps to the base', storeSlotPayoutPaise('standard', -3), STORE_PAYOUT_BASE_PAISE.standard);
-// never regresses as occupancy grows
-eq('payout is monotonic in filled count', (() => {
-  for (const t of ['standard','growth','flagship']) {
-    for (let n = 1; n <= 30; n++) {
-      if (storeSlotPayoutPaise(t, n) <= storeSlotPayoutPaise(t, n - 1)) return `${t}@${n}`;
-    }
-  }
-  return true;
-})(), true);
+
+// The two properties the earlier "switch at the first filled slot" rule broke.
 eq('payout never dips below the base', (() => {
   for (const t of ['standard','growth','flagship']) {
     for (let n = 0; n <= 30; n++) {
       if (storeSlotPayoutPaise(t, n) < STORE_PAYOUT_BASE_PAISE[t]) return `${t}@${n}`;
+    }
+  }
+  return true;
+})(), true);
+eq('payout never falls as occupancy rises', (() => {
+  for (const t of ['standard','growth','flagship']) {
+    for (let n = 1; n <= 30; n++) {
+      if (storeSlotPayoutPaise(t, n) < storeSlotPayoutPaise(t, n - 1)) return `${t}@${n}`;
     }
   }
   return true;
