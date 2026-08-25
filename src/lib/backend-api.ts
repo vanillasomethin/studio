@@ -30,6 +30,7 @@ export type Device = {
   lng?:             number | null;
   city?:            string | null;
   locality?:        string | null;
+  slotMode?:        boolean;   // store sells fixed ad slots — schedules only play as fallback
   currentSchedule?: {
     id:           string;
     name:         string;
@@ -68,11 +69,12 @@ export type DeviceGroup = {
 };
 
 export type StoreSearchResult = {
-  id:          string;
-  storeName:   string;
-  city:        string | null;
-  locality:    string | null;
-  screenCount: number;
+  id:             string;
+  storeName:      string;
+  city:           string | null;
+  locality:       string | null;
+  screenCount:    number;
+  loopSlotCount?: number | null;   // non-null = slot mode; its screens ignore schedules
 };
 
 export type PlayEvent = {
@@ -385,9 +387,33 @@ export const deletePlaylist = (id: string) =>
 export const getSchedules = () =>
   apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => r.schedules);
 
-export const createSchedule = (body: Omit<Schedule, 'id' | 'createdAt' | 'playlist' | 'priority'> & { priority?: number }) =>
+export const createSchedule = (
+  body: Omit<Schedule, 'id' | 'createdAt' | 'playlist' | 'priority'> &
+    { priority?: number; replaceScheduleIds?: string[] },
+) =>
   apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
     .then((r) => r.schedule);
+
+// An existing schedule whose window + screens overlap one being created — shown
+// in the Schedules tab's "replace the old playlist?" confirmation. Confirmed ids
+// go back to createSchedule as replaceScheduleIds (deleted atomically with the create).
+export type ScheduleConflict = {
+  id:                 string;
+  name:               string;
+  playlistName:       string;
+  startAt:            string;
+  endAt:              string;
+  overlapCount:       number;
+  overlapDeviceNames: string[]; // first 5
+  extraCount:         number;   // screens only the old schedule serves — they lose content if replaced
+};
+
+export const getScheduleConflicts = (body: {
+  deviceIds?: string[]; groupName?: string | null; storeIds?: string[]; cityFilter?: string | null;
+  startAt: string; endAt: string; excludeId?: string;
+}) =>
+  apiFetch<{ conflicts: ScheduleConflict[] }>('/api/schedules/conflicts', { method: 'POST', body: JSON.stringify(body) })
+    .then((r) => r.conflicts);
 
 export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | 'createdAt' | 'playlist'>>) =>
   apiFetch<{ schedule: Schedule }>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -475,6 +501,7 @@ export const unassignSlot = (id: string) =>
 export type SlotSettingsResult = {
   store?: { id: string; loopSlotCount: number | null };
   reassigned?: { date: string; from: number; to: number; campaignName: string }[];
+  warning?: string;   // slot mode saved without a playable filler campaign
 };
 
 export const updateSlotSettings = (body: {

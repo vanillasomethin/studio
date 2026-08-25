@@ -11,7 +11,7 @@ import {
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, Moon, Sun, LifeBuoy, Download, Plus,
-  Megaphone, Image, Radar, Grid3x3, Zap,
+  Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +37,7 @@ const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-pan
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 import { Logo } from '@/components/icons/logo';
+import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,9 @@ type StoreReg = {
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
   referralCode?: string; referredBy?: string | null; agreedAt?: string | null; liveAt?: string | null;
   deviceCount?: number;
+  // GPS-verified onboarding photos
+  shopPhotoUrl?: string | null; shopPhotoLat?: number | null; shopPhotoLng?: number | null; shopPhotoSource?: string | null; shopPhotoAt?: string | null;
+  installPhotoUrl?: string | null; installPhotoLat?: number | null; installPhotoLng?: number | null; installPhotoSource?: string | null; installPhotoAt?: string | null;
 };
 type Campaign = {
   id: string; brandId: string | null; brandName: string; contactName: string; email: string;
@@ -61,6 +65,7 @@ type Campaign = {
   pricePerScreen: number; totalAmount: number; paymentId: string;
   status: 'upcoming' | 'active' | 'completed' | 'trial'; createdAt: string;
   trialOfferedAt: string | null; trialUsedAt: string | null;
+  preferredStores?: { id: string; storeName: string; locality: string | null }[];
 };
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
@@ -352,8 +357,11 @@ const STAGE_COLORS: Record<string, string> = {
   rejected: 'bg-red-50 text-red-500',
 };
 
-function openAsPartner(s: StoreReg) {
-  const session = {
+async function openAsPartner(s: StoreReg) {
+  // Open the tab synchronously (inside the click gesture) so popup blockers
+  // don't eat it while we mint the impersonation token.
+  const win = window.open('about:blank', '_blank');
+  const session: Record<string, unknown> = {
     storeName: s.storeName, ownerName: s.ownerName,
     whatsapp: s.whatsapp, phone: s.phone || s.whatsapp,
     address: s.address, locality: s.locality, city: s.city, pincode: s.pincode,
@@ -365,8 +373,24 @@ function openAsPartner(s: StoreReg) {
     tier: s.tier || 'standard', monthlyCompensationPaise: s.monthlyCompensationPaise ?? 50000,
     id: s.id,
   };
+  // Store-partner APIs no longer trust a bare storeId — without this token the
+  // impersonated dashboard renders from the cached payload but can't write.
+  try {
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    const res = await fetch(`/api/admin/store-token?storeId=${encodeURIComponent(s.id)}`, { headers: { 'admin-password': pw } });
+    if (res.ok) {
+      const d = await res.json() as { token?: string };
+      if (d.token) session.token = d.token;
+    }
+  } catch { /* fall through to the warning below */ }
+  if (!session.token) {
+    // Without the token every write from the impersonated tab (GPS photos,
+    // payout edits) silently 401s — say so instead of losing the uploads.
+    alert('Could not get partner access — the dashboard will open read-only. Sign out of the admin panel, log back in, and try again before uploading photos or editing details.');
+  }
   localStorage.setItem('alive_store_session', JSON.stringify(session));
-  window.open('/store-dashboard', '_blank');
+  if (win) win.location.href = '/store-dashboard';
+  else window.open('/store-dashboard', '_blank');
 }
 
 function PremiumLinkCard() {
@@ -475,23 +499,95 @@ function SignupLinksPanel() {
   );
 }
 
+// ─── GPS verification photos (admin view) ────────────────────────────────────
+
+/** Metres between two WGS-84 points (haversine). */
+function distanceMetres(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function AdminPhotoCard({ label, url, lat, lng, source, at, storeLat, storeLng }: {
+  label: string; url?: string | null; lat?: number | null; lng?: number | null;
+  source?: string | null; at?: string | null; storeLat?: number | null; storeLng?: number | null;
+}) {
+  if (!url) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2.5">
+        <ImagePlus className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+        <div>
+          <p className="text-[11px] font-semibold text-foreground/70">{label}</p>
+          <p className="text-[10px] text-muted-foreground">Not uploaded yet — stage is gated on it</p>
+        </div>
+      </div>
+    );
+  }
+  const hasCoords = typeof lat === 'number' && typeof lng === 'number';
+  // Flag photos taken suspiciously far from the registered map pin (the 200 m
+  // exclusivity radius is a natural threshold for "same shop").
+  const dist = hasCoords && typeof storeLat === 'number' && typeof storeLng === 'number'
+    ? distanceMetres(lat!, lng!, storeLat, storeLng) : null;
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5">
+      <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={label} className="h-12 w-12 rounded-md object-cover border border-border" />
+      </a>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold text-foreground">{label}{at ? ` · ${fmtDate(at)}` : ''}{source === 'device' ? ' · device GPS' : ''}</p>
+        {hasCoords ? (
+          <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noreferrer"
+            className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+            {lat!.toFixed(6)}, {lng!.toFixed(6)}
+          </a>
+        ) : <p className="text-[10px] text-muted-foreground">No coordinates</p>}
+        {dist != null && (
+          <p className={`text-[10px] font-semibold ${dist > 200 ? 'text-amber-600' : 'text-green-700'}`}>
+            {dist > 200 ? '⚠ ' : ''}{dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`} from registered pin
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StoresPanel() {
   const [stores,   setStores]   = useState<StoreReg[]>([]);
   const [loading,  setLoading]  = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search,   setSearch]   = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
   const [saving,   setSaving]   = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     const pw = sessionStorage.getItem(SS_PW) ?? '';
     fetch('/api/stores/save', { headers: { 'admin-password': pw } })
-      .then((r) => r.json())
-      .then((body) => {
-        const arr = Array.isArray(body) ? body : (body?.data ?? []);
-        setStores(arr as StoreReg[]);
+      .then(async (r) => {
+        if (r.status === 401) {
+          // The password in sessionStorage no longer matches ADMIN_PASSWORD
+          // (rotated in Vercel, or a restored tab) — back to the gate rather
+          // than crashing every panel with an error-envelope payload.
+          sessionStorage.removeItem('alive_admin');
+          sessionStorage.removeItem(SS_PW);
+          window.location.reload();
+          return null;
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
       })
-      .catch(() => setStores([]))
+      .then((body) => {
+        if (body === null) return;
+        const arr = Array.isArray(body) ? body : body?.data;
+        if (Array.isArray(arr)) setStores(arr as StoreReg[]);
+        else throw new Error('Unexpected response shape');
+      })
+      .catch(() => setLoadError('Could not load partners. Check your connection and retry.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -510,7 +606,13 @@ function StoresPanel() {
           payoutNotes: store.payoutNotes || null,
         }),
       });
-      if (!res.ok) throw new Error('Save failed');
+      if (!res.ok) {
+        // Surface the server's message — the photo gates answer 409 with a
+        // specific reason (missing shop/install photo) the admin needs to see.
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        alert(body?.error ?? 'Save failed');
+        return;
+      }
     } finally { setSaving(null); }
   };
 
@@ -543,6 +645,15 @@ function StoresPanel() {
   const premium  = stores.filter((s) => s.tier === 'premium').length;
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-16">
+        <p className="text-sm text-muted-foreground">{loadError}</p>
+        <button onClick={load} className="rounded-lg border border-border px-4 py-2 text-xs font-semibold hover:bg-muted">Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -631,7 +742,7 @@ function StoresPanel() {
                       )}
                       <button
                         type="button"
-                        onClick={() => openAsPartner(s)}
+                        onClick={() => void openAsPartner(s)}
                         className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
                       >
                         <ExternalLink className="h-3 w-3" /> View dashboard
@@ -665,6 +776,16 @@ function StoresPanel() {
                       {s.referredBy && <span><span className="font-semibold text-foreground/60">Referred by:</span> {s.referredBy}</span>}
                       {s.liveAt  && <span><span className="font-semibold text-foreground/60">Live since:</span> {fmtDate(s.liveAt)}</span>}
                       {s.agreedAt && <span><span className="font-semibold text-foreground/60">Agreed:</span> {fmtDate(s.agreedAt)}</span>}
+                    </div>
+
+                    {/* GPS verification photos — evidence behind the stage gates */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <AdminPhotoCard label="Shop front" url={s.shopPhotoUrl} lat={s.shopPhotoLat} lng={s.shopPhotoLng}
+                        source={s.shopPhotoSource} at={s.shopPhotoAt}
+                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                      <AdminPhotoCard label="Installed TV" url={s.installPhotoUrl} lat={s.installPhotoLat} lng={s.installPhotoLng}
+                        source={s.installPhotoSource} at={s.installPhotoAt}
+                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -741,7 +862,7 @@ function CampaignsPanel() {
 
   const total   = campaigns.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
   const paid    = campaigns.filter((c) => c.paymentId && c.paymentId !== 'pending').length;
-  const pending = campaigns.filter((c) => !c.paymentId || c.paymentId === 'pending').length;
+  const pending = campaigns.filter((c) => (!c.paymentId || c.paymentId === 'pending') && c.status !== 'trial').length;
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
@@ -773,17 +894,28 @@ function CampaignsPanel() {
             </thead>
             <tbody className="divide-y divide-border">
               {campaigns.map((c) => {
-                const isPaid = c.paymentId && c.paymentId !== 'pending';
+                const isPaid  = c.paymentId && c.paymentId !== 'pending';
+                const isTrial = c.status === 'trial';
                 return (
                   <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{c.brandName || '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground"><p>{c.contactName}</p><p className="text-[10px] text-muted-foreground/60">{c.email}</p></td>
-                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{c.screens} × {c.months}mo</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                      {c.screens} × {c.months}mo
+                      {(c.preferredStores?.length ?? 0) > 0 && (
+                        <p
+                          className="text-[10px] text-primary/80 mt-0.5 max-w-[160px] truncate"
+                          title={c.preferredStores!.map((s) => `${s.storeName}${s.locality ? ` (${s.locality})` : ''}`).join(', ')}
+                        >
+                          📍 {c.preferredStores!.map((s) => s.storeName).join(', ')}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{fmt(c.totalAmount ?? 0)}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={isPaid ? 'success' : 'warning'} className="text-[10px] py-0.5 px-2 font-bold whitespace-nowrap">
+                      <Badge variant={isPaid ? 'success' : isTrial ? 'info' : 'warning'} className="text-[10px] py-0.5 px-2 font-bold whitespace-nowrap">
                         {isPaid ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
-                        {isPaid ? 'Paid' : 'Pay later'}
+                        {isPaid ? 'Paid' : isTrial ? 'Trial' : 'Pay later'}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
@@ -1489,6 +1621,10 @@ function Dashboard() {
   const [adminPw,     setAdminPw]     = useState('');
   const [liveCount,   setLiveCount]   = useState(0);
   const [alertCount,  setAlertCount]  = useState(0);
+  // Device-offline alerts are server-side now (DeviceAlert rows). They're kept
+  // separate from the derived count below so the two can't double-count the
+  // same offline screen.
+  const [offlineAlertCount, setOfflineAlertCount] = useState(0);
   const [tickerStats, setTickerStats] = useState<OpsStats | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1520,7 +1656,7 @@ function Dashboard() {
       const cms  = Array.isArray(cmR) ? cmR : [] as { paymentId?: string; status?: string }[];
       const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as { id: string; createdAt: string; onboardingStage?: string }[];
       let count = 0;
-      devs.forEach((d) => { if (d.status === 'OFFLINE' && !dismissed.includes(`device-offline-${d.id}`)) count++; });
+      // Offline screens are counted by OfflineAlertWatcher from /api/admin/alerts.
       const pendingDevs = devs.filter((d) => d.status === 'PENDING');
       if (pendingDevs.length > 0 && !dismissed.includes('devices-pending')) count++;
       const pendingCms = cms.filter((c) => (c as { paymentId?: string }).paymentId === 'pending' || (c as { status?: string }).status === 'upcoming');
@@ -1570,6 +1706,9 @@ function Dashboard() {
   }, []);
 
   const handleNav = (t: Tab) => { setTab(t); setSidebarOpen(false); };
+  // Stable identity so OfflineAlertWatcher's effect doesn't re-subscribe (and
+  // re-prime, losing its seen-set) on every render of this shell.
+  const openAlertsTab = useCallback(() => { setTab('alerts'); setSidebarOpen(false); }, []);
   const signOut = () => {
     sessionStorage.removeItem('alive_admin');
     sessionStorage.removeItem(SS_PW);
@@ -1606,6 +1745,11 @@ function Dashboard() {
 
   return (
     <div className="adm app" ref={containerRef} data-theme={theme}>
+      {/* Pops a toast the moment a screen drops, and keeps the bell count live */}
+      <OfflineAlertWatcher
+        onUnreadChange={setOfflineAlertCount}
+        onOpenAlerts={openAlertsTab}
+      />
       <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} />
 
       <main className="main">
@@ -1616,7 +1760,7 @@ function Dashboard() {
           onOpenNotif={() => handleNav('alerts')}
           theme={theme}
           setTheme={setTheme}
-          unread={alertCount}
+          unread={alertCount + offlineAlertCount}
           stats={tickerStats}
           onNav={handleNav}
         />

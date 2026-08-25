@@ -118,6 +118,24 @@ model Store {
   kycRejectedReason String? // admin's rejection note
   excludedZoneId    String? // footfall sensor zone ID to exclude from counts (staff area)
 
+  // ── GPS-verified onboarding photos ──────────────────────────────────────────
+  // Two photo gates in the onboarding pipeline, enforced by /api/admin/stores/[id]:
+  // the shop-front photo must exist before the stage can advance past 'new'
+  // (Team verification), and the installed-TV photo before it can advance past
+  // 'contacted' (Site visit & install). Coordinates come from the photo's EXIF
+  // GPS tags when present, else the device's geolocation at upload time —
+  // `source` records which ('exif' | 'device').
+  shopPhotoUrl       String?
+  shopPhotoLat       Float?
+  shopPhotoLng       Float?
+  shopPhotoSource    String?
+  shopPhotoAt        DateTime?
+  installPhotoUrl    String?
+  installPhotoLat    Float?
+  installPhotoLng    Float?
+  installPhotoSource String?
+  installPhotoAt     DateTime?
+
   // ── Slot loop (fixed-loop ad inventory) ─────────────────────────────────────
   // Inventory is sold by loop position + date, never clock time. loopSlotCount is
   // ALSO the slot-mode switch: null = store plays its normal schedules/playlists;
@@ -171,6 +189,7 @@ model Store {
   sensorHealth         StoreSensorHealth?
   slotAddons           SlotAddon[]
   slotRequests         SlotRequest[]
+  pushSubscriptions    PushSubscription[]
 
   @@index([city])
   @@index([pincode])
@@ -229,6 +248,9 @@ model Campaign {
   phone          String?
   screens        Int      @default(1)
   months         Int      @default(1)
+  // Store ids the brand picked on the onboarding map — a routing hint for ops
+  // when assigning slots, not a hard reservation (slot inventory stays date+position).
+  preferredStoreIds String[] @default([])
   startDate      DateTime
   pricePerScreen Int
   totalAmount    Int
@@ -412,16 +434,110 @@ model Device {
   playbackAliveAt  DateTime?
   lastStallReason  String?
   lastStallAt      DateTime?
+  // Outage forensics. The player reports time-since-boot with each heartbeat and this
+  // stores the derived boot instant, because a stored uptime would be stale the moment
+  // it arrived while a boot instant stays true. When a screen goes dark, plays and
+  // heartbeats stop together whether the power was cut, the network dropped or the app
+  // was force-stopped; comparing bootedAt across the gap tells them apart without a site
+  // visit — it moves forward only if the device actually rebooted.
+  bootedAt         DateTime?
+  // Companion to bootedAt: when the PLAYER PROCESS last started, derived from the
+  // appUptimeMs the heartbeat reports. bootedAt says whether the box restarted, this
+  // says whether the app did — and only the pair separates the three outage causes
+  // (see classifyOutageCause in src/lib/device-alerts.ts).
+  appStartedAt     DateTime?
   updatedAt        DateTime          @updatedAt
 
   store              Store?              @relation(fields: [storeId], references: [id], onDelete: SetNull)
   events             PlayEvent[]
   telemetryEvents    TelemetryEvent[]
   remediationTickets RemediationTicket[]
+  alerts             DeviceAlert[]
+  smartPlug          SmartPlug?
 
   @@index([storeId])
   @@index([groupName])
   @@index([status])
+  // The offline sweep filters on (status, lastSeen); without this the cron does a
+  // full table scan of the fleet every 5 minutes.
+  @@index([status, lastSeen])
+}
+
+// ─── Screen offline alerts ───────────────────────────────────────────────────
+// One row per offline INCIDENT (not per cron run): opened when a screen crosses
+// the offline threshold, resolved when it heartbeats again. Admin is notified at
+// the edge; the partner only after the outage is sustained (see lib/device-alerts).
+//
+// Deliberately NOT modelled on RemediationTicket: nothing in the codebase ever
+// resolves those, so its "skip if an OPEN one exists" gate silences a device
+// permanently. Here resolution is driven by the device itself coming back.
+
+enum DeviceAlertStatus {
+  OPEN
+  RESOLVED
+}
+
+model DeviceAlert {
+  id       String            @id @default(cuid())
+  deviceId String
+  storeId  String? // null for warehouse/unassigned screens — no partner to notify
+  type     String            @default("OFFLINE")
+  severity String            @default("warning") // warning | critical (escalates with downtime)
+  status   DeviceAlertStatus @default(OPEN)
+
+  // Snapshot of the names at incident time so the alert still reads correctly
+  // after a screen is renamed, unlinked, or deleted.
+  deviceName String
+  storeName  String?
+
+  lastSeenAt  DateTime? // last heartbeat before the screen dropped
+  startedAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  downtimeSec Int? // filled in on resolution, for reporting
+
+  // ── Why did it go offline ────────────────────────────────────────────────
+  // Filled on RECOVERY, by diffing these snapshots against the values the returning
+  // device reports. The snapshots are mandatory: Device.bootedAt/appStartedAt are
+  // overwritten by every heartbeat, so without freezing the pre-outage values here
+  // there is no "before" left to compare against and the cause is unrecoverable.
+  bootedAtBefore     DateTime?
+  appStartedBefore   DateTime?
+  appVersionBefore   String?
+  cause              String? // POWER_LOST | NETWORK_LOST | APP_STOPPED | PLAYER_UPDATED | UNKNOWN
+  causeConfidence    String? // high | medium | low
+  causeEvidence      String? // human-readable lines, newline separated — shown verbatim in the panel
+
+  adminReadAt       DateTime? // admin dismissed/saw it in the panel
+  partnerNotifiedAt DateTime? // partner push/WhatsApp actually attempted
+  partnerReadAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([storeId, status, createdAt])
+  @@index([deviceId, status])
+}
+
+// ─── Partner web-push subscriptions ──────────────────────────────────────────
+// Browser Push API subscriptions for the partner PWA. Store partners have no
+// email (User.email is null for every phone-registered partner), so push is the
+// only channel that reaches them without a WhatsApp template.
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  storeId   String
+  endpoint  String   @unique // the push service URL — the natural identity of a subscription
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  lastOkAt  DateTime? // last successful delivery; stale ones get pruned on 404/410
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
 }
 
 enum RemediationTicketStatus {
@@ -1107,4 +1223,64 @@ model PlayerConfig {
   defaultScreenWatts       Int      @default(60)  // 32–43" LED TV + Android box
   electricityPaisePerKwh   Int      @default(800) // ₹8.00 per unit
   updatedAt                DateTime @updatedAt
+}
+
+// ─── eWeLink smart plugs (Sonoff) — per-screen mains switch + power telemetry ─
+
+// Singleton row (id always 1) — the studio's linked eWeLink account. Tokens come
+// from the OAuth flow (admin > Screens > screen drawer > Power > Connect) and are
+// refreshed by the ewelink-poll cron. needsReauth flips on when a refresh fails;
+// the Power card then shows a re-connect button.
+model EwelinkAccount {
+  id           Int       @id @default(1)
+  region       String // cn | as | us | eu → https://{region}-apia.coolkit.{cn|cc}
+  accessToken  String
+  refreshToken String
+  atExpiresAt  DateTime?
+  rtExpiresAt  DateTime?
+  needsReauth  Boolean   @default(false)
+  updatedAt    DateTime  @updatedAt
+}
+
+// A Sonoff plug/switch wired in front of one screen's mains supply.
+model SmartPlug {
+  id              String    @id @default(cuid())
+  deviceId        String    @unique
+  ewelinkDeviceId String    @unique // eWeLink "deviceid"
+  name            String // name in the eWeLink app at link time
+  productModel    String? // e.g. "BASICR4", "POWR316D"
+  uiid            Int? // eWeLink device type id — drives unit scaling for readings
+  // true = has a metering chip (POW/S31 class): powerW/voltageV/currentA are real.
+  // false = relay-only (BASICR4 class): energy can only be estimated as
+  // ratedWatts × relay-on time, and readings are flagged estimated.
+  supportsEnergy  Boolean   @default(false)
+  ratedWatts      Float? // appliance draw used for relay-only estimates
+  online          Boolean?
+  switchOn        Boolean?
+  powerW          Float?
+  voltageV        Float?
+  currentA        Float?
+  lastPolledAt    DateTime?
+  createdAt       DateTime  @default(now())
+
+  device   Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  readings PlugReading[]
+}
+
+// Time series appended by /api/cron/ewelink-poll (5-min cadence via GitHub
+// Actions). energyWh is the energy consumed since the previous reading —
+// measured for metering plugs, ratedWatts-estimated (estimated=true) otherwise.
+model PlugReading {
+  id        String   @id @default(cuid())
+  plugId    String
+  at        DateTime @default(now())
+  online    Boolean
+  switchOn  Boolean
+  powerW    Float?
+  energyWh  Float?
+  estimated Boolean  @default(false)
+
+  plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
+
+  @@index([plugId, at])
 }

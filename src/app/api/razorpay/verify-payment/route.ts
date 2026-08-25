@@ -19,6 +19,7 @@ type Body = {
     pricePerScreen: number;
     totalAmount:    number;
     couponCode?:    string;
+    preferredStoreIds?: unknown; // store ids picked on the onboarding map
   };
 };
 
@@ -39,14 +40,37 @@ export async function POST(req: NextRequest) {
 
     // Upsert campaign — find by orderId if it already exists (pay-later flow), else create
     if (campaign) {
+      // The client's totalAmount is display-only and never stored. The amount
+      // actually charged lives on the Razorpay order (created server-side by
+      // create-order), so fetch it back as the authoritative figure.
+      const credentials = Buffer.from(
+        `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`,
+      ).toString('base64');
+      const orderRes = await fetch(`https://api.razorpay.com/v1/orders/${razorpay_order_id}`, {
+        headers: { Authorization: `Basic ${credentials}` },
+      });
+      if (!orderRes.ok) {
+        return NextResponse.json({ success: false, error: 'Could not confirm the order amount. Please contact hello@wearealive.in.' }, { status: 502 });
+      }
+      const order = await orderRes.json() as { amount?: number };
+      const chargedRupees = Math.round(Number(order.amount ?? 0) / 100);
+
       const brand = await db.brand.findFirst({ where: { email: campaign.email } });
 
       const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
 
       if (existing) {
+        // Keep the row internally consistent: the charge was recomputed at
+        // current rates, so the stored per-screen rate must follow it.
+        const ppw = Math.floor(Number(campaign.pricePerScreen));
         await db.campaign.update({
           where: { id: existing.id },
-          data:  { paymentId: razorpay_payment_id, status: 'active' },
+          data:  {
+            paymentId: razorpay_payment_id,
+            status: 'active',
+            totalAmount: chargedRupees,
+            ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
+          },
         });
       } else {
         await db.campaign.create({
@@ -60,8 +84,13 @@ export async function POST(req: NextRequest) {
             months:         campaign.months     ?? 1,
             startDate:      new Date(campaign.startDate),
             pricePerScreen: campaign.pricePerScreen,
-            totalAmount:    campaign.totalAmount,
+            totalAmount:    chargedRupees,
             couponCode:     campaign.couponCode ?? null,
+            preferredStoreIds: Array.isArray(campaign.preferredStoreIds)
+              ? campaign.preferredStoreIds
+                  .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
+                  .slice(0, 50)
+              : [],
             paymentId:      razorpay_payment_id,
             orderId:        razorpay_order_id,
             status:         'active',

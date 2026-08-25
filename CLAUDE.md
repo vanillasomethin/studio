@@ -71,7 +71,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 
 **Auth — the biggest trap:**
 - Store partners (web): next-auth Credentials — the dashboard login calls `signIn('phone-password')`, which sets a session cookie. `localStorage` key `alive_store_session` is a *cache* of the store payload for instant render, and the fallback when no cookie exists yet (fresh registration, admin open-as-partner).
-- Store-partner API routes: authenticate with `resolveStoreId()` from `src/lib/store-partner-auth.ts` — accepts an explicit `storeId` param (mobile app, impersonation) and falls back to the next-auth session (web). Don't hand-roll `auth()` checks in these routes.
+- Store-partner API routes: authenticate with `resolveStoreId()` from `src/lib/store-partner-auth.ts`. A bare `storeId` param is NOT a credential (ids are publicly enumerable) — an explicit `storeId` is honored only with a matching signed `x-store-token` header (HMAC, `AUTH_SECRET`; minted by login/registration//api/stores/me, or `/api/admin/store-token` for impersonation) or when it matches the next-auth session owner's store. No `storeId` → next-auth session fallback (web). Don't hand-roll `auth()` checks in these routes.
 - Admin console: **named accounts** (`AdminUser`). A person signs in at `/admin`
   with their own email + password; `/api/admin/auth` sets an httpOnly
   `alive_admin_session` cookie. Edge middleware verifies that cookie and injects
@@ -144,7 +144,8 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `Account / Session / VerificationToken` | Auth.js standard. |
 | `Store` | Kirana store profile. Map coords, referral code, gstin. |
 | `Brand` | Brand profile. `walletPaise` BigInt (T2). |
-| `Campaign` | Brand campaign + Razorpay order. |
+| `Campaign` | Brand campaign + Razorpay order. `status`: `upcoming \| pending_payment \| trial \| active \| completed` — `active` set only by verify-payment; ₹0 bookings are normalised to `trial`. |
+| `Coupon` | Brand-onboarding discount codes. `FLAT` (₹ off subtotal) or `PERCENT`, optional `expiresAt` / `maxRedemptions`. Managed in Admin → Coupons; validated server-side. |
 | `Device` | Physical screen. `hardwareKey` from Android. `groupName` for group scheduling. |
 | `Content` | Media file. `objectKey` = R2 path. `md5` for player cache invalidation. |
 | `Playlist` + `PlaylistItem` | Ordered content list with per-item duration. |
@@ -173,9 +174,11 @@ A screen gets its content one of two ways. Which one applies is decided by
 - **Playlist/schedule mode (`loopSlotCount` null).** The older path — `Playlist` →
   `Schedule` → devices. Use it for screens that aren't selling slots.
 
-Schedules still win over the slot loop where their windows overlap, so a store can
-do both. Admin UI for all of this lives under one tab: Programming → Slots /
-Creatives / Playlists / Schedules / Calendar.
+A slot loop that has anything playable always wins; schedules are only consulted
+when the store isn't in slot mode, or when its loop for the day resolves to
+nothing (closed day, no usable creatives and no filler) — serving an empty plan
+once blanked a real screen for a full day. Admin UI for all of this lives under
+one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 
 ---
 
@@ -199,7 +202,7 @@ Creatives / Playlists / Schedules / Calendar.
 
 - Web login: next-auth `signIn('phone-password')` (Credentials provider) sets the session cookie, then the dashboard fetches `/api/stores/me` and caches the store payload in `localStorage` key `alive_store_session`
 - Registration saves the payload to localStorage immediately — no cookie yet; the dashboard runs from this cache until the first real login
-- Mobile app (`store-app/`): no cookies — calls store APIs with an explicit `storeId` param, resolved by `resolveStoreId()`
+- Mobile app (`store-app/`): no cookies — calls store APIs with an explicit `storeId` param plus the signed `x-store-token` header (`authHeaders()` in `store-app/lib/api.ts`); the token comes from `/api/stores/login` and is refreshed by every `/api/stores/me` fetch, persisted in SecureStore with the session
 - `/api/stores/login` is the credential-check route used by the mobile app; the web form uses next-auth instead
 - Session/cache shape: `StoreSession` in `shared/store-types.ts` (no password stored)
 
@@ -226,7 +229,7 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 - Protected by `admin-password` header vs `ADMIN_PASSWORD` env var
 - `sessionStorage.getItem('alive_admin_pw')` in browser for API calls
-- Tabs: Flyers | Stores | Campaigns | Screens | Content | Playlists | Schedules | Reports | Monitoring | Payments | Site Media | Roadmap
+- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
 
 ---
 
@@ -274,10 +277,13 @@ When a generic control and a graphical one both work, use the graphical one.
 
 ## Brand Onboarding
 
-- Flow: audience → locations → duration → creative → pricing → agreement → payment
-- Promo code `GETALIVENOW`: ₹799 → ₹699
-- GST 18% on top of base price
-- Razorpay for payment
+- Flow: welcome → brand details → campaign setup (screens, duration, start date) → terms of service → payment (Razorpay | Confirm Booking — Pay later | trial via `?trial=1`)
+- Self-serve bounds: screens 1–50, months 1–12 — enforced in the UI stepper AND server-side (`create-order`, `campaigns/save`). Bigger deals go through sales.
+- Volume tiers: ₹799 (1) / ₹699 (3+) / ₹599 (10+) / ₹549 (20+) per screen per month; GST 18% on the discounted subtotal
+- Coupons are `Coupon` DB rows, managed in Admin → Coupons — no hardcoded codes. UI preview via `/api/coupons/validate`; `create-order` recomputes the discount server-side, so the browser's total is never trusted. Live code: `GETALIVENOW` = FLAT ₹100 off subtotal (no expiry/cap).
+- Trials (`?trial=1`): once per email — the guard counts `status: 'trial'` and legacy ₹0 rows. Saved with `status: 'trial'`, `totalAmount: 0`; any ₹0 booking is normalised to `trial` by `campaigns/save`. Trial done-page tells brands to email creatives to their AM (no payment gate).
+- Paid bookings: `verify-payment` checks the Razorpay signature, then fetches the order back from Razorpay and stores **its** amount as `totalAmount` — the client-sent total is display-only. Only `verify-payment` can set `status: 'active'`; `campaigns/save` accepts `upcoming | pending_payment | trial` only.
+- Company name shown to brands is **VS Collective LLP** everywhere (Razorpay checkout displays "ALIVE") — don't reintroduce "Alive Media" / "Alive Advertising Solutions"
 
 ---
 
@@ -328,12 +334,15 @@ PLAYER_LATEST_VERSION_CODE      # ALIVE Player OTA — latest released versionCo
 PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionName (optional)
 PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
 PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
+PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL; overrides the default sideload-latest GitHub Release location. Env vars above win over the manifest (pin/rollback).
 NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
 STORE_SIGNUP_KEY_STANDARD       # secret for the gated Standard-tier signup link /store?tier=<key>
 STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
 STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link
 PREMIUM_SIGNUP_KEY              # secret for the gated premium store signup link /store?premium=<key> (optional)
 PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (default 100000 = ₹1000)
+EWELINK_APP_ID                  # eWeLink OAuth app (dev.ewelink.cc) — Sonoff smart plug power control (optional)
+EWELINK_APP_SECRET              # eWeLink OAuth app secret; whitelist <site>/api/ewelink/callback in the app settings
 ```
 
 ---

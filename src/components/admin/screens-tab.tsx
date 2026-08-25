@@ -14,6 +14,7 @@ import {
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import ScreenTestButton from './screen-test-button';
+import PowerPanel from './power-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
@@ -131,6 +132,9 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                   </div>
                 </div>
               )}
+
+              {/* Sonoff smart plug (eWeLink) — mains switch + power telemetry */}
+              <PowerPanel deviceId={deviceId} />
 
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">What this device receives now</p>
@@ -1149,7 +1153,11 @@ export default function ScreensTab() {
                             <StatusIcon className="h-2 w-2" />{d.status}
                           </Badge>
                         </td>
-                        <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{d.currentSchedule?.name ?? '—'}</td>
+                        <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">
+                          {d.slotMode
+                            ? <span className="font-semibold text-primary" title="Slot mode — schedules are ignored while the slot loop plays">Slot loop</span>
+                            : d.currentSchedule?.name ?? '—'}
+                        </td>
                         <td className="px-3 py-2 text-muted-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</td>
                         <td className="px-3 py-2 text-right">
                           <button onClick={() => setDiagId(d.id)} className="rounded-lg border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
@@ -1206,6 +1214,14 @@ export default function ScreensTab() {
                         {d.groupName && (
                           <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground sm:inline">{d.groupName}</span>
                         )}
+                        {d.slotMode && (
+                          <span
+                            title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
+                            className="hidden shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary sm:inline"
+                          >
+                            Slot loop
+                          </span>
+                        )}
                         <Badge variant={STATUS_BADGE[d.status]} dot className="shrink-0 px-2 py-0.5 text-[10px] font-bold">
                           <StatusIcon className="h-2.5 w-2.5" />{d.status}
                         </Badge>
@@ -1224,7 +1240,9 @@ export default function ScreensTab() {
                         <div className="grid grid-cols-2 divide-x divide-border/60 sm:grid-cols-5">
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
-                            {sched ? (<><p className="truncate text-[11px] font-semibold text-foreground">{sched.name}</p>{sched.playlistName && <p className="truncate text-[10px] text-muted-foreground">{sched.playlistName}</p>}</>) : <p className="text-[11px] italic text-muted-foreground/50">No active schedule</p>}
+                            {d.slotMode ? (
+                              <><p className="truncate text-[11px] font-semibold text-primary">Slot loop</p><p className="truncate text-[10px] text-muted-foreground">Schedules ignored while slots play</p></>
+                            ) : sched ? (<><p className="truncate text-[11px] font-semibold text-foreground">{sched.name}</p>{sched.playlistName && <p className="truncate text-[10px] text-muted-foreground">{sched.playlistName}</p>}</>) : <p className="text-[11px] italic text-muted-foreground/50">No active schedule</p>}
                           </div>
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Clock className="h-2.5 w-2.5" />Ends at</p>

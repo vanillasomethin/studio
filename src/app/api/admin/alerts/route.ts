@@ -1,82 +1,63 @@
-// GET  /api/admin/alerts              — all alert action state (assignment/status) + comment counts
-// POST /api/admin/alerts { alertId, action: 'assign'|'close'|'reopen', team?, assignee?, closedBy? }
+// Screen-offline alerts for the admin panel.
+//   GET   → open alerts (newest first) + unread count, for the popup + bell badge
+//   PATCH → mark alerts read ({ ids: string[] } or { all: true })
 //
-// Alerts themselves are computed at read time from live device/store/campaign data
-// (see AlertsTab.buildAlerts on the client) — they have no row of their own. This
-// route holds the durable, team-visible state layered on top of a computed alert,
-// keyed by its deterministic client-side id. Auth: admin-password header.
+// Auth: strict admin-password. Deliberately NOT the `!process.env.ADMIN_PASSWORD ||`
+// fail-open idiom used by /api/devices — this route exposes store names and
+// mutates state, so an unset env var must lock it down, not open it up.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-function checkAdmin(req: NextRequest) {
+function adminGuard(req: NextRequest): boolean {
   const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
+  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
 }
-
-const TEAMS = new Set(['tech', 'operations', 'marketing']);
 
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [actions, commentCounts] = await Promise.all([
-    db.alertAction.findMany(),
-    db.alertComment.groupBy({ by: ['alertId'], _count: { id: true } }),
-  ]);
-  const countByAlert = new Map(commentCounts.map((c) => [c.alertId, c._count.id]));
+  try {
+    // Resolved alerts stay visible briefly so an admin watching the panel sees
+    // "came back online" rather than the alert just vanishing.
+    const recentlyResolved = new Date(Date.now() - 60 * 60 * 1000);
+    const alerts = await db.deviceAlert.findMany({
+      where: {
+        OR: [
+          { status: 'OPEN' },
+          { status: 'RESOLVED', resolvedAt: { gte: recentlyResolved } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
 
-  return NextResponse.json({
-    actions: actions.map((a) => ({
-      alertId: a.alertId,
-      team: a.team,
-      assignee: a.assignee,
-      status: a.status,
-      closedAt: a.closedAt?.toISOString() ?? null,
-      closedBy: a.closedBy,
-      commentCount: countByAlert.get(a.alertId) ?? 0,
-    })),
-  });
+    const unread = alerts.filter((a) => a.status === 'OPEN' && !a.adminReadAt).length;
+    return NextResponse.json({ alerts, unread });
+  } catch {
+    // Table not migrated yet — an empty list keeps the panel working.
+    return NextResponse.json({ alerts: [], unread: 0 });
+  }
 }
 
-export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export async function PATCH(req: NextRequest) {
+  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = await req.json().catch(() => null) as {
-    alertId?: string; action?: string; team?: string | null; assignee?: string | null; closedBy?: string;
-  } | null;
-  const alertId = body?.alertId?.trim();
-  if (!alertId) return NextResponse.json({ error: 'alertId required' }, { status: 400 });
+  try {
+    const body = await req.json().catch(() => ({})) as { ids?: string[]; all?: boolean };
+    const now = new Date();
 
-  let data: Record<string, unknown>;
-  switch (body?.action) {
-    case 'assign': {
-      const team = body.team || null;
-      if (team && !TEAMS.has(team)) return NextResponse.json({ error: 'Invalid team' }, { status: 400 });
-      data = { team, assignee: body.assignee?.trim() || null };
-      break;
+    if (body.all) {
+      await db.deviceAlert.updateMany({ where: { adminReadAt: null }, data: { adminReadAt: now } });
+      return NextResponse.json({ ok: true });
     }
-    case 'close':
-      data = { status: 'closed', closedAt: new Date(), closedBy: body.closedBy?.trim() || null };
-      break;
-    case 'reopen':
-      data = { status: 'open', closedAt: null, closedBy: null };
-      break;
-    default:
-      return NextResponse.json({ error: "action must be 'assign', 'close' or 'reopen'" }, { status: 400 });
+    if (Array.isArray(body.ids) && body.ids.length) {
+      await db.deviceAlert.updateMany({ where: { id: { in: body.ids } }, data: { adminReadAt: now } });
+      return NextResponse.json({ ok: true });
+    }
+    return NextResponse.json({ error: 'ids or all required' }, { status: 400 });
+  } catch (e) {
+    console.error('admin/alerts PATCH failed:', (e as Error).message);
+    return NextResponse.json({ error: 'Could not update alerts' }, { status: 500 });
   }
-
-  const row = await db.alertAction.upsert({
-    where: { alertId },
-    create: { alertId, ...data },
-    update: data,
-  });
-
-  return NextResponse.json({
-    alertId: row.alertId,
-    team: row.team,
-    assignee: row.assignee,
-    status: row.status,
-    closedAt: row.closedAt?.toISOString() ?? null,
-    closedBy: row.closedBy,
-  });
 }

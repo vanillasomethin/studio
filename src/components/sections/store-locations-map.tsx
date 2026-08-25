@@ -28,9 +28,8 @@ export default function StoreLocationsMap() {
   const mapInstanceRef = useRef<any>(null);
   const [stores, setStores] = useState<StorePin[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  // Leaflet is imported dynamically, so the map can finish initialising after the
-  // store fetch resolves. Without this flag the marker effect below runs once,
-  // finds no map yet, and never runs again — an empty map with a full sidebar.
+  // Marker effect must re-run once the async init lands, not just when stores
+  // change — otherwise stores loaded before the map is ready never get pins.
   const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
@@ -48,8 +47,14 @@ export default function StoreLocationsMap() {
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
+    // The guard above runs before the `await` below, so without cancellation a
+    // double-fired effect (Strict Mode, HMR) has both runs pass it and the
+    // second L.map() throws "Map container is already initialized".
+    let cancelled = false;
+
     async function init() {
       const L = (await import('leaflet')).default;
+      if (cancelled || mapInstanceRef.current) return;
 
       if (!document.querySelector('link[data-leaflet-css]')) {
         const link = document.createElement('link');
@@ -86,6 +91,19 @@ export default function StoreLocationsMap() {
     }
 
     init();
+
+    return () => {
+      cancelled = true;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+      // Markers/wards belonged to the destroyed map — reset so a remount
+      // (Strict Mode's second pass, HMR) recreates them on the new instance.
+      markersRef.current.clear();
+      boundariesLoaded.current = false;
+      setMapReady(false);
+    };
   }, []);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -131,6 +149,7 @@ export default function StoreLocationsMap() {
     async function addMarkers() {
       const L = (await import('leaflet')).default;
       const map = mapInstanceRef.current;
+      if (!map) return; // unmounted while the import was in flight
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const makeIcon = (status: StoreStatus, active: boolean) => {

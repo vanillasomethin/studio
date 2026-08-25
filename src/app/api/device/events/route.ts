@@ -7,12 +7,13 @@
 // Body: { events: PlayEventInput[] }
 // Returns: { accepted: number }
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyDeviceToken } from '@/lib/device-auth';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { respond } from '@/lib/api-envelope';
+import { resolveOfflineAlerts } from '@/lib/device-alerts';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -38,6 +39,11 @@ type TelemetryInput = {
   playbackAliveMs?: number;  // epoch ms of last playback advance
   lastStallReason?: string;
   lastStallMs?:     number;  // epoch ms of last detected decoder stall
+  // Outage forensics — see Device.bootedAt. Time since boot (SystemClock.elapsedRealtime,
+  // deep sleep included), converted to a boot instant on arrival.
+  uptimeMs?:        number;
+  // Time since the player PROCESS started, same clock as uptimeMs — see Device.appStartedAt.
+  appUptimeMs?:     number;
 };
 
 // Player-side incident records (crash stacks, decoder stalls, watchdog fallbacks),
@@ -77,6 +83,8 @@ async function storeIncidents(deviceId: string, correlationId: string, incidents
   return stored;
 }
 
+const TEN_YEARS_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+
 /** Maps a telemetry payload onto Device columns. Shared by the telemetry-only and
  *  events+telemetry paths so the two can't drift. */
 function telemetryToDeviceData(t: TelemetryInput) {
@@ -84,6 +92,25 @@ function telemetryToDeviceData(t: TelemetryInput) {
     ? new Date(t.playbackAliveMs) : null;
   const stallAt = typeof t.lastStallMs === 'number' && t.lastStallMs > 0
     ? new Date(t.lastStallMs) : null;
+  // uptimeMs is time-since-boot on the device; store the derived boot instant instead,
+  // because an uptime is stale the moment it is written while a boot instant stays true.
+  // Recomputed on every heartbeat, so it drifts by network latency — treat only a shift
+  // of minutes as a genuine reboot, not a few seconds. Bounded to a sane range so a
+  // garbage reading can't write an absurd timestamp.
+  const bootedAt = typeof t.uptimeMs === 'number'
+    && Number.isFinite(t.uptimeMs)
+    && t.uptimeMs >= 0
+    && t.uptimeMs < TEN_YEARS_MS
+    ? new Date(Date.now() - t.uptimeMs) : null;
+  // Same treatment for the process start. A process cannot predate its own device, so
+  // an appUptime longer than the device uptime is a bad reading and is dropped rather
+  // than stored — it would otherwise read as "the app never restarted" forever.
+  const appStartedAt = typeof t.appUptimeMs === 'number'
+    && Number.isFinite(t.appUptimeMs)
+    && t.appUptimeMs >= 0
+    && t.appUptimeMs < TEN_YEARS_MS
+    && (typeof t.uptimeMs !== 'number' || t.appUptimeMs <= t.uptimeMs + 60_000)
+    ? new Date(Date.now() - t.appUptimeMs) : null;
   return {
     ...(typeof t.cpuTempC      === 'number' ? { cpuTempC: t.cpuTempC, cpuTempUpdatedAt: new Date() } : {}),
     ...(typeof t.freeStorageMb === 'number' ? { freeStorageMb: t.freeStorageMb } : {}),
@@ -92,6 +119,8 @@ function telemetryToDeviceData(t: TelemetryInput) {
     ...(aliveAt           ? { playbackAliveAt: aliveAt           } : {}),
     ...(t.lastStallReason ? { lastStallReason: t.lastStallReason } : {}),
     ...(stallAt           ? { lastStallAt:     stallAt           } : {}),
+    ...(bootedAt          ? { bootedAt:        bootedAt          } : {}),
+    ...(appStartedAt      ? { appStartedAt:    appStartedAt      } : {}),
   };
 }
 
@@ -106,7 +135,10 @@ async function authenticate(req: NextRequest) {
     const deviceId = payload?.sub as string | undefined;
     if (!deviceId) return null;
     const device = await db.device.findUnique({ where: { id: deviceId } });
-    if (!device) return null;
+    // Well-formed token, no device row → the screen was deleted in the admin panel.
+    // See /api/device/plan: the caller answers 410 so the player decommissions
+    // instead of re-claiming and resurrecting the deleted screen.
+    if (!device) return 'gone' as const;
     const result = await verifyDeviceToken(token, device.jwtSecret);
     if (!result) return null;
     return device;
@@ -125,6 +157,10 @@ export async function POST(req: NextRequest) {
   const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
   const route = '/api/device/events';
   const device = await authenticate(req);
+  if (device === 'gone') {
+    const envelope = await respond({ error: 'Device deleted' }, { route, request: { correlationId }, outcome: 'unauthorized', policyFlags: ['device_deleted'], errorCategory: 'auth' });
+    return NextResponse.json(envelope, { status: 410 });
+  }
   if (!device) {
     const envelope = await respond({ error: 'Unauthorized' }, { route, request: { correlationId }, outcome: 'unauthorized', policyFlags: ['auth_failed'], errorCategory: 'auth' });
     return NextResponse.json(envelope, { status: 401 });
@@ -136,6 +172,11 @@ export async function POST(req: NextRequest) {
     // Incidents ride along on any heartbeat/event batch; store before branching so the
     // telemetry-only path gets them too. Best-effort — never fails the request.
     await storeIncidents(device.id, correlationId, body.incidents).catch(() => 0);
+    // `device` is the row as it was BEFORE this request's heartbeat write, so
+    // this captures the recovery edge. Only resolve on paths that actually set
+    // status ONLINE — resolving without the flip would leave the alert closed
+    // while the device still reads OFFLINE, and the next sweep would re-open it.
+    const wasOffline = device.status === 'OFFLINE';
     if (!Array.isArray(events) || events.length === 0) {
       // Allow empty event batches if telemetry-only heartbeat
       if (telemetry) {
@@ -146,6 +187,10 @@ export async function POST(req: NextRequest) {
             ...telemetryToDeviceData(telemetry),
           },
         }).catch(() => { /* telemetry columns may not exist yet */ });
+        // after(), not a bare void — see the note in /api/device/plan: this is the
+    // only writer of RESOLVED, and a promise dropped at response-flush would
+    // strand the alert OPEN and silence the device for good.
+    if (wasOffline) after(() => resolveOfflineAlerts(device.id));
         const envelope = await respond({ accepted: 0, telemetry: true }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'success', policyFlags: ['telemetry_only'], startedAtMs });
         return NextResponse.json(envelope);
       }
@@ -231,6 +276,10 @@ export async function POST(req: NextRequest) {
         ...(telemetry ? telemetryToDeviceData(telemetry) : {}),
       },
     }).catch(() => { /* telemetry columns may not exist yet */ });
+    // after(), not a bare void — see the note in /api/device/plan: this is the
+    // only writer of RESOLVED, and a promise dropped at response-flush would
+    // strand the alert OPEN and silence the device for good.
+    if (wasOffline) after(() => resolveOfflineAlerts(device.id));
 
     const envelope = await respond({ accepted }, { route, request: { correlationId, eventsCount: batch.length }, outcome: 'success', policyFlags: [], startedAtMs });
     return NextResponse.json(envelope);

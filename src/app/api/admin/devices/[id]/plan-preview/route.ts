@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
+import { buildSlotLoop, isOpenOn, istToday } from '@/lib/slots';
+import { resolveFillerCampaign } from '@/lib/slots-db';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
@@ -25,17 +27,17 @@ export async function GET(
       where: { id },
       select: {
         id: true, name: true, hardwareKey: true, groupName: true, status: true, lastSeen: true,
-        uptimePctD30: true,
-        store: { select: { storeName: true, city: true } },
+        uptimePctD30: true, storeId: true,
+        store: { select: { storeName: true, city: true, loopSlotCount: true, openDays: true, fillerCampaignId: true } },
       },
     });
     if (!device) return NextResponse.json({ error: 'Device not found' }, { status: 404 });
 
     // Optional telemetry columns — may not exist on older DBs
-    let telemetry: { cpuTempC: number | null; cpuTempUpdatedAt: string | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null } | null = null;
+    let telemetry: { cpuTempC: number | null; cpuTempUpdatedAt: string | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null; bootedAt: string | null; uptimeMs: number | null } | null = null;
     try {
-      const t = await db.$queryRaw<{ cpuTempC: number | null; cpuTempUpdatedAt: Date | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null }[]>`
-        SELECT "cpuTempC", "cpuTempUpdatedAt", "freeStorageMb", "androidVersion", "appVersion"
+      const t = await db.$queryRaw<{ cpuTempC: number | null; cpuTempUpdatedAt: Date | null; freeStorageMb: number | null; androidVersion: string | null; appVersion: string | null; bootedAt: Date | null }[]>`
+        SELECT "cpuTempC", "cpuTempUpdatedAt", "freeStorageMb", "androidVersion", "appVersion", "bootedAt"
         FROM "Device" WHERE "id" = ${id} LIMIT 1
       `;
       const r = t[0];
@@ -45,6 +47,9 @@ export async function GET(
         freeStorageMb:    r.freeStorageMb,
         androidVersion:   r.androidVersion,
         appVersion:       r.appVersion,
+        bootedAt:         r.bootedAt instanceof Date ? r.bootedAt.toISOString() : null,
+        // Uptime as of NOW, derived per request rather than stored — see Device.bootedAt.
+        uptimeMs:         r.bootedAt instanceof Date ? Date.now() - r.bootedAt.getTime() : null,
       };
     } catch { /* columns not yet migrated */ }
 
@@ -132,9 +137,53 @@ export async function GET(
       .update(JSON.stringify({ items }))
       .digest('hex');
 
+    // ── Slot-mode context ────────────────────────────────────────────────────
+    // A slot-mode store plays its fixed ad loop, not schedules. Without this the
+    // checklist would cry "no matching schedule" at healthy slot screens — and say
+    // nothing when a slot day resolves to zero playable items, the one failure mode
+    // that blanks a screen all day (schedules are only the fallback then).
+    const slotMode = device.store?.loopSlotCount != null;
+    let slotOpenToday = true;
+    let slotSold      = 0;
+    let slotPlayable  = 0;      // loop positions that play today
+    let slotHasFiller = false;
+    if (slotMode && device.storeId) {
+      const store = device.store!;
+      const today = istToday(now);
+      slotOpenToday = isOpenOn(store.openDays, today);
+      const filler  = await resolveFillerCampaign(store.fillerCampaignId);
+      slotHasFiller = filler != null;
+      if (slotOpenToday) {
+        const bookings = await db.slotBooking.findMany({
+          where:  { storeId: device.storeId, date: new Date(`${today}T00:00:00Z`) },
+          select: { slotPosition: true, campaignId: true, campaign: { select: { slotContentId: true } } },
+        });
+        slotSold = bookings.length;
+        slotPlayable = buildSlotLoop(
+          store.loopSlotCount!,
+          bookings.map((b) => ({ slotPosition: b.slotPosition, campaignId: b.campaignId, slotContentId: b.campaign.slotContentId })),
+          filler,
+        ).length;
+      }
+    }
+
     // ── Diagnostics ──────────────────────────────────────────────────────────
     type DiagIssue = { level: 'ok' | 'warn' | 'error'; message: string };
     const issues: DiagIssue[] = [];
+
+    if (slotMode) {
+      const n = device.store!.loopSlotCount;
+      if (!slotOpenToday) {
+        issues.push({ level: 'warn', message: `Slot mode (${n} slots): store is closed today per its open-days setting — the screen falls back to the schedules below.` });
+      } else if (slotPlayable > 0) {
+        issues.push({ level: 'ok', message: `Slot mode: ${slotPlayable}/${n} loop positions play today (${slotSold} sold). Schedules below only apply if a day's loop is empty.` });
+      } else {
+        issues.push({ level: 'error', message: `Slot mode with nothing playable today — ${slotSold} booking(s), none with a usable 10s creative, and no filler campaign. The screen falls back to the schedules below; assign a filler campaign in the Slots tab.` });
+      }
+      if (slotOpenToday && !slotHasFiller) {
+        issues.push({ level: slotPlayable > 0 ? 'warn' : 'error', message: 'No playable filler campaign (store or global default) — zero-booking days depend entirely on schedules.' });
+      }
+    }
 
     if (!device.lastSeen) {
       issues.push({ level: 'error', message: 'Device has never polled the plan API — it has not called GET /api/device/plan yet.' });
@@ -147,13 +196,41 @@ export async function GET(
       }
     }
 
+    // Power-cut vs app-exit, after the fact. Plays and heartbeats stop together in both
+    // cases, so the only way to tell them apart used to be a site visit. A recent boot
+    // means the device lost power (or was restarted); a long uptime across a known
+    // outage means it stayed powered and something else broke — the app exited, or the
+    // network dropped.
+    if (telemetry?.uptimeMs != null) {
+      const upMins  = Math.floor(telemetry.uptimeMs / 60000);
+      const upHours = Math.floor(upMins / 60);
+      const upDays  = Math.floor(upHours / 24);
+      const pretty  = upDays > 0 ? `${upDays}d ${upHours % 24}h`
+                    : upHours > 0 ? `${upHours}h ${upMins % 60}m`
+                    : `${upMins}m`;
+      if (upMins < 15) {
+        issues.push({ level: 'warn', message: `Device booted ${pretty} ago — it lost power or was restarted recently. A screen that went dark without a reboot points at the app or the network instead.` });
+      } else {
+        issues.push({ level: 'ok', message: `Powered on for ${pretty} (booted ${new Date(telemetry.bootedAt!).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST) — no reboot in that window, so any outage inside it was not a power cut.` });
+      }
+    }
+
     if (schedules.length === 0) {
-      issues.push({ level: 'error', message: 'No matching schedule found for this device.' });
+      // For a slot screen whose loop plays today, no schedules is normal — but it
+      // still means a zero-booking day with no filler would go dark, so keep it
+      // visible as a warning rather than dropping it entirely.
+      const schedGapLevel = slotMode && slotPlayable > 0 ? 'warn' as const : 'error' as const;
+      issues.push({
+        level: schedGapLevel,
+        message: slotMode
+          ? 'No matching schedule found — nothing to fall back to if a slot day has nothing playable.'
+          : 'No matching schedule found for this device.',
+      });
       const groupMatches = allSchedules.filter((s) => s.groupName && device.groupName && s.groupName === device.groupName);
       const deviceMatches = allSchedules.filter((s) => (s.deviceIds as string[]).includes(device.id));
       if (groupMatches.length === 0 && deviceMatches.length === 0) {
         issues.push({
-          level: 'error',
+          level: schedGapLevel,
           message: device.groupName
             ? `Device group "${device.groupName}" does not match any active schedule. Assign this device's group to a schedule, or add this device ID directly.`
             : 'Device has no group name set. Either set a groupName on this device (rename → group field) or add this deviceId to a schedule directly.',

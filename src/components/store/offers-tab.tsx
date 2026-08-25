@@ -3,6 +3,7 @@
 import { compressImageFile, readJsonOrThrow, PROXY_UPLOAD_LIMIT_BYTES } from '@/lib/client-upload';
 import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
 import { Loader2, Plus, Trash2, Tag, TrendingDown, AlertCircle, Search, CheckCircle2, ImagePlus, X } from 'lucide-react';
+import { storeFetch } from '@/lib/store-fetch';
 
 type Offer = {
   id:          string;
@@ -68,8 +69,18 @@ export default function OffersTab() {
   const fetchOffers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/stores/offers');
-      if (res.ok) setOffers(await res.json() as Offer[]);
+      const res = await storeFetch('/api/stores/offers');
+      if (res.ok) {
+        const rows = await res.json() as Offer[];
+        setOffers(Array.isArray(rows) ? rows : []);
+      } else if (res.status === 401) {
+        // Don't masquerade an auth failure as "no offers yet".
+        setError('Session expired — please log in again to see your offers.');
+      } else {
+        setError('Could not load offers. Check your connection and retry.');
+      }
+    } catch {
+      setError('Could not load offers. Check your connection and retry.');
     } finally { setLoading(false); }
   }, []);
 
@@ -123,7 +134,7 @@ export default function OffersTab() {
       if (upload.size > PROXY_UPLOAD_LIMIT_BYTES) throw new Error('Image too large — keep under 4 MB. Try TinyPNG to compress.');
       const fd = new FormData();
       fd.append('file', upload);
-      const res = await fetch('/api/stores/upload', { method: 'POST', body: fd });
+      const res = await storeFetch('/api/stores/upload', { method: 'POST', body: fd });
       const data = await readJsonOrThrow<{ url?: string }>(res);
       set('imageUrl', data.url ?? null);
     } catch (e) { setError((e as Error).message); }
@@ -164,7 +175,7 @@ export default function OffersTab() {
     if (!canSubmit) return;
     setSaving(true); setError(null);
     try {
-      const res = await fetch('/api/stores/offers', {
+      const res = await storeFetch('/api/stores/offers', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -188,7 +199,7 @@ export default function OffersTab() {
   const handleDelete = async (id: string) => {
     setDeleting(id);
     try {
-      await fetch(`/api/stores/offers/${id}`, { method: 'DELETE' });
+      await storeFetch(`/api/stores/offers/${id}`, { method: 'DELETE' });
       setOffers((p) => p.filter((o) => o.id !== id));
     } finally { setDeleting(null); }
   };

@@ -240,7 +240,13 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(DRAFT_KEY);
-      if (saved && saved.trim()) setForm(JSON.parse(saved) as Form);
+      if (!saved || !saved.trim()) return;
+      const parsed: unknown = JSON.parse(saved);
+      // Merge over the initial shape — a draft from an older form version
+      // missing a field would otherwise crash validateForm on first render.
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        setForm((p) => ({ ...p, ...(parsed as Partial<Form>) }));
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -300,8 +306,13 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
       }
 
       try {
-        const referralCode = (payload2 as { referralCode?: string }).referralCode ?? code;
+        const reg = payload2 as { referralCode?: string; storeId?: string; storeToken?: string };
+        const referralCode = reg.referralCode ?? code;
         localStorage.setItem('alive_store_session', JSON.stringify({
+          // id + signed token authorize store API calls before the first
+          // next-auth login (see resolveStoreId) — undefined keys are dropped
+          id:           reg.storeId,
+          token:        reg.storeToken,
           storeName:    form.storeName,
           ownerName:    form.ownerName,
           whatsapp:     form.whatsapp,

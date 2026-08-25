@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { resolveStoreId } from '@/lib/store-partner-auth';
+import { mintStoreToken, resolveStoreId } from '@/lib/store-partner-auth';
 import { computeStoreMonthlyPayoutPaise } from '@/lib/slot-pricing-db';
 
 // Base columns guaranteed from init migration — no optional columns here
@@ -13,10 +13,10 @@ type StoreRow = {
 };
 
 export async function GET(req: NextRequest) {
-  const storeId = await resolveStoreId(req.nextUrl.searchParams.get('storeId'));
-  if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
   try {
+    const storeId = await resolveStoreId(req.nextUrl.searchParams.get('storeId'));
+    if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     // Select only base columns that exist in the init migration.
     // liveAt is fetched separately so a missing column never breaks dashboard load.
     const rows = await db.$queryRaw<StoreRow[]>`
@@ -69,6 +69,23 @@ export async function GET(req: NextRequest) {
     try {
       monthlyCompensationPaise = await computeStoreMonthlyPayoutPaise(storeId);
     } catch { /* slot columns not yet migrated — keep the flat default above */ }
+    // GPS-verified onboarding photos — separate query so a missing migration
+    // can't take the stage/payout fields down with it.
+    type PhotoCols = {
+      shopPhotoUrl: string | null; shopPhotoLat: number | null; shopPhotoLng: number | null;
+      shopPhotoSource: string | null; shopPhotoAt: Date | null;
+      installPhotoUrl: string | null; installPhotoLat: number | null; installPhotoLng: number | null;
+      installPhotoSource: string | null; installPhotoAt: Date | null;
+    };
+    let photos: Partial<PhotoCols> = {};
+    try {
+      const rowsP = await db.$queryRaw<PhotoCols[]>`
+        SELECT "shopPhotoUrl", "shopPhotoLat", "shopPhotoLng", "shopPhotoSource", "shopPhotoAt",
+               "installPhotoUrl", "installPhotoLat", "installPhotoLng", "installPhotoSource", "installPhotoAt"
+        FROM "Store" WHERE "id" = ${storeId} LIMIT 1
+      `;
+      photos = rowsP[0] ?? {};
+    } catch { /* columns not yet migrated — omit gracefully */ }
 
     // Count linked devices for store overview
     try {
@@ -101,10 +118,21 @@ export async function GET(req: NextRequest) {
       tier,
       monthlyCompensationPaise,
       ...payout,
+      shopPhotoUrl:     photos.shopPhotoUrl     ?? null,
+      shopPhotoLat:     photos.shopPhotoLat     ?? null,
+      shopPhotoLng:     photos.shopPhotoLng     ?? null,
+      shopPhotoAt:      photos.shopPhotoAt instanceof Date ? photos.shopPhotoAt.toISOString() : (photos.shopPhotoAt ?? null),
+      installPhotoUrl:  photos.installPhotoUrl  ?? null,
+      installPhotoLat:  photos.installPhotoLat  ?? null,
+      installPhotoLng:  photos.installPhotoLng  ?? null,
+      installPhotoAt:   photos.installPhotoAt instanceof Date ? photos.installPhotoAt.toISOString() : (photos.installPhotoAt ?? null),
       createdAt:       s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
       // from User join
       email:        (s as unknown as { email?: string }).email ?? null,
       phone:        (s as unknown as { phone?: string }).phone ?? null,
+      // Fresh signed token — clients cache it with the session payload so
+      // explicit-storeId calls keep working without a next-auth cookie.
+      token:        mintStoreToken(s.id) ?? undefined,
     });
   } catch (e) {
     console.error('stores/me GET error', e);
@@ -113,10 +141,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const storeId = await resolveStoreId(req.nextUrl.searchParams.get('storeId'));
-  if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
   try {
+    const storeId = await resolveStoreId(req.nextUrl.searchParams.get('storeId'));
+    if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = await req.json() as {
       email?: string;
       payoutMethod?: string; upiId?: string;

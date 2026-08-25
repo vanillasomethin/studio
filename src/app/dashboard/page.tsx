@@ -22,6 +22,7 @@ import {
 import { SLOT_WINDOWS, type WindowId } from '@/lib/slot-windows';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
+import { getScreenPrice, getListPrice } from '@/lib/brand-pricing';
 
 type Campaign = {
   id: string; name?: string; brandName?: string; contactName?: string | null;
@@ -100,6 +101,7 @@ const STATUS_STYLES: Record<string, string> = {
   active:          'bg-green-500/15 text-green-400 border-green-500/20',
   completed:       'bg-muted text-muted-foreground border-border',
   pending_payment: 'bg-amber-500/15 text-amber-500 border-amber-500/20',
+  trial:           'bg-emerald-500/15 text-emerald-500 border-emerald-500/20',
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
@@ -107,15 +109,17 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   active:          <CheckCircle2 className="h-3 w-3" />,
   completed:       <AlertCircle  className="h-3 w-3" />,
   pending_payment: <CreditCard   className="h-3 w-3" />,
+  trial:           <CheckCircle2 className="h-3 w-3" />,
 };
 
 function deriveCampaignStatus(c: Campaign): Campaign['status'] {
-  if (!c.startDate) return 'upcoming';
+  if (!c.startDate) return c.status === 'trial' ? 'trial' : 'upcoming';
   const start = parseISO(c.startDate);
   const end   = addMonths(start, c.months);
   const now   = new Date();
-  if (now < start) return 'upcoming';
   if (now > end)   return 'completed';
+  if (c.status === 'trial') return 'trial';
+  if (now < start) return 'upcoming';
   return 'active';
 }
 
@@ -1414,9 +1418,7 @@ type PendingForm = {
   gstin: string; screens: number; months: number; startDate: string;
 };
 
-function getScreenPrice(n: number) {
-  if (n >= 20) return 549; if (n >= 10) return 599; if (n >= 3) return 699; return 799;
-}
+// Pricing comes from the shared lib — no local price tables (see brand-pricing.ts).
 
 function loadRazorpay(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -1458,7 +1460,7 @@ function PendingPaymentCard({
       type RzpC = new (o: Record<string, unknown>) => { open: () => void; on: (e: string, cb: (r: { error: { description: string } }) => void) => void };
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: body.amount, currency: 'INR', name: 'Alive Media',
+        amount: body.amount, currency: 'INR', name: 'ALIVE',
         description: `${pending.screens} screen${pending.screens > 1 ? 's' : ''} · ${pending.months} month${pending.months > 1 ? 's' : ''}`,
         order_id: body.id,
         handler: async (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
@@ -1560,10 +1562,10 @@ type ModalFormData = {
 type ModalStep = 1 | 2 | 3;
 
 const SCREEN_TIERS_MODAL = [
-  { screens: 1,  pricePerScreen: 799 },
-  { screens: 3,  pricePerScreen: 699, popular: true },
-  { screens: 10, pricePerScreen: 599 },
-  { screens: 20, pricePerScreen: 549 },
+  { screens: 1,  pricePerScreen: getScreenPrice(1),  listPerScreen: getListPrice(1) },
+  { screens: 3,  pricePerScreen: getScreenPrice(3),  listPerScreen: getListPrice(3), popular: true },
+  { screens: 10, pricePerScreen: getScreenPrice(10), listPerScreen: getListPrice(10) },
+  { screens: 20, pricePerScreen: getScreenPrice(20), listPerScreen: getListPrice(20) },
 ] as const;
 
 const DURATION_OPTS = [
@@ -1641,7 +1643,7 @@ function NewCampaignModal({
 
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: body.amount, currency: 'INR', name: 'Alive Media',
+        amount: body.amount, currency: 'INR', name: 'ALIVE',
         description: `${modalForm.screens} screen${modalForm.screens > 1 ? 's' : ''} · ${modalForm.months} month${modalForm.months > 1 ? 's' : ''}`,
         order_id: body.id,
         handler: async (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
@@ -1808,8 +1810,9 @@ function NewCampaignModal({
                           {active && <Check className="absolute right-2 top-2 h-3.5 w-3.5 text-primary" />}
                           <p className="text-xl font-black text-foreground">{t.screens}</p>
                           <p className="text-[10px] text-muted-foreground">{t.screens === 1 ? 'screen' : 'screens'}</p>
-                          <p className="text-xs font-bold text-foreground mt-1">{fmt(t.pricePerScreen)}</p>
-                          <p className="text-[10px] text-muted-foreground">per screen/mo</p>
+                          <p className="text-[10px] text-muted-foreground/50 line-through mt-1">{fmt(t.listPerScreen)}</p>
+                          <p className="text-xs font-bold text-foreground">{fmt(t.pricePerScreen)}</p>
+                          <p className="text-[10px] text-muted-foreground">per screen/mo · online</p>
                         </button>
                       );
                     })}
@@ -2330,7 +2333,7 @@ export default function DashboardPage() {
 
       <footer className="border-t border-border/30 py-5 text-center">
         <p className="text-xs text-muted-foreground/40">
-          © 2025 Alive Advertising Solutions Pvt. Ltd. · hello@wearealive.in
+          © 2025 VS Collective LLP · hello@wearealive.in
         </p>
       </footer>
 

@@ -8,7 +8,7 @@
 // Schedule priority enforcement: when two schedules overlap in time, the higher-priority
 // schedule wins for the overlapping window. resolveConflicts() implements this logic.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
@@ -19,6 +19,7 @@ import { resolveFillerCampaign } from '@/lib/slots-db';
 import { getMakegoodWeights } from '@/lib/sla-db';
 import { getPeakBoostedCampaignIds, getSoundAdCampaignId } from '@/lib/addons-db';
 import { isPeakWindowNow, peakBoostPoolWeights } from '@/lib/addons';
+import { resolveOfflineAlerts } from '@/lib/device-alerts';
 
 async function authenticate(req: NextRequest) {
   const auth  = req.headers.get('authorization') ?? '';
@@ -35,7 +36,12 @@ async function authenticate(req: NextRequest) {
     if (!deviceId) return null;
 
     const device = await db.device.findUnique({ where: { id: deviceId } });
-    if (!device) return null;
+    // A well-formed token whose device row no longer exists means the screen was
+    // deleted in the admin panel. Distinguished from a bad token ('gone', not null)
+    // so the caller can answer 410 and the player knows to decommission itself —
+    // wipe its cache and return to pairing — instead of re-claiming and silently
+    // resurrecting the deleted screen with its old cached content.
+    if (!device) return 'gone' as const;
 
     const { verifyDeviceToken: verify } = await import('@/lib/device-auth');
     const result = await verify(token, device.jwtSecret);
@@ -167,6 +173,7 @@ export async function GET(req: NextRequest) {
   const correlationId = getOrCreateCorrelationId(req.headers.get('x-correlation-id'));
   const route = '/api/device/plan';
   const device = await authenticate(req);
+  if (device === 'gone') return NextResponse.json({ error: 'Device deleted' }, { status: 410 });
   if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const now       = new Date();
@@ -292,18 +299,28 @@ export async function GET(req: NextRequest) {
         });
       }
     }
-
-    // ── Schedules ──────────────────────────────────────────────────────────────
-    // Runs for every device, slot-mode or not. Where a schedule window is active it
-    // takes precedence over the slot loop; the rest of the time the player falls
-    // through to `fallback` below.
-    {
+    // A slot-mode day can resolve to nothing playable: store closed, or zero
+    // bookings with usable creatives AND no filler campaign. The spec promises
+    // playback never goes dark, and serving an empty plan here has blanked a real
+    // screen for a whole day — so fall back to the store's schedules instead of
+    // idling. Slot loop with items always wins; schedules are the safety net.
+    if (!slotMode || items.length === 0) {
+      // ── Schedule mode (and the fallback when the slot loop is empty) ───────────
       // Find all schedules active in the next 72-hr window for this device, group, store, or city.
-      const scheduleOrConditions = [
+      const scheduleOrConditions: Record<string, unknown>[] = [
         { deviceIds: { has: device.id } },
         ...(device.groupName       ? [{ groupName:  device.groupName }]              : []),
         ...(device.storeId         ? [{ storeIds:   { has: device.storeId } }]       : []),
         ...(deviceWithStore?.city  ? [{ cityFilter:  deviceWithStore.city }]          : []),
+        // "all screens" schedules — none of the targeting fields set. Same
+        // contract as the overlay query below; without this branch the
+        // Schedules tab's "All screens" target mode never matched any device.
+        { AND: [
+            { deviceIds:  { isEmpty: true } },
+            { groupName:  null },
+            { storeIds:   { isEmpty: true } },
+            { cityFilter: null },
+        ] },
       ];
       const schedules = await db.schedule.findMany({
         where: {
@@ -461,6 +478,18 @@ export async function GET(req: NextRequest) {
       where: { id: device.id },
       data:  { lastSeen: now, status: 'ONLINE' },
     });
+
+    // `device` is the row as it was BEFORE that write, so this is the recovery
+    // edge: a screen that was OFFLINE just came back. Close its alert (and tell
+    // the partner, if they were told it broke).
+    //
+    // after() rather than a bare `void`: this is the ONLY code path that ever
+    // sets an alert RESOLVED, and Vercel suspends the instance once the response
+    // is flushed. A dropped promise would strand the alert OPEN forever — which
+    // both leaves a false "screen has stopped" banner on the partner's dashboard
+    // and permanently silences that device (openOfflineAlerts skips devices with
+    // an OPEN alert). after() keeps the work alive past the response.
+    if (device.status === 'OFFLINE') after(() => resolveOfflineAlerts(device.id, now));
 
     return NextResponse.json({
       planHash,

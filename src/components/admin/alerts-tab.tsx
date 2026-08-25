@@ -34,7 +34,7 @@ type CampaignRow = {
 };
 
 // Durable, team-visible action state layered on top of a computed alert — see
-// /api/admin/alerts. Distinct from `dismissed`, which is a personal, local-only hide.
+// /api/admin/alert-actions. Distinct from `dismissed`, a personal, local-only hide.
 type AlertTeam = 'tech' | 'operations' | 'marketing';
 type AlertActionState = {
   alertId: string;
@@ -231,7 +231,7 @@ function AlertActionsPanel({
   async function postAction(body: Record<string, unknown>) {
     setSaving(true);
     try {
-      await fetch('/api/admin/alerts', {
+      await fetch('/api/admin/alert-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'admin-password': pw() },
         body: JSON.stringify({ alertId, ...body }),
@@ -438,11 +438,11 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
   }, []);
 
   // Team-visible assignment/close/comment state — separate fetch (and separate
-  // refresh trigger) from the computed alerts themselves, see /api/admin/alerts.
+  // refresh trigger) from the computed alerts themselves, see /api/admin/alert-actions.
   const fetchActions = useCallback(async () => {
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
     try {
-      const res = await fetch('/api/admin/alerts', { headers: { 'admin-password': pw } });
+      const res = await fetch('/api/admin/alert-actions', { headers: { 'admin-password': pw } });
       const data = res.ok ? await res.json() as { actions: AlertActionState[] } : { actions: [] };
       setActions(new Map(data.actions.map((a) => [a.alertId, a])));
     } catch { /* non-critical */ }
