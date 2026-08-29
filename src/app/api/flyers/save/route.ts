@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
 import { resolveStoreId } from '@/lib/store-partner-auth';
+import { db } from '@/lib/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
     // behalf, and the store partner app (storeId — no session, same as every other
     // store-partner route, see resolveStoreId).
     const pw = req.headers.get('admin-password') ?? '';
-    const isAdmin = !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
+    const isAdmin = !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
     const storeId = isAdmin ? null : await resolveStoreId(body.storeId);
     if (!isAdmin && !storeId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -68,7 +69,11 @@ export async function POST(req: NextRequest) {
 
 // ─── GET — list all flyers ────────────────────────────────────────────────────
 
-export async function GET() {
+// Store names drift (admin renames, stray whitespace), so name matching is a
+// fallback, not the primary key — compare trimmed/case-folded on both sides.
+const normName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+export async function GET(req: NextRequest) {
   const kv = getRedis();
   if (!kv) return NextResponse.json([]);
 
@@ -79,7 +84,22 @@ export async function GET() {
     // Fetch all flyers in one mget call
     const keys    = index.map((id) => `flyer:${id}`);
     const results = await kv.mget<Flyer[]>(...keys);
-    const flyers  = (results as (Flyer | null)[]).filter((f): f is Flyer => f !== null);
+    let   flyers  = (results as (Flyer | null)[]).filter((f): f is Flyer => f !== null);
+
+    // ?storeId= narrows to one store's flyers, matched by id with a
+    // normalized-name fallback for legacy records saved before flyers carried
+    // a storeId. Same ownership proof as writes (resolveStoreId) — a bare
+    // storeId is not a credential.
+    const requestedStoreId = req.nextUrl.searchParams.get('storeId');
+    if (requestedStoreId) {
+      const storeId = await resolveStoreId(requestedStoreId);
+      if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const store = await db.store.findUnique({ where: { id: storeId }, select: { storeName: true } });
+      const name  = normName(store?.storeName ?? '');
+      flyers = flyers.filter((f) =>
+        f.storeId ? f.storeId === storeId : name !== '' && normName(f.storeName) === name
+      );
+    }
 
     // Strip storeId: this endpoint is public (deals page + dashboards filter by
     // storeName). Store ids are no longer API credentials (writes require a

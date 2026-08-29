@@ -1,4 +1,4 @@
-// PATCH /api/devices/[id] — update storeName / groupName / storeId / orientation
+// PATCH /api/devices/[id] — update storeName / groupName / storeId / orientation / playsOriginal
 // Auth: admin-password header
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
 
 function adminGuard(req: NextRequest) {
   const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
+  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
 }
 
 const VALID_ORIENTATIONS = ['LANDSCAPE', 'PORTRAIT', 'PORTRAIT_FLIPPED', 'AUTO'] as const;
@@ -19,10 +19,11 @@ export async function PATCH(
   const { id } = await params;
   try {
     const body = await req.json() as {
-      storeName?:   string;
-      groupName?:   string;
-      storeId?:     string | null;
-      orientation?: string;
+      storeName?:     string;
+      groupName?:     string;
+      storeId?:       string | null;
+      orientation?:   string;
+      playsOriginal?: boolean;
     };
 
     const data: Record<string, unknown> = {};
@@ -35,6 +36,7 @@ export async function PATCH(
     if (body.orientation && (VALID_ORIENTATIONS as readonly string[]).includes(body.orientation)) {
       data.orientation = body.orientation;
     }
+    if (typeof body.playsOriginal === 'boolean') data.playsOriginal = body.playsOriginal;
 
     const raw    = await db.device.update({ where: { id }, data });
     const device = { ...raw, storeName: raw.name };

@@ -15,8 +15,9 @@ const OFFLINE_THRESHOLD_MS = 20 * 60 * 1000;
 const DEFAULT_TAKE = 50;
 
 function adminGuard(req: NextRequest) {
+  // Fail CLOSED: a missing ADMIN_PASSWORD must authorize nobody (see admin-auth.ts).
   const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
+  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
 }
 
 function effectiveStatus(lastSeen: Date | null, dbStatus: string): 'ONLINE' | 'OFFLINE' | 'PENDING' {
@@ -72,6 +73,7 @@ export async function GET(req: NextRequest) {
         lastSeen:     true,
         groupName:    true,
         orientation:  true,
+        playsOriginal: true,
         claimedAt:    true,
         uptimePctD30: true,
         store: {
@@ -159,6 +161,8 @@ export async function GET(req: NextRequest) {
         linkedStoreName: d.store?.storeName ?? null,
         storePhotoUrl:   d.store?.photoUrl ?? null,
         groupName:   d.groupName,
+        orientation: d.orientation,
+        playsOriginal: d.playsOriginal,
         status:      computedStatus,
         uptimePct:   d.uptimePctD30,
         lastSeen:    d.lastSeen?.toISOString() ?? null,

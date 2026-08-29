@@ -46,6 +46,33 @@
   --neutral-200: #262626;
   --neutral-700: #d4d4d4;
   color-scheme: dark;
+
+  /* The panels inside this shell are built from Tailwind tokens (bg-card,
+     border-border, text-muted-foreground…), which globals.css only flips under a
+     `.dark` class on <html>. The admin themes itself with data-theme instead, so
+     those tokens stayed on their light values and every panel rendered white on
+     the dark shell. Re-point them here — scoped to .adm, so the rest of the app
+     is untouched — using the admin's own dark palette so Tailwind surfaces line
+     up exactly with the shell's --surface/--hairline/--ink. */
+  --background: 0 0% 5.9%;          /* --surface-2    #0f0f0f */
+  --foreground: 0 0% 98%;           /* --ink          #fafafa */
+  --card: 0 0% 7.8%;                /* --surface      #141414 */
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 10.2%;            /* --surface-elev #1a1a1a */
+  --popover-foreground: 0 0% 98%;
+  --primary: 0 72% 51%;             /* --adm-primary  #dc2626 */
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 14.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 14.9%;              /* --neutral-200  #262626 */
+  --muted-foreground: 0 0% 63.9%;   /* --ink-3        #a3a3a3 */
+  --accent: 0 72% 51%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 14.9%;             /* --hairline     #262626 */
+  --input: 0 0% 14.9%;
+  --ring: 0 72% 51%;
 }
 
 button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
@@ -163,6 +190,14 @@ input, select, textarea { font-family: inherit; }
   border: 1px solid transparent;
   transition: border-color var(--dur-fast), background var(--dur-fast);
   cursor: pointer; text-align: left;
+  overflow: hidden;
+}
+/* Single line, ellipsized — when the topbar squeezes the search pill the long
+   placeholder used to wrap and spill outside the 38px-high button. */
+.tb__search-label {
+  flex: 1; min-width: 0;
+  color: var(--neutral-400); font: 400 13px var(--font-body); text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tb__search:focus-within { background: var(--surface); border-color: var(--adm-primary); box-shadow: 0 0 0 4px rgba(220,38,38,.10); }
 .tb__search input { background: transparent; border: 0; outline: 0; flex: 1; font: 400 13px var(--font-body); color: var(--ink); }
@@ -733,13 +768,18 @@ input, select, textarea { font-family: inherit; }
   padding: 4px 8px; border-radius: 4px;
   flex-shrink: 0;
 }
-/* Clips the scrolling track to the space right of the pill, so items can't
-   slide over it. */
-.ticker__viewport { flex: 1; min-width: 0; overflow: hidden; }
+.ticker__pill { position: relative; z-index: 1; }
+/* Clips the translateX-animated track so scrolling items can't ride over the
+   pill (or out of the bar) — the track itself must stay unclipped inside. */
+.ticker__viewport {
+  flex: 1 1 auto; min-width: 0; overflow: hidden;
+  display: flex; align-items: center; align-self: stretch;
+}
 .ticker__track {
   display: flex; align-items: center;
   animation: ticker-scroll 60s linear infinite;
   white-space: nowrap;
+  flex-shrink: 0;
   width: max-content;
 }
 /* Spacing lives inside each item, not as a track gap — the -50% loop only lands

@@ -11,10 +11,10 @@ import { ADMIN_COOKIE, SESSION_HOURS, signAdminSession } from '@/lib/admin-sessi
 // browser never holds ADMIN_PASSWORD.
 //
 // Two compatibility paths remain, both deliberately narrow:
-//   • No AdminUser rows yet  → the shared ADMIN_PASSWORD still works, so the
+//   • No AdminUser rows yet → the shared ADMIN_PASSWORD still works, so the
 //     first person in can create the real accounts instead of being locked out.
-//   • ADMIN_PASSWORD unset   → dev mode, as before.
-// Once a single admin account exists, the shared password stops being accepted.
+// Once a single admin account exists the shared password stops being accepted,
+// and with ADMIN_PASSWORD unset nobody gets in at all (fail closed).
 
 type Body = { email?: string; password?: string };
 
@@ -59,11 +59,14 @@ export async function POST(req: NextRequest) {
   const shared = process.env.ADMIN_PASSWORD;
 
   if (!shared) {
-    // Dev mode — no secret configured, allow in as before.
-    const token = await signAdminSession({ id: 'dev', name: 'Dev admin', email: '', team: 'tech' })
-      .catch(() => null);
-    const res = NextResponse.json({ ok: true });
-    return token ? setSession(res, token) : res;
+    // Fail CLOSED, matching lib/admin-auth.ts: an unset ADMIN_PASSWORD must
+    // authorize nobody. There is deliberately no dev bypass — without a secret
+    // the bootstrap route would be an open door to the whole admin surface,
+    // and the header check downstream rejects the session anyway.
+    return NextResponse.json(
+      { ok: false, error: 'Admin sign-in is not configured on this environment.' },
+      { status: 401 },
+    );
   }
 
   if (accountCount > 0) {

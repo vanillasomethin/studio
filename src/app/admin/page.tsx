@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
@@ -10,7 +10,7 @@ import {
   ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
   // New icons for the redesign
   MonitorPlay,
-  Search, Bell, Moon, Sun, LifeBuoy, Download, Plus,
+  Search, Bell, LifeBuoy, Download, Plus,
   Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -38,6 +38,7 @@ const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-ca
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
+import { adminGetArray, adminGetObject } from '@/lib/admin-fetch';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,9 @@ type StoreReg = {
   // GPS-verified onboarding photos
   shopPhotoUrl?: string | null; shopPhotoLat?: number | null; shopPhotoLng?: number | null; shopPhotoSource?: string | null; shopPhotoAt?: string | null;
   installPhotoUrl?: string | null; installPhotoLat?: number | null; installPhotoLng?: number | null; installPhotoSource?: string | null; installPhotoAt?: string | null;
+  // Installation & hardware (ops-recorded at the site visit)
+  tvBrand?: string | null; tvSizeInches?: number | null; tvTag?: string | null; tvInstalledAt?: string | null;
+  espSwitchName?: string | null; wifiSsid?: string | null; wifiPassword?: string | null; installNotes?: string | null;
 };
 type Campaign = {
   id: string; brandId: string | null; brandName: string; contactName: string; email: string;
@@ -350,11 +354,18 @@ const STAGE_LABELS: Record<string, string> = {
   new: 'New', contacted: 'Contacted', physically_onboarded: 'Physically onboarded',
   digitally_onboarded: 'Digitally onboarded', live: 'Live', rejected: 'Rejected',
 };
+// Pastel-on-white in light mode; translucent tint on dark so the chips sit in
+// the card instead of glowing on top of it.
 const STAGE_COLORS: Record<string, string> = {
-  new: 'bg-gray-100 text-gray-600', contacted: 'bg-amber-50 text-amber-600',
-  physically_onboarded: 'bg-blue-50 text-blue-600',
-  digitally_onboarded: 'bg-indigo-50 text-indigo-600', live: 'bg-green-50 text-green-700',
-  rejected: 'bg-red-50 text-red-500',
+  new: 'bg-gray-100 text-gray-600 dark:bg-neutral-700/50 dark:text-neutral-300',
+  contacted: 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300',
+  physically_onboarded: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300',
+  digitally_onboarded: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300',
+  live: 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300',
+  rejected: 'bg-red-50 text-red-500 dark:bg-red-500/15 dark:text-red-300',
+};
+const PAYOUT_LABELS: Record<string, string> = {
+  pending_setup: 'Setup pending', ready: 'Ready', paid: 'Paid', on_hold: 'On hold',
 };
 
 async function openAsPartner(s: StoreReg) {
@@ -398,11 +409,12 @@ function PremiumLinkCard() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const pw = sessionStorage.getItem(SS_PW) ?? '';
-    fetch('/api/admin/premium-link', { headers: { 'admin-password': pw } })
-      .then((r) => r.json())
+    // On failure render nothing rather than the "Not configured — set
+    // PREMIUM_SIGNUP_KEY" banner: a 401/5xx used to land here and send the admin
+    // off to fix an env var that was already correct.
+    adminGetObject<{ configured: boolean; link: string | null; monthlyRupees: number }>('/api/admin/premium-link')
       .then(setData)
-      .catch(() => setData({ configured: false, link: null, monthlyRupees: 1000 }));
+      .catch(() => setData(null));
   }, []);
 
   if (!data) return null;
@@ -554,6 +566,24 @@ function AdminPhotoCard({ label, url, lat, lng, source, at, storeLat, storeLng }
   );
 }
 
+/** Compact labelled field for the store card's hardware grid. */
+function LabelledInput({ label, value, onChange, placeholder, type = 'text' }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+      />
+    </label>
+  );
+}
+
 function StoresPanel() {
   const [stores,   setStores]   = useState<StoreReg[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -604,6 +634,16 @@ function StoresPanel() {
           onboardingStage: store.onboardingStage,
           payoutStatus: store.payoutStatus,
           payoutNotes: store.payoutNotes || null,
+          // Installation & hardware — sent as-is; the route normalises blanks to
+          // NULL and validates the size/date, so clearing a field really clears it.
+          tvBrand:       store.tvBrand ?? null,
+          tvSizeInches:  store.tvSizeInches ?? null,
+          tvTag:         store.tvTag ?? null,
+          tvInstalledAt: store.tvInstalledAt ?? null,
+          espSwitchName: store.espSwitchName ?? null,
+          wifiSsid:      store.wifiSsid ?? null,
+          wifiPassword:  store.wifiPassword ?? null,
+          installNotes:  store.installNotes ?? null,
         }),
       });
       if (!res.ok) {
@@ -629,6 +669,22 @@ function StoresPanel() {
 
   const patchLocal = (id: string, patch: Partial<StoreReg>) =>
     setStores((all) => all.map((x) => x.id === id ? { ...x, ...patch } : x));
+
+  // Expanding a card gives it `sm:col-span-2`, and CSS grid cannot keep a
+  // two-column item in a row where only one column is free — so a card in the
+  // right-hand column is re-placed onto the next row the moment you hit Edit.
+  // In a long list that lands it below the fold and it reads as "the card
+  // vanished". Follow it with the viewport once the new layout is committed.
+  // Two frames: the first lands after React's commit, the second after the
+  // browser has re-run grid layout, so we scroll to the card's final position.
+  const expandStore = (id: string | null) => {
+    setExpanded(id);
+    if (!id) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById(`store-card-${id}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }));
+  };
 
   const filtered = stores.filter((s) =>
     !search ||
@@ -681,56 +737,85 @@ function StoresPanel() {
       {!filtered.length ? (
         <p className="text-sm text-muted-foreground text-center py-10">{search ? 'No stores match.' : 'No store registrations yet.'}</p>
       ) : (
-        <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-2">
+        <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
           {filtered.map((s) => {
             const stage      = s.onboardingStage ?? 'new';
             const isRejected = stage === 'rejected';
             const isExpanded = expanded === s.id;
             const phone      = s.phone || s.whatsapp;
             const waNum      = (phone ?? '').replace(/\D/g, '').slice(-10);
+            // GPS-verified shop photo shown as a clean banner — coordinates and
+            // capture metadata stay inside the Edit section, photo only here.
+            const photo      = s.shopPhotoUrl || s.installPhotoUrl;
             return (
-              <motion.div key={s.id} variants={fadeIn} className={`rounded-xl border bg-card ${isRejected ? 'border-red-200 opacity-70' : 'border-border'}`}>
-                {/* Top row — always visible */}
-                <div className="flex items-start gap-3 p-4">
-                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold text-sm ${isRejected ? 'bg-red-50 text-red-400' : 'bg-primary/10 text-primary'}`}>
-                    {s.storeName[0]?.toUpperCase()}
+              <motion.div
+                key={s.id}
+                id={`store-card-${s.id}`}
+                variants={fadeIn}
+                className={`group overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-lg ${isRejected ? 'border-red-200 opacity-70' : 'border-border'} ${isExpanded ? 'sm:col-span-2 scroll-mt-24' : ''}`}
+              >
+                {/* Photo banner */}
+                <div className="relative h-44 w-full overflow-hidden bg-muted">
+                  {photo ? (
+                    <a href={photo} target="_blank" rel="noreferrer" title="Open full-size photo">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photo} alt={`${s.storeName} — shop photo`} loading="lazy"
+                        className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                    </a>
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/10 via-muted/60 to-muted">
+                      <span className={`flex h-14 w-14 items-center justify-center rounded-2xl text-2xl font-black ${isRejected ? 'bg-red-50 text-red-400 dark:bg-red-500/15 dark:text-red-300' : 'bg-primary/10 text-primary'}`}>
+                        {s.storeName[0]?.toUpperCase()}
+                      </span>
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">No shop photo yet</span>
+                    </div>
+                  )}
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/40 to-transparent" />
+                  <span className={`absolute left-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${STAGE_COLORS[stage] ?? 'bg-gray-100 text-gray-500'}`}>
+                    {STAGE_LABELS[stage] ?? stage}
+                  </span>
+                  <div className="absolute right-3 top-3 flex items-center gap-1.5">
+                    {s.tier === 'premium' && (
+                      <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300">
+                        <Star className="h-2.5 w-2.5" /> Premium
+                      </span>
+                    )}
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${(s.deviceCount ?? 0) > 0 ? 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-white/90 text-gray-500 dark:bg-neutral-800/90 dark:text-neutral-300'}`}>
+                      <Tv2 className="h-2.5 w-2.5" /> {s.deviceCount ?? 0} screen{(s.deviceCount ?? 0) !== 1 ? 's' : ''}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                          {s.storeName}
-                          {s.tier === 'premium' && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                              <Star className="h-2.5 w-2.5" /> Premium
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{s.ownerName}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {s.tier === 'premium' && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                            ₹{Math.round((s.monthlyCompensationPaise ?? 100000) / 100).toLocaleString('en-IN')}/mo
-                          </span>
-                        )}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STAGE_COLORS[stage] ?? 'bg-gray-100 text-gray-500'}`}>
-                          {STAGE_LABELS[stage] ?? stage}
-                        </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${(s.deviceCount ?? 0) > 0 ? 'bg-green-50 text-green-700' : 'bg-muted text-muted-foreground'}`}>
-                          {s.deviceCount ?? 0} screen{(s.deviceCount ?? 0) !== 1 ? 's' : ''}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/50">{fmtDate(s.createdAt)}</span>
-                      </div>
-                    </div>
+                </div>
 
-                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{phone ? `+91 ${waNum}` : '—'}</span>
-                      <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{[s.locality, s.city].filter(Boolean).join(', ') || '—'}</span>
-                      {s.referralCode && <span className="flex items-center gap-1 font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">ref: {s.referralCode}</span>}
+                <div className="p-4">
+                  {/* Name + owner */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-[15px] font-bold text-foreground">{s.storeName}</p>
+                      <p className="truncate text-xs text-muted-foreground">{s.ownerName}</p>
                     </div>
+                    <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground/50">{fmtDate(s.createdAt)}</span>
+                  </div>
 
-                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {/* At-a-glance data */}
+                  <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border/70 bg-border/40 sm:grid-cols-4">
+                    {[
+                      { label: 'Phone',    value: phone ? `+91 ${waNum}` : '—' },
+                      { label: 'Area',     value: [s.locality, s.city].filter(Boolean).join(', ') || '—' },
+                      { label: 'Payout',   value: PAYOUT_LABELS[s.payoutStatus ?? 'pending_setup'] ?? s.payoutStatus },
+                      s.tier === 'premium'
+                        ? { label: 'Comp',   value: `₹${Math.round((s.monthlyCompensationPaise ?? 100000) / 100).toLocaleString('en-IN')}/mo` }
+                        : s.liveAt
+                          ? { label: 'Live since', value: fmtDate(s.liveAt) }
+                          : { label: 'Referral',   value: s.referralCode || '—' },
+                    ].map((cell) => (
+                      <div key={cell.label} className="bg-card px-2.5 py-2 min-w-0">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">{cell.label}</p>
+                        <p className="mt-0.5 truncate text-[11px] font-semibold text-foreground" title={String(cell.value)}>{cell.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
                       {waNum.length === 10 && (
                         <a
                           href={`https://wa.me/91${waNum}?text=${encodeURIComponent(`Hi ${s.ownerName}, this is the ALIVE team regarding your store ${s.storeName}.`)}`}
@@ -749,8 +834,8 @@ function StoresPanel() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setExpanded(isExpanded ? null : s.id)}
-                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => expandStore(isExpanded ? null : s.id)}
+                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${isExpanded ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
                       >
                         {isExpanded ? 'Less' : 'Edit'}
                       </button>
@@ -758,13 +843,12 @@ function StoresPanel() {
                         type="button"
                         onClick={() => void deleteStore(s.id, s.storeName)}
                         disabled={deleting === s.id}
-                        className="ml-auto flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                        className="ml-auto flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/15"
                       >
                         {deleting === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                       </button>
                     </div>
                   </div>
-                </div>
 
                 {isExpanded && (
                   <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
@@ -786,6 +870,36 @@ function StoresPanel() {
                       <AdminPhotoCard label="Installed TV" url={s.installPhotoUrl} lat={s.installPhotoLat} lng={s.installPhotoLng}
                         source={s.installPhotoSource} at={s.installPhotoAt}
                         storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                    </div>
+
+                    {/* Installation & hardware — what ops records at the site visit.
+                        Saved by the same Save button as the dropdowns below. */}
+                    <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Installation &amp; hardware</p>
+                        {s.tvTag && <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">TV #{s.tvTag}</span>}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <LabelledInput label="TV number / tag" value={s.tvTag ?? ''} placeholder="e.g. 27"
+                          onChange={(v) => patchLocal(s.id, { tvTag: v })} />
+                        <LabelledInput label="TV company" value={s.tvBrand ?? ''} placeholder="e.g. Foxsky"
+                          onChange={(v) => patchLocal(s.id, { tvBrand: v })} />
+                        <LabelledInput label="TV size (in)" value={s.tvSizeInches != null ? String(s.tvSizeInches) : ''} placeholder="43" type="number"
+                          onChange={(v) => patchLocal(s.id, { tvSizeInches: v === '' ? null : Number(v) })} />
+                        <LabelledInput label="Installed on" value={s.tvInstalledAt ? s.tvInstalledAt.slice(0, 10) : ''} type="date"
+                          onChange={(v) => patchLocal(s.id, { tvInstalledAt: v || null })} />
+                        <LabelledInput label="ESP switch name" value={s.espSwitchName ?? ''} placeholder="Sonoff label"
+                          onChange={(v) => patchLocal(s.id, { espSwitchName: v })} />
+                        <LabelledInput label="WiFi SSID" value={s.wifiSsid ?? ''} placeholder="Shop WiFi"
+                          onChange={(v) => patchLocal(s.id, { wifiSsid: v })} />
+                        <LabelledInput label="WiFi password" value={s.wifiPassword ?? ''} placeholder="••••••"
+                          onChange={(v) => patchLocal(s.id, { wifiPassword: v })} />
+                        <LabelledInput label="Install notes" value={s.installNotes ?? ''} placeholder="Mount, socket…"
+                          onChange={(v) => patchLocal(s.id, { installNotes: v })} />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/70">
+                        Partners can also record the TV number with the installed-TV photo from the app. WiFi password is visible to admins only.
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -830,10 +944,12 @@ function CampaignsPanel() {
   const [offeringTrial, setOfferingTrial] = useState<string | null>(null);
 
   useEffect(() => {
-    const pw = sessionStorage.getItem(SS_PW) ?? '';
-    fetch('/api/campaigns/admin', { headers: { 'admin-password': pw } })
-      .then((r) => r.json() as Promise<Campaign[]>)
-      .then(setCampaigns).catch(() => setCampaigns([]))
+    // adminGetArray, not a bare r.json(): a 401 body parses fine, and letting it
+    // reach setCampaigns made the reduce/filter below throw and take the whole
+    // dashboard down with "Something went wrong".
+    adminGetArray<Campaign>('/api/campaigns/admin')
+      .then(setCampaigns)
+      .catch(() => setCampaigns([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -1214,6 +1330,8 @@ function Ticker({ stats }: { stats: OpsStats | null }) {
   return (
     <div className="ticker">
       <div className="ticker__pill">Live wire</div>
+      {/* The track is translateX-animated; without this clipping viewport it
+          slides straight over the pill on its way left. */}
       <div className="ticker__viewport">
         <div className="ticker__track">
           {[...items, ...items].map((text, i) => (
@@ -1410,13 +1528,10 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
 
 // ─── New Topbar ───────────────────────────────────────────────────────────────
 
-function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, unread, stats, onNav }: {
+function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onNav }: {
   section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
-  theme: 'light' | 'dark'; setTheme: (t: 'light' | 'dark') => void; unread: number;
-  stats: OpsStats | null; onNav: (t: Tab) => void;
+  unread: number; stats: OpsStats | null; onNav: (t: Tab) => void;
 }) {
-  const isDark = theme === 'dark';
-
   const exportSnapshot = () => {
     if (!stats) return;
     const rows: [string, number][] = [
@@ -1445,7 +1560,7 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, u
       </div>
       <button className="tb__search" onClick={onOpenCmd}>
         <Search className="h-3.5 w-3.5" />
-        <span style={{ flex: 1, color: 'var(--neutral-400)', font: '400 13px var(--font-body)', textAlign: 'left' }}>
+        <span className="tb__search-label">
           Search stores, brands, campaigns, screens…
         </span>
         <span className="tb__kbd">⌘K</span>
@@ -1460,13 +1575,6 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, theme, setTheme, u
         onClick={onOpenNotif}
       >
         <Bell className="h-4 w-4" />
-      </button>
-      <button
-        className="tb__icon-btn"
-        title={isDark ? 'Light mode' : 'Dark mode'}
-        onClick={() => setTheme(isDark ? 'light' : 'dark')}
-      >
-        {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </button>
       <button className="tb__icon-btn" title="Help" onClick={() => onNav('roadmap')}><LifeBuoy className="h-4 w-4" /></button>
       <div className="tb__divider"></div>
@@ -1617,7 +1725,6 @@ function Dashboard() {
   const [refreshKey,  setRefreshKey]  = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cmdOpen,     setCmdOpen]     = useState(false);
-  const [theme,       setTheme]       = useState<'light' | 'dark'>('light');
   const [adminPw,     setAdminPw]     = useState('');
   const [liveCount,   setLiveCount]   = useState(0);
   const [alertCount,  setAlertCount]  = useState(0);
@@ -1628,12 +1735,8 @@ function Dashboard() {
   const [tickerStats, setTickerStats] = useState<OpsStats | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load theme from localStorage + prefetch alert count + live network stats for the ticker
+  // Prefetch alert count + live network stats for the ticker
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('alive-theme') as 'light' | 'dark' | null;
-      if (saved) setTheme(saved);
-    } catch {}
     const pw = sessionStorage.getItem(SS_PW) ?? '';
     setAdminPw(pw);
     // Quick count of unread alerts (offline devices + pending campaigns/stores)
@@ -1688,11 +1791,6 @@ function Dashboard() {
     }).catch(() => {});
   }, []);
 
-  // Apply theme to container
-  useEffect(() => {
-    try { localStorage.setItem('alive-theme', theme); } catch {}
-  }, [theme]);
-
   // ⌘K keyboard shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1744,7 +1842,10 @@ function Dashboard() {
   };
 
   return (
-    <div className="adm app" ref={containerRef} data-theme={theme}>
+    // Light-only: the theme toggle was removed, so this is fixed rather than
+    // stateful. The dark rules in admin.css stay keyed on data-theme="dark" and
+    // are simply unreachable — set this back to a theme state to re-enable.
+    <div className="adm app" ref={containerRef} data-theme="light">
       {/* Pops a toast the moment a screen drops, and keeps the bell count live */}
       <OfflineAlertWatcher
         onUnreadChange={setOfflineAlertCount}
@@ -1758,8 +1859,6 @@ function Dashboard() {
           liveCount={liveCount}
           onOpenCmd={() => setCmdOpen(true)}
           onOpenNotif={() => handleNav('alerts')}
-          theme={theme}
-          setTheme={setTheme}
           unread={alertCount + offlineAlertCount}
           stats={tickerStats}
           onNav={handleNav}
@@ -1767,12 +1866,14 @@ function Dashboard() {
         <Ticker stats={tickerStats} />
 
         <div className="page">
-          <AnimatePresence mode="wait">
+          {/* No AnimatePresence here: mode="wait" deadlocks under React Strict
+              Mode's double-mount in dev (exit never completes, so the next tab
+              never mounts — the sidebar highlights but content stays frozen).
+              A keyed motion.div gives the same enter fade with instant swap. */}
             <motion.div
               key={tab}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
             >
               {tab === 'overview'   && <OverviewPanel onNav={handleNav} />}
@@ -1805,7 +1906,6 @@ function Dashboard() {
               {tab === 'products'   && <ProductsTab adminPw={adminPw} />}
               {tab === 'roadmap'    && <RoadmapTab />}
             </motion.div>
-          </AnimatePresence>
         </div>
       </main>
 

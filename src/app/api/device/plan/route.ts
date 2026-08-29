@@ -13,7 +13,7 @@ import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
-import { resolvePlaylistTree, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
+import { resolvePlaylistTree, pickRendition, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
 import { istToday, isOpenOn, buildSlotLoop, SLOT_DURATION_MS } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { getMakegoodWeights } from '@/lib/sla-db';
@@ -199,6 +199,10 @@ export async function GET(req: NextRequest) {
     type WireItem = PlanMediaItem & {
       slotPosition?: number; isFiller?: boolean; campaignId?: string; soundEligible?: boolean;
     };
+
+    // Rendition selection: budget panels (default) get the safe H.264 Main@4.1
+    // rendition when one exists; playsOriginal panels keep the full-quality original.
+    const safeRendition = !device.playsOriginal;
     type TimelineSlot = {
       scheduleId: string; priority: number; startAt: string; endAt: string;
       playlistId: string | null; name: string | null;
@@ -270,7 +274,7 @@ export async function GET(req: NextRequest) {
         const contents = contentIds.length
           ? await db.content.findMany({
               where:  { id: { in: contentIds } },
-              select: { id: true, objectKey: true, md5: true, type: true, hevcObjectKey: true, hevcMd5: true },
+              select: { id: true, objectKey: true, md5: true, type: true, hevcObjectKey: true, hevcMd5: true, originalObjectKey: true, originalMd5: true, width: true, height: true },
             })
           : [];
         const contentMap = new Map(contents.map((c) => [c.id, c]));
@@ -278,16 +282,19 @@ export async function GET(req: NextRequest) {
         slotLoop = loop.flatMap((a) => {
           const c = contentMap.get(a.contentId);
           if (!c) return [];
+          const chosen = pickRendition(c, safeRendition);
           return [{
             contentId:  c.id,
-            objectKey:  c.objectKey,
-            url:        publicUrl(c.objectKey),
-            md5:        c.md5,
+            objectKey:  chosen.objectKey,
+            url:        publicUrl(chosen.objectKey),
+            md5:        chosen.md5,
             type:       c.type,
             durationMs: SLOT_DURATION_MS,
             order:      a.slotPosition,
             hevcUrl:    c.hevcObjectKey ? publicUrl(c.hevcObjectKey) : undefined,
             hevcMd5:    c.hevcMd5 ?? undefined,
+            width:      c.width ?? undefined,
+            height:     c.height ?? undefined,
             slotPosition: a.slotPosition,
             isFiller:     a.isFiller,
             campaignId:   a.campaignId,
@@ -376,7 +383,7 @@ export async function GET(req: NextRequest) {
       // `items` stays the fully-flattened play order — identical semantics for legacy
       // players and doubles as the download manifest; `nested` carries the tree for
       // nesting-aware players (SMIL <seq>-in-<seq>: a nested playlist plays fully per visit).
-      const tree = schedule ? await resolvePlaylistTree(schedule.playlistId) : { nested: [], flat: [] };
+      const tree = schedule ? await resolvePlaylistTree(schedule.playlistId, { safeRendition }) : { nested: [], flat: [] };
       items  = tree.flat;
       nested = tree.nested;
 
@@ -461,7 +468,7 @@ export async function GET(req: NextRequest) {
     if (slotLoop.length > 0) {
       fallback = slotLoop;
     } else if (playerConfig.fallbackPlaylistId) {
-      fallback = (await resolvePlaylistTree(playerConfig.fallbackPlaylistId)).flat;
+      fallback = (await resolvePlaylistTree(playerConfig.fallbackPlaylistId, { safeRendition })).flat;
     }
 
     // Hash the plan so the player can detect changes without re-downloading.

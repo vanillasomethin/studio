@@ -23,6 +23,7 @@ export type Device = {
   lastPlayAt?:      string | null;
   groupName?:       string | null;
   orientation?:     'LANDSCAPE' | 'PORTRAIT' | 'PORTRAIT_FLIPPED' | 'AUTO' | null;
+  playsOriginal?:   boolean;   // serve original uploads instead of the safe H.264 rendition
   uptimePct?:       number | null;
   claimedAt:        string;
   pairedAt?:        string | null;
@@ -100,6 +101,10 @@ export type Content = {
   md5:         string;
   sizeBytes:   number;
   durationMs?: number;
+  // Intrinsic pixel size — images measured in-browser at upload; videos filled by the
+  // transcode callback. Absent for legacy uploads.
+  width?:      number;
+  height?:     number;
   createdAt:   string;
   tags:        string[];
   folder?:     string;
@@ -173,7 +178,7 @@ export const getDevices = (params?: Record<string, string>) => {
   return apiFetch<DevicesResponse>(`/api/devices${qs}`);
 };
 
-export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string }) =>
+export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string; playsOriginal?: boolean }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
   .then((r) => r.device);
 
@@ -349,6 +354,7 @@ export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: 
 
 export const initiateUpload = (body: {
   name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; mimeType?: string; durationMs?: number;
+  width?: number; height?: number;
 }) =>
   apiFetch<{ id: string; uploadUrl: string; objectKey: string }>('/api/content', {
     method: 'POST',

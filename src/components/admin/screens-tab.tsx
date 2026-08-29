@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import {
   Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode,
   ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X,
@@ -593,6 +594,96 @@ function OrientationSelect({ device, onSave }: { device: Device; onSave: (d: Dev
   );
 }
 
+// ─── Playback quality toggle ─────────────────────────────────────────────────
+// Serve original uploads vs the safe H.264 rendition. On = capable panel (e.g. the
+// 50" Foxskys) keeps full-quality originals; off (default) = budget SoC gets the
+// transcoded rendition it can actually decode.
+function QualityToggle({ device, onSave }: { device: Device; onSave: (d: Device) => void }) {
+  const [saving, setSaving] = useState(false);
+  const on = !!device.playsOriginal;
+
+  const toggle = async () => {
+    // Flipping this changes the md5 of every transcoded video in this screen's plan at
+    // once — the player re-downloads them all and may stream (or stall) until the
+    // downloads land, so it must never feel like a cosmetic toggle.
+    const warning = on
+      ? 'Switch back to safe quality? This screen will re-download the transcoded copies of its videos and may play degraded until the downloads finish.'
+      : 'Serve full-quality originals? This screen will re-download ALL its videos at original size (can be hundreds of MB) and may stutter or stream until the downloads finish. Best done during off-hours, and only on panels that decode Full HD smoothly.';
+    if (!window.confirm(warning)) return;
+    setSaving(true);
+    try {
+      const updated = await updateDevice(device.id, { playsOriginal: !on });
+      onSave(updated);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={saving}
+      title={on ? 'Playing original uploads at full quality — switch off if this screen stutters on videos' : 'Playing the safe transcoded rendition — switch on only for panels that decode Full HD originals smoothly'}
+      className={`mt-1 flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition-all disabled:opacity-50 ${on ? 'border-primary/40 text-primary bg-primary/5' : 'border-border text-muted-foreground hover:text-foreground'}`}
+    >
+      {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : (on ? 'Full quality' : 'Safe quality')}
+    </button>
+  );
+}
+
+// ─── Card chrome ─────────────────────────────────────────────────────────────
+// A screen's health is the thing you scan a long list for, so it drives a
+// coloured rail down the card's left edge — readable at a glance without the
+// neon/glow the house style rules out (see CLAUDE.md → Design Conventions).
+
+// Enter animation only — the house style bans looping/attention-seeking motion.
+const listStagger = { hidden: {}, show: { transition: { staggerChildren: 0.035 } } };
+const cardIn = {
+  hidden: { opacity: 0, y: 8 },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const } },
+};
+
+const STATUS_RAIL: Record<string, string> = {
+  ONLINE:  'bg-green-500',
+  OFFLINE: 'bg-red-500',
+  PENDING: 'bg-amber-400',
+};
+
+/** Icon-only card action. Stays legible at rest, takes its accent on hover. */
+function CardAction({ icon: Icon, label, onClick, tone = 'default' }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+  tone?: 'default' | 'primary' | 'danger';
+}) {
+  const hover = tone === 'danger'
+    ? 'hover:border-destructive/40 hover:text-destructive hover:bg-destructive/5'
+    : 'hover:border-primary/40 hover:text-primary hover:bg-primary/5';
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all active:scale-95 ${hover}`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/** Uptime as a bar — a number alone doesn't show how bad "91%" really is. */
+function UptimeBar({ pct }: { pct: number }) {
+  const tone = pct >= 98 ? 'bg-green-500' : pct >= 90 ? 'bg-amber-400' : 'bg-red-500';
+  const text = pct >= 98 ? 'text-green-600' : pct >= 90 ? 'text-amber-600' : 'text-red-500';
+  return (
+    <div className="flex items-center gap-1.5" title={`${pct.toFixed(1)}% uptime over the last 30 days`}>
+      <div className="h-1 w-10 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.max(2, Math.min(100, pct))}%` }} />
+      </div>
+      <span className={`text-[10px] font-semibold tabular-nums ${text}`}>{pct.toFixed(1)}%</span>
+    </div>
+  );
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Human-friendly label for a device — avoids exposing raw hardware IDs in the UI.
 // Examples: "Sharma Stores · Screen #b434" or "Screen #b434" if not linked.
@@ -1133,8 +1224,12 @@ export default function ScreensTab() {
                   {sortedDevices.map((d) => {
                     const StatusIcon = STATUS_ICONS[d.status];
                     return (
-                      <tr key={d.id} className={`border-b border-border/60 last:border-0 hover:bg-muted/20 ${selected.has(d.id) ? 'bg-primary/5' : ''}`}>
-                        <td className="px-3 py-2"><input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} className="h-3 w-3 rounded accent-primary cursor-pointer" /></td>
+                      <tr key={d.id} className={`border-b border-border/60 last:border-0 transition-colors hover:bg-muted/20 ${selected.has(d.id) ? 'bg-primary/5' : ''}`}>
+                        <td className="relative px-3 py-2">
+                          {/* Same health rail as the card view, so the two read alike */}
+                          <span aria-hidden className={`absolute inset-y-0 left-0 w-[3px] ${STATUS_RAIL[d.status] ?? 'bg-muted'}`} />
+                          <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} className="h-3 w-3 rounded accent-primary cursor-pointer" />
+                        </td>
                         <td className="px-3 py-2 font-semibold text-foreground max-w-[120px] truncate">{d.storeName}</td>
                         <td className="px-3 py-2 text-muted-foreground max-w-[120px]">
                           {d.linkedStoreName ? (
@@ -1146,6 +1241,7 @@ export default function ScreensTab() {
                         <td className="px-3 py-2 text-muted-foreground">{d.groupName ?? '—'}</td>
                         <td className="px-3 py-2">
                           <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
+                          <QualityToggle device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, playsOriginal: updated.playsOriginal } : x))} />
                           <ScreenTestButton deviceId={d.id} />
                         </td>
                         <td className="px-3 py-2">
@@ -1160,7 +1256,7 @@ export default function ScreensTab() {
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</td>
                         <td className="px-3 py-2 text-right">
-                          <button onClick={() => setDiagId(d.id)} className="rounded-lg border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
+                          <button onClick={() => setDiagId(d.id)} className="rounded-lg border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary active:scale-95">
                             Details
                           </button>
                         </td>
@@ -1173,14 +1269,15 @@ export default function ScreensTab() {
           ) : (
             /* ── Comfortable card view ──────────────────────────────── */
             /* Face carries identity + status only; everything else is behind a click. */
-            <div className="space-y-2">
+            <motion.div className="space-y-2" variants={listStagger} initial="hidden" animate="show">
               {sortedDevices.map((d) => {
                 const StatusIcon = STATUS_ICONS[d.status];
                 const sched = d.currentSchedule;
                 const open  = expanded.has(d.id);
                 return (
-                  <div
+                  <motion.div
                     key={d.id}
+                    variants={cardIn}
                     className={`relative overflow-hidden rounded-xl border transition-colors ${
                       selected.has(d.id) ? 'border-primary/40 bg-primary/5' : CARD_TONE[d.status]
                     }`}
@@ -1255,11 +1352,7 @@ export default function ScreensTab() {
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Wifi className="h-2.5 w-2.5" />Heartbeat</p>
                             <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
-                            {d.uptimePct != null && (
-                              <p className={`text-[10px] font-semibold ${d.uptimePct >= 98 ? 'text-green-600' : d.uptimePct >= 90 ? 'text-yellow-600' : 'text-red-500'}`}>
-                                {d.uptimePct.toFixed(1)}% up
-                              </p>
-                            )}
+                            {d.uptimePct != null && <div className="mt-1"><UptimeBar pct={d.uptimePct} /></div>}
                           </div>
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Monitor className="h-2.5 w-2.5" />Orientation</p>
@@ -1289,10 +1382,10 @@ export default function ScreensTab() {
                         </div>
                       </div>
                     )}
-                  </div>
+                  </motion.div>
                 );
               })}
-            </div>
+            </motion.div>
           )}
 
           {/* Pagination */}

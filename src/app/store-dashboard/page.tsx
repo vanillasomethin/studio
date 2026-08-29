@@ -62,6 +62,7 @@ type StoreInfo = {
   // GPS-verified onboarding photos (see GpsPhotoUpload)
   shopPhotoUrl?:    string | null; shopPhotoLat?:    number | null; shopPhotoLng?:    number | null; shopPhotoAt?:    string | null;
   installPhotoUrl?: string | null; installPhotoLat?: number | null; installPhotoLng?: number | null; installPhotoAt?: string | null;
+  tvTag?: string | null; // TV number / ID pin, recorded with the installed-TV photo
 };
 
 type Flyer = {
@@ -422,6 +423,9 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
 }) {
   const [busy,  setBusy]  = useState<null | 'reading' | 'locating' | 'uploading'>(null);
   const [error, setError] = useState<string | null>(null);
+  // Install photo only: the number/ID pin marked on the TV, recorded at the
+  // moment the installed screen is photographed.
+  const [tvTag, setTvTag] = useState('');
 
   const handleFile = async (file: File) => {
     setError(null);
@@ -471,6 +475,7 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
       fd.append('lng', String(coords.lng));
       fd.append('source', source);
       fd.append('storeId', store.id ?? '');
+      if (kind === 'install' && tvTag.trim()) fd.append('tvTag', tvTag.trim());
       const res  = await fetch('/api/stores/verification-photo', {
         method: 'POST', body: fd,
         headers: store.token ? { 'x-store-token': store.token } : undefined,
@@ -479,7 +484,7 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
       if (!res.ok || !body?.url) { setError(body?.error ?? 'Upload failed. Please try again.'); return; }
       onUploaded(kind === 'shop'
         ? { shopPhotoUrl: body.url, shopPhotoLat: coords.lat, shopPhotoLng: coords.lng, shopPhotoAt: new Date().toISOString() }
-        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString() });
+        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(), tvTag: tvTag.trim() || undefined });
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
     } finally {
@@ -494,6 +499,19 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
         <Camera className="h-3.5 w-3.5 text-primary shrink-0" /> {copy.title}
       </p>
       <p className="text-[11px] text-muted-foreground leading-relaxed">{copy.hint}</p>
+      {kind === 'install' && !busy && (
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            TV number / ID pin <span className="font-normal normal-case tracking-normal">(optional)</span>
+          </span>
+          <input
+            value={tvTag}
+            onChange={(e) => setTvTag(e.target.value)}
+            placeholder="Number marked on the TV, e.g. 27"
+            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+          />
+        </label>
+      )}
       {busy ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground py-1.5">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -644,18 +662,31 @@ function ImageModal({ src, onClose }: { src: string; onClose: () => void }) {
 
 // ─── Deals carousel (store-specific flyers) ──────────────────────────────────
 
-function StoreFlyers({ storeName }: { storeName: string }) {
+function StoreFlyers({ storeId, storeName, token }: { storeId?: string; storeName: string; token?: string }) {
   const [flyers,  setFlyers]  = useState<Flyer[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal,   setModal]   = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/flyers/save')
-      .then((r) => r.json() as Promise<Flyer[]>)
-      .then((all) => setFlyers(all.filter((f) => f.storeName.toLowerCase() === storeName.toLowerCase())))
+    // Match flyers by storeId server-side (?storeId= + token/session, see
+    // resolveStoreId) — storeName drifts on admin renames/whitespace. Public
+    // list + normalized-name compare is the fallback when we can't prove
+    // ownership (stale cached session without id/token).
+    const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+    const byName = () =>
+      fetch('/api/flyers/save')
+        .then((r) => r.json() as Promise<Flyer[]>)
+        .then((all) => all.filter((f) => norm(f.storeName) === norm(storeName)));
+    const load = storeId
+      ? fetch(`/api/flyers/save?storeId=${encodeURIComponent(storeId)}`, {
+          headers: token ? { 'x-store-token': token } : undefined,
+        }).then((r) => (r.ok ? (r.json() as Promise<Flyer[]>) : byName()))
+      : byName();
+    load
+      .then(setFlyers)
       .catch(() => setFlyers([]))
       .finally(() => setLoading(false));
-  }, [storeName]);
+  }, [storeId, storeName, token]);
 
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>;
 
@@ -1386,7 +1417,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                   <h2 className="text-sm font-bold text-foreground">Active flyers</h2>
                   <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded-full">Published by Alive team</span>
                 </div>
-                <StoreFlyers storeName={storeData.storeName} />
+                <StoreFlyers storeId={storeData.id} storeName={storeData.storeName} token={storeData.token} />
               </div>
               <div className="rounded-2xl border border-border bg-card p-5 space-y-2">
                 <h2 className="text-sm font-bold text-foreground">Want to run a flyer?</h2>

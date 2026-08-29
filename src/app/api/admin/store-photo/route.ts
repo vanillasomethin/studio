@@ -4,16 +4,12 @@
 // this only records the resulting public URL against the store.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isAdmin } from '@/lib/admin-auth';
 import { db } from '@/lib/db';
 import { recordAdminAction } from '@/lib/admin-actor';
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function PATCH(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json().catch(() => null) as { storeId?: string; photoUrl?: string | null } | null;
   const storeId = body?.storeId?.trim();

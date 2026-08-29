@@ -94,7 +94,9 @@ async function selectTargets() {
     return [...seen.values()];
   }
   if (allPending) {
-    return db.content.findMany({ where: { type: 'VIDEO', NOT: { transcodeStatus: 'done' } } });
+    // NULL-inclusive: `NOT = 'done'` alone skips NULL rows (SQL three-valued logic),
+    // and NULL is a real state — upload succeeded, browser transcode trigger never fired.
+    return db.content.findMany({ where: { type: 'VIDEO', OR: [{ transcodeStatus: null }, { NOT: { transcodeStatus: 'done' } }] } });
   }
   die('Nothing selected. Pass content ids, or --playlist "<name>", or --all-pending. (--dry-run to preview.)');
 }
@@ -103,7 +105,7 @@ async function ffmpegH264(inFile, outFile) {
   await run('ffmpeg', [
     '-y', '-i', inFile,
     '-c:v', 'libx264', '-profile:v', 'main', '-level', '4.1', '-pix_fmt', 'yuv420p',
-    '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease",
+    '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,crop=trunc(iw/2)*2:trunc(ih/2)*2",
     '-r', '30', '-b:v', '6M', '-maxrate', '8M', '-bufsize', '12M',
     '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
     outFile,
@@ -114,7 +116,7 @@ async function ffmpegHevc(inFile, outFile) {
   await run('ffmpeg', [
     '-y', '-i', inFile,
     '-c:v', 'libx265', '-tag:v', 'hvc1', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
-    '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease",
+    '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,crop=trunc(iw/2)*2:trunc(ih/2)*2",
     '-r', '30', '-b:v', '3M', '-maxrate', '4M', '-bufsize', '6M',
     '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
     outFile,
@@ -139,7 +141,7 @@ async function processOne(c) {
   const tmpIn = path.join(tmp, `${randomUUID()}-in`);
   const tmpOut = path.join(tmp, `${randomUUID()}-out.mp4`);
   const tmpHevc = path.join(tmp, `${randomUUID()}-hevc.mp4`);
-  const src = publicUrl(c.objectKey);
+  const src = publicUrl(c.originalObjectKey ?? c.objectKey); // never re-encode a rendition
   console.log(`\n▶ ${c.name}  (${c.id})`);
   console.log(`  source: ${src}`);
 
@@ -181,15 +183,21 @@ async function processOne(c) {
       }
     }
 
-    // 4. update Content row — same fields the transcode-callback route writes
-    await db.content.update({
-      where: { id: c.id },
-      data: {
-        objectKey, md5, sizeBytes: BigInt(outBytes.length),
-        durationMs: durationMs ?? undefined, width: width ?? undefined, height: height ?? undefined,
-        transcodeStatus: 'done', transcodeError: null, ...hevc,
-      },
-    });
+    // 4. update Content row — same end-state as the transcode-callback route: the safe
+    // rendition overwrites objectKey (rollback-safe legacy shape) and the pre-overwrite
+    // original is snapshotted into original* (COALESCE — re-transcodes never clobber it).
+    await db.$executeRaw`
+      UPDATE "Content"
+      SET "originalObjectKey" = COALESCE("originalObjectKey", "objectKey"),
+          "originalMd5"       = COALESCE("originalMd5", "md5"),
+          "originalSizeBytes" = COALESCE("originalSizeBytes", "sizeBytes"),
+          "objectKey" = ${objectKey}, "md5" = ${md5}, "sizeBytes" = ${BigInt(outBytes.length)},
+          "durationMs" = ${durationMs ?? null}, width = ${width ?? null}, height = ${height ?? null},
+          "transcodeStatus" = 'done', "transcodeError" = NULL,
+          "hevcObjectKey" = ${hevc.hevcObjectKey ?? null}, "hevcMd5" = ${hevc.hevcMd5 ?? null},
+          "hevcSizeBytes" = ${hevc.hevcSizeBytes ?? null}
+      WHERE id = ${c.id}
+    `;
     console.log('  ✓ Content row updated (transcodeStatus=done)');
     return true;
   } catch (e) {

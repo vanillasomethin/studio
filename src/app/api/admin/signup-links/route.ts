@@ -6,17 +6,13 @@
 // see what still needs an env var.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isAdmin } from '@/lib/admin-auth';
 import { SLOT_TIERS } from '@/lib/slot-pricing';
 import { TIER_KEY_ENV, TIER_LABEL } from '@/lib/store-signup-links';
 import { TIER_MONTHLY_MINIMUM_RUPEES } from '@shared/agreement-terms';
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const origin = req.nextUrl.origin;
   const links = SLOT_TIERS.map((tier) => {

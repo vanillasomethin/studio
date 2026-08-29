@@ -7,9 +7,14 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
-  // directUrl removed — Neon pooler (DATABASE_URL) handles both runtime and
-  // migrations. Set DATABASE_DIRECT_URL locally for npx prisma migrate dev.
+  url       = env("DATABASE_URL")
+  // Migrations must bypass PgBouncer: advisory locks + multi-statement DDL are
+  // unreliable through transaction pooling, and a half-applied migration leaves
+  // a failed _prisma_migrations row that blocks every later deploy (P3009).
+  // DATABASE_URL_UNPOOLED is the Neon-Vercel integration's own direct URL, so
+  // it tracks Neon DNS changes automatically — the hand-set DATABASE_DIRECT_URL
+  // had gone stale (pre-cell hostname, P1001 on 2026-08-26's deploy).
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // ─── Auth (Auth.js compatible) ───────────────────────────────────────────────
@@ -135,6 +140,25 @@ model Store {
   installPhotoLng    Float?
   installPhotoSource String?
   installPhotoAt     DateTime?
+
+  // ── Installation & hardware (ops-recorded at the site visit) ────────────────
+  // Deliberately on Store, not Device: the decommission flow DELETES the Device
+  // row when a screen is removed in admin, and a re-paired screen claims a fresh
+  // row — so anything held there is lost on every re-pair. The physical TV asset
+  // and the site's wiring/network outlive that, and "1 screen per store" (see
+  // CLAUDE.md business rules) makes the store the unambiguous owner.
+  //
+  // wifiPassword is ADMIN-ONLY: it is returned by the admin-password-gated store
+  // list and never by the partner-facing routes (/api/stores/me), because a
+  // storeId alone is enough to read those.
+  tvBrand       String? // manufacturer / company, e.g. "Foxsky", "Kodak"
+  tvSizeInches  Int? // panel size in inches, e.g. 43
+  tvTag         String? // ALIVE asset tag / TV number physically marked on the unit
+  tvInstalledAt DateTime? // when the screen was physically installed
+  espSwitchName String? // label on the ESP/Sonoff smart switch at the site (see SmartPlug for the live eWeLink name)
+  wifiSsid      String?
+  wifiPassword  String?
+  installNotes  String? // free-text: mount position, socket, anything the next technician needs
 
   // ── Slot loop (fixed-loop ad inventory) ─────────────────────────────────────
   // Inventory is sold by loop position + date, never clock time. loopSlotCount is
@@ -428,6 +452,10 @@ model Device {
   freeStorageMb    Int? // available storage in MB (last reported)
   androidVersion   String? // e.g. "13"
   appVersion       String? // ALIVE Player app version, e.g. "1.4.2"
+  // Serve original uploads instead of the safe H.264 rendition. Set for panels whose
+  // hardware decoder handles high-bitrate/High-Profile sources (e.g. the 50" Foxskys);
+  // leave off for budget SoCs that need the transcoded rendition to play at all.
+  playsOriginal    Boolean           @default(false)
   // Freeze diagnostics: lastSeen proves the network/process is alive, playbackAliveAt
   // proves content is actually still advancing. lastSeen fresh + playbackAliveAt stale
   // == frozen screen, which is otherwise indistinguishable from a healthy one.
@@ -648,6 +676,16 @@ model Content {
   // image or not yet queued; 'pending' while the transcode Lambda is running.
   transcodeStatus String? // null | 'pending' | 'done' | 'error'
   transcodeError  String?
+
+  // Full-quality original, preserved when the transcode callback overwrites objectKey
+  // with the safe H.264 rendition (same overwrite the pipeline always did — kept that
+  // way so a Vercel rollback to pre-rendition code still serves the safe file, never a
+  // raw high-bitrate original a budget panel can't decode). The plan API serves this
+  // to Device.playsOriginal screens only. Null = original unknown (legacy rows whose
+  // objectKey was overwritten before this column existed, or not yet transcoded).
+  originalObjectKey String? @unique
+  originalMd5       String?
+  originalSizeBytes BigInt?
 
   // Optional second rendition, same content re-encoded as HEVC/H.265. Populated
   // best-effort by the transcode Lambda alongside the H.264 rendition above. Devices
