@@ -176,7 +176,6 @@ export async function POST(req: NextRequest) {
     // this captures the recovery edge. Only resolve on paths that actually set
     // status ONLINE — resolving without the flip would leave the alert closed
     // while the device still reads OFFLINE, and the next sweep would re-open it.
-    const wasOffline = device.status === 'OFFLINE';
     // Same pre-write row, so this is the last heartbeat before the update below —
     // the far edge of any gap the health sweep slept through (backfillMissedOutage).
     const previousLastSeen = device.lastSeen;
@@ -197,7 +196,10 @@ export async function POST(req: NextRequest) {
         // on backfillMissedOutage: it also covers a sweep that flipped the status
         // but never wrote a row, and it no-ops when the gap is already recorded.
         after(async () => {
-          if (wasOffline) await resolveOfflineAlerts(device.id);
+          // Unconditional — see the note in /api/device/plan. resolveOfflineAlerts
+          // early-returns when nothing is OPEN, and gating on the pre-write status
+          // strands an alert on a screen a concurrent sweep flipped mid-request.
+          await resolveOfflineAlerts(device.id);
           await backfillMissedOutage(device, previousLastSeen);
         });
         const envelope = await respond({ accepted: 0, telemetry: true }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'success', policyFlags: ['telemetry_only'], startedAtMs });
@@ -379,7 +381,10 @@ export async function POST(req: NextRequest) {
     // on backfillMissedOutage: it also covers a sweep that flipped the status but
     // never wrote a row, and it no-ops when the gap is already recorded.
     after(async () => {
-      if (wasOffline) await resolveOfflineAlerts(device.id);
+      // Unconditional — see the note in /api/device/plan. resolveOfflineAlerts
+      // early-returns when nothing is OPEN, and gating on the pre-write status
+      // strands an alert on a screen a concurrent sweep flipped mid-request.
+      await resolveOfflineAlerts(device.id);
       await backfillMissedOutage(device, previousLastSeen);
     });
 

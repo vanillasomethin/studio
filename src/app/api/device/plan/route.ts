@@ -17,7 +17,7 @@ import { resolvePlaylistTree, pickRendition, type PlanMediaItem, type PlanNested
 import { istToday, isOpenOn, buildSlotLoop, SLOT_DURATION_MS } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { isDevicePaired } from '@/lib/device-auth';
-import { resolveOfflineAlerts, backfillMissedOutage } from '@/lib/device-alerts';
+import { resolveOfflineAlerts, backfillMissedOutage, sweepOfflineDevices } from '@/lib/device-alerts';
 
 async function authenticate(req: NextRequest) {
   const auth  = req.headers.get('authorization') ?? '';
@@ -476,8 +476,20 @@ export async function GET(req: NextRequest) {
     // resolve rather than as its else-branch. `device` predates the write above,
     // so device.lastSeen is still the pre-heartbeat value — the far edge of the gap.
     after(async () => {
-      if (device.status === 'OFFLINE') await resolveOfflineAlerts(device.id, now);
+      // Unconditional, not gated on the pre-write status. resolveOfflineAlerts
+      // early-returns when nothing is OPEN, so the cost is one indexed lookup —
+      // and gating on status loses the case where a sweep flipped this device to
+      // OFFLINE in the window between reading the row above and writing lastSeen.
+      // That leaves an OPEN alert on a screen we can prove is alive, because the
+      // stale snapshot says ONLINE and nothing ever revisits it. This heartbeat
+      // IS the proof; a screen that just spoke has no business holding an alert.
+      await resolveOfflineAlerts(device.id, now);
       await backfillMissedOutage(device, device.lastSeen, now);
+      // Ride this heartbeat to check the REST of the fleet for the offline edge.
+      // The health cron is a GitHub Actions schedule that drifts by hours, so any
+      // live screen polling every 15 min is a far more dependable clock than it is.
+      // Throttled per instance and a no-op UPDATE in the steady state.
+      await sweepOfflineDevices(now);
     });
 
     return NextResponse.json({

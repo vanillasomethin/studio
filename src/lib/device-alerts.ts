@@ -222,20 +222,100 @@ export async function openOfflineAlerts(devices: NewlyOfflineDevice[]): Promise<
   if (opened.length >= ADMIN_DIGEST_THRESHOLD) {
     const lines = opened.slice(0, 10).map((d) => `• ${d.store?.storeName ?? 'Unassigned'} — ${d.name}`);
     const more  = opened.length > 10 ? `\n…and ${opened.length - 10} more` : '';
-    void notifyAdminWA(
+    await notifyAdminWA(
       `🔴 *${opened.length} screens went offline*\n${lines.join('\n')}${more}\n\nhttps://wearealive.in/admin`,
     );
   } else {
-    for (const d of opened) {
-      void notifyAdminWA(deviceOfflineAdminMsg({
-        deviceName: d.name,
-        storeName:  d.store?.storeName ?? null,
-        lastSeen:   d.lastSeen,
-      }));
-    }
+    await Promise.all(opened.map((d) => notifyAdminWA(deviceOfflineAdminMsg({
+      deviceName: d.name,
+      storeName:  d.store?.storeName ?? null,
+      lastSeen:   d.lastSeen,
+    }))));
   }
 
   return opened.length;
+}
+
+/** Per-instance floor between opportunistic sweeps. Serverless gives each instance
+ *  its own copy, so this does not bound global frequency — it only stops one warm
+ *  instance from re-sweeping on every request in a burst. The sweep is a single
+ *  indexed UPDATE that matches nothing in the steady state, so that is enough. */
+const SWEEP_MIN_INTERVAL_MS = 2 * 60 * 1000;
+let lastSweepAt = 0;
+
+/**
+ * The offline edge: flip every screen that has gone quiet past the threshold,
+ * open an alert for each, and escalate anything that is now sustained.
+ *
+ * Extracted from the health cron so live traffic can drive it too. The cron is a
+ * GitHub Actions schedule that asks for every 5 minutes and in practice fires with
+ * gaps of hours (0.4h–11.4h observed), so leaning on it alone means a screen can be
+ * dead most of a day before anybody is told — AH Store's outage on 2026-08-27 sat
+ * 7.6h before it raised an alert. Driving the same sweep off requests that already
+ * happen (a device heartbeat, an admin opening the panel) makes detection as timely
+ * as the fleet's own 15-minute heartbeat, with no external scheduler to trust.
+ *
+ * Safe to call concurrently and often. The flip is one atomic UPDATE ... RETURNING,
+ * so exactly one caller can observe a given device crossing the edge no matter how
+ * many run at once, and openOfflineAlerts independently skips devices that already
+ * hold an OPEN row. In the steady state the WHERE matches nothing and the call is
+ * one cheap indexed write.
+ *
+ * `force` bypasses the per-instance throttle — the cron passes it, since it runs on
+ * a fresh instance and is the backstop that must never be skipped.
+ *
+ * Never throws: callers are hot paths and a cron that must not fail on bookkeeping.
+ */
+export async function sweepOfflineDevices(
+  now = new Date(),
+  { force = false }: { force?: boolean } = {},
+): Promise<{ markedOffline: number; opened: number; notified: number }> {
+  const nil = { markedOffline: 0, opened: 0, notified: 0 };
+  if (!force) {
+    if (now.getTime() - lastSweepAt < SWEEP_MIN_INTERVAL_MS) return nil;
+    lastSweepAt = now.getTime();
+  }
+
+  try {
+    // updateManyAndReturn (one UPDATE ... RETURNING) so the set of devices that
+    // crossed the edge is captured atomically with the flip — a plain updateMany
+    // returns only a count, and re-deriving the set afterwards would either miss
+    // devices or re-notify every still-offline screen on every run.
+    const justWentOffline = await db.device.updateManyAndReturn({
+      where: {
+        status:   { not: 'OFFLINE' },
+        lastSeen: { lt: new Date(now.getTime() - OFFLINE_AFTER_MS) },
+      },
+      data: { status: 'OFFLINE' },
+      // bootedAt/appStartedAt/appVersion ride along so openOfflineAlerts can freeze the
+      // pre-outage state onto the alert row — the recovery heartbeat overwrites them.
+      select: {
+        id: true, name: true, storeId: true, lastSeen: true,
+        bootedAt: true, appStartedAt: true, appVersion: true,
+      },
+    });
+
+    const storeNames = new Map<string, string>();
+    const storeIds = justWentOffline.map((d) => d.storeId).filter((s): s is string => !!s);
+    if (storeIds.length) {
+      const stores = await db.store.findMany({
+        where: { id: { in: storeIds } }, select: { id: true, storeName: true },
+      }).catch(() => []);
+      for (const s of stores) storeNames.set(s.id, s.storeName);
+    }
+
+    const opened = await openOfflineAlerts(justWentOffline.map((d) => ({
+      ...d,
+      store: d.storeId ? { storeName: storeNames.get(d.storeId) ?? '' } : null,
+    })));
+
+    // Partners are told only once an outage is sustained — see below.
+    const notified = await escalateSustainedOutages(now);
+
+    return { markedOffline: justWentOffline.length, opened, notified };
+  } catch {
+    return nil;
+  }
 }
 
 /**
@@ -291,10 +371,20 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
 
       // Mark BEFORE sending: a duplicate alert is far worse for a shopkeeper
       // than a missed one, and the next sweep is only 5 minutes away.
-      await db.deviceAlert.update({
-        where: { id: alert.id },
+      // updateMany qualified on `partnerNotifiedAt: null`, not update-by-id: this
+      // must be an atomic CLAIM, not a read-then-write. The eligibility findMany
+      // above can hand the same alert to several sweeps at once, and
+      // sweepOfflineDevices now runs from the device heartbeat and the admin panel
+      // as well as the cron — each its own serverless instance with its own
+      // throttle state — so that is routine rather than theoretical. An
+      // unqualified update-by-id lets every caller win and send, which is exactly
+      // the duplicate the comment above warns about. Postgres re-evaluates the
+      // qual after taking the row lock, so precisely one caller sees count === 1.
+      const claimed = await db.deviceAlert.updateMany({
+        where: { id: alert.id, partnerNotifiedAt: null },
         data:  { partnerNotifiedAt: now, severity: 'critical' },
       });
+      if (claimed.count !== 1) continue; // another sweep already owns this alert
 
       const store = await db.store.findUnique({
         where:  { id: alert.storeId },
