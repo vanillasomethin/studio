@@ -4,12 +4,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { notifyStoreWA, notifyAdminEmail } from '@/lib/notify';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ brandId: string }> }) {
-  const adminPw = req.headers.get('admin-password');
-  if (adminPw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Was fail-closed but not constant-time, and compared against a possibly
+  // undefined env var. requireAdmin() delegates to a timing-safe comparison.
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const { brandId } = await params;
 

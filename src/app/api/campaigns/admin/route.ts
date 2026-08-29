@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export async function GET(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Fail CLOSED: the previous guard only rejected when ADMIN_PASSWORD was set,
+  // so an unset env var published every brand's campaign and payment status.
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const campaigns = await db.campaign.findMany({
       orderBy: { createdAt: 'desc' },

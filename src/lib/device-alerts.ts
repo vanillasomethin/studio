@@ -58,6 +58,17 @@ export const BACKFILL_MIN_GAP_MS = 60 * 60 * 1000;
 export const PARTNER_NOTIFY_AFTER_MS = 40 * 60 * 1000; // ≈60 min total downtime
 /** Aggregate rather than spam when a whole batch drops at once (mains cut, ISP outage). */
 const ADMIN_DIGEST_THRESHOLD = 3;
+/**
+ * Silence after which an open OFFLINE alert is auto-closed as abandoned.
+ *
+ * An OFFLINE alert is only ever RESOLVED by the screen heartbeating again, so a
+ * decommissioned unit, a bench TV or a stray test pairing keeps its alert OPEN
+ * forever. Left alone the active list fills with zombies — 13 of 14 when this
+ * was written, aged 4 to 86 days — which buries the one real outage and makes
+ * the admin popup announce "14 screens are offline" on every page load.
+ */
+export const STALE_ALERT_DAYS = 7;
+const STALE_ALERT_MS = STALE_ALERT_DAYS * 24 * 60 * 60 * 1000;
 
 export type NewlyOfflineDevice = {
   id: string;
@@ -315,6 +326,49 @@ export async function sweepOfflineDevices(
     return { markedOffline: justWentOffline.length, opened, notified };
   } catch {
     return nil;
+  }
+}
+
+/**
+ * Auto-closes alerts for screens that are never coming back. Called once per
+ * cron sweep. Returns the number closed.
+ *
+ * Keyed on the alert's own `lastSeenAt` snapshot (the last heartbeat before the
+ * drop) rather than the alert's age: the alerting feature is newer than some of
+ * these outages, so a months-dead screen can carry a days-old alert row and
+ * would never age out on `startedAt`. A null snapshot means the screen never
+ * reported at all, which is the same verdict.
+ *
+ * Closed as ABANDONED rather than deleted — the incident did happen and the row
+ * stays for reporting. `downtimeSec` is deliberately left null: nothing
+ * recovered, so there is no measured downtime, and inventing one would put a
+ * fake recovery into uptime figures. Silent by design, for the same reason —
+ * this must not fire a "back online" notification.
+ *
+ * Safe against re-alerting: the sweep only opens alerts for devices
+ * *transitioning* into OFFLINE, and these are already OFFLINE, so closing the
+ * alert cannot make them pop straight back up.
+ */
+export async function resolveStaleOfflineAlerts(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_ALERT_MS);
+  try {
+    const { count } = await db.deviceAlert.updateMany({
+      where: {
+        status: 'OPEN',
+        OR: [{ lastSeenAt: { lt: cutoff } }, { lastSeenAt: null }],
+      },
+      data: {
+        status:          'RESOLVED',
+        resolvedAt:      now,
+        cause:           'ABANDONED',
+        causeConfidence: 'high',
+        causeEvidence:   `Auto-closed: no heartbeat for over ${STALE_ALERT_DAYS} days. `
+          + 'The screen never returned, so this alert would otherwise have stayed open forever.',
+      },
+    });
+    return count;
+  } catch {
+    return 0; // table not migrated yet, or a transient DB error — never break the sweep
   }
 }
 

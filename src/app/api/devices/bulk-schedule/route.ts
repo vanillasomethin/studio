@@ -5,14 +5,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { deviceIds, playlistId, durationMins, name } = await req.json() as {
       deviceIds:   string[];
@@ -39,6 +37,15 @@ export async function POST(req: NextRequest) {
         recurrence: 'ONCE',
         orientation: 'portrait',
       },
+    });
+
+    // priority 9 overrides every other active schedule on the targeted screens.
+    // If one admin action is ever worth alerting on, it is this one.
+    await logAdminAction({
+      actor, req,
+      action: 'schedule.takeover',
+      target: schedule.id,
+      meta:   { deviceIds, playlistId, durationMins, screens: deviceIds.length },
     });
 
     return NextResponse.json({ schedule: { id: schedule.id, name: schedule.name, endsAt: schedule.endAt } });

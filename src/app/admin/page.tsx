@@ -5,15 +5,17 @@ import { motion } from 'framer-motion';
 import {
   Loader2, Trash2, Upload, ImageIcon, Store, BarChart3, FileImage,
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
-  IndianRupee, Eye, Package, Ticket, Star, Copy,
+  IndianRupee, Eye, EyeOff, Package, Ticket, Star, Copy,
   Tv2, CalendarClock, FileBarChart2, Activity,
   ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
-  Megaphone, Image, Radar, Grid3x3, ImagePlus,
+  Megaphone, Image, Radar, Grid3x3, ImagePlus, Camera, ShieldCheck,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { signIn, signOut as authSignOut } from 'next-auth/react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Badge } from '@/components/ui/badge';
 import './admin.css';
 
@@ -55,12 +57,18 @@ type StoreReg = {
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
   referralCode?: string; referredBy?: string | null; agreedAt?: string | null; liveAt?: string | null;
   deviceCount?: number;
-  // GPS-verified onboarding photos
+  // GPS-verified onboarding photos — shop/install are partner-captured,
+  // serial/plug are captured by ops during the install visit.
   shopPhotoUrl?: string | null; shopPhotoLat?: number | null; shopPhotoLng?: number | null; shopPhotoSource?: string | null; shopPhotoAt?: string | null;
   installPhotoUrl?: string | null; installPhotoLat?: number | null; installPhotoLng?: number | null; installPhotoSource?: string | null; installPhotoAt?: string | null;
+  serialPhotoUrl?: string | null; serialPhotoLat?: number | null; serialPhotoLng?: number | null; serialPhotoSource?: string | null; serialPhotoAt?: string | null;
+  plugPhotoUrl?: string | null; plugPhotoLat?: number | null; plugPhotoLng?: number | null; plugPhotoSource?: string | null; plugPhotoAt?: string | null;
   // Installation & hardware (ops-recorded at the site visit)
-  tvBrand?: string | null; tvSizeInches?: number | null; tvTag?: string | null; tvInstalledAt?: string | null;
-  espSwitchName?: string | null; wifiSsid?: string | null; wifiPassword?: string | null; installNotes?: string | null;
+  tvBrand?: string | null; tvModel?: string | null; tvSerial?: string | null;
+  tvSizeInches?: number | null; tvTag?: string | null; tvInstalledAt?: string | null;
+  espSwitchName?: string | null; espPlugId?: string | null;
+  wifiSsid?: string | null; wifiUsername?: string | null; wifiPassword?: string | null;
+  wifiAuthType?: string | null; installNotes?: string | null;
 };
 type Campaign = {
   id: string; brandId: string | null; brandName: string; contactName: string; email: string;
@@ -456,18 +464,152 @@ function distanceMetres(lat1: number, lng1: number, lat2: number, lng2: number):
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function AdminPhotoCard({ label, url, lat, lng, source, at, storeLat, storeLng }: {
-  label: string; url?: string | null; lat?: number | null; lng?: number | null;
+type PhotoKind = 'shop' | 'install' | 'serial' | 'plug';
+
+/** Best-effort device fix. Resolves null on denial, no fix, or an unanswered
+ *  permission prompt — install photos are shot inside shops that often have no
+ *  usable GPS at all, and a missing coordinate must never cost us the photo. */
+function currentFix(timeoutMs = 6000): Promise<{ lat: number; lng: number } | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v: { lat: number; lng: number } | null) => { if (!settled) { settled = true; resolve(v); } };
+    // Our own timer as well as the option: a permission prompt left sitting on
+    // screen fires neither callback, and the upload can't wait on a human.
+    setTimeout(() => finish(null), timeoutMs);
+    navigator.geolocation.getCurrentPosition(
+      (p) => finish({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => finish(null),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60000 },
+    );
+  });
+}
+
+/** The five columns one photo kind writes. Spelled out per kind so the
+ *  optimistic patch stays type-checked against the row shape. */
+function photoPatch(kind: PhotoKind, p: { url: string; lat: number | null; lng: number | null; source: string | null; at: string | null }): Partial<StoreReg> {
+  switch (kind) {
+    case 'shop':    return { shopPhotoUrl:    p.url, shopPhotoLat:    p.lat, shopPhotoLng:    p.lng, shopPhotoSource:    p.source, shopPhotoAt:    p.at };
+    case 'install': return { installPhotoUrl: p.url, installPhotoLat: p.lat, installPhotoLng: p.lng, installPhotoSource: p.source, installPhotoAt: p.at };
+    case 'serial':  return { serialPhotoUrl:  p.url, serialPhotoLat:  p.lat, serialPhotoLng:  p.lng, serialPhotoSource:  p.source, serialPhotoAt:  p.at };
+    case 'plug':    return { plugPhotoUrl:    p.url, plugPhotoLat:    p.lat, plugPhotoLng:    p.lng, plugPhotoSource:    p.source, plugPhotoAt:    p.at };
+  }
+}
+
+/** data: URL → Blob by hand rather than via fetch(): the CSP's connect-src
+ *  lists no `data:`, and it is report-only today but one config flip from
+ *  enforcing — at which point fetch(dataUrl) would start failing here. */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(',');
+  const mime  = /:(.*?);/.exec(dataUrl.slice(0, comma))?.[1] ?? 'image/jpeg';
+  const bin   = atob(dataUrl.slice(comma + 1));
+  const buf   = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+
+/** Shrinks anything the upload route would refuse — it caps at 4 MB and takes
+ *  only JPEG/PNG/WebP, while a phone camera hands us 8 MB of HEIC. Falls back
+ *  to the original bytes if the browser can't decode it, so the route gets to
+ *  answer with its own message instead of the upload dying here. */
+async function prepareUpload(file: File): Promise<Blob> {
+  const SERVER_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+  if (file.size <= 3.5 * 1024 * 1024 && SERVER_TYPES.includes(file.type)) return file;
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload  = () => resolve(r.result as string);
+      r.onerror = () => reject(new Error('read failed'));
+      r.readAsDataURL(file);
+    });
+    // compressImage never settles on an image the browser can't decode, so it
+    // gets a deadline rather than leaving the card spinning forever.
+    const small = await Promise.race([
+      compressImage(dataUrl, 1600, 0.8),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    if (!small) return file;
+    return dataUrlToBlob(small);
+  } catch {
+    return file;
+  }
+}
+
+function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, storeLat, storeLng, onUploaded }: {
+  label: string; kind: PhotoKind; storeId: string;
+  url?: string | null; lat?: number | null; lng?: number | null;
   source?: string | null; at?: string | null; storeLat?: number | null; storeLng?: number | null;
+  onUploaded: (patch: Partial<StoreReg>) => void;
 }) {
+  // Every card is an uploader, not just a viewer. The pair wizard can only
+  // reach a screen that is still displaying a pairing code, so for the whole
+  // already-paired fleet this is the ONLY way to supply the serial/plug photos
+  // the install gate demands — without it those stores freeze at 'contacted'.
+  const [busy,  setBusy]  = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = async (file: File) => {
+    setBusy(true); setError(null);
+    try {
+      // Fix and downscale run together: the GPS lookup is usually done by the
+      // time the canvas has re-encoded, so ops waits for neither.
+      const fixP = currentFix();
+      const blob = await prepareUpload(file);
+      const fix  = await fixP;
+
+      const fd = new FormData();
+      fd.append('file', blob, `${kind}.jpg`);
+      fd.append('kind', kind);
+      if (fix) {
+        fd.append('lat', String(fix.lat));
+        fd.append('lng', String(fix.lng));
+        fd.append('source', 'device');
+      }
+      const pw   = sessionStorage.getItem(SS_PW) ?? '';
+      const res  = await fetch(`/api/admin/stores/${storeId}/photo`, { method: 'POST', headers: { 'admin-password': pw }, body: fd });
+      if (res.status === 401) throw new Error('Admin session expired — reload the panel and sign in again.');
+      const body = await res.json().catch(() => null) as { url?: string; lat?: number | null; lng?: number | null; at?: string | null; error?: string } | null;
+      if (!res.ok || !body?.url) throw new Error(body?.error ?? `Upload failed (HTTP ${res.status})`);
+      // Straight into the card's store row so the thumbnail — and the gate's
+      // view of what's collected — updates without a re-read.
+      onUploaded(photoPatch(kind, {
+        url:    body.url,
+        lat:    body.lat ?? null,
+        lng:    body.lng ?? null,
+        source: body.lat != null ? 'device' : null,
+        at:     body.at ?? null,
+      }));
+    } catch (e) {
+      setError((e as Error).message || 'Upload failed. Check the connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // `capture` opens the phone camera straight away — ops is standing in the
+  // shop, and the point of the photo is that it was taken there.
+  const picker = (
+    <label className={`shrink-0 inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground ${busy ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
+      {busy
+        ? <><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</>
+        : <><Camera className="h-3 w-3" /> {url ? 'Replace' : 'Upload'}</>}
+      <input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy}
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void upload(f); }} />
+    </label>
+  );
+
   if (!url) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2.5">
-        <ImagePlus className="h-4 w-4 text-muted-foreground/40 shrink-0" />
-        <div>
-          <p className="text-[11px] font-semibold text-foreground/70">{label}</p>
-          <p className="text-[10px] text-muted-foreground">Not uploaded yet — stage is gated on it</p>
+      <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <ImagePlus className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold text-foreground/70">{label}</p>
+            <p className="text-[10px] text-muted-foreground">Not uploaded yet — stage is gated on it</p>
+          </div>
+          {picker}
         </div>
+        {error && <p className="mt-1.5 text-[10px] font-medium text-red-600">{error}</p>}
       </div>
     );
   }
@@ -477,45 +619,105 @@ function AdminPhotoCard({ label, url, lat, lng, source, at, storeLat, storeLng }
   const dist = hasCoords && typeof storeLat === 'number' && typeof storeLng === 'number'
     ? distanceMetres(lat!, lng!, storeLat, storeLng) : null;
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5">
-      <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={label} className="h-12 w-12 rounded-md object-cover border border-border" />
-      </a>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold text-foreground">{label}{at ? ` · ${fmtDate(at)}` : ''}{source === 'device' ? ' · device GPS' : ''}</p>
-        {hasCoords ? (
-          <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noreferrer"
-            className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
-            {lat!.toFixed(6)}, {lng!.toFixed(6)}
-          </a>
-        ) : <p className="text-[10px] text-muted-foreground">No coordinates</p>}
-        {dist != null && (
-          <p className={`text-[10px] font-semibold ${dist > 200 ? 'text-amber-600' : 'text-green-700'}`}>
-            {dist > 200 ? '⚠ ' : ''}{dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`} from registered pin
-          </p>
-        )}
+    <div className="rounded-lg border border-border bg-background px-3 py-2.5">
+      <div className="flex items-center gap-2.5">
+        <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={label} className="h-12 w-12 rounded-md object-cover border border-border" />
+        </a>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold text-foreground">{label}{at ? ` · ${fmtDate(at)}` : ''}{source === 'device' ? ' · device GPS' : ''}</p>
+          {hasCoords ? (
+            <a href={`https://maps.google.com/?q=${lat},${lng}`} target="_blank" rel="noreferrer"
+              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+              {lat!.toFixed(6)}, {lng!.toFixed(6)}
+            </a>
+          ) : <p className="text-[10px] text-muted-foreground">No coordinates</p>}
+          {dist != null && (
+            <p className={`text-[10px] font-semibold ${dist > 200 ? 'text-amber-600' : 'text-green-700'}`}>
+              {dist > 200 ? '⚠ ' : ''}{dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`} from registered pin
+            </p>
+          )}
+        </div>
+        {picker}
       </div>
+      {error && <p className="mt-1.5 text-[10px] font-medium text-red-600">{error}</p>}
     </div>
   );
 }
 
+const fieldCls = 'w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all';
+
+/** Red asterisk on fields the install gate refuses to advance a store without. */
+function ReqMark({ on }: { on?: boolean }) {
+  return on ? <span className="text-primary" title="Required before Physically onboarded"> *</span> : null;
+}
+
 /** Compact labelled field for the store card's hardware grid. */
-function LabelledInput({ label, value, onChange, placeholder, type = 'text' }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+function LabelledInput({ label, value, onChange, placeholder, type = 'text', required }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; required?: boolean;
+}) {
+  // Secrets start masked: this panel is worked on a shared ops laptop, usually
+  // with the shopkeeper and whoever else standing over the screen.
+  const [revealed, setRevealed] = useState(false);
+  const secret = type === 'password';
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}<ReqMark on={required} /></span>
+      <div className="relative">
+        <input
+          type={secret ? (revealed ? 'text' : 'password') : type}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${fieldCls} ${secret ? 'pr-8' : ''}`}
+        />
+        {secret && (
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
+            className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-muted-foreground hover:text-foreground"
+          >
+            {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
+        )}
+      </div>
+    </label>
+  );
+}
+
+/** Same shape as LabelledInput, for the fixed-choice hardware fields. */
+function LabelledSelect({ label, value, onChange, required, children }: {
+  label: string; value: string; onChange: (v: string) => void; required?: boolean; children: React.ReactNode;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-      />
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}<ReqMark on={required} /></span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={fieldCls}>{children}</select>
     </label>
   );
+}
+
+/** Reads the partner list. Returns null when the admin session bounced — that
+ *  case is handled in place, so callers just stop. Throws on anything else. */
+async function fetchStores(): Promise<StoreReg[] | null> {
+  const pw = sessionStorage.getItem(SS_PW) ?? '';
+  const r  = await fetch('/api/stores/save', { headers: { 'admin-password': pw } });
+  if (r.status === 401) {
+    // The password in sessionStorage no longer matches ADMIN_PASSWORD (rotated
+    // in Vercel, or a restored tab) — back to the gate rather than crashing
+    // every panel with an error-envelope payload.
+    sessionStorage.removeItem('alive_admin');
+    sessionStorage.removeItem(SS_PW);
+    window.location.reload();
+    return null;
+  }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const body = await r.json();
+  const arr  = Array.isArray(body) ? body : body?.data;
+  if (!Array.isArray(arr)) throw new Error('Unexpected response shape');
+  return arr as StoreReg[];
 }
 
 function StoresPanel() {
@@ -526,30 +728,21 @@ function StoresPanel() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [saving,   setSaving]   = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Rejected save, shown on the card it belongs to. The install gate answers 409
+  // with the exact list of what ops still has to collect — far more actionable
+  // than one sentence in an alert() they have to dismiss before they can act.
+  const [saveError, setSaveError] = useState<{ id: string; error: string; missing: string[] } | null>(null);
+  // Last stage the SERVER acknowledged, per store: the dropdown edits local
+  // state immediately, so a refused stage change must be put back from here.
+  const serverStage = useRef<Record<string, string>>({});
 
   const load = useCallback(() => {
-    setLoading(true);
-    setLoadError(null);
-    const pw = sessionStorage.getItem(SS_PW) ?? '';
-    fetch('/api/stores/save', { headers: { 'admin-password': pw } })
-      .then(async (r) => {
-        if (r.status === 401) {
-          // The password in sessionStorage no longer matches ADMIN_PASSWORD
-          // (rotated in Vercel, or a restored tab) — back to the gate rather
-          // than crashing every panel with an error-envelope payload.
-          sessionStorage.removeItem('alive_admin');
-          sessionStorage.removeItem(SS_PW);
-          window.location.reload();
-          return null;
-        }
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((body) => {
-        if (body === null) return;
-        const arr = Array.isArray(body) ? body : body?.data;
-        if (Array.isArray(arr)) setStores(arr as StoreReg[]);
-        else throw new Error('Unexpected response shape');
+    setLoading(true); setLoadError(null);
+    fetchStores()
+      .then((arr) => {
+        if (!arr) return;
+        setStores(arr);
+        serverStage.current = Object.fromEntries(arr.map((s) => [s.id, s.onboardingStage ?? 'new']));
       })
       .catch(() => setLoadError('Could not load partners. Check your connection and retry.'))
       .finally(() => setLoading(false));
@@ -557,36 +750,78 @@ function StoresPanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  // The route rewrites part of what it stored — blanks become NULL, the TV size
+  // is rounded, and tvInstalledAt is stamped on a successful crossing — so a
+  // saved card has to be read back. Merge ONLY that card, and within it only
+  // the fields whose local value is still exactly what this save sent: a
+  // keystroke typed while the PATCH was in flight is the newer intent and has
+  // to survive. Re-reading the whole list into state (what this used to do)
+  // silently threw those keystrokes away.
+  const resyncStore = async (id: string, sent: Partial<StoreReg>) => {
+    const arr   = await fetchStores().catch(() => null);
+    const fresh = arr?.find((x) => x.id === id);
+    if (!fresh) return;
+    serverStage.current[id] = fresh.onboardingStage ?? 'new';
+    setStores((all) => all.map((x) => {
+      if (x.id !== id) return x;
+      const merged = { ...x } as Record<string, unknown>;
+      for (const key of Object.keys(sent) as (keyof StoreReg)[]) {
+        // `?? null` so an absent local field and a sent null count as equal.
+        if ((x[key] ?? null) === (sent[key] ?? null)) merged[key] = fresh[key];
+      }
+      return merged as StoreReg;
+    }));
+  };
+
   const saveStore = async (store: StoreReg) => {
     setSaving(store.id);
+    setSaveError(null);
     try {
       const pw = sessionStorage.getItem(SS_PW) ?? '';
+      // Kept as a value so the re-sync below can tell which fields this save is
+      // actually responsible for, and which the admin has typed over since.
+      const sent: Partial<StoreReg> = {
+        onboardingStage: store.onboardingStage,
+        payoutStatus: store.payoutStatus,
+        payoutNotes: store.payoutNotes || null,
+        // Installation & hardware — sent as-is; the route normalises blanks to
+        // NULL and validates the size/date, so clearing a field really clears it.
+        tvBrand:       store.tvBrand ?? null,
+        tvModel:       store.tvModel ?? null,
+        tvSerial:      store.tvSerial ?? null,
+        tvSizeInches:  store.tvSizeInches ?? null,
+        tvTag:         store.tvTag ?? null,
+        tvInstalledAt: store.tvInstalledAt ?? null,
+        espSwitchName: store.espSwitchName ?? null,
+        espPlugId:     store.espPlugId ?? null,
+        wifiSsid:      store.wifiSsid ?? null,
+        wifiAuthType:  store.wifiAuthType ?? null,
+        wifiUsername:  store.wifiUsername ?? null,
+        wifiPassword:  store.wifiPassword ?? null,
+        installNotes:  store.installNotes ?? null,
+      };
       const res = await fetch(`/api/admin/stores/${store.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'admin-password': pw },
-        body: JSON.stringify({
-          onboardingStage: store.onboardingStage,
-          payoutStatus: store.payoutStatus,
-          payoutNotes: store.payoutNotes || null,
-          // Installation & hardware — sent as-is; the route normalises blanks to
-          // NULL and validates the size/date, so clearing a field really clears it.
-          tvBrand:       store.tvBrand ?? null,
-          tvSizeInches:  store.tvSizeInches ?? null,
-          tvTag:         store.tvTag ?? null,
-          tvInstalledAt: store.tvInstalledAt ?? null,
-          espSwitchName: store.espSwitchName ?? null,
-          wifiSsid:      store.wifiSsid ?? null,
-          wifiPassword:  store.wifiPassword ?? null,
-          installNotes:  store.installNotes ?? null,
-        }),
+        body: JSON.stringify(sent),
       });
       if (!res.ok) {
-        // Surface the server's message — the photo gates answer 409 with a
-        // specific reason (missing shop/install photo) the admin needs to see.
-        const body = await res.json().catch(() => null) as { error?: string } | null;
-        alert(body?.error ?? 'Save failed');
+        // Nothing was written — a gate 409 rejects the whole PATCH. Put the
+        // stage back to what the server still holds so the card stops badging a
+        // stage the DB never took; the typed fields stay so ops can fix and retry.
+        const body = await res.json().catch(() => null) as { error?: string; missing?: string[] } | null;
+        patchLocal(store.id, { onboardingStage: serverStage.current[store.id] ?? store.onboardingStage });
+        setSaveError({
+          id: store.id,
+          error: body?.error ?? 'Save failed',
+          missing: Array.isArray(body?.missing) ? body.missing : [],
+        });
         return;
       }
+      // Recorded before the re-read so a failed one can't leave the rollback
+      // baseline pointing at the pre-save stage.
+      serverStage.current[store.id] = store.onboardingStage ?? 'new';
+      await resyncStore(store.id, sent);
     } finally { setSaving(null); }
   };
 
@@ -640,7 +875,7 @@ function StoresPanel() {
     return (
       <div className="flex flex-col items-center gap-3 py-16">
         <p className="text-sm text-muted-foreground">{loadError}</p>
-        <button onClick={load} className="rounded-lg border border-border px-4 py-2 text-xs font-semibold hover:bg-muted">Retry</button>
+        <button onClick={() => load()} className="rounded-lg border border-border px-4 py-2 text-xs font-semibold hover:bg-muted">Retry</button>
       </div>
     );
   }
@@ -797,41 +1032,85 @@ function StoresPanel() {
 
                     {/* GPS verification photos — evidence behind the stage gates */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <AdminPhotoCard label="Shop front" url={s.shopPhotoUrl} lat={s.shopPhotoLat} lng={s.shopPhotoLng}
+                      <AdminPhotoCard label="Shop front" kind="shop" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
+                        url={s.shopPhotoUrl} lat={s.shopPhotoLat} lng={s.shopPhotoLng}
                         source={s.shopPhotoSource} at={s.shopPhotoAt}
                         storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
-                      <AdminPhotoCard label="Installed TV" url={s.installPhotoUrl} lat={s.installPhotoLat} lng={s.installPhotoLng}
+                      <AdminPhotoCard label="Installed TV" kind="install" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
+                        url={s.installPhotoUrl} lat={s.installPhotoLat} lng={s.installPhotoLng}
                         source={s.installPhotoSource} at={s.installPhotoAt}
+                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                      <AdminPhotoCard label="Serial plate" kind="serial" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
+                        url={s.serialPhotoUrl} lat={s.serialPhotoLat} lng={s.serialPhotoLng}
+                        source={s.serialPhotoSource} at={s.serialPhotoAt}
+                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                      <AdminPhotoCard label="Smart plug" kind="plug" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
+                        url={s.plugPhotoUrl} lat={s.plugPhotoLat} lng={s.plugPhotoLng}
+                        source={s.plugPhotoSource} at={s.plugPhotoAt}
                         storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
                     </div>
 
                     {/* Installation & hardware — what ops records at the site visit.
                         Saved by the same Save button as the dropdowns below. */}
-                    <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+                    <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
                       <div className="flex items-center justify-between">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Installation &amp; hardware</p>
                         {s.tvTag && <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">TV #{s.tvTag}</span>}
                       </div>
+
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">TV</p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                        <LabelledInput label="TV number / tag" value={s.tvTag ?? ''} placeholder="e.g. 27"
+                        <LabelledInput required label="TV number / tag" value={s.tvTag ?? ''} placeholder="e.g. 27"
                           onChange={(v) => patchLocal(s.id, { tvTag: v })} />
-                        <LabelledInput label="TV company" value={s.tvBrand ?? ''} placeholder="e.g. Foxsky"
+                        <LabelledInput required label="TV company" value={s.tvBrand ?? ''} placeholder="e.g. Foxsky"
                           onChange={(v) => patchLocal(s.id, { tvBrand: v })} />
-                        <LabelledInput label="TV size (in)" value={s.tvSizeInches != null ? String(s.tvSizeInches) : ''} placeholder="43" type="number"
+                        <LabelledInput required label="TV model" value={s.tvModel ?? ''} placeholder="e.g. 43FS-4K"
+                          onChange={(v) => patchLocal(s.id, { tvModel: v })} />
+                        <LabelledInput required label="TV size (in)" value={s.tvSizeInches != null ? String(s.tvSizeInches) : ''} placeholder="43" type="number"
                           onChange={(v) => patchLocal(s.id, { tvSizeInches: v === '' ? null : Number(v) })} />
+                        <LabelledInput required label="TV serial number" value={s.tvSerial ?? ''} placeholder="Back-panel plate"
+                          onChange={(v) => patchLocal(s.id, { tvSerial: v })} />
                         <LabelledInput label="Installed on" value={s.tvInstalledAt ? s.tvInstalledAt.slice(0, 10) : ''} type="date"
                           onChange={(v) => patchLocal(s.id, { tvInstalledAt: v || null })} />
+                      </div>
+
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Network</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <LabelledInput required label="WiFi network name" value={s.wifiSsid ?? ''} placeholder="Shop WiFi"
+                          onChange={(v) => patchLocal(s.id, { wifiSsid: v })} />
+                        <LabelledSelect required label="WiFi security type" value={s.wifiAuthType ?? ''}
+                          onChange={(v) => patchLocal(s.id, { wifiAuthType: v || null })}>
+                          <option value="">Select…</option>
+                          <option value="wpa_psk">WPA/WPA2 (normal)</option>
+                          <option value="pppoe">PPPoE / ISP login</option>
+                          <option value="portal">Captive portal</option>
+                          <option value="open">Open — no password</option>
+                        </LabelledSelect>
+                        {/* Only PPPoE and portal networks have a login name; on a
+                            plain WPA shop router the field is dead weight. */}
+                        {(s.wifiAuthType === 'pppoe' || s.wifiAuthType === 'portal') && (
+                          <LabelledInput required label="WiFi username" value={s.wifiUsername ?? ''} placeholder="ISP login id"
+                            onChange={(v) => patchLocal(s.id, { wifiUsername: v })} />
+                        )}
+                        {s.wifiAuthType !== 'open' && (
+                          <LabelledInput required label="WiFi password" type="password" value={s.wifiPassword ?? ''} placeholder="••••••"
+                            onChange={(v) => patchLocal(s.id, { wifiPassword: v })} />
+                        )}
+                      </div>
+
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Smart plug</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <LabelledInput required label="Smart plug ID" value={s.espPlugId ?? ''} placeholder="Printed on the plug"
+                          onChange={(v) => patchLocal(s.id, { espPlugId: v })} />
                         <LabelledInput label="ESP switch name" value={s.espSwitchName ?? ''} placeholder="Sonoff label"
                           onChange={(v) => patchLocal(s.id, { espSwitchName: v })} />
-                        <LabelledInput label="WiFi SSID" value={s.wifiSsid ?? ''} placeholder="Shop WiFi"
-                          onChange={(v) => patchLocal(s.id, { wifiSsid: v })} />
-                        <LabelledInput label="WiFi password" value={s.wifiPassword ?? ''} placeholder="••••••"
-                          onChange={(v) => patchLocal(s.id, { wifiPassword: v })} />
                         <LabelledInput label="Install notes" value={s.installNotes ?? ''} placeholder="Mount, socket…"
                           onChange={(v) => patchLocal(s.id, { installNotes: v })} />
                       </div>
+
                       <p className="text-[10px] text-muted-foreground/70">
-                        Partners can also record the TV number with the installed-TV photo from the app. WiFi password is visible to admins only.
+                        <span className="text-primary">*</span> required, with all four photos, before the store can be marked Physically onboarded.
+                        Partners can also record the TV number with the installed-TV photo from the app. WiFi credentials are visible to admins only.
                       </p>
                     </div>
 
@@ -851,6 +1130,20 @@ function StoresPanel() {
                         <option value="on_hold">On hold</option>
                       </select>
                     </div>
+                    {saveError?.id === s.id && (
+                      <div className="rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-500/30 dark:bg-red-500/10">
+                        <p className="text-[11px] font-semibold text-red-700 dark:text-red-300">{saveError.error}</p>
+                        {!!saveError.missing.length && (
+                          <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                            {saveError.missing.map((m) => (
+                              <li key={m} className="flex items-center gap-1.5 text-[11px] text-red-700 dark:text-red-300">
+                                <X className="h-3 w-3 shrink-0" /> {m}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <input value={s.payoutNotes ?? ''} onChange={(e) => patchLocal(s.id, { payoutNotes: e.target.value })} placeholder="Notes (rejection reason, payout notes…)" className={`${inp} flex-1`} />
                       <button type="button" disabled={saving === s.id} onClick={() => void saveStore(s)} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
@@ -1527,14 +1820,59 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
   );
 }
 
-// ─── Password gate ────────────────────────────────────────────────────────────
+// ─── Admin sign-in ────────────────────────────────────────────────────────────
+//
+// Two doors, deliberately unequal.
+//
+// "Staff account" is the real one: a named ADMIN/OPS user + password + TOTP,
+// which mints a next-auth session. Every action downstream then carries a user
+// id and can be attributed, and offboarding someone is a role change rather than
+// a fleet-wide secret rotation.
+//
+// "Shared password" is the legacy door, kept working only until the last route
+// stops reading ADMIN_PASSWORD. It is second and de-emphasised on purpose: it
+// authenticates a secret, not a person, so nothing done through it can ever be
+// pinned to anyone.
 
-function PasswordGate({ onAuth }: { onAuth: () => void }) {
-  const [pw,   setPw]   = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState<string | null>(null);
+const FIELD =
+  'w-full h-12 rounded-xl border border-border bg-card px-4 text-sm ' +
+  'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all';
 
-  const submit = async (e: React.FormEvent) => {
+const ERR_BOX =
+  'text-xs text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2';
+
+function AdminLogin({ onAuth }: { onAuth: () => void }) {
+  const [mode,     setMode]     = useState<'account' | 'legacy'>('account');
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
+  const [totp,     setTotp]     = useState('');
+  const [pw,       setPw]       = useState('');
+  const [busy,     setBusy]     = useState(false);
+  const [err,      setErr]      = useState<string | null>(null);
+
+  const submitAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const res = await signIn('admin-mfa', { email, password, totp, redirect: false });
+      if (res?.ok) {
+        // Only the "I'm past the gate" flag is stored — never a credential.
+        // Admin API calls still send an `admin-password` header, but for a
+        // session user middleware overwrites it with the real secret server-side
+        // (see the bridge in src/middleware.ts), so the browser never holds it.
+        sessionStorage.setItem('alive_admin', '1');
+        onAuth();
+      } else {
+        // One message for every failure. Naming the wrong factor would confirm
+        // that an address belongs to an admin, and would tell someone holding a
+        // stolen password that a code is all they still need.
+        setErr('Incorrect email, password, or 2FA code.');
+      }
+    } catch { setErr('Sign-in failed. Try again.'); }
+    finally   { setBusy(false); }
+  };
+
+  const submitLegacy = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
@@ -1552,19 +1890,159 @@ function PasswordGate({ onAuth }: { onAuth: () => void }) {
         <div>
           <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1">Admin</p>
-          <h1 className="text-3xl font-bold text-foreground">Enter password</h1>
+          <h1 className="text-3xl font-bold text-foreground">
+            {mode === 'account' ? 'Sign in' : 'Shared password'}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">Restricted to Alive staff.</p>
         </div>
-        <form onSubmit={submit} className="space-y-3">
-          <input type="password" required autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
-            placeholder="Admin password"
-            className="w-full h-12 rounded-xl border border-border bg-card px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
-          {err && <p className="text-xs text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">{err}</p>}
-          <button type="submit" disabled={busy || !pw}
-            className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enter dashboard'}
-          </button>
-        </form>
+
+        {mode === 'account' ? (
+          <form onSubmit={submitAccount} className="space-y-3">
+            <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@wearealive.in" autoComplete="username" className={FIELD} />
+            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password" autoComplete="current-password" className={FIELD} />
+            <input
+              type="text" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="2FA code" inputMode="numeric" autoComplete="one-time-code"
+              className={FIELD + ' tracking-[0.3em] font-mono'} />
+            <p className="text-xs text-muted-foreground">
+              Leave the code blank if you haven&apos;t set up 2FA yet — you&apos;ll be asked to on the next screen.
+            </p>
+            {err && <p className={ERR_BOX}>{err}</p>}
+            <button type="submit" disabled={busy || !email || !password}
+              className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign in'}
+            </button>
+            <button type="button" onClick={() => { setMode('legacy'); setErr(null); }}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1">
+              Use the shared password instead
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitLegacy} className="space-y-3">
+            <input type="password" required autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
+              placeholder="Admin password" className={FIELD} />
+            <p className="text-xs text-muted-foreground">
+              Shared secret — actions taken this way can&apos;t be attributed to a person. Prefer your staff account.
+            </p>
+            {err && <p className={ERR_BOX}>{err}</p>}
+            <button type="submit" disabled={busy || !pw}
+              className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enter dashboard'}
+            </button>
+            <button type="button" onClick={() => { setMode('account'); setErr(null); }}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1">
+              Sign in with a staff account
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Forced 2FA enrolment ─────────────────────────────────────────────────────
+//
+// Shown to a signed-in named admin with no active second factor. There is no
+// "skip" — an ADMIN/OPS account protected by a password alone is exactly what
+// this work exists to remove, and an optional prompt is one nobody finishes.
+//
+// The seed is written by POST but stays untrusted until PUT verifies a live
+// code, so abandoning this screen leaves the account exactly as it was.
+
+function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => void }) {
+  const [uri,    setUri]    = useState<string | null>(null);
+  const [secret, setSecret] = useState('');
+  const [code,   setCode]   = useState('');
+  const [busy,   setBusy]   = useState(false);
+  const [err,    setErr]    = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/admin/mfa', { method: 'POST' });
+        const b = await r.json() as { secret?: string; otpauthUri?: string; error?: string };
+        if (cancelled) return;
+        if (!r.ok || !b.otpauthUri) { setErr(b.error ?? 'Could not start enrolment.'); return; }
+        setSecret(b.secret ?? '');
+        setUri(b.otpauthUri);
+      } catch { if (!cancelled) setErr('Could not start enrolment.'); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const activate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch('/api/admin/mfa', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ code }),
+      });
+      const b = await r.json() as { ok?: boolean; error?: string };
+      if (r.ok && b.ok) onDone();
+      else setErr(b.error ?? 'That code is not valid.');
+    } catch { setErr('Could not verify the code.'); }
+    finally   { setBusy(false); }
+  };
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="w-full max-w-sm space-y-6">
+        <div>
+          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1 flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5" /> Set up 2FA
+          </p>
+          <h1 className="text-3xl font-bold text-foreground">One more step</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {email ? <>Securing <span className="font-medium text-foreground">{email}</span>. </> : null}
+            Scan this with Google Authenticator, 1Password, or any TOTP app.
+          </p>
+        </div>
+
+        {!uri && !err && (
+          <div className="flex items-center justify-center h-48">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {uri && (
+          <>
+            <div className="flex justify-center rounded-xl border border-border bg-white p-4">
+              <QRCodeSVG value={uri} size={168} level="M" />
+            </div>
+            <button type="button"
+              onClick={() => { navigator.clipboard.writeText(secret).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {}); }}
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-center font-mono text-xs tracking-wider text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-2">
+              {copied ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-700" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> {secret}</>}
+            </button>
+            <form onSubmit={activate} className="space-y-3">
+              <input
+                type="text" required autoFocus value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000" inputMode="numeric" autoComplete="one-time-code"
+                className={FIELD + ' text-center tracking-[0.4em] font-mono text-base'} />
+              {err && <p className={ERR_BOX}>{err}</p>}
+              <button type="submit" disabled={busy || code.length !== 6}
+                className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Turn on 2FA'}
+              </button>
+            </form>
+          </>
+        )}
+
+        {err && !uri && <p className={ERR_BOX}>{err}</p>}
+
+        <button type="button"
+          onClick={() => { authSignOut({ redirect: false }).finally(() => { sessionStorage.removeItem('alive_admin'); window.location.reload(); }); }}
+          className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+          Sign out
+        </button>
       </div>
     </div>
   );
@@ -1661,7 +2139,11 @@ function Dashboard() {
   const signOut = () => {
     sessionStorage.removeItem('alive_admin');
     sessionStorage.removeItem(SS_PW);
-    window.location.reload();
+    // Also drop the next-auth cookie. Without this a named admin "signs out",
+    // reloads, and the session probe walks them straight back in — the session,
+    // not sessionStorage, is what actually authorises them now. Harmless no-op
+    // for a legacy shared-password login.
+    authSignOut({ redirect: false }).finally(() => window.location.reload());
   };
 
   const sectionName: Record<Tab, string> = {
@@ -1760,16 +2242,35 @@ function Dashboard() {
 // ─── Root export ─────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const [authed, setAuthed] = useState(false);
-  const [checked, setChecked] = useState(false);
+  const [state, setState] = useState<'checking' | 'login' | 'enrol' | 'ready'>('checking');
+  const [email, setEmail] = useState<string | null>(null);
 
-  useEffect(() => {
-    const ok = sessionStorage.getItem('alive_admin') === '1';
-    setAuthed(ok);
-    setChecked(true);
+  // GET /api/admin/mfa answers only for a *named* session — the shared password
+  // is explicitly refused there. So a 200 means "real account", and its
+  // `enrolled` flag decides whether 2FA setup is still owed. Anything else falls
+  // back to the legacy flag, which is all a shared-password login ever sets.
+  const probe = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/mfa');
+      if (r.ok) {
+        const b = await r.json() as { enrolled: boolean; email: string | null };
+        setEmail(b.email);
+        setState(b.enrolled ? 'ready' : 'enrol');
+        return;
+      }
+    } catch {
+      // Network/parse failure is not an authorization answer — fall through to
+      // the legacy check rather than granting or denying on a transport error.
+    }
+    setState(sessionStorage.getItem('alive_admin') === '1' ? 'ready' : 'login');
   }, []);
 
-  if (!checked) return null;
-  if (!authed) return <PasswordGate onAuth={() => setAuthed(true)} />;
+  useEffect(() => { void probe(); }, [probe]);
+
+  if (state === 'checking') return null;
+  // onAuth re-probes rather than assuming success means "done": a fresh sign-in
+  // by an unenrolled admin has to land on enrolment, not the dashboard.
+  if (state === 'login') return <AdminLogin onAuth={probe} />;
+  if (state === 'enrol') return <MfaEnrolment email={email} onDone={probe} />;
   return <Dashboard />;
 }

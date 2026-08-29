@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cosineSimilarity, embedText } from '@/lib/context-engine/indexer';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export async function POST(req: NextRequest) {
   // Context documents can contain internal operational data — admin only.
-  const pw = req.headers.get('admin-password') ?? '';
-  if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Fail CLOSED: the previous guard only rejected when ADMIN_PASSWORD was set,
+  // so a missing env var exposed those documents to the anonymous internet.
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const body = await req.json().catch(() => null);
   const query = typeof body?.query === 'string' ? body.query.trim() : '';
   const limit = typeof body?.limit === 'number' ? Math.min(Math.max(body.limit, 1), 25) : 10;

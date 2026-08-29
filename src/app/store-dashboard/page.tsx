@@ -477,11 +477,16 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
         method: 'POST', body: fd,
         headers: store.token ? { 'x-store-token': store.token } : undefined,
       });
-      const body = await res.json().catch(() => null) as { url?: string; error?: string } | null;
+      const body = await res.json().catch(() => null) as { url?: string; error?: string; tvTag?: string | null } | null;
       if (!res.ok || !body?.url) { setError(body?.error ?? 'Upload failed. Please try again.'); return; }
+      // Cache the tag the server actually STORED, not the one just typed: ops
+      // owns the TV number once they have recorded it, so a partner's second
+      // attempt is refused server-side. Echoing the typed value here used to
+      // leave the dashboard showing a number the database never had.
       onUploaded(kind === 'shop'
         ? { shopPhotoUrl: body.url, shopPhotoLat: coords.lat, shopPhotoLng: coords.lng, shopPhotoAt: new Date().toISOString() }
-        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(), tvTag: tvTag.trim() || undefined });
+        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(),
+            tvTag: body.tvTag !== undefined ? (body.tvTag ?? undefined) : (tvTag.trim() || undefined) });
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
     } finally {

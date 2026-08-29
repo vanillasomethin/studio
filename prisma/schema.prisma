@@ -36,6 +36,18 @@ model User {
   name          String?
   image         String?
   role          UserRole  @default(STORE_PARTNER)
+  // TOTP second factor, for ADMIN/OPS accounts. `mfaSecret` is the base32 seed;
+  // it is set at enrolment but only *trusted* once `mfaEnabledAt` is stamped by
+  // a successful first code, so an abandoned enrolment can never leave an
+  // account believing it is protected. Both nullable: existing users are
+  // unenrolled, which is why the migration is purely additive.
+  mfaSecret     String?
+  mfaEnabledAt  DateTime?
+  // Highest TOTP counter step already consumed by this account. A code stays
+  // valid for ~90s across the ±1 drift window, so without this a phished or
+  // shoulder-surfed code can be replayed. Claimed atomically (updateMany with a
+  // `lt` guard) so two concurrent logins can't both spend the same step.
+  mfaLastStep   Int?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -140,6 +152,22 @@ model Store {
   installPhotoLng    Float?
   installPhotoSource String?
   installPhotoAt     DateTime?
+  // Two more evidence photos, captured by OPS (not the partner) from the install
+  // wizard at /admin/pair: the TV's serial/rating plate, and the smart plug in
+  // its socket. Same five-column shape as above on purpose — the shop/install
+  // pair is read by the partner app, the store dashboard and /api/stores/me, so
+  // folding all four kinds into a StorePhoto table would have been a breaking
+  // change to three consumers for no gain at this count.
+  serialPhotoUrl     String?
+  serialPhotoLat     Float?
+  serialPhotoLng     Float?
+  serialPhotoSource  String?
+  serialPhotoAt      DateTime?
+  plugPhotoUrl       String?
+  plugPhotoLat       Float?
+  plugPhotoLng       Float?
+  plugPhotoSource    String?
+  plugPhotoAt        DateTime?
 
   // ── Installation & hardware (ops-recorded at the site visit) ────────────────
   // Deliberately on Store, not Device: the decommission flow DELETES the Device
@@ -148,16 +176,31 @@ model Store {
   // and the site's wiring/network outlive that, and "1 screen per store" (see
   // CLAUDE.md business rules) makes the store the unambiguous owner.
   //
-  // wifiPassword is ADMIN-ONLY: it is returned by the admin-password-gated store
-  // list and never by the partner-facing routes (/api/stores/me), because a
-  // storeId alone is enough to read those.
+  // wifiPassword and wifiUsername are ADMIN-ONLY: they are returned by the
+  // admin-password-gated store list and never by the partner-facing routes
+  // (/api/stores/me), because a storeId alone is enough to read those.
   tvBrand       String? // manufacturer / company, e.g. "Foxsky", "Kodak"
+  tvModel       String? // manufacturer model number — decides the SoC lineage (SOP §4.1) and thus Device.playsOriginal
   tvSizeInches  Int? // panel size in inches, e.g. 43
   tvTag         String? // ALIVE asset tag / TV number physically marked on the unit
+  // Manufacturer serial from the back-panel plate. Distinct from tvTag: tvTag is
+  // OUR number written on the unit and is partner-visible, tvSerial is the
+  // maker's immutable id and is ops-owned. @unique so the same physical panel
+  // cannot be recorded at two stores — a real mistake when a TV is moved and the
+  // old store's record is not cleared. Safe on a nullable column: Postgres treats
+  // NULLs as distinct, so every store without a serial yet coexists happily.
+  tvSerial      String?   @unique
   tvInstalledAt DateTime? // when the screen was physically installed
   espSwitchName String? // label on the ESP/Sonoff smart switch at the site (see SmartPlug for the live eWeLink name)
+  // ID printed on the smart plug's own label, typed by ops at the site. Kept
+  // separate from model SmartPlug (which is Device-keyed and only exists once an
+  // eWeLink account is connected) precisely so it CAN be filled during the
+  // install, before any pairing or eWeLink linking has happened.
+  espPlugId     String?
   wifiSsid      String?
+  wifiUsername  String? // only for PPPoE / ISP-login networks; null on ordinary WPA-PSK
   wifiPassword  String?
+  wifiAuthType  String? // wpa_psk | pppoe | portal | open — decides whether wifiUsername is required
   installNotes  String? // free-text: mount position, socket, anything the next technician needs
 
   // ── Slot loop (fixed-loop ad inventory) ─────────────────────────────────────
