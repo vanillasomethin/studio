@@ -1417,6 +1417,253 @@ model DeviceCommand {
 
 ## Admin UI: add "Send Command" button in Screens tab dropdown per device card`,
   },
+
+  // ── Shipped but previously unmapped ─────────────────────────────────────────
+  // Added 2026-08-26 after an audit found the map understating what exists: KYC,
+  // the offline-alert lifecycle, slot inventory's sibling subsystems, the smart
+  // plug integration and the pre-launch security work were all live in
+  // production with no entry here. The map is cited as grant evidence, so a
+  // missing entry reads as work not done.
+  {
+    id: 'kyc-flow', cluster: 'Store Dashboard', label: 'Partner KYC', sub: 'PAN / Aadhaar / selfie + admin review',
+    status: 'built', path: 'src/app/api/stores/kyc/', critical: true,
+    description: 'Store partners submit PAN, Aadhaar and a live selfie for verification; admin approves or rejects with a reason. Required before payouts can be marked ready. Documents live in a PRIVATE R2 bucket and are readable only through an authenticated route — never by URL.',
+    notes: [
+      'R2 public access is per-bucket, so identity documents use R2_PRIVATE_BUCKET, separate from media',
+      'Stored value is an object key, not a URL; keys are validated to sit under kyc/<storeId>/',
+      'GET /api/stores/kyc/doc streams bytes to the owning partner or an admin, no-store',
+      'Only the last 4 Aadhaar digits are stored as text',
+      'Submission merges — correcting one rejected document does not require re-uploading the other two',
+    ],
+    claudePrompt: `Context: Partner KYC is live. Upload goes through POST /api/stores/upload with kind=kyc (private bucket, returns an object key), submission through POST /api/stores/kyc, review through POST /api/admin/stores/[id]/kyc, and viewing through GET /api/stores/kyc/doc?slot=pan|aadhaar|selfie which authenticates every request.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Build the admin KYC review panel in the Stores tab: show the three documents side by side using the doc route, with Approve and Reject-with-reason buttons."]
+
+Constraints:
+- NEVER return the stored key or a public URL to a client — always the doc route
+- Documents must not be cached (Cache-Control: no-store)
+- Admin reads via the admin-password header; partners via resolveStoreId()`,
+  },
+  {
+    id: 'offline-alerts', cluster: 'Background Jobs', label: 'Screen Offline Alerts', sub: 'Incident lifecycle + partner escalation',
+    status: 'built', path: 'src/lib/device-alerts.ts', critical: true,
+    description: 'One DeviceAlert row per outage, opened at the offline edge and resolved when the screen heartbeats again. Admin is told immediately; the partner only after sustained downtime, so a self-healing blip never reaches a shopkeeper.',
+    notes: [
+      'Offline edge is 20 min of silence, caught by the 5-minute health sweep',
+      'Partner notified ~60 min in (PARTNER_NOTIFY_AFTER_MS past the edge), with a live re-check first',
+      'Digests into one message when 3+ screens drop together (mains cut, ISP outage)',
+      'Marked notified BEFORE sending — a duplicate is worse for a partner than a miss',
+      'Fans out over WhatsApp, browser web push and Expo app push, all awaited so a Vercel freeze cannot drop them',
+    ],
+    claudePrompt: `Context: The offline alert lifecycle lives in src/lib/device-alerts.ts. openOfflineAlerts() runs from the health cron, escalateSustainedOutages() notifies partners, resolveOfflineAlerts() closes on recovery from the device hot paths.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a weekly digest to partners summarising their screen's uptime."]
+
+Constraints:
+- Never notify a partner about an outage shorter than the sustained threshold
+- Push sends must be awaited, never fire-and-forget (the function freezes after the response)
+- Alerting must never throw into the cron`,
+  },
+  {
+    id: 'partner-push', cluster: 'Store Dashboard', label: 'Partner Push Notifications', sub: 'Expo app + browser web push',
+    status: 'built', path: 'src/lib/expo-push.ts',
+    description: 'Screen-offline and back-online alerts delivered to the partner mobile app (Expo) and the partner PWA (VAPID web push). Tokens are bound to the authenticated store and pruned when the service reports them dead.',
+    notes: [
+      'Expo tokens share the PushSubscription table; senders partition by shape (https:// vs ExpoPushToken[...])',
+      'Registration is bound to the signed-in store — never to a storeId in the body',
+      'Android delivery requires FCM credentials on the EAS build (see store-app/DEPLOYMENT.md)',
+      'An accepted Expo ticket means queued, not delivered — receipts are not yet polled',
+    ],
+    claudePrompt: `Context: Partner push is live. Server senders: src/lib/expo-push.ts (mobile) and src/lib/web-push.ts (PWA). Registration: POST /api/stores/push-token. The app registers in store-app/lib/notifications.ts.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Poll Expo push receipts 15 minutes after send and prune tokens that failed delivery."]
+
+Constraints:
+- Never send to a token not bound to the target store
+- Both senders must never throw into the caller`,
+  },
+  {
+    id: 'device-pairing-gate', cluster: 'Device APIs', label: 'Pairing Authorization Gate', sub: 'pairedAt required for plan + PoP',
+    status: 'built', path: 'src/lib/device-auth.ts', critical: true,
+    description: 'Claiming a device yields a token but not entitlement. Until an operator confirms the on-screen pairing code (setting pairedAt), a device cannot fetch a plan or write proof-of-play — it can only poll pairing-status and heartbeat.',
+    notes: [
+      'Claim is unauthenticated by necessity, so pairing is the human authorization step',
+      'Plan answers 403, not 410 — an unpaired screen must keep polling, not decommission itself',
+      'Heartbeats still work unpaired, so an operator can see a screen in order to pair it',
+      'Migration 20260826120000 backdated pairedAt for every device that had ever heartbeated',
+    ],
+    claudePrompt: `Context: isDevicePaired() in src/lib/device-auth.ts gates /api/device/plan and proof-of-play writes in /api/device/events.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Show unpaired-but-alive devices in a separate 'Awaiting pairing' section of the Screens tab."]
+
+Constraints:
+- Never allow an unpaired device to read a plan or write a PlayEvent
+- Keep the 403-not-410 distinction`,
+  },
+  {
+    id: 'pop-attribution', cluster: 'Device APIs', label: 'Verified Play Attribution', sub: 'Server-checked campaign billing',
+    status: 'built', path: 'src/app/api/device/events/route.ts', critical: true,
+    description: 'A play is credited to a campaign only if that campaign actually holds a slot booking at the device’s store (or is the store filler). Anything else is still recorded as a play but carries no campaign, so a modified player cannot invoice an advertiser for impressions it never showed.',
+    notes: [
+      'Hourly rollups use the same verified value, so reports and the ledger cannot drift',
+      'Timings bounded — no forward-dating, no multi-hour "plays"',
+      'Duplicate lookup is scoped to the calling device (a global check was a fleet-wide id oracle)',
+      'The rowHash chain proves tampering in transit, not honesty at source — this is the source-side control',
+    ],
+    claudePrompt: `Context: /api/device/events verifies campaign attribution against SlotBooking before crediting a play.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add an admin report listing plays that arrived with an unattributable campaignId, as a tamper signal."]
+
+Constraints:
+- Never trust campaignId from the device
+- Rollups must use the verified value, not the claimed one`,
+  },
+  {
+    id: 'gps-onboarding-photos', cluster: 'Store Dashboard', label: 'GPS Verification Photos', sub: 'Shop-front + installed-TV stage gates',
+    status: 'built', path: 'src/app/api/stores/verification-photo/route.ts', critical: true,
+    description: 'GPS-tagged shop-front and installed-TV photos, enforced as gates in the onboarding pipeline: a store cannot advance past its first stage without a shop photo, nor past contacted without an install photo. Coordinates come from photo EXIF where present, else device geolocation, with the source recorded.',
+    notes: [
+      'The admin API refuses the stage advance with 409 if the photo is missing — the gate is server-side',
+      'Coordinates are shown next to the registered map pin so ops can confirm the photo was taken at the shop',
+      'This is Tranche-1 milestone evidence (geo-tagged store map, installation photos per store)',
+      'Photos are still in the public bucket; moving them behind an authenticated route is branch security/gps-photos-private',
+    ],
+    claudePrompt: `Context: GPS verification photos upload via POST /api/stores/verification-photo and gate onboarding stages in /api/admin/stores/[id].
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Flag photos whose GPS is more than 200m from the registered pin."]
+
+Constraints:
+- Never let a stage advance without its required photo
+- Coordinates must come from EXIF or device geolocation, and the source must be recorded`,
+  },
+  {
+    id: 'outage-forensics', cluster: 'Background Jobs', label: 'Outage Cause Forensics', sub: 'Power cut vs app exit vs network',
+    status: 'built', path: 'src/lib/device-alerts.ts',
+    description: 'When a screen returns, the two restart clocks it reports separate the causes: the box rebooted (power lost), the box held but the app restarted (crash, force-stop or update), or neither moved (the network failed). Answers "was it a power cut?" without a site visit.',
+    notes: [
+      'bootedAt is stored as a boot instant, not an uptime — an uptime is stale the moment it is written',
+      'Returns UNKNOWN with a stated reason rather than guessing, since a confident wrong cause sends someone to the wrong site',
+      'Outages the sweep slept through are reconstructed on recovery above a 60-minute bar',
+      'Requires a player build that reports uptime; older builds report UNKNOWN',
+    ],
+    claudePrompt: `Context: classifyOutageCause() in src/lib/device-alerts.ts diagnoses a recovered outage from bootedAt and appStartedAt.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Aggregate causes per store over 30 days to identify shops with recurring mains problems."]
+
+Constraints:
+- Never present a guessed cause as confident
+- Do not fabricate outages from ordinary heartbeat jitter`,
+  },
+  {
+    id: 'smart-plugs', cluster: 'Admin Panel', label: 'Smart Plug Power Control', sub: 'eWeLink / Sonoff relay + energy',
+    status: 'built', path: 'src/lib/ewelink.ts',
+    description: 'Links a Sonoff smart plug to each screen through the eWeLink Cloud API: remote power-cycle, online state and energy history from the Screens tab. Metering plugs report real watts; relay-only models are estimated from rated watts times on-time and labelled as such.',
+    notes: [
+      'OAuth against dev.ewelink.cc; region is allowlisted before it reaches the request host',
+      'Polled every 5 minutes by its own cron, same CRON_SECRET pattern as device health',
+      'Energy integration caps gaps at 30 minutes; readings retained 90 days',
+      'Power card stays hidden until EWELINK_APP_ID / EWELINK_APP_SECRET are set',
+    ],
+    claudePrompt: `Context: Smart plug control lives in src/lib/ewelink.ts with routes under /api/admin/ewelink and /api/admin/devices/[id]/power|plug.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Auto power-cycle a screen that has been frozen for over an hour, once per day at most."]
+
+Constraints:
+- Never expose OAuth tokens to the client
+- Any automatic power action must be rate-limited and audit-logged`,
+  },
+  {
+    id: 'slot-inventory-engine', cluster: 'Data & Infra', label: 'Slot Inventory Engine', sub: 'Sold by store + date + position',
+    status: 'built', path: 'src/lib/slots.ts', critical: true,
+    description: 'Ad inventory sold as (store, IST date, loop position) rather than clock time, which makes overselling a database constraint instead of a code check. Unsold positions redistribute to paying campaigns as marked bonus plays, so a screen is never dark.',
+    notes: [
+      'Availability counts SOLD bookings only — filler never makes a store read as sold out',
+      'Bonus plays carry isFiller=true but are attributed, so reports split guaranteed from bonus',
+      'Shrinking a store’s loop repacks bookings in one transaction and rejects a genuine oversell',
+      'An empty slot loop falls back to schedule mode rather than serving a dark plan',
+    ],
+    claudePrompt: `Context: The slot engine is src/lib/slots.ts (pure math, verified by scripts/verify-slots.mjs) and src/lib/slots-db.ts.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a per-store yield report showing sold vs bonus vs filler share by week."]
+
+Constraints:
+- Inventory is (store, date, position) — never clock time
+- Never let availability count filler as sold
+- Run npm run verify:slots after changing the math`,
+  },
+  {
+    id: 'transcode-pipeline', cluster: 'Data & Infra', label: 'Media Transcode Pipeline', sub: 'ffmpeg Lambda + HEVC rendition',
+    status: 'built', path: 'src/lib/transcode-lambda.ts',
+    description: 'Every uploaded video is re-encoded to H.264 Main@4.1 (plus a best-effort HEVC rendition) by an ffmpeg Lambda, because budget TV SoCs reject High Profile while reporting support for it. A new object key and hash means device cache invalidation needs no special mechanism.',
+    notes: [
+      'Runs as a container image because a zip build exceeds the 50 MB Lambda cap',
+      'Panels with unreliable hardware AVC download the HEVC rendition instead',
+      'Admin shows a transcoding badge and polls; transcodeStatus=error means the creative is unsafe to schedule',
+      'local-transcode.mjs is the operator fallback when Lambda is unavailable',
+    ],
+    claudePrompt: `Context: Upload → R2 → async ffmpeg Lambda → callback updates the Content row. See TRANSCODE_LAMBDA.md.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add an admin action to re-transcode all creatives currently in the error state."]
+
+Constraints:
+- Never schedule a raw 4K/H.265 upload to a Realtek or HiSilicon panel before transcode completes
+- A new rendition must produce a new key and hash`,
+  },
+  {
+    id: 'footfall-sensing', cluster: 'Data & Infra', label: 'Footfall Sensing', sub: 'Wi-Fi CSI + BLE presence',
+    status: 'in-progress', path: 'footfall-worker/',
+    description: 'Two ESP32 nodes per store (Wi-Fi CSI motion + BLE proximity) publish to MQTT; a Railway worker fuses the signals, dedupes, excludes staff zones and correlates presence against what was playing, giving an audience measure and an ad-attribution signal.',
+    notes: [
+      'Zero on-prem infrastructure — both nodes are USB-powered from the TV',
+      'Provisioned via NVS so a store needs no per-site recompile',
+      'Hardware not yet installed in any store, so no live events are flowing',
+      'Feeds FootfallEvent / FootfallHourly / ScreenPresenceEvent and the admin Footfall tab',
+    ],
+    claudePrompt: `Context: The footfall worker lives in footfall-worker/ (MQTT → fusion → Postgres). Read footfall-worker/README-deployment.md first.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a per-store sensor health card showing last-seen and calibration state for both nodes."]
+
+Constraints:
+- Presence is an estimate — never present it as an exact headcount
+- Staff-zone exclusions must remain auditable`,
+  },
+  {
+    id: 'overlays-compositions', cluster: 'Admin Panel', label: 'Overlays & Compositions', sub: 'Tickers, banners, multi-zone layouts',
+    status: 'built', path: 'src/components/admin/compositions-tab.tsx',
+    description: 'Overlays layer a ticker, news feed, banner or info bar on top of playback with the same targeting model as schedules. Compositions divide the screen into zones, each running its own playlist.',
+    notes: [
+      'Overlay feeds (RSS/JSON) are cached server-side and can be gated on Wi-Fi',
+      'Overlays share Schedule targeting: device, group, store or city, with a time window',
+      'Compositions store zones as JSON of {id,label,x,y,w,h,playlistId}',
+    ],
+    claudePrompt: `Context: Overlays are in the Layouts tab and resolved by /api/device/plan; compositions are in compositions-tab.tsx.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Add a live preview that renders a composition's zones at the target aspect ratio."]
+
+Constraints:
+- Overlay content is untrusted feed data — never render it unescaped
+- Zone geometry is fractional, not pixels`,
+  },
+  {
+    id: 'security-hardening', cluster: 'Data & Infra', label: 'Security Hardening', sub: 'Fail-closed auth, limits, integrity',
+    status: 'built', path: 'src/lib/admin-auth.ts', critical: true,
+    description: 'Pre-launch audit and remediation: every admin and cron guard now fails CLOSED, payment entitlement is bound to the Razorpay order rather than the request body, identity documents left the public bucket, and credential endpoints are throttled and constant-time.',
+    notes: [
+      'The old guard authorized everyone when its env var was unset — use isAdmin() / isCronAuthorized(), never hand-rolled checks',
+      'Entitlement (screens, months) is stamped into the Razorpay order and read back at verification',
+      'Reset OTP is CSPRNG-generated, attempt-capped and compared in constant time',
+      'Security headers live; CSP is Report-Only until checkout and maps are confirmed clean',
+      'Open: provider-account 2FA, and moving GPS photos to the private bucket',
+    ],
+    claudePrompt: `Context: Fail-closed helpers are src/lib/admin-auth.ts and src/lib/cron-auth.ts. The audit and its invariants are recorded in the security memory.
+
+Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Replace the shared admin password with per-admin accounts and an audit trail."]
+
+Constraints:
+- A missing secret must authorize NOBODY
+- Never hand-roll a guard; delegate to the helpers
+- Any credential comparison must be constant-time`,
+  },
 ];
 
 // ─── Cluster order ────────────────────────────────────────────────────────────
