@@ -31,6 +31,21 @@ type AlertRow = {
   causeEvidence: string | null;
 };
 
+/**
+ * " for 3h 20m" — how long an already-running outage has been going, for the
+ * on-load toast. Empty for anything under a minute (and for an unparseable
+ * date) so a fresh drop reads as a plain "stopped responding".
+ */
+function sinceLabel(startedAt: string): string {
+  const ms = Date.now() - new Date(startedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 60_000) return '';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return ` for ${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? ` for ${h}h ${m}m` : ` for ${h}h`;
+}
+
 /** Plain-language cause for the recovery toast — the bit that has to land at a glance. */
 function causeLine(cause: string | null): string | null {
   switch (cause) {
@@ -76,14 +91,40 @@ export default function OfflineAlertWatcher({
           seenResolved.current = new Set([...seenResolved.current].filter((id) => live.has(id)));
         }
 
-        // First poll after a page load: record what's already outstanding
-        // WITHOUT toasting. Otherwise opening /admin during an ongoing outage
-        // would blast one popup per already-known offline screen.
+        // First poll after a page load: record what's already outstanding so the
+        // per-screen toasts below never re-fire for them.
+        //
+        // This used to return silently, which made the popup almost unreachable
+        // in practice: a toast could only appear if a screen dropped during the
+        // 45s window while the panel happened to be open, and the health sweep
+        // that opens alerts runs hours late (see the cron's real cadence), so
+        // the alert was nearly always already outstanding by the time anyone
+        // opened /admin — and priming swallowed it. Priming exists to avoid one
+        // popup PER SCREEN, not to hide the outage, so say it once instead.
+        // Only unread alerts qualify: once dismissed in the Alerts tab it must
+        // not pop again on every reload.
         if (!primed.current) {
           for (const a of alerts) {
             (a.status === 'OPEN' ? seenOpen : seenResolved).current.add(a.id);
           }
           primed.current = true;
+
+          const outstanding = alerts.filter((a) => a.status === 'OPEN' && !a.adminReadAt);
+          if (outstanding.length === 1) {
+            const a = outstanding[0];
+            toast.error(`${a.storeName ?? 'Unassigned'} — screen offline`, {
+              description: `${a.deviceName} stopped responding${sinceLabel(a.startedAt)}. Check power and internet at the store.`,
+              duration: 15000,
+              action: onOpenAlerts ? { label: 'View', onClick: onOpenAlerts } : undefined,
+            });
+          } else if (outstanding.length > 1) {
+            toast.error(`${outstanding.length} screens are offline`, {
+              description: outstanding.slice(0, 4).map((a) => a.storeName ?? a.deviceName).join(', ')
+                + (outstanding.length > 4 ? ` +${outstanding.length - 4} more` : ''),
+              duration: 15000,
+              action: onOpenAlerts ? { label: 'View', onClick: onOpenAlerts } : undefined,
+            });
+          }
           return;
         }
 
