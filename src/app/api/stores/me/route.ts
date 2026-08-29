@@ -64,6 +64,17 @@ export async function GET(req: NextRequest) {
 
     // GPS-verified onboarding photos — separate query so a missing migration
     // can't take the stage/payout fields down with it.
+    //
+    // Absolute, because the mobile app renders these directly and has no origin
+    // to resolve a relative path against. Callers send their store token on the
+    // image request; the web dashboard's session cookie covers it automatically.
+    const photoUrl = (kind: 'shop' | 'install', stored: string | null | undefined): string | null => {
+      if (!stored) return null;
+      if (/^https?:\/\//i.test(stored)) return stored; // legacy public object
+      const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://wearealive.in';
+      return `${base}/api/stores/verification-photo/view?kind=${kind}&storeId=${encodeURIComponent(storeId)}`;
+    };
+
     type PhotoCols = {
       shopPhotoUrl: string | null; shopPhotoLat: number | null; shopPhotoLng: number | null;
       shopPhotoSource: string | null; shopPhotoAt: Date | null;
@@ -111,11 +122,15 @@ export async function GET(req: NextRequest) {
       tier,
       monthlyCompensationPaise,
       ...payout,
-      shopPhotoUrl:     photos.shopPhotoUrl     ?? null,
+      // Verification photos are served through an authenticated route, never as
+      // a direct object address — the stored value is a private-bucket key, and
+      // handing that to a client would be meaningless anyway. Legacy public URLs
+      // pass through unchanged so older app builds keep rendering them.
+      shopPhotoUrl:     photoUrl('shop',    photos.shopPhotoUrl),
       shopPhotoLat:     photos.shopPhotoLat     ?? null,
       shopPhotoLng:     photos.shopPhotoLng     ?? null,
       shopPhotoAt:      photos.shopPhotoAt instanceof Date ? photos.shopPhotoAt.toISOString() : (photos.shopPhotoAt ?? null),
-      installPhotoUrl:  photos.installPhotoUrl  ?? null,
+      installPhotoUrl:  photoUrl('install', photos.installPhotoUrl),
       installPhotoLat:  photos.installPhotoLat  ?? null,
       installPhotoLng:  photos.installPhotoLng  ?? null,
       installPhotoAt:   photos.installPhotoAt instanceof Date ? photos.installPhotoAt.toISOString() : (photos.installPhotoAt ?? null),
