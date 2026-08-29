@@ -254,6 +254,7 @@ R2_ENDPOINT
 R2_ACCESS_KEY_ID
 R2_SECRET_ACCESS_KEY
 R2_BUCKET
+R2_PRIVATE_BUCKET               # KYC/identity docs — a SEPARATE bucket with NO public access. Public access on R2 is per-bucket, so Aadhaar/PAN must not share R2_BUCKET. Served only via /api/stores/kyc/doc.
 R2_PUBLIC_BASE
 AUTH_SECRET
 ADMIN_PASSWORD
