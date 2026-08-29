@@ -38,7 +38,22 @@ export async function PATCH(
     }
     if (typeof body.playsOriginal === 'boolean') data.playsOriginal = body.playsOriginal;
 
-    const raw    = await db.device.update({ where: { id }, data });
+    // Select explicitly. A bare update() returns every column, including
+    // jwtSecret — the per-device signing key, with which anyone holding it can
+    // mint that screen's token and impersonate it — plus pairingCode and
+    // fcmToken. None of those belong in an API response, and an admin console
+    // XSS or a proxy log would otherwise capture them.
+    const raw = await db.device.update({
+      where: { id },
+      data,
+      select: {
+        id: true, name: true, groupName: true, storeId: true, linkedAt: true,
+        orientation: true, playsOriginal: true, status: true, lastSeen: true,
+        appVersion: true, androidVersion: true, uptimePctD30: true,
+        cpuTempC: true, freeStorageMb: true, playbackAliveAt: true,
+        bootedAt: true, pairedAt: true, claimedAt: true, updatedAt: true,
+      },
+    });
     const device = { ...raw, storeName: raw.name };
     return NextResponse.json({ device });
   } catch (e) {

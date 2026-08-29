@@ -22,6 +22,8 @@ interface Props {
   storeId?:   string;
   storeName:  string;
   upiId?:     string;
+  /** Signed store token — sent to authenticated store routes (see parseText). */
+  token?:     string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,7 +54,7 @@ type AnySpeechRecognition = any;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
+export default function VoiceBillTab({ storeId, storeName, upiId, token }: Props) {
   const [billRef,       setBillRef]       = useState(() => genBillRef());
   const [billDate]                        = useState(() => new Date());
   const [items,         setItems]         = useState<Item[]>([]);
@@ -130,9 +132,12 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
     setIsParsing(true);
     setParseError(null);
     try {
+      // The signed token is required whenever there's no next-auth cookie —
+      // right after registration, and in admin open-as-partner — otherwise
+      // resolveStoreId() returns null and parsing 401s for exactly those users.
       const res  = await fetch('/api/voicebill/parse', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-store-token': token } : {}) },
         body: JSON.stringify({ text, storeId }),
       });
       const data = await res.json() as { items?: { name: string; qty: number; unit: string; price: number }[] };
@@ -147,7 +152,7 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
     } finally {
       setIsParsing(false);
     }
-  }, []);
+  }, [storeId, token]);
 
   const handleParseVoice  = () => parseText(transcript);
   const handleParseManual = () => parseText(manualText);

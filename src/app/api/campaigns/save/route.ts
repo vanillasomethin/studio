@@ -67,8 +67,15 @@ export async function POST(req: NextRequest) {
     // could repeatedly create ₹0 campaigns via the ?trial=1 link. The
     // totalAmount leg covers legacy trial rows saved as pending_payment ₹0.
     if (isTrial) {
+      // Case-insensitive: the lookup normalised the address but earlier rows
+      // were stored as typed, so a lowercase-only match let the same brand take
+      // a fresh trial just by capitalising a letter. New rows are written
+      // normalised (below); this also catches the ones that already exist.
       const priorFreeTrials = await db.campaign.count({
-        where: { email, OR: [{ status: 'trial' }, { totalAmount: { lte: 0 } }] },
+        where: {
+          email: { equals: email, mode: 'insensitive' },
+          OR: [{ status: 'trial' }, { totalAmount: { lte: 0 } }],
+        },
       });
       if (priorFreeTrials > 0) {
         const envelope = await respond({ error: 'A free trial has already been used for this account.' }, { route, request: { email }, outcome: 'invalid_request', policyFlags: ['trial_already_used'], errorCategory: 'validation', startedAtMs });
@@ -76,15 +83,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Look up brand by email — optional link
-    const brand = await db.brand.findFirst({ where: { email: body.email } });
+    // Look up brand by email — optional link. Case-insensitive so the campaign
+    // still attaches to the brand when the address is typed differently.
+    const brand = await db.brand.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
 
     const campaign = await db.campaign.create({
       data: {
         brandId:        brand?.id ?? null,
         name:           `${body.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
         contactName:    body.contactName,
-        email:          body.email,
+        // Store the normalised address — writing it as typed while looking it up
+        // lowercased is what let the trial gate be bypassed by capitalisation.
+        email,
         phone:          body.phone ?? undefined,
         screens,
         months,

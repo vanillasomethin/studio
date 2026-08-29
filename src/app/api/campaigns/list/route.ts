@@ -10,7 +10,10 @@ export async function GET() {
 
   try {
     const campaigns = await db.campaign.findMany({
-      where:   { email: session.user.email },
+      // Case-insensitive: campaigns are stored with a normalised address while
+      // the session carries it as the brand typed it, so an exact match would
+      // hide a brand's own campaigns from them.
+      where:   { email: { equals: session.user.email, mode: 'insensitive' } },
       orderBy: { createdAt: 'desc' },
       include: {
         brand: { select: { brandName: true, trialOfferedAt: true, trialUsedAt: true } },

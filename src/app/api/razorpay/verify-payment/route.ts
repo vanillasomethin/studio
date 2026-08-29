@@ -80,7 +80,11 @@ export async function POST(req: NextRequest) {
         ? clamp(order.notes.alive_months, 1, 12, 1)
         : clamp(campaign.months, 1, 12, 1);
 
-      const brand = await db.brand.findFirst({ where: { email: campaign.email } });
+      // Case-insensitive so the campaign still links to its brand when the
+      // address was typed with different capitalisation at signup.
+      const brand = await db.brand.findFirst({
+        where: { email: { equals: campaign.email, mode: 'insensitive' } },
+      });
 
       const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
 
@@ -124,11 +128,29 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Count the redemption against the coupon's usage cap (best-effort).
+        // Count the redemption against the coupon's usage cap.
+        //
+        // The cap is checked when the order is created but incremented only
+        // here, so N shoppers who all pass the check concurrently would all
+        // redeem — a check-then-act race that lets a capped coupon overshoot.
+        // The increment is therefore conditional on the cap in the same
+        // statement: the database, not the application, decides who gets the
+        // last redemption, and the counter can never exceed maxRedemptions.
+        //
+        // A zero-row result means a concurrent payment took the final slot.
+        // The shopper has already been charged the discounted amount by then,
+        // so the payment stands — the alternative is failing a settled
+        // transaction over a coupon — but the counter stays truthful.
         if (campaign.couponCode) {
           await db.coupon.updateMany({
-            where: { code: campaign.couponCode.toUpperCase() },
-            data:  { redemptions: { increment: 1 } },
+            where: {
+              code: campaign.couponCode.toUpperCase(),
+              OR: [
+                { maxRedemptions: null },
+                { redemptions: { lt: db.coupon.fields.maxRedemptions } },
+              ],
+            },
+            data: { redemptions: { increment: 1 } },
           }).catch(() => {});
         }
       }

@@ -59,7 +59,9 @@ export async function GET(req: NextRequest) {
     if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
 
     const campaign = await db.campaign.findFirst({
-      where:  { id: campaignId, email: session.user.email },
+      // Case-insensitive — see the note in /api/campaigns/list. Still an
+      // ownership check: the address must match, only the casing is ignored.
+      where:  { id: campaignId, email: { equals: session.user.email, mode: 'insensitive' } },
       select: { id: true, createdAt: true },
     });
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
