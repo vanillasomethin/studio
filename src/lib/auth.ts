@@ -5,6 +5,8 @@ import { PrismaAdapter } from '@auth/prisma-adapter';
 import bcrypt from 'bcryptjs';
 import { db } from './db';
 import { verifyTotpStep } from './totp';
+import { findBackupCodeIndex } from './mfa-backup';
+import { notifyAdminWA } from './notify';
 import { hitLimit, clearLimit } from './rate-limit';
 import type { UserRole } from '@prisma/client';
 import { authConfig } from './auth.config';
@@ -133,18 +135,46 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (user.mfaEnabledAt) {
           if (!user.mfaSecret) return null;               // enrolled but no seed — fail closed
           const step = verifyTotpStep(user.mfaSecret, totp);
-          if (step === null) return null;
 
-          // Single use. A code stays valid ~90s across the ±1 drift window, so
-          // one observed by a phishing proxy or over a shoulder is otherwise
-          // replayable for the rest of its life. Claimed with a conditional
-          // UPDATE rather than read-then-write, so two sign-ins racing on the
-          // same code cannot both win: the loser matches zero rows.
-          const claimed = await db.user.updateMany({
-            where: { id: user.id, OR: [{ mfaLastStep: null }, { mfaLastStep: { lt: step } }] },
-            data:  { mfaLastStep: step },
-          });
-          if (claimed.count === 0) return null;
+          if (step !== null) {
+            // Single use. A code stays valid ~90s across the ±1 drift window, so
+            // one observed by a phishing proxy or over a shoulder is otherwise
+            // replayable for the rest of its life. Claimed with a conditional
+            // UPDATE rather than read-then-write, so two sign-ins racing on the
+            // same code cannot both win: the loser matches zero rows.
+            const claimed = await db.user.updateMany({
+              where: { id: user.id, OR: [{ mfaLastStep: null }, { mfaLastStep: { lt: step } }] },
+              data:  { mfaLastStep: step },
+            });
+            if (claimed.count === 0) return null;
+          } else {
+            // Not a valid TOTP — try the recovery codes. This is the path back in
+            // when the authenticator is lost, so it has to exist; it is also a
+            // full second factor, so it is spent on use and never reusable.
+            const idx = await findBackupCodeIndex(totp, user.mfaBackupCodes ?? []);
+            if (idx === -1) return null;
+
+            // Remove the consumed code by writing back the remaining set, guarded
+            // on the array still being exactly what we matched against. Two
+            // sign-ins racing on the same code therefore cannot both succeed:
+            // the second finds the array already changed and matches zero rows.
+            const remaining = user.mfaBackupCodes.filter((_, i) => i !== idx);
+            const spent = await db.user.updateMany({
+              where: { id: user.id, mfaBackupCodes: { equals: user.mfaBackupCodes } },
+              data:  { mfaBackupCodes: remaining },
+            });
+            if (spent.count === 0) return null;
+
+            // Tell the operator their recovery set is shrinking, while it can
+            // still be reissued — discovering it empty at the moment the
+            // authenticator is already lost is exactly the outage this avoids.
+            if (remaining.length <= 2) {
+              void notifyAdminWA(
+                `ALIVE security: a 2FA backup code was used for ${user.email}. ` +
+                `${remaining.length} remaining — reissue a new set from the admin console.`,
+              ).catch(() => {});
+            }
+          }
         }
 
         // Full success — release the throttle so ordinary daily logins by a

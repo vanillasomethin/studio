@@ -21,6 +21,7 @@ import { db } from '@/lib/db';
 import { requireAdmin } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 import { generateSecret, otpauthUri, verifyTotpStep } from '@/lib/totp';
+import { generateBackupCodes } from '@/lib/mfa-backup';
 import { hitLimit, clearLimit } from '@/lib/rate-limit';
 
 /** Resolve the acting admin, or null unless they hold a real named session. */
@@ -106,17 +107,68 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'That code is not valid.' }, { status: 400 });
   }
 
+  // Issued in the same write that enables 2FA, so an account can never be
+  // enrolled without a way back in. Returned exactly once — nothing stores the
+  // plaintext, and no endpoint can produce it again.
+  const { plain, hashes } = await generateBackupCodes();
+
   // Record the step as spent in the same write that enables 2FA, so the very
   // code that activated it can't be turned around and replayed at the login
   // screen while it is still inside its ~90s validity window.
   await db.user.update({
     where: { id: actor.userId },
-    data:  { mfaEnabledAt: new Date(), mfaLastStep: step },
+    data:  {
+      mfaEnabledAt: new Date(),
+      mfaLastStep: step,
+      mfaBackupCodes: hashes,
+      mfaBackupCodesAt: new Date(),
+    },
   });
   await clearLimit(key);
   await logAdminAction({ actor, req, action: 'admin.mfa.enable', target: actor.userId });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, backupCodes: plain });
+}
+
+// PATCH /api/admin/mfa → { backupCodes } — reissue recovery codes.
+//
+// Requires a current TOTP code, not merely a session: reissuing invalidates
+// every existing code, so a stolen session must not be able to silently swap an
+// operator's recovery set for one the thief holds.
+export async function PATCH(req: NextRequest) {
+  const actor = await namedAdmin(req);
+  if (!actor) return NextResponse.json(NEEDS_SESSION, { status: 401 });
+
+  const key = `admin:mfa:codes:${actor.userId}`;
+  if ((await hitLimit(key, 8, 900)).limited) {
+    return NextResponse.json({ error: 'Too many attempts. Try again later.' }, { status: 429 });
+  }
+
+  const { code } = (await req.json().catch(() => ({}))) as { code?: string };
+  const user = await db.user.findUnique({
+    where:  { id: actor.userId },
+    select: { mfaSecret: true, mfaEnabledAt: true, mfaLastStep: true },
+  });
+  if (!user?.mfaEnabledAt || !user.mfaSecret) {
+    return NextResponse.json({ error: '2FA is not active on this account.' }, { status: 400 });
+  }
+
+  const step = verifyTotpStep(user.mfaSecret, code ?? '');
+  if (step === null || (user.mfaLastStep !== null && step <= user.mfaLastStep)) {
+    return NextResponse.json({ error: 'A current 2FA code is required.' }, { status: 400 });
+  }
+
+  const { plain, hashes } = await generateBackupCodes();
+  // Spend the step in the same write, so the code that authorised the reissue
+  // cannot also be replayed at the login screen.
+  await db.user.update({
+    where: { id: actor.userId },
+    data:  { mfaLastStep: step, mfaBackupCodes: hashes, mfaBackupCodesAt: new Date() },
+  });
+  await clearLimit(key);
+  await logAdminAction({ actor, req, action: 'admin.mfa.codes.reissue', target: actor.userId });
+
+  return NextResponse.json({ ok: true, backupCodes: plain });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -149,7 +201,9 @@ export async function DELETE(req: NextRequest) {
 
   await db.user.update({
     where: { id: actor.userId },
-    data:  { mfaSecret: null, mfaEnabledAt: null, mfaLastStep: null },
+    // Codes are a second factor in their own right, so removing 2FA must
+    // revoke them too — otherwise a stale set would still open the account.
+    data:  { mfaSecret: null, mfaEnabledAt: null, mfaLastStep: null, mfaBackupCodes: [], mfaBackupCodesAt: null },
   });
   await clearLimit(key);
   await logAdminAction({ actor, req, action: 'admin.mfa.disable', target: actor.userId });

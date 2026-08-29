@@ -7,18 +7,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const { auth } = NextAuth(authConfig);
 
-// Admin API surface reachable from the console. Listed explicitly rather than
-// matching /api/:path* so the two highest-volume paths — `/api/device/*` (player
-// heartbeats, plan polls, proof-of-play) and `/api/cron/*` — never pay for a JWT
-// decode they have no use for. Note `/api/device/` (singular, the player API) is
-// deliberately absent while `/api/devices/` (plural, fleet admin) is present.
-const ADMIN_API = [
-  'admin', 'schedules', 'playlists', 'content', 'devices', 'slots',
-  'compositions', 'overlays', 'campaigns', 'coupons', 'products', 'events',
-  'reports', 'flyers', 'footfall', 'health', 'presence', 'query', 'context',
-  'site-media', 'telemetry', 'stores', 'brands', 'payout', 'bills', 'feed',
-];
-
 export default auth(function middleware(req: NextRequest & { auth?: { user?: { role?: string; mfa?: boolean } } | null }) {
   // Strip legacy Clerk handshake params during transition
   if (req.nextUrl.searchParams.has('__clerk_handshake')) {
@@ -75,12 +63,26 @@ export default auth(function middleware(req: NextRequest & { auth?: { user?: { r
   return NextResponse.next();
 });
 
-// Only run middleware on the routes that actually need it.
-// Keeping the matcher tight reduces edge invocations and bundle pressure.
+// Only run middleware on the routes that actually need it. Keeping the matcher
+// tight reduces edge invocations and bundle pressure.
+//
+// The admin API surface is enumerated inline rather than matching /api/:path* so
+// the two highest-volume paths — `/api/device/*` (player heartbeats, plan polls,
+// proof-of-play) and `/api/cron/*` — never pay for a JWT decode they have no use
+// for. Note `/api/device/` (singular, the player API) is deliberately absent
+// while `/api/devices/` (plural, fleet admin) is present.
+//
+// MUST be written as LITERAL strings. Next.js statically analyses this export at
+// compile time and cannot evaluate expressions: building the alternation with a
+// template literal over a const array (`/api/:path(${LIST.join('|')})/:rest*`)
+// made Next log "Unable to parse config export in source file" and silently drop
+// the matcher — which disabled the session→header bridge below entirely, with no
+// runtime error to notice. Keep this a plain string; do not refactor it into a
+// computed value, however much nicer the array looks.
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    `/api/:path(${ADMIN_API.join('|')})/:rest*`,
+    '/api/:path(admin|schedules|playlists|content|devices|slots|compositions|overlays|campaigns|coupons|products|events|reports|flyers|footfall|health|presence|query|context|site-media|telemetry|stores|brands|payout|bills|feed)/:rest*',
     // Clerk cleanup — remove once all traffic has migrated
     '/(.*)?__clerk_handshake(.*)',
   ],

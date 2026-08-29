@@ -48,6 +48,14 @@ model User {
   // shoulder-surfed code can be replayed. Claimed atomically (updateMany with a
   // `lt` guard) so two concurrent logins can't both spend the same step.
   mfaLastStep   Int?
+  // Single-use recovery codes, bcrypt-hashed — each one is a complete second
+  // factor, so they are stored exactly as a password would be. A consumed code
+  // is removed from the array rather than marked, which makes "already used"
+  // and "never existed" the same state and leaves nothing to replay. Without
+  // these a lost authenticator is only recoverable by editing this table by
+  // hand, which is why 2FA would otherwise be too risky to switch on.
+  mfaBackupCodes   String[]  @default([])
+  mfaBackupCodesAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

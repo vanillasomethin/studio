@@ -1958,6 +1958,11 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
   const [busy,   setBusy]   = useState(false);
   const [err,    setErr]    = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Shown once, after activation. Holding the screen here rather than calling
+  // onDone() immediately is the whole point: these are the only way back in if
+  // the authenticator is lost, and the server keeps no plaintext copy.
+  const [codes,      setCodes]      = useState<string[] | null>(null);
+  const [codesSaved, setCodesSaved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1983,12 +1988,77 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ code }),
       });
-      const b = await r.json() as { ok?: boolean; error?: string };
-      if (r.ok && b.ok) onDone();
+      const b = await r.json() as { ok?: boolean; error?: string; backupCodes?: string[] };
+      if (r.ok && b.ok) {
+        // 2FA is active from here. Show the recovery codes before leaving —
+        // they are never retrievable again.
+        if (b.backupCodes?.length) setCodes(b.backupCodes);
+        else onDone();
+      }
       else setErr(b.error ?? 'That code is not valid.');
     } catch { setErr('Could not verify the code.'); }
     finally   { setBusy(false); }
   };
+
+  // ── Recovery codes — shown once, immediately after activation ──────────────
+  if (codes) {
+    const asText = codes.join('\n');
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-6">
+          <div>
+            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1 flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" /> Save your recovery codes
+            </p>
+            <h1 className="text-2xl font-black tracking-tight">2FA is on</h1>
+            <p className="text-sm text-muted-foreground mt-2">
+              Each code signs you in once if you lose your phone. Store them somewhere
+              you can reach without this console. <strong>They are shown only now</strong> —
+              we keep no copy.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-gray-50 p-4 font-mono text-sm">
+            {codes.map((c) => <div key={c} className="tracking-wider">{c}</div>)}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => { void navigator.clipboard.writeText(asText); setCopied(true); }}
+              className="flex-1 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-gray-50"
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <a
+              href={`data:text/plain;charset=utf-8,${encodeURIComponent(
+                `ALIVE admin 2FA recovery codes\n${email ?? ''}\nGenerated ${new Date().toISOString()}\n\n${asText}\n`,
+              )}`}
+              download="alive-2fa-recovery-codes.txt"
+              className="flex-1 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-center hover:bg-gray-50"
+            >
+              Download
+            </a>
+          </div>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={codesSaved} onChange={(e) => setCodesSaved(e.target.checked)} className="mt-1" />
+            <span>I have saved these codes somewhere safe.</span>
+          </label>
+
+          <button
+            type="button"
+            disabled={!codesSaved}
+            onClick={onDone}
+            className="w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Continue to the console
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">

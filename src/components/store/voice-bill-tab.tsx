@@ -5,6 +5,9 @@ import {
   Mic, MicOff, ShoppingCart, Trash2, Plus, Minus,
   QrCode, MessageCircle, CheckCircle2, RefreshCw, Loader2, ScanBarcode, X,
 } from 'lucide-react';
+// Attaches the signed x-store-token from the cached session, so these calls
+// authenticate server-side even when the next-auth cookie has expired.
+import { storeFetch } from '@/lib/store-fetch';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -135,7 +138,7 @@ export default function VoiceBillTab({ storeId, storeName, upiId, token }: Props
       // The signed token is required whenever there's no next-auth cookie —
       // right after registration, and in admin open-as-partner — otherwise
       // resolveStoreId() returns null and parsing 401s for exactly those users.
-      const res  = await fetch('/api/voicebill/parse', {
+      const res  = await storeFetch('/api/voicebill/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { 'x-store-token': token } : {}) },
         body: JSON.stringify({ text, storeId }),
@@ -171,7 +174,8 @@ export default function VoiceBillTab({ storeId, storeName, upiId, token }: Props
     setIsSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch('/api/bills', {
+      // storeFetch, not fetch: /api/bills now requires a proven store identity.
+      const res = await storeFetch('/api/bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ billRef, storeName, storeId, items, totalAmount: total, payMethod }),
