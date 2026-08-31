@@ -63,6 +63,7 @@ model User {
   sessions Session[]
   store    Store?
   brand    Brand?
+  adminSessions AdminSession[]
 
   @@index([phone])
   @@index([role])
@@ -102,6 +103,67 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ─── Admin team: tracked sessions + invites ──────────────────────────────────
+
+/// One row per admin sign-in, so the console can answer "who is logged in right
+/// now?" and "log that person out".
+///
+/// This table exists because the Session model above is EMPTY: Auth.js only
+/// supports `strategy: 'jwt'` with the Credentials providers this app uses, so
+/// no adapter session rows are ever written. A JWT is stateless — it stays valid
+/// until it expires no matter what the database says — which means without this
+/// table a signed-in admin cannot be logged out at all.
+///
+/// The bridge back to the stateless token is `sid`: the id of this row is minted
+/// at sign-in and embedded in the JWT, and requireAdmin() looks the row up on
+/// every admin request. A revoked or missing row denies the request, which is
+/// what makes revocation real rather than cosmetic.
+model AdminSession {
+  id         String    @id @default(cuid())
+  userId     String
+  createdAt  DateTime  @default(now())
+  /// Touched at most once a minute (see touchAdminSession) — a write on every
+  /// request would make the audit table the busiest thing in the console.
+  lastSeenAt DateTime  @default(now())
+  /// Set = session is dead. Kept rather than deleted so the login history still
+  /// shows the session existed and when it was ended.
+  revokedAt  DateTime?
+  /// User id of whoever revoked it; null when the person signed themselves out.
+  revokedBy  String?
+  ip         String?
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastSeenAt])
+  @@index([revokedAt])
+}
+
+/// A single-use invitation for a new admin/ops account.
+///
+/// The account is created with NO password. The invitee follows an emailed link
+/// and sets their own, so a credential never travels through chat and nobody —
+/// including whoever created the account — ever knows it.
+///
+/// `tokenHash` stores a SHA-256 of the token, never the token itself. The raw
+/// value exists only in the email. A database leak therefore yields no usable
+/// invite links, exactly as a password column stores no passwords.
+model AdminInvite {
+  id         String    @id @default(cuid())
+  email      String
+  role       UserRole
+  tokenHash  String    @unique
+  invitedBy  String?
+  expiresAt  DateTime
+  /// Set on use. Combined with expiresAt this makes an invite strictly one-shot.
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
 }
 
 // ─── Store partners ──────────────────────────────────────────────────────────

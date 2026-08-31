@@ -30,6 +30,7 @@
 
 import { NextResponse } from 'next/server';
 import { isAdminPassword } from './admin-auth';
+import { isAdminSessionLive } from './admin-session';
 
 /** Who is performing an admin action. `legacy` = shared password, no subject. */
 export type AdminActor =
@@ -65,6 +66,15 @@ export async function requireAdmin(
       // but not yet enrolled" — allowed ONLY on the enrolment route, which passes
       // allowMfaPending. Every other admin route requires a completed 2FA login.
       if (!user.mfa && !allowMfaPending) return null;
+
+      // The signature being valid is not enough: a JWT keeps verifying after the
+      // person has been logged out, because nothing about revocation is carried
+      // in the token. This checks the tracked row the sid points at, which is
+      // what makes force-logout take effect on the very next request instead of
+      // whenever the token happens to expire. Fail-closed, including for older
+      // tokens that carry no sid at all.
+      if (!(await isAdminSessionLive(user.sid))) return null;
+
       return {
         kind:   'user',
         userId: user.id,

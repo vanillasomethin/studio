@@ -40,6 +40,32 @@ export async function notifyAdminEmail(subject: string, html: string): Promise<v
   try { await sendResendEmail('hello@wearealive.in', subject, html); } catch { /* non-fatal */ }
 }
 
+/**
+ * Send one transactional email to an arbitrary address, REPORTING whether it
+ * actually went out.
+ *
+ * Deliberately different from notifyAdminEmail above, which is fire-and-forget
+ * because a dropped alert is survivable. An invite is not: if the mail silently
+ * fails, the admin believes a colleague was invited and that colleague never
+ * hears anything, so the account sits password-less and nobody knows why.
+ * Returns false when RESEND_API_KEY is unset or Resend rejects, so the caller
+ * can surface it instead of pretending success.
+ */
+export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return false;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'ALIVE <hello@wearealive.in>', to: [to], subject, html }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function notifyStoreWA(phone: string, message: string): Promise<void> {
   // phone: 10-digit or +91XXXXXXXXXX
   const e164 = phone.startsWith('+') ? phone : `+91${phone.replace(/\D/g, '').slice(-10)}`;

@@ -152,6 +152,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   media:      { eyebrow: 'Site management',    title: 'Homepage media'     },
   products:   { eyebrow: 'Product catalogue',  title: 'Master Products'    },
   alerts:     { eyebrow: 'System status',      title: 'Alerts'             },
+  team:       { eyebrow: 'Access & audit',     title: 'Team'               },
   roadmap:    { eyebrow: 'ALIVE PLATFORM',     title: 'Platform Roadmap'   },
 };
 
@@ -1677,6 +1678,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
       { id: 'layouts' as Tab,    label: 'Layouts',          icon: Layers,          count: null },
       { id: 'media' as Tab,      label: 'Media',            icon: Images,          count: null },
       { id: 'products' as Tab,   label: 'Products',         icon: Package,         count: null },
+      { id: 'team' as Tab,       label: 'Team',             icon: Users,           count: null },
       { id: 'alerts' as Tab,     label: 'Alerts',           icon: Bell,            count: null },
       { id: 'roadmap' as Tab,    label: 'Platform',         icon: Map,             count: null },
     ],
@@ -2252,6 +2254,7 @@ function Dashboard() {
     media:      'Media',
     products:   'Products',
     alerts:     'Alerts',
+    team:       'Team',
     roadmap:    'Platform',
   };
 
@@ -2302,6 +2305,7 @@ function Dashboard() {
               {tab === 'campaigns'  && <CampaignsPanel />}
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
               {tab === 'coupons'    && <CouponsTab />}
+              {tab === 'team'       && <TeamTab />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'programming'   && <ProgrammingTab />}

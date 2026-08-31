@@ -8,6 +8,8 @@ import { verifyTotpStep } from './totp';
 import { findBackupCodeIndex } from './mfa-backup';
 import { notifyAdminWA } from './notify';
 import { hitLimit, clearLimit } from './rate-limit';
+import { createAdminSession, revokeAdminSession } from './admin-session';
+import { headers } from 'next/headers';
 import type { UserRole } from '@prisma/client';
 import { authConfig } from './auth.config';
 
@@ -18,6 +20,7 @@ declare module 'next-auth' {
       role:  UserRole;
       phone: string | null;
       mfa:   boolean;          // set by the jwt/session callbacks below
+      sid:   string | null;    // AdminSession row id — the revocation handle
     };
   }
   interface JWT {
@@ -25,6 +28,7 @@ declare module 'next-auth' {
     role?:  UserRole;
     phone?: string | null;
     mfa?:   boolean;
+    sid?:   string | null;
   }
 }
 
@@ -237,6 +241,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // an ENROLLED account. A bootstrapping admin (admin-mfa but mfaEnabledAt
           // null) stays false and may reach only /api/admin/mfa (see requireAdmin).
           token.mfa   = account?.provider === 'admin-mfa' && !!dbUser.mfaEnabledAt;
+
+          // Mint the tracked session for privileged accounts only. This is the
+          // one place with both `user` and `account` in hand, so it is the only
+          // point at which a sid can be put INSIDE the signed token — which is
+          // what later lets requireAdmin() tie a stateless JWT back to a row it
+          // can revoke. Store partners and brands don't reach the console and
+          // get no row.
+          if (dbUser.role === 'ADMIN' || dbUser.role === 'OPS') {
+            const { ip, userAgent } = await requestMeta();
+            token.sid = await createAdminSession(dbUser.id, { ip, userAgent });
+            await logLoginEvent(dbUser.id, dbUser.email, ip, userAgent);
+          }
         }
       }
       return token;   // account is undefined on refreshes, so token.mfa persists
@@ -247,8 +263,46 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.role  = token.role as UserRole;
         session.user.phone = (token.phone as string | null) ?? null;
         session.user.mfa   = (token.mfa as boolean) ?? false;
+        session.user.sid   = (token.sid as string | null) ?? null;
       }
       return session;
     },
   },
+
+  events: {
+    // Signing out must END the tracked session, not just drop the cookie.
+    // Without this the row stays "active" forever and the console would report
+    // people as present long after they left.
+    async signOut(message) {
+      const sid = 'token' in message ? (message.token?.sid as string | undefined) : undefined;
+      if (sid) await revokeAdminSession(sid, null).catch(() => {});
+    },
+  },
 });
+
+/** Best-effort caller metadata. Never throws — this is bookkeeping, not auth. */
+async function requestMeta(): Promise<{ ip: string | null; userAgent: string | null }> {
+  try {
+    const h = await headers();
+    return {
+      // x-forwarded-for is a comma-separated chain; the client is the first hop.
+      ip:        h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? h.get('x-real-ip') ?? null,
+      userAgent: h.get('user-agent') ?? null,
+    };
+  } catch {
+    return { ip: null, userAgent: null };
+  }
+}
+
+/** Write the login to the same AuditLog the console reads, so history is one feed. */
+async function logLoginEvent(
+  userId: string, email: string | null, ip: string | null, userAgent: string | null,
+) {
+  try {
+    await db.auditLog.create({
+      data: { actorId: userId, action: 'admin.login', target: email, ip, userAgent },
+    });
+  } catch {
+    // A failed audit write must never fail the login.
+  }
+}

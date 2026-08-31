@@ -19,6 +19,12 @@ const CSP = [
   "font-src 'self' data:",
   "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://*.r2.dev https://*.tile.openstreetmap.org https://nominatim.openstreetmap.org",
   "worker-src 'self' blob:",
+  // Without this the policy reports only into each visitor's own console, where
+  // nobody at ALIVE will ever read it — so it could never be turned on with any
+  // confidence. Violations now land in telemetry (level 'warn'), which is what
+  // makes flipping the header key from Report-Only to enforcing an evidenced
+  // decision rather than a gamble on launch week.
+  'report-uri /api/csp-report',
 ].join('; ');
 
 const SECURITY_HEADERS = [
