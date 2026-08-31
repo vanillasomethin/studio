@@ -84,10 +84,13 @@ const BLANK_FORM: FormState = {
 };
 
 function detectTargetMode(o: Overlay): TargetMode {
-  if (o.deviceIds.length)  return 'device';
-  if (o.groupName)         return 'group';
-  if (o.storeIds.length)   return 'store';
-  if (o.cityFilter)        return 'city';
+  // Optional chain the per-overlay arrays too: the top-level list is now coerced,
+  // but an individual overlay whose deviceIds/storeIds is missing from the API
+  // response would still crash here (and in the list render below) the same way.
+  if (o.deviceIds?.length)  return 'device';
+  if (o.groupName)          return 'group';
+  if (o.storeIds?.length)   return 'store';
+  if (o.cityFilter)         return 'city';
   return 'all';
 }
 
@@ -126,10 +129,14 @@ export default function LayoutsTab() {
       getDevices({ take: '500' }).catch(() => ({ devices: [] as Device[], nextCursor: null, total: 0 })),
     ])
       .then(([o, g, sr, dr]) => {
-        setOverlays(o);
-        setGroups(g);
-        setCities(sr.cities);
-        setDevices(dr.devices);
+        // Coerce to arrays. getOverlays() has no .catch above, and even the
+        // guarded calls only fall back on a rejected promise — a 200 that omits
+        // the field (error envelope, partial response) still lands here, and the
+        // unconditional .length/.map on this state blanks the whole admin.
+        setOverlays(Array.isArray(o) ? o : []);
+        setGroups(Array.isArray(g) ? g : []);
+        setCities(Array.isArray(sr?.cities) ? sr.cities : []);
+        setDevices(Array.isArray(dr?.devices) ? dr.devices : []);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -141,7 +148,7 @@ export default function LayoutsTab() {
   useEffect(() => {
     if (storeTimer.current) clearTimeout(storeTimer.current);
     storeTimer.current = setTimeout(() => {
-      searchStores({ q: storeQuery }).then((r) => { setStoreResults(r.stores); setCities(r.cities); }).catch(() => {});
+      searchStores({ q: storeQuery }).then((r) => { setStoreResults(Array.isArray(r?.stores) ? r.stores : []); setCities(Array.isArray(r?.cities) ? r.cities : []); }).catch(() => {});
     }, 300);
     return () => { if (storeTimer.current) clearTimeout(storeTimer.current); };
   }, [storeQuery]);
@@ -655,9 +662,9 @@ export default function LayoutsTab() {
                   <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
                     <span>{POSITION_META[o.position]} · {o.heightPct}%</span>
                     <span>
-                      {o.deviceIds.length ? `${o.deviceIds.length} screen${o.deviceIds.length !== 1 ? 's' : ''}` :
-                       o.groupName       ? `Group: ${o.groupName}` :
-                       o.storeIds.length ? `${o.storeIds.length} store${o.storeIds.length !== 1 ? 's' : ''}` :
+                      {o.deviceIds?.length ? `${o.deviceIds.length} screen${o.deviceIds.length !== 1 ? 's' : ''}` :
+                       o.groupName        ? `Group: ${o.groupName}` :
+                       o.storeIds?.length ? `${o.storeIds.length} store${o.storeIds.length !== 1 ? 's' : ''}` :
                        o.cityFilter      ? o.cityFilter :
                        'All screens'}
                     </span>

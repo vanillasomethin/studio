@@ -99,7 +99,12 @@ export default function TeamTab() {
       const res = await fetch('/api/admin/team', { headers: authHeaders() });
       if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? 'Failed to load team');
       const b = await res.json() as { members: Member[]; sessions: Session[]; invites: Invite[] };
-      setMembers(b.members); setSessions(b.sessions); setInvites(b.invites);
+      // Coerce to arrays: a 200 whose body is an error envelope or a partial
+      // response (missing a key) would otherwise put an object into array state,
+      // and the unconditional .filter/.map/.length below crash the whole admin.
+      setMembers(Array.isArray(b.members) ? b.members : []);
+      setSessions(Array.isArray(b.sessions) ? b.sessions : []);
+      setInvites(Array.isArray(b.invites) ? b.invites : []);
       setError(null);
     } catch (e) { setError((e as Error).message); }
   }, []);
@@ -112,8 +117,9 @@ export default function TeamTab() {
       const res = await fetch(`/api/admin/team/activity?${qs}`, { headers: authHeaders() });
       if (!res.ok) return;
       const b = await res.json() as { entries: Entry[]; nextCursor: string | null };
-      setEntries((prev) => opts.append ? [...prev, ...b.entries] : b.entries);
-      setCursor(b.nextCursor);
+      const rows = Array.isArray(b.entries) ? b.entries : [];
+      setEntries((prev) => opts.append ? [...prev, ...rows] : rows);
+      setCursor(b.nextCursor ?? null);
     } catch { /* feed is non-critical */ }
   }, [cursor]);
 
