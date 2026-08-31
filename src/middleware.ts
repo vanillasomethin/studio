@@ -7,8 +7,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const { auth } = NextAuth(authConfig);
 
-export default auth(function middleware(req: NextRequest & { auth?: { user?: { role?: string; mfa?: boolean } } | null }) {
-  // Strip legacy Clerk handshake params during transition
+// The `auth()` wrapper is kept for ONE reason: it runs authConfig's `authorized`
+// callback, which gates /dashboard (redirect to /login when signed out). It does
+// NOT gate the admin API — every admin route now enforces its own auth via
+// requireAdmin(), so middleware has no admin job left.
+export default auth(function middleware(req: NextRequest) {
+  // Strip legacy Clerk handshake params during transition.
   if (req.nextUrl.searchParams.has('__clerk_handshake')) {
     const url = req.nextUrl.clone();
     url.searchParams.delete('__clerk_handshake');
@@ -16,73 +20,23 @@ export default auth(function middleware(req: NextRequest & { auth?: { user?: { r
     return NextResponse.redirect(url);
   }
 
-  // ─── Transitional bridge: named admin session → legacy credential header ───
-  //
-  // 72 admin routes still authenticate by comparing an `admin-password` header,
-  // and know nothing about sessions. Without this, an operator who signs in with
-  // email + password + 2FA would be met with 401 from almost the entire console
-  // — which would make enabling MFA a downgrade, and nobody would adopt it.
-  //
-  // So for a request already proven to carry an ADMIN/OPS session that CLEARED
-  // ITS SECOND FACTOR, middleware supplies the credential those routes expect.
-  //
-  //   • The role and the mfa claim come from the signed JWT, so forging either
-  //     needs AUTH_SECRET — at which point any session could be minted anyway.
-  //   • A client may still send its own `admin-password`, exactly as before. If
-  //     it is wrong the legacy guard rejects it; being wrong here changes nothing.
-  //   • If ADMIN_PASSWORD is unset, nothing is injected and the legacy guards
-  //     stay fail-closed — a session admin simply gets 401, never a bypass.
-  //
-  // The `mfa === true` test is load-bearing, and role alone is NOT sufficient.
-  // The sign-in path deliberately lets an un-enrolled admin through so the first
-  // one can bootstrap (auth.ts skips the TOTP branch when mfaEnabledAt is null),
-  // and every account is un-enrolled on the day this ships. Gating on role alone
-  // would therefore hand the real ADMIN_PASSWORD — and with it ~74 legacy routes
-  // including KYC identity documents, payout data and fleet commands — to anyone
-  // holding just an admin email and password. That is strictly worse than before
-  // this bridge existed, when an account password bought no API access at all.
-  // Requiring the claim also excludes JWTs minted before this deploy, which
-  // carry no mfa claim and cannot be retro-verified.
-  //
-  // The secret never reaches the browser: it is read server-side and attached to
-  // the *inbound* request as it continues to the route handler.
-  //
-  // This is scaffolding with a purpose, not a permanent design. Every route
-  // migrated to requireAdmin() stops needing it, and when the last one lands
-  // this block and ADMIN_PASSWORD both go away. Until then it is what makes 2FA
-  // adoptable without a 72-file big-bang change.
-  const role = req.auth?.user?.role;
-  const mfaCleared = req.auth?.user?.mfa === true;
-  const secret = process.env.ADMIN_PASSWORD;
-  if (secret && mfaCleared && (role === 'ADMIN' || role === 'OPS')) {
-    const headers = new Headers(req.headers);
-    headers.set('admin-password', secret);
-    return NextResponse.next({ request: { headers } });
-  }
-
+  // The session→shared-password bridge that used to live here is GONE. It injected
+  // the ADMIN_PASSWORD header for a session admin so that pre-migration routes
+  // (which compared that header) would accept them. All admin routes are on
+  // requireAdmin() now, which authorizes a named session DIRECTLY from the cookie,
+  // so the bridge became dead weight — and removing it is what actually retires the
+  // shared secret: with no code path reading ADMIN_PASSWORD, the env var can be
+  // unset and the console is reachable only by a named, revocable, audited login.
   return NextResponse.next();
 });
 
-// Only run middleware on the routes that actually need it. Keeping the matcher
-// tight reduces edge invocations and bundle pressure.
-//
-// The admin API surface is enumerated inline rather than matching /api/:path* so
-// the two highest-volume paths — `/api/device/*` (player heartbeats, plan polls,
-// proof-of-play) and `/api/cron/*` — never pay for a JWT decode they have no use
-// for. Note `/api/device/` (singular, the player API) is deliberately absent
-// while `/api/devices/` (plural, fleet admin) is present.
-//
-// MUST be written as LITERAL strings. Next.js statically analyses this export at
-// compile time and cannot evaluate expressions: building the alternation with a
-// template literal over a const array (`/api/:path(${LIST.join('|')})/:rest*`)
-// made Next log "Unable to parse config export in source file" and silently drop
-// the matcher — which disabled the session→header bridge below entirely, with no
-// runtime error to notice. Keep this a plain string; do not refactor it into a
-// computed value, however much nicer the array looks.
+// Runs on only what still needs middleware. The big /api/(admin|...) alternation
+// was here solely to feed the credential bridge; with the bridge gone the admin
+// API no longer needs an edge pass at all (each route authorizes itself), so the
+// matcher shrinks to the two things left: gating /dashboard and the Clerk cleanup.
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    '/api/:path(admin|schedules|playlists|content|devices|slots|compositions|overlays|campaigns|coupons|products|events|reports|flyers|footfall|health|presence|query|context|site-media|telemetry|stores|brands|payout|bills|feed)/:rest*',
     // Clerk cleanup — remove once all traffic has migrated
     '/(.*)?__clerk_handshake(.*)',
   ],

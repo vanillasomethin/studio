@@ -29,10 +29,18 @@
 // to isAdminPassword().
 
 import { NextResponse } from 'next/server';
-import { isAdminPassword } from './admin-auth';
 import { isAdminSessionLive } from './admin-session';
 
-/** Who is performing an admin action. `legacy` = shared password, no subject. */
+/**
+ * Who is performing an admin action.
+ *
+ * `legacy` is RETAINED but no longer produced: the shared-password branch of
+ * requireAdmin has been removed, so every actor is now a named `user`. The
+ * variant stays in the type so the `kind !== 'user'` guards on the invite and
+ * session-revoke routes still compile as the belt-and-braces they were — they
+ * simply can never fire now. Drop it, and the audit-trail's "shared-password vs
+ * session" labelling, in a later cleanup once the legacy shape is fully gone.
+ */
 export type AdminActor =
   | { kind: 'user';   userId: string; label: string; role: 'ADMIN' | 'OPS' }
   | { kind: 'legacy'; userId: null;   label: 'shared-password'; role: 'ADMIN' };
@@ -83,14 +91,14 @@ export async function requireAdmin(
       };
     }
   } catch {
-    // No session available — fall through to the shared secret. Never authorizes.
+    // No session available. There is no longer a fallback — see below.
   }
 
-  // 2. Legacy shared secret. Fail-closed + constant-time inside isAdminPassword().
-  if (isAdminPassword(req.headers.get('admin-password'))) {
-    return { kind: 'legacy', userId: null, label: 'shared-password', role: 'ADMIN' };
-  }
-
+  // The legacy shared-secret branch used to live here. It is GONE: the console is
+  // now reachable only by a named, 2FA-backed, revocable session. A wrong or
+  // absent session is simply not an admin. `req` is still accepted so every call
+  // site keeps its signature, but the header it might carry is never consulted.
+  void req;
   return null;
 }
 

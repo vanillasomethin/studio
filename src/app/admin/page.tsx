@@ -1860,11 +1860,11 @@ const ERR_BOX =
   'text-xs text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2';
 
 function AdminLogin({ onAuth }: { onAuth: () => void }) {
-  const [mode,     setMode]     = useState<'account' | 'legacy' | 'link'>('account');
+  // 'legacy' (shared-password) mode is GONE — the console is named-accounts only.
+  const [mode,     setMode]     = useState<'account' | 'link'>('account');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [totp,     setTotp]     = useState('');
-  const [pw,       setPw]       = useState('');
   const [busy,     setBusy]     = useState(false);
   const [err,      setErr]      = useState<string | null>(null);
   const [linkNote, setLinkNote] = useState<string | null>(null);
@@ -1906,10 +1906,9 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
       // call returned 401, which reads like a broken backend rather than a failed
       // login. Both conditions, always.
       if (res?.ok && !res.error) {
-        // Only the "I'm past the gate" flag is stored — never a credential.
-        // Admin API calls still send an `admin-password` header, but for a
-        // session user middleware overwrites it with the real secret server-side
-        // (see the bridge in src/middleware.ts), so the browser never holds it.
+        // Only the "I'm past the gate" flag is stored — never a credential. The
+        // session cookie is what authorizes every admin API call now (requireAdmin
+        // reads it directly); the browser holds no shared secret.
         sessionStorage.setItem('alive_admin', '1');
         onAuth();
       } else {
@@ -1922,18 +1921,6 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
     finally   { setBusy(false); }
   };
 
-  const submitLegacy = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true); setErr(null);
-    try {
-      const res  = await fetch('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-      const body = await res.json() as { ok: boolean };
-      if (body.ok) { sessionStorage.setItem('alive_admin', '1'); sessionStorage.setItem(SS_PW, pw); onAuth(); }
-      else setErr('Incorrect password.');
-    } catch { setErr('Failed to verify.'); }
-    finally   { setBusy(false); }
-  };
-
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
@@ -1941,7 +1928,7 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
           <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1">Admin</p>
           <h1 className="text-3xl font-bold text-foreground">
-            {mode === 'account' ? 'Sign in' : mode === 'link' ? 'Get a sign-in link' : 'Shared password'}
+            {mode === 'account' ? 'Sign in' : 'Get a sign-in link'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Restricted to Alive staff.</p>
         </div>
@@ -1968,12 +1955,8 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
               className="w-full text-xs font-semibold text-primary hover:underline pt-1">
               First time here, or forgotten your password? Email me a sign-in link
             </button>
-            <button type="button" onClick={() => { setMode('legacy'); setErr(null); }}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
-              Use the shared password instead
-            </button>
           </form>
-        ) : mode === 'link' ? (
+        ) : (
           <form onSubmit={submitLink} className="space-y-3">
             <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
               placeholder="you@wearealive.in" autoComplete="username" className={FIELD} />
@@ -1995,23 +1978,6 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
             <button type="button" onClick={() => { setMode('account'); setErr(null); setLinkNote(null); }}
               className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1">
               Back to sign in
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={submitLegacy} className="space-y-3">
-            <input type="password" required autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
-              placeholder="Admin password" className={FIELD} />
-            <p className="text-xs text-muted-foreground">
-              Shared secret — actions taken this way can&apos;t be attributed to a person. Prefer your staff account.
-            </p>
-            {err && <p className={ERR_BOX}>{err}</p>}
-            <button type="submit" disabled={busy || !pw}
-              className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enter dashboard'}
-            </button>
-            <button type="button" onClick={() => { setMode('account'); setErr(null); }}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1">
-              Sign in with a staff account
             </button>
           </form>
         )}
