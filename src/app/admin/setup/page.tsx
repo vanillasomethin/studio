@@ -11,7 +11,10 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, ShieldCheck, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-const MIN_LEN = 12;
+// Mirrors MIN_PASSWORD_LENGTH in src/lib/admin-invite.ts (server-enforced there;
+// this copy exists only for instant feedback — a client component cannot import
+// that module because it pulls in Prisma). Keep the two in step.
+const MIN_LEN = 8;
 
 type Check =
   | { state: 'loading' }

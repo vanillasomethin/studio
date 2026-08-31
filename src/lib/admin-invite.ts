@@ -20,9 +20,15 @@ import type { UserRole } from '@prisma/client';
 /// in an old inbox months later is inert.
 const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
 
-/// Matches scripts/create-admin.mjs. An admin password guards the whole fleet,
-/// so it is held to more than the 6 chars store partners get.
-export const MIN_PASSWORD_LENGTH = 12;
+/// Matches scripts/create-admin.mjs and the setup page's MIN_LEN.
+///
+/// Lowered from 12 at Deepak's request (2026-08-31) — the 12-char floor was
+/// rejecting the passwords people actually type. 8 is the deliberate lower
+/// bound rather than none at all: with no floor, "abc" becomes a valid
+/// credential for an account that can control every screen, and the compensating
+/// controls (mandatory TOTP, 8-attempts/15min throttle, bcrypt-12) assume the
+/// password is at least not trivially guessable.
+export const MIN_PASSWORD_LENGTH = 8;
 
 /// bcrypt cost. 12 is ~4x the work of the 10 used for store partners — worth it
 /// on the handful of accounts that can control every screen.

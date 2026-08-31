@@ -103,8 +103,8 @@ try {
     process.exit(0);
   }
 
-  const pw1 = await askHidden('  New password (min 12 chars): ');
-  if (pw1.length < 12) {
+  const pw1 = await askHidden('  New password (min 8 chars): ');
+  if (pw1.length < 8) {
     console.error('  Too short — an admin password guards the whole fleet. Aborted.');
     process.exit(1);
   }
