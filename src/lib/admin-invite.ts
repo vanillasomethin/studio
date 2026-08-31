@@ -30,6 +30,27 @@ const BCRYPT_COST = 12;
 
 export type InviteRole = Extract<UserRole, 'ADMIN' | 'OPS'>;
 
+/// Console accounts must live on the company domain. Personal addresses are the
+/// usual way admin access outlives employment: a gmail.com account keeps working
+/// after someone leaves, and nobody can disable it from the ALIVE side.
+export const ADMIN_EMAIL_DOMAIN = 'wearealive.in';
+
+/**
+ * Is this address allowed to hold a console account?
+ *
+ * Parsed rather than suffix-matched. `endsWith('@wearealive.in')` looks correct
+ * but accepts `attacker@evil.com@wearealive.in` — a string with two @ signs that
+ * some mail parsers read as the FIRST address. Splitting and requiring exactly
+ * two parts removes that whole class of trick, and an exact domain comparison
+ * (not endsWith) additionally rejects `x@notwearealive.in`.
+ */
+export function isAllowedAdminEmail(email: string): boolean {
+  const parts = email.trim().toLowerCase().split('@');
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  return local.length > 0 && domain === ADMIN_EMAIL_DOMAIN;
+}
+
 /** SHA-256 hex of a token. The only form we persist. */
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -51,6 +72,13 @@ export async function createInvite(
   invitedBy: string | null,
 ): Promise<{ token: string; expiresAt: Date; isExistingUser: boolean }> {
   const normalised = email.trim().toLowerCase();
+
+  // Enforced HERE as well as in the route. A route check protects the console;
+  // this protects every caller, including scripts and anything added later —
+  // and creating the User row is the irreversible step worth guarding.
+  if (!isAllowedAdminEmail(normalised)) {
+    throw new Error(`Console accounts must be @${ADMIN_EMAIL_DOMAIN} addresses.`);
+  }
 
   const existing = await db.user.findUnique({
     where:  { email: normalised },

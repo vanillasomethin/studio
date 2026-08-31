@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function checkAdmin(req: NextRequest) {
-  // Fail CLOSED: a missing ADMIN_PASSWORD must authorize nobody (see admin-auth.ts).
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { storeId, month, mode = 'upi', amount = 50000 } = await req.json() as {
     storeId: string; month: string; mode?: string; amount?: number;
@@ -107,6 +104,17 @@ export async function POST(req: NextRequest) {
       "note"   = EXCLUDED."note",
       "updatedAt" = NOW()
   `;
+
+  // Money leaving the platform — logged only once the StorePayment row is
+  // committed, so a Razorpay failure (which returns 502 above) never shows up in
+  // the feed as a completed payout. Payment destinations (UPI id, bank account)
+  // stay out of meta; the storeId is enough to look them up.
+  await logAdminAction({
+    actor, req,
+    action: 'payout.create',
+    target: storeId,
+    meta: { month, mode, amountPaise: amount, status, payRef, automated: !!(xKeyId && xKeySecret) },
+  });
 
   // Build UPI deep link for manual payment (always return this as fallback)
   const upiLink = store.upiId

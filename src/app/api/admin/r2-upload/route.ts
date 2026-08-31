@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { putObject, publicUrl } from '@/lib/r2';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export const maxDuration = 60; // allow up to 60s for large file uploads
-
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
 
 // POST — server-side upload (avoids browser CORS restrictions on R2)
 // Body: FormData with 'file' (File) and 'key' (string) fields
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const form = await req.formData();
     const file = form.get('file') as File | null;
@@ -22,6 +20,15 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     await putObject(key, Buffer.from(bytes), file.type || 'application/octet-stream');
 
+    // Bytes landing in the bucket — including overwrites of an existing object
+    // key. The key is the target so it survives the meta scrubber.
+    await logAdminAction({
+      actor, req,
+      action: 'upload.create',
+      target: key,
+      meta:   { name: file.name, bytes: bytes.byteLength, contentType: file.type || null },
+    });
+
     return NextResponse.json({ publicUrl: `${publicUrl(key)}?v=${Date.now()}` });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -30,7 +37,7 @@ export async function POST(req: NextRequest) {
 
 // GET — still available for signed URLs (used by device content upload elsewhere)
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const { searchParams } = new URL(req.url);
   const key  = searchParams.get('key')  ?? '';
   const type = searchParams.get('type') ?? 'image/jpeg';

@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { db } from './db';
 import { verifyTotpStep } from './totp';
 import { findBackupCodeIndex } from './mfa-backup';
+import { isAllowedAdminEmail } from './admin-invite';
 import { notifyAdminWA } from './notify';
 import { hitLimit, clearLimit } from './rate-limit';
 import { createAdminSession, revokeAdminSession } from './admin-session';
@@ -131,6 +132,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // store partner's credentials would mint a session that the admin guard
         // then has to re-check — better to refuse the wrong door outright.
         if (user.role !== 'ADMIN' && user.role !== 'OPS') return null;
+
+        // Company-domain accounts only, re-checked at the login door. Provisioning
+        // already enforces this, but a role can be changed by any future code path
+        // that touches the User table, and this is the one place every admin login
+        // must pass through. Costs nothing and cannot be bypassed by a stale row.
+        if (!isAllowedAdminEmail(email)) return null;
 
         if (!(await bcrypt.compare(password, user.passwordHash))) return null;
 

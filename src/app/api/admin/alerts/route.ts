@@ -2,20 +2,17 @@
 //   GET   → open alerts (newest first) + unread count, for the popup + bell badge
 //   PATCH → mark alerts read ({ ids: string[] } or { all: true })
 //
-// Auth: strict admin-password. Deliberately NOT the `!process.env.ADMIN_PASSWORD ||`
-// fail-open idiom used by /api/devices — this route exposes store names and
-// mutates state, so an unset env var must lock it down, not open it up.
+// Auth: requireAdmin — named ADMIN/OPS session or the legacy shared password.
+// Fail-closed either way: this route exposes store names and mutates state, so
+// an unset env var and no session must lock it down, not open it up.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest): boolean {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   try {
     // Resolved alerts stay visible briefly so an admin watching the panel sees
@@ -41,18 +38,33 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   try {
     const body = await req.json().catch(() => ({})) as { ids?: string[]; all?: boolean };
     const now = new Date();
 
     if (body.all) {
-      await db.deviceAlert.updateMany({ where: { adminReadAt: null }, data: { adminReadAt: now } });
+      const res = await db.deviceAlert.updateMany({ where: { adminReadAt: null }, data: { adminReadAt: now } });
+      // Dismissing alerts is how an outage stops being visible on the bell badge,
+      // so who cleared them (and how many) is worth having after the fact.
+      await logAdminAction({
+        actor, req,
+        action: 'alert.mark_read',
+        target: null,
+        meta:   { all: true, count: res.count },
+      });
       return NextResponse.json({ ok: true });
     }
     if (Array.isArray(body.ids) && body.ids.length) {
-      await db.deviceAlert.updateMany({ where: { id: { in: body.ids } }, data: { adminReadAt: now } });
+      const res = await db.deviceAlert.updateMany({ where: { id: { in: body.ids } }, data: { adminReadAt: now } });
+      await logAdminAction({
+        actor, req,
+        action: 'alert.mark_read',
+        target: body.ids.length === 1 ? body.ids[0] : null,
+        meta:   { count: res.count, ids: body.ids.slice(0, 20) },
+      });
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: 'ids or all required' }, { status: 400 });

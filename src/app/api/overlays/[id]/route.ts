@@ -3,14 +3,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     const body = await req.json() as Record<string, unknown>;
@@ -23,6 +21,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.endAt   !== undefined) data.endAt   = body.endAt   ? new Date(body.endAt   as string) : null;
 
     const overlay = await db.overlay.update({ where: { id }, data });
+
+    // An overlay is burned over whatever is playing on a screen, so an edit can
+    // change what a shopper reads without touching a playlist. Record the fields
+    // that moved — not their values, which can be arbitrary free text.
+    await logAdminAction({
+      actor, req,
+      action: 'overlay.update',
+      target: id,
+      meta: {
+        fields:  Object.keys(data),
+        name:    overlay.name,
+        type:    overlay.type,
+        enabled: overlay.enabled,
+      },
+    });
+
     return NextResponse.json({
       overlay: {
         ...overlay,
@@ -39,10 +53,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
-    await db.overlay.delete({ where: { id } });
+    // delete() returns the row it removed — the only chance to record what the
+    // overlay actually was, since after this the id resolves to nothing.
+    const overlay = await db.overlay.delete({ where: { id } });
+    await logAdminAction({
+      actor, req,
+      action: 'overlay.delete',
+      target: id,
+      meta:   { name: overlay.name, type: overlay.type },
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

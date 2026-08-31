@@ -9,17 +9,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { putObject, publicUrl } from '@/lib/r2';
 import { renderOfferVideo } from '@/lib/remotion-render';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { id } = await params;
   const product = await db.product.findUnique({ where: { id } });
@@ -84,6 +82,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         },
       });
     }
+
+    // This mints new media and can drop it straight into a live playlist, so it
+    // is a content-onto-screens action — logged with the Content row it created
+    // and the playlist it was appended to, if any.
+    await logAdminAction({
+      actor, req,
+      action: 'product_video.generate',
+      target: id,
+      meta: {
+        contentId:  content.id,
+        name:       contentName,
+        url,
+        sizeBytes:  bytes.length,
+        playlistId: body.playlistId ?? null,
+      },
+    });
 
     // Serialise BigInt before JSON
     return NextResponse.json({

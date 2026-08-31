@@ -4,11 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 const HEARTBEAT_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
@@ -18,7 +14,7 @@ function nodeStatus(lastSeen: Date | null) {
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ storeId: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const { storeId } = await params;
 
   const health = await db.storeSensorHealth.findUnique({ where: { storeId } });

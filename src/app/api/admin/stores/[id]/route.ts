@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { Redis } from '@upstash/redis';
 import { pushDecommission } from '@/lib/fcm';
 import { deleteObject, publicUrl } from '@/lib/r2';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 /** R2 object key for a stored verification-photo URL, or null if it isn't one. */
 function verificationKeyFromUrl(url: string | null): string | null {
@@ -55,13 +57,9 @@ function getRedis() {
   return new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
 }
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
@@ -278,6 +276,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       );
     }
 
+    // Stage advancement is the field-ops milestone money hangs off (a store
+    // reaching 'live' starts earning), so record who moved it and which columns
+    // the save touched. Only the changed field NAMES — the body carries the
+    // store's WiFi credentials.
+    await logAdminAction({
+      actor, req,
+      action: 'store.update',
+      target: id,
+      meta: {
+        onboardingStage: body.onboardingStage ?? null,
+        payoutStatus:    body.payoutStatus ?? null,
+        fields:          Object.keys(body),
+      },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -285,7 +298,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     // Find the store to get userId before deleting
@@ -323,6 +337,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       db.$executeRaw`DELETE FROM "Store" WHERE "id" = ${id}`,
       db.$executeRaw`DELETE FROM "User" WHERE "id" = ${userId}`,
     ]);
+
+    // Logged the moment the rows are gone, not at the end: the cleanup below can
+    // throw, and an irreversible cascade delete must never go unrecorded because
+    // a best-effort push failed. Counts only — the store row no longer exists.
+    await logAdminAction({
+      actor, req,
+      action: 'store.delete',
+      target: id,
+      meta:   { userId, devices: doomedDevices.length, photos: photoKeys.length },
+    });
 
     await pushDecommission(doomedDevices.map((d) => d.fcmToken!));
     for (const key of photoKeys) await deleteObject(key).catch(() => { /* best-effort */ });

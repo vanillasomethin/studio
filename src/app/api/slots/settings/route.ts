@@ -11,6 +11,8 @@ import { db } from '@/lib/db';
 import { parseHHmm } from '@/lib/slots';
 import { applySlotMoves, planSlotCompaction, resolveFillerCampaign, type SlotMove } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 /**
  * Writes the reassignment note. This is also what the brand dashboard reads back to
@@ -44,11 +46,6 @@ async function recordMoves(
   }).catch(() => { /* the note is valuable, but never worth failing the resize over */ });
 }
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 type Body = {
   storeId?: string;
   loopSlotCount?: number | null;
@@ -62,7 +59,8 @@ type Body = {
 };
 
 export async function PATCH(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as Body;
 
@@ -71,6 +69,14 @@ export async function PATCH(req: NextRequest) {
         where:  { id: body.campaignId },
         data:   { slotContentId: body.slotContentId ?? null },
         select: { id: true, slotContentId: true },
+      });
+      // Swapping a campaign's slot creative changes what the screen actually shows
+      // for that brand, without touching any booking.
+      await logAdminAction({
+        actor, req,
+        action: 'slot_settings.set_creative',
+        target: campaign.id,
+        meta:   { slotContentId: campaign.slotContentId },
       });
       return NextResponse.json({ campaign });
     }
@@ -81,6 +87,13 @@ export async function PATCH(req: NextRequest) {
         update: { fillerCampaignId: body.defaultFillerCampaignId },
         create: { id: 1, fillerCampaignId: body.defaultFillerCampaignId },
         select: { fillerCampaignId: true },
+      });
+      // Fleet-wide: this is what fills every unsold position on every slot-mode store.
+      await logAdminAction({
+        actor, req,
+        action: 'slot_settings.set_default_filler',
+        target: null,
+        meta:   { defaultFillerCampaignId: config.fillerCampaignId },
       });
       return NextResponse.json({ config });
     }
@@ -141,6 +154,23 @@ export async function PATCH(req: NextRequest) {
 
     // Audit note, after the resize is committed. The brand dashboard reads it back.
     void recordMoves(store, moves);
+
+    // Separate from recordMoves above: that row is the brand-facing "your slot moved"
+    // note, this one is the admin trail — who changed the store's slot config at all,
+    // including turning slot mode off entirely (loopSlotCount: null).
+    await logAdminAction({
+      actor, req,
+      action: 'slot_settings.update',
+      target: store.id,
+      meta: {
+        loopSlotCount:    store.loopSlotCount,
+        openDays:         store.openDays,
+        hoursStart:       store.hoursStart,
+        hoursEnd:         store.hoursEnd,
+        fillerCampaignId: store.fillerCampaignId,
+        reassigned:       moves.length,
+      },
+    });
 
     // A slot-mode store without a playable filler (per-store or global default with a
     // 10s creative) has an empty loop on zero-booking days; the device then falls back

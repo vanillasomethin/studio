@@ -4,14 +4,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const compositions = await db.composition.findMany({
       orderBy: [{ isPreset: 'desc' }, { createdAt: 'asc' }],
@@ -23,7 +20,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as {
       name:         string;
@@ -43,6 +41,14 @@ export async function POST(req: NextRequest) {
         isPreset:    body.isPreset ?? false,
       },
     });
+
+    await logAdminAction({
+      actor, req,
+      action: 'composition.create',
+      target: composition.id,
+      meta:   { name: composition.name, zoneCount: body.zones.length, isPreset: composition.isPreset },
+    });
+
     return NextResponse.json({ composition }, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

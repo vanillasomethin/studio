@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { deleteObject, putObject, publicUrl } from '@/lib/r2';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 import crypto from 'crypto';
 
 /** R2 object key for a stored verification-photo URL, or null if it isn't one. */
@@ -12,11 +13,6 @@ function verificationKeyFromUrl(url: string | null): string | null {
   const key = url.slice(prefix.length);
   return key.startsWith('verification/') ? key : null;
 }
-
-// Delegates to the shared helper rather than comparing here: isAdmin() is
-// constant-time, so the secret cannot be recovered a byte at a time from
-// response timing, and it fails closed in exactly one place.
-const checkAdmin = isAdmin;
 
 // Column prefix per kind. Doubles as the allow-list that makes the prefix safe
 // to interpolate into the raw SQL below.
@@ -48,7 +44,8 @@ export const maxDuration = 60;
 //
 // Returns { url, lat, lng, at }.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
@@ -167,6 +164,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (oldKey && oldKey !== key) await deleteObject(oldKey).catch(() => { /* best-effort */ });
+
+    // Logged after the row is committed, so a failed upload never reads as
+    // recorded evidence. `replaced` matters: these photos are the onboarding
+    // audit trail, and silently overwriting one is the interesting event.
+    await logAdminAction({
+      actor, req,
+      action: 'store.upload_photo',
+      target: id,
+      meta:   { kind, lat, lng, source, replaced: !!(oldKey && oldKey !== key) },
+    });
 
     return NextResponse.json({ url, lat, lng, at });
   } catch (e) {

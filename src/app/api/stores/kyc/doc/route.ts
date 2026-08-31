@@ -15,7 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { resolveStoreId } from '@/lib/store-partner-auth';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 import { getPrivateObject } from '@/lib/r2';
 
 const SLOTS = {
@@ -37,13 +38,34 @@ export async function GET(req: NextRequest) {
   // Admins may read any store's documents for review; partners only their own.
   // resolveStoreId is checked first so a partner request never depends on the
   // admin path, and an admin request never needs a partner token.
+  // requireAdmin rather than the header-only isAdmin(): identical for the shared
+  // password, but it also accepts a named session AND checks that session is still
+  // live — so revoking someone in Admin → Team stops them reading identity
+  // documents on their very next request, instead of whenever their JWT expires.
   let storeId: string | null = null;
-  if (isAdmin(req)) {
+  const actor = await requireAdmin(req);
+  if (actor) {
     storeId = requestedStoreId;
   } else {
     storeId = await resolveStoreId(requestedStoreId);
   }
   if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // A deliberate exception to "log mutations, not reads": for an identity
+  // document, the READ is the sensitive event. Aadhaar and PAN are exactly what a
+  // misused admin account would be after, and "who viewed this partner's Aadhaar,
+  // and when" is a question we should be able to answer. Only admin views are
+  // recorded — a partner opening their own document is not noteworthy, and logging
+  // it would bury the views that are.
+  if (actor) {
+    await logAdminAction({
+      actor, req,
+      action: 'store.view_kyc_doc',
+      target: storeId,
+      // 'slot' names which document (pan|aadhaar|selfie) — not the document itself.
+      meta:   { slot },
+    });
+  }
 
   const column = SLOTS[slot];
   const rows = await db.$queryRawUnsafe<{ v: string | null }[]>(

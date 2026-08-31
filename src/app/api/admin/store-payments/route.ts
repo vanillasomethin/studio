@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 // GET — list all store payments with store info
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const { searchParams } = new URL(req.url);
   const storeId = searchParams.get('storeId');
 
@@ -27,7 +24,8 @@ export async function GET(req: NextRequest) {
 
 // POST — upsert a payment record (mark paid, pending, skipped)
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   try {
     const body = await req.json() as {
@@ -60,6 +58,24 @@ export async function POST(req: NextRequest) {
         updatedAt: new Date(),
       },
     });
+
+    // This row is the record that a partner was paid — it is what the monthly
+    // payout run and any "you never paid me" dispute are settled against.
+    // Marking one paid is called out from a plain edit so the money-affecting
+    // action is greppable on its own.
+    await logAdminAction({
+      actor, req,
+      action: body.status === 'paid' ? 'store_payment.mark_paid' : 'store_payment.update',
+      target: payment.id,
+      meta: {
+        storeId:     body.storeId,
+        month:       body.month,
+        status:      body.status,
+        amountPaise: payment.amountPaise,
+        payRef:      body.payRef ?? null,
+      },
+    });
+
     return NextResponse.json(payment);
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

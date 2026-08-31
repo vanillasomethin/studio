@@ -5,14 +5,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushDecommission } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { ids, action, groupName } = await req.json() as {
       ids:       string[];
@@ -22,10 +20,20 @@ export async function POST(req: NextRequest) {
     if (!ids?.length) return NextResponse.json({ error: 'ids required' }, { status: 400 });
 
     if (action === 'group') {
-      await db.device.updateMany({
+      const updated = await db.device.updateMany({
         where: { id: { in: ids } },
         data:  { groupName: groupName ?? null },
       });
+
+      // Regrouping re-points every group-targeted schedule at a different set of
+      // screens, so it changes what plays without touching a schedule at all.
+      // No single target id — the ids live in meta.
+      await logAdminAction({
+        actor, req,
+        action: 'device.group',
+        meta:   { ids, groupName: groupName ?? null, matched: updated.count },
+      });
+
       return NextResponse.json({ updated: ids.length });
     }
 
@@ -38,8 +46,17 @@ export async function POST(req: NextRequest) {
         where:  { id: { in: ids }, fcmToken: { not: null } },
         select: { fcmToken: true },
       });
-      await db.device.deleteMany({ where: { id: { in: ids } } });
+      const removed = await db.device.deleteMany({ where: { id: { in: ids } } });
       await pushDecommission(doomed.map((d) => d.fcmToken!));
+
+      // Unpairing screens takes them dark until someone re-claims them — the
+      // most disruptive fleet action there is. Logged with the exact id list.
+      await logAdminAction({
+        actor, req,
+        action: 'device.delete',
+        meta:   { ids, deleted: removed.count },
+      });
+
       return NextResponse.json({ deleted: ids.length });
     }
 

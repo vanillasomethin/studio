@@ -7,6 +7,7 @@ import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { sweepOfflineDevices } from '@/lib/device-alerts';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 // Player heartbeat is a WorkManager PeriodicWorkRequest, clamped to a 15-min
 // floor by Android regardless of the requested interval — 20 min matches the
@@ -15,12 +16,6 @@ import { sweepOfflineDevices } from '@/lib/device-alerts';
 const OFFLINE_THRESHOLD_MS = 20 * 60 * 1000;
 const DEFAULT_TAKE = 50;
 
-function adminGuard(req: NextRequest) {
-  // Fail CLOSED: a missing ADMIN_PASSWORD must authorize nobody (see admin-auth.ts).
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 function effectiveStatus(lastSeen: Date | null, dbStatus: string): 'ONLINE' | 'OFFLINE' | 'PENDING' {
   if (dbStatus === 'PENDING' && !lastSeen) return 'PENDING';
   if (!lastSeen) return 'OFFLINE';
@@ -28,7 +23,7 @@ function effectiveStatus(lastSeen: Date | null, dbStatus: string): 'ONLINE' | 'O
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   // Opening the panel also drives the offline sweep. effectiveStatus() below already
   // derives online/offline from lastSeen, so the LIST was always right — but the
   // stored status column is what openOfflineAlerts fires on, and only the drifting

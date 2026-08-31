@@ -5,18 +5,14 @@
 // Returns { configured, connected, needsReauth, region, devices: [...] } where
 // each device carries which screen (if any) it is already linked to.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { withApiHandler } from '@/lib/with-api-handler';
 import { db } from '@/lib/db';
 import { ewelinkConfigured, getLinkedAccount, listThings, isMeteringDevice, readPowerParams } from '@/lib/ewelink';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export const GET = withApiHandler('/api/admin/ewelink/devices', 'admin', async (req) => {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   if (!ewelinkConfigured()) {
     return NextResponse.json({ configured: false, connected: false, needsReauth: false, region: null, devices: [] });

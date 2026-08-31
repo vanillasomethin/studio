@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
-import { createInvite, type InviteRole } from '@/lib/admin-invite';
+import { createInvite, isAllowedAdminEmail, ADMIN_EMAIL_DOMAIN, type InviteRole } from '@/lib/admin-invite';
 import { sendEmail } from '@/lib/notify';
 
 /** Where the setup link points. Vercel sets VERCEL_URL without a scheme. */
@@ -62,6 +62,15 @@ export async function POST(req: NextRequest) {
   // setup link to a stranger.
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: 'Enter a valid email address.' }, { status: 400 });
+  }
+
+  // Company domain only. createInvite enforces this too, but it throws — this
+  // turns it into a message the person typing actually sees.
+  if (!isAllowedAdminEmail(email)) {
+    return NextResponse.json(
+      { error: `Console accounts must be @${ADMIN_EMAIL_DOMAIN} addresses. A personal address would keep working after someone leaves.` },
+      { status: 400 },
+    );
   }
 
   const { token, expiresAt, isExistingUser } = await createInvite(email, role, actor.userId);

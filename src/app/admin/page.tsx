@@ -1860,20 +1860,52 @@ const ERR_BOX =
   'text-xs text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2';
 
 function AdminLogin({ onAuth }: { onAuth: () => void }) {
-  const [mode,     setMode]     = useState<'account' | 'legacy'>('account');
+  const [mode,     setMode]     = useState<'account' | 'legacy' | 'link'>('account');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [totp,     setTotp]     = useState('');
   const [pw,       setPw]       = useState('');
   const [busy,     setBusy]     = useState(false);
   const [err,      setErr]      = useState<string | null>(null);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+
+  // Self-service access: type a work address, get a one-time link that sets a
+  // password. No admin has to invite anyone.
+  //
+  // The response is deliberately the same whether the address is known, new, or
+  // rate-limited — the server refuses to be an oracle for which staff addresses
+  // exist. So this shows one confirmation and does NOT branch on the outcome.
+  const submitLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setErr(null); setLinkNote(null);
+    try {
+      const res  = await fetch('/api/admin/login-link', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string; devLink?: string };
+      if (!res.ok || body.error) setErr(body.error ?? 'Could not send the link.');
+      // devLink is only ever present on a dev server with no mail configured —
+      // the route refuses to include it in production. Surfaced so the flow can
+      // be walked end-to-end before SMTP exists.
+      else if (body.devLink) setLinkNote(`No mail configured (dev only) — open this link: ${body.devLink}`);
+      else setLinkNote(body.message ?? 'Check your inbox.');
+    } catch { setErr('Could not send the link. Try again.'); }
+    finally   { setBusy(false); }
+  };
 
   const submitAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
       const res = await signIn('admin-mfa', { email, password, totp, redirect: false });
-      if (res?.ok) {
+      // `ok` alone is NOT sufficient. Auth.js v5 resolves a rejected credentials
+      // sign-in with ok:true AND error:'CredentialsSignin' — so trusting ok by
+      // itself marked the operator as signed in while the server had created no
+      // session at all. The console then rendered normally and every single API
+      // call returned 401, which reads like a broken backend rather than a failed
+      // login. Both conditions, always.
+      if (res?.ok && !res.error) {
         // Only the "I'm past the gate" flag is stored — never a credential.
         // Admin API calls still send an `admin-password` header, but for a
         // session user middleware overwrites it with the real secret server-side
@@ -1909,7 +1941,7 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
           <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1">Admin</p>
           <h1 className="text-3xl font-bold text-foreground">
-            {mode === 'account' ? 'Sign in' : 'Shared password'}
+            {mode === 'account' ? 'Sign in' : mode === 'link' ? 'Get a sign-in link' : 'Shared password'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Restricted to Alive staff.</p>
         </div>
@@ -1932,9 +1964,37 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
               className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign in'}
             </button>
+            <button type="button" onClick={() => { setMode('link'); setErr(null); }}
+              className="w-full text-xs font-semibold text-primary hover:underline pt-1">
+              First time here, or forgotten your password? Email me a sign-in link
+            </button>
             <button type="button" onClick={() => { setMode('legacy'); setErr(null); }}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1">
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
               Use the shared password instead
+            </button>
+          </form>
+        ) : mode === 'link' ? (
+          <form onSubmit={submitLink} className="space-y-3">
+            <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@wearealive.in" autoComplete="username" className={FIELD} />
+            <p className="text-xs text-muted-foreground">
+              Enter your <strong>@wearealive.in</strong> work address. We&apos;ll email you a
+              one-time link to set a password — it arrives within a few seconds and
+              works once.
+            </p>
+            {err && <p className={ERR_BOX}>{err}</p>}
+            {linkNote && (
+              <p className="text-xs text-green-700 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                {linkNote}
+              </p>
+            )}
+            <button type="submit" disabled={busy || !email}
+              className="w-full h-11 rounded-xl bg-primary text-sm font-bold text-white transition-all hover:bg-primary/90 disabled:opacity-40 flex items-center justify-center gap-2">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Email me a link'}
+            </button>
+            <button type="button" onClick={() => { setMode('account'); setErr(null); setLinkNote(null); }}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1">
+              Back to sign in
             </button>
           </form>
         ) : (

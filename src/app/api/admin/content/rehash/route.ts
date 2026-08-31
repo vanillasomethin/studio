@@ -17,16 +17,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export const maxDuration = 60;
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const items = await db.content.findMany({ select: { id: true, objectKey: true, md5: true } });
 
@@ -48,6 +46,15 @@ export async function POST(req: NextRequest) {
       failed.push({ id: item.id, objectKey: item.objectKey, error: (e as Error).message });
     }
   }
+
+  // Rewrites the integrity hash every player checks a download against, across
+  // the whole library at once — one row per sweep, with the damage counts.
+  await logAdminAction({
+    actor, req,
+    action: 'content.rehash',
+    target: null,
+    meta:   { total: items.length, updated, failed: failed.length },
+  });
 
   return NextResponse.json({ total: items.length, updated, failed });
 }

@@ -52,15 +52,47 @@ export async function notifyAdminEmail(subject: string, html: string): Promise<v
  * can surface it instead of pretending success.
  */
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  // Two transports, tried in order, because the one that is configured varies by
+  // environment: Resend is the production sender, but a Google Workspace SMTP
+  // account is what ALIVE actually has to hand. Either is sufficient; neither is
+  // required for the app to run.
+  const from = process.env.EMAIL_FROM ?? 'ALIVE <hello@wearealive.in>';
+
   const key = process.env.RESEND_API_KEY;
-  if (!key) return false;
+  if (key) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: [to], subject, html }),
+      });
+      if (res.ok) return true;
+      // Fall through to SMTP rather than returning — a Resend outage or a
+      // rejected domain should not strand an invite when SMTP is also set up.
+    } catch { /* fall through to SMTP */ }
+  }
+
+  // SMTP (Gmail / Google Workspace). Uses the same EMAIL_SERVER_* variables the
+  // Auth.js Email provider already reads, so there is one place to configure mail.
+  //
+  // Gmail requires an APP PASSWORD, not the account password, and only when 2-Step
+  // Verification is on — a normal password fails with 535. Port 465 is implicit
+  // TLS (`secure: true`); 587 is STARTTLS (`secure: false`).
+  const host = process.env.EMAIL_SERVER_HOST;
+  const user = process.env.EMAIL_SERVER_USER;
+  const pass = process.env.EMAIL_SERVER_PASSWORD;
+  if (!host || !user || !pass) return false;
+
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'ALIVE <hello@wearealive.in>', to: [to], subject, html }),
+    // Dynamic import: nodemailer is a Node-only dependency and a static import
+    // would pull it into every bundle that happens to touch this module.
+    const nodemailer = (await import('nodemailer')).default;
+    const port = Number(process.env.EMAIL_SERVER_PORT ?? 465);
+    const transport = nodemailer.createTransport({
+      host, port, secure: port === 465, auth: { user, pass },
     });
-    return res.ok;
+    await transport.sendMail({ from, to, subject, html });
+    return true;
   } catch {
     return false;
   }

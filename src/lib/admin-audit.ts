@@ -25,13 +25,53 @@
 import { db } from './db';
 import type { AdminActor } from './admin-guard';
 
-const SECRET_KEY = /pass|secret|token|key|auth|otp|aadhaar|pan|hash/i;
+// Credential-shaped WORDS, matched against the words of a key rather than as raw
+// substrings.
+//
+// The first version of this tested /pass|secret|token|key|auth|otp|aadhaar|pan|hash/
+// against the whole key, which quietly destroyed ordinary audit data: `slotPosition`
+// contains "otp" (sl-OTP-osition), `companyName` contains "pan" (com-PAN-yName), and
+// `monkey`, `passenger` and `authority` all matched too. Those rows recorded
+// "[redacted]" where the useful value should have been — worst of all on deletions,
+// where the audit note is the only surviving record of what was destroyed.
+//
+// Splitting on camelCase / snake_case / kebab-case boundaries first removes that
+// whole class of accident. Where a word is genuinely ambiguous the rule still errs
+// toward redaction: over-redacting loses data, under-redacting leaks a credential,
+// and only one of those is recoverable.
+const SECRET_WORD = new RegExp(
+  '^(' + [
+    'auth\\w*',                 // auth, authorization, authToken — prefix: always sensitive
+    'secret\\w*', 'token\\w*', 'credential\\w*', 'signature\\w*',
+    'pass(word|code|phrase)?',  // NOT a prefix: 'passenger' is not a credential
+    'keys?', 'otps?', 'hash(es)?', 'sig', 'jwt', 'bearer', 'pin',
+    'aadhaar', 'pan', 'ssn', 'cvv',
+  ].join('|') + ')$',
+  'i',
+);
+
+/** Split an object key into its constituent words: `objectKey` → ['object','key']. */
+function words(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')   // camelCase boundary
+    .split(/[^A-Za-z0-9]+/)                   // snake_case, kebab-case, spaces
+    .filter(Boolean);
+}
+
+/**
+ * Exported for tests. This decides what never reaches storage, so it is worth
+ * asserting against directly rather than through a copy of the rule that could
+ * drift away from the real one.
+ */
+export function isSecretKey(key: string): boolean {
+  return words(key).some((w) => SECRET_WORD.test(w));
+}
 
 /** Redact credential-shaped values so the audit trail never stores a secret. */
 function scrub(meta: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    if (SECRET_KEY.test(k)) {
+    if (isSecretKey(k)) {
       out[k] = '[redacted]';
     } else if (v && typeof v === 'object' && !Array.isArray(v)) {
       out[k] = scrub(v as Record<string, unknown>);

@@ -5,14 +5,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getLinkedAccount, setSwitch } from '@/lib/ewelink';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
@@ -32,6 +30,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { id: plug.id },
       data: { switchOn: body.on, lastPolledAt: new Date() },
     });
+
+    // Cutting power to a screen takes it off air — logged after the relay
+    // actually switched, so a failed eWeLink call never reads as an outage
+    // someone caused.
+    await logAdminAction({
+      actor, req,
+      action: 'plug.toggle',
+      target: id,
+      meta:   { plugId: plug.id, ewelinkDeviceId: plug.ewelinkDeviceId, on: body.on },
+    });
+
     return NextResponse.json({ plug: updated });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

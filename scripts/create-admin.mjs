@@ -31,6 +31,25 @@ if (!email || !email.includes('@')) {
   process.exit(1);
 }
 
+// Company domain only — the same rule as src/lib/admin-invite.ts
+// (isAllowedAdminEmail). Duplicated rather than imported because this is a plain
+// .mjs script and cannot import the TypeScript lib; kept deliberately identical,
+// including PARSING rather than suffix-matching, since
+// endsWith('@wearealive.in') would accept `attacker@evil.com@wearealive.in`.
+//
+// Without this check the script would happily mint a gmail.com ADMIN row. It
+// could not actually sign in — authorize() re-checks the domain — but it would
+// appear in Admin → Team as a real account, and relying on one downstream guard
+// is how the original fail-open bug happened.
+const ADMIN_EMAIL_DOMAIN = 'wearealive.in';
+const parts = email.split('@');
+if (parts.length !== 2 || !parts[0] || parts[1] !== ADMIN_EMAIL_DOMAIN) {
+  console.error(`\n  "${email}" is not an @${ADMIN_EMAIL_DOMAIN} address.`);
+  console.error('  Console accounts must be on the company domain — a personal');
+  console.error('  address would keep working after the person leaves.\n');
+  process.exit(1);
+}
+
 /** Prompt without echoing keystrokes. */
 function askHidden(question) {
   return new Promise((resolve) => {

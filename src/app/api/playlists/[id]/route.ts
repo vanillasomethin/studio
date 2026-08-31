@@ -7,11 +7,8 @@ import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import { pushPlanUpdated, resolveScheduleDeviceIds } from '@/lib/fcm';
 import { validateNesting, type PlaylistItemInput } from '@/lib/playlist-nesting';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizePlaylist(pl: any) {
@@ -42,7 +39,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     const { name, items, transition } = await req.json() as {
@@ -80,6 +78,21 @@ export async function PATCH(
           });
         }
       }
+    });
+
+    // A PATCH here is a full replace of what a playlist plays, so it changes
+    // every screen scheduled against it (and, via nesting, its parents too).
+    // Item count and the rename are enough to reconstruct what happened; the
+    // item array itself is request-body-sized and stays out of the trail.
+    await logAdminAction({
+      actor, req,
+      action: 'playlist.update',
+      target: id,
+      meta: {
+        name:       name?.trim(),
+        itemCount:  items?.length,
+        transition,
+      },
     });
 
     const CONTENT_SELECT = {
@@ -145,10 +158,19 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
-    await db.playlist.delete({ where: { id } });
+    // delete() returns the removed row — the last point at which the playlist's
+    // name still exists to be recorded.
+    const playlist = await db.playlist.delete({ where: { id } });
+    await logAdminAction({
+      actor, req,
+      action: 'playlist.delete',
+      target: id,
+      meta:   { name: playlist.name },
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

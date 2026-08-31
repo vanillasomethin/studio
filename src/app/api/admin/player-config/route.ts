@@ -5,11 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 async function getOrCreateConfig() {
   return db.playerConfig.upsert({
@@ -20,7 +17,7 @@ async function getOrCreateConfig() {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const config = await getOrCreateConfig();
     return NextResponse.json({ config });
@@ -30,7 +27,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as {
       retryIntervalMs?:          number;
@@ -47,6 +45,21 @@ export async function PATCH(req: NextRequest) {
       where: { id: 1 },
       data:  body,
     });
+
+    // One row, every screen in the fleet: a bad fallback playlist or kiosk-lock
+    // flip is felt everywhere at once. Records which knobs moved plus the two
+    // fields that decide what plays, not the whole body.
+    await logAdminAction({
+      actor, req,
+      action: 'player_config.update',
+      target: 'player-config',
+      meta: {
+        changed:            Object.keys(body),
+        fallbackPlaylistId: config.fallbackPlaylistId,
+        testPlaylistId:     config.testPlaylistId,
+      },
+    });
+
     return NextResponse.json({ config });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
