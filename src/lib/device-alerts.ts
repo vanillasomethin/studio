@@ -452,7 +452,10 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
 
       await pushToStoreAllChannels(alert.storeId, {
         title: 'Your ALIVE screen is offline',
-        body:  'It stopped playing about an hour ago. Please check the screen’s power and Wi-Fi.',
+        // Ends on the question because answering it is the action we want: the
+        // tap lands on the dashboard banner, whose one-tap buttons write
+        // partnerReportedCause — currently the only cause signal the fleet has.
+        body:  'It stopped playing about an hour ago. Was it a power cut, or the Wi-Fi? Tap to tell us — it helps us fix it faster.',
         url:   '/store-dashboard',
         tag:   `offline-${alert.id}`,
       });

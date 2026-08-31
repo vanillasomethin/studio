@@ -23,7 +23,22 @@ type AlertRow = {
   lastSeenAt: string | null;
   startedAt: string;
   resolvedAt: string | null;
+  partnerReportedCause: string | null;
 };
+
+// Order matters: most likely causes first, the honest cop-out last. Labels are
+// deliberately concrete ("Power cut", not "POWER_CUT") — the shopkeeper answers
+// in one tap without reading anything twice.
+const CAUSE_OPTIONS: { value: string; label: string; emoji: string }[] = [
+  { value: 'POWER_CUT',   label: 'Power cut',       emoji: '⚡' },
+  { value: 'NO_INTERNET', label: 'No internet',     emoji: '📶' },
+  { value: 'TV_OFF',      label: 'TV switched off', emoji: '📺' },
+  { value: 'APP_CLOSED',  label: 'App was closed',  emoji: '✖️' },
+  { value: 'DONT_KNOW',   label: "Don't know",      emoji: '🤷' },
+];
+
+const causeLabel = (v: string | null) =>
+  CAUSE_OPTIONS.find((o) => o.value === v)?.label ?? null;
 
 function since(iso: string | null): string {
   if (!iso) return 'a while';
@@ -45,6 +60,11 @@ export default function ScreenAlertBanner({ storeId, token }: { storeId?: string
   const [pushState, setPushState] = useState<'unsupported' | 'default' | 'granted' | 'denied' | 'busy'>('default');
   const [dismissedPrompt, setDismissedPrompt] = useState(false);
   const [pushError, setPushError] = useState(false);
+  // Cause reporting: value being submitted, and answers confirmed this session
+  // (so the thank-you shows instantly instead of waiting for the next poll).
+  const [reportingCause, setReportingCause] = useState<string | null>(null);
+  const [reportedLocal,  setReportedLocal]  = useState<Record<string, string>>({});
+  const [reportError,    setReportError]    = useState(false);
 
   // Poll so a partner who leaves the dashboard open sees the change without a
   // manual refresh. 60s is well inside the ~5-min detection granularity.
@@ -118,6 +138,66 @@ export default function ScreenAlertBanner({ storeId, token }: { storeId?: string
     }
   }, [storeId, token]);
 
+  const reportCause = useCallback(async (alertId: string, cause: string) => {
+    setReportingCause(cause);
+    setReportError(false);
+    try {
+      // Same auth shape as push-subscribe: storeId in the query only for the
+      // cookieless (app / freshly-registered) case, token header alongside.
+      const qs = storeId ? `?storeId=${encodeURIComponent(storeId)}` : '';
+      const res = await fetch(`/api/stores/alerts${qs}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-store-token': token } : {}) },
+        body: JSON.stringify({ alertId, cause }),
+      });
+      if (res.ok) setReportedLocal((m) => ({ ...m, [alertId]: cause }));
+      // A silent failure here would leave the shopkeeper believing they answered
+      // when nothing was recorded — say so, and leave the buttons tappable.
+      else setReportError(true);
+    } catch { setReportError(true); }
+    setReportingCause(null);
+  }, [storeId, token]);
+
+  // The one-tap "why is it off?" prompt, shared by the offline card and the
+  // back-online card: the escalation lands ~1h into an outage but shopkeepers
+  // often read it after the screen has already recovered, and the answer is
+  // worth just as much then — the API accepts reports on resolved alerts for
+  // exactly that reason.
+  const causePrompt = (target: AlertRow, prompt: string) => {
+    const reported = reportedLocal[target.id] ?? target.partnerReportedCause;
+    if (reported) {
+      return (
+        <p className="mt-2.5 text-xs font-semibold text-foreground/80 inline-flex items-center gap-1.5">
+          <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+          Noted: {causeLabel(reported) ?? reported} — thank you, this helps us fix it faster.
+        </p>
+      );
+    }
+    return (
+      <div className="mt-2.5">
+        <p className="text-xs font-bold text-foreground mb-1.5">{prompt}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {CAUSE_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => void reportCause(target.id, o.value)}
+              disabled={reportingCause !== null}
+              className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+            >
+              {reportingCause === o.value
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <span aria-hidden>{o.emoji}</span>}
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {reportError && (
+          <p className="text-xs text-destructive mt-1.5">Could not send — please tap again.</p>
+        )}
+      </div>
+    );
+  };
+
   const dismissPrompt = () => {
     setDismissedPrompt(true);
     try { localStorage.setItem('alive_push_prompt_dismissed', '1'); } catch { /* ignore */ }
@@ -149,6 +229,9 @@ export default function ScreenAlertBanner({ storeId, token }: { storeId?: string
               Please check that the screen is switched on and your Wi-Fi is working —
               it starts again on its own once it reconnects.
             </p>
+            {/* Ask about the newest outage; one tap covers the common case of
+                several screens dropping together (one power cut, one router). */}
+            {causePrompt(open[0], 'What happened? One tap helps us fix it faster:')}
             <a
               href="https://wa.me/919741324448?text=Hi+Alive+team,+my+screen+is+offline."
               target="_blank" rel="noreferrer"
@@ -163,9 +246,13 @@ export default function ScreenAlertBanner({ storeId, token }: { storeId?: string
       {!open.length && justBack && (
         <div className="rounded-2xl border border-green-500/25 bg-green-500/5 p-4 flex items-start gap-3">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600 mt-0.5" />
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground">Your screen is back online</p>
             <p className="text-xs text-muted-foreground mt-0.5">Ads are playing again — nothing further needed.</p>
+            {/* The push/WhatsApp promised a one-tap answer; keep the promise even
+                when they arrive after the screen recovered — the common case,
+                and the answer is worth just as much for debugging. */}
+            {causePrompt(justBack, "It's back — do you know what had stopped it? One tap helps us prevent it:")}
           </div>
         </div>
       )}

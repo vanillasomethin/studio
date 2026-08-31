@@ -476,6 +476,15 @@ model DeviceAlert {
   causeConfidence    String? // high | medium | low
   causeEvidence      String? // human-readable lines, newline separated — shown verbatim in the panel
 
+  // What the shopkeeper said happened. Kept apart from `cause` above on
+  // purpose: that is the server's verdict from device telemetry, this is a human
+  // standing in front of the screen. Today the classifier returns UNKNOWN across
+  // the fleet (no player build reports uptime yet), so this is the only cause
+  // signal that exists at all; once telemetry ships, comparing the two columns
+  // is how classifyOutageCause earns enough trust to run unsupervised.
+  partnerReportedCause String?   // POWER_CUT | NO_INTERNET | TV_OFF | APP_CLOSED | DONT_KNOW
+  partnerReportedAt    DateTime?
+
   adminReadAt       DateTime? // admin dismissed/saw it in the panel
   partnerNotifiedAt DateTime? // partner push/WhatsApp actually attempted
   partnerReadAt     DateTime?

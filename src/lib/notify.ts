@@ -110,6 +110,13 @@ export function deviceOfflinePartnerMsg(d: { storeName: string; since: Date | nu
     `Please check that the screen is switched on and your Wi-Fi is working.`,
     `Ads don't run while it's off — it goes back to normal on its own once it reconnects.`,
     ``,
+    // "or just reply" matters: the dashboard link only works where a partner
+    // session exists (their usual browser). App-only partners land on a login
+    // form — for them, a plain WhatsApp reply reaches us just as well.
+    `Do you know why it stopped? Power cut, Wi-Fi down, TV switched off?`,
+    `Tell us on your dashboard — or just reply to this message:`,
+    `https://wearealive.in/store-dashboard`,
+    ``,
     `Need help? WhatsApp us on +91 74113 24448.`,
   ].join('\n');
 }
