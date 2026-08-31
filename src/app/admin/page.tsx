@@ -11,7 +11,7 @@ import {
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
-  Megaphone, Image, Radar, Grid3x3, ImagePlus, Camera, ShieldCheck,
+  Megaphone, Image, Radar, Grid3x3, ImagePlus, Camera, ShieldCheck, Users,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { signIn, signOut as authSignOut } from 'next-auth/react';
@@ -37,6 +37,7 @@ const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'), 
 const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-panel'),   { ssr: false });
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
+const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),            { ssr: false });
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { adminGetArray, adminGetObject } from '@/lib/admin-fetch';
@@ -81,7 +82,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products' | 'team';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -124,6 +125,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
   {
     group: 'Platform',
     items: [
+      { id: 'team',       label: 'Team',         icon: Users      },
       { id: 'alerts',     label: 'Alerts',       icon: Bell       },
       { id: 'roadmap',    label: 'Platform Map', icon: Map        },
     ],
@@ -623,7 +625,14 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
       <div className="flex items-center gap-2.5">
         <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt={label} className="h-12 w-12 rounded-md object-cover border border-border" />
+          {/* Square box + landscape photo means object-cover crops HORIZONTALLY, so
+            object-top alone leaves the burnt-in GPS banner on screen (measured:
+            100% of image height visible at 48x48). The top-anchored 1.5x zoom
+            pushes the bottom third out of the clip box whatever the aspect, so
+            the stamp is gone here too. Stored file untouched — click opens it. */}
+        <span className="block h-12 w-12 shrink-0 overflow-hidden rounded-md border border-border">
+          <img src={url} alt={label} className="h-full w-full origin-top scale-150 object-cover object-top" />
+        </span>
         </a>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold text-foreground">{label}{at ? ` · ${fmtDate(at)}` : ''}{source === 'device' ? ' · device GPS' : ''}</p>
@@ -927,8 +936,15 @@ function StoresPanel() {
                   {photo ? (
                     <a href={photo} target="_blank" rel="noreferrer" title="Open full-size photo">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {/* object-top, not the default centre: GPS camera apps burn a
+                          map/coordinates banner into the BOTTOM of the frame, and this
+                          box is far wider than it is tall, so anchoring to the top makes
+                          the container clip that banner away — the card shows the
+                          shopfront, not the stamp. Nothing is altered on disk; the full
+                          stamped photo is still the evidence and opens on click.
+                          origin-top keeps the hover zoom from walking it back into view. */}
                       <img src={photo} alt={`${s.storeName} — shop photo`} loading="lazy"
-                        className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                        className="h-44 w-full object-cover object-top origin-top transition-transform duration-500 group-hover:scale-[1.04]" />
                     </a>
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/10 via-muted/60 to-muted">

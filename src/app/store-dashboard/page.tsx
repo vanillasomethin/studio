@@ -562,7 +562,12 @@ function GpsPhotoChip({ url, lat, lng, at }: { url: string; lat?: number | null;
     <div className="mt-2 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1.5">
       <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="Verification photo" className="h-9 w-9 rounded object-cover" />
+        {/* Square thumb: object-cover crops horizontally for a landscape photo, so
+            object-top alone would leave the burnt-in GPS banner visible. The
+            top-anchored zoom clips the bottom third regardless of aspect. */}
+        <span className="block h-9 w-9 shrink-0 overflow-hidden rounded">
+          <img src={url} alt="Verification photo" className="h-full w-full origin-top scale-150 object-cover object-top" />
+        </span>
       </a>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-bold text-green-700 flex items-center gap-1">
