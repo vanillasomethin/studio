@@ -7,7 +7,14 @@ import type { UserRole } from '@prisma/client';
 export const authConfig: NextAuthConfig = {
   pages:     { signIn: '/login' },
   trustHost: true,
-  session:   { strategy: 'jwt' },
+  // 90 days rather than the 30-day default, so an admin types a 2FA code a
+  // handful of times a year per browser instead of monthly. Safe to stretch
+  // BECAUSE revocation is server-side: requireAdmin checks the AdminSession row
+  // on every admin request, so a stolen or stale cookie can be killed instantly
+  // from Admin → Team regardless of how long the JWT itself remains signed.
+  // (Shared by store partners and brands too — longer sessions are ordinary UX
+  // there, and nothing sensitive rides on their cookie lifetime.)
+  session:   { strategy: 'jwt', maxAge: 90 * 24 * 60 * 60 },
   providers: [], // providers are added in the full auth.ts (Node.js only)
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
