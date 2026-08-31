@@ -2361,10 +2361,18 @@ export default function AdminPage() {
   const [state, setState] = useState<'checking' | 'login' | 'enrol' | 'ready'>('checking');
   const [email, setEmail] = useState<string | null>(null);
 
-  // GET /api/admin/mfa answers only for a *named* session — the shared password
-  // is explicitly refused there. So a 200 means "real account", and its
-  // `enrolled` flag decides whether 2FA setup is still owed. Anything else falls
-  // back to the legacy flag, which is all a shared-password login ever sets.
+  // GET /api/admin/mfa answers only for a *named* session. A 200 means "real
+  // account", and its `enrolled` flag decides whether 2FA setup is still owed.
+  // Anything else means no valid session → the login screen.
+  //
+  // This USED TO fall back to `sessionStorage.alive_admin === '1'` when the probe
+  // failed. That flag was set by the shared-password login, which is now retired —
+  // so the fallback had become a stale lie: a browser still holding the flag (an
+  // old shared-password session, or an expired named one) rendered the entire
+  // console shell while carrying no session, and every /api/* call 401'd. That is
+  // exactly the "the screens page is broke" report — the shell loads, the data
+  // never does. A named session is the only authority now, so the flag is gone
+  // from the decision entirely and this fails closed to the login screen.
   const probe = useCallback(async () => {
     try {
       const r = await fetch('/api/admin/mfa');
@@ -2375,10 +2383,11 @@ export default function AdminPage() {
         return;
       }
     } catch {
-      // Network/parse failure is not an authorization answer — fall through to
-      // the legacy check rather than granting or denying on a transport error.
+      // A transport error is not proof of a session — fail closed to login. A
+      // genuinely signed-in operator simply re-authenticates; the cookie may even
+      // still be valid, so the account form succeeds immediately.
     }
-    setState(sessionStorage.getItem('alive_admin') === '1' ? 'ready' : 'login');
+    setState('login');
   }, []);
 
   useEffect(() => { void probe(); }, [probe]);
