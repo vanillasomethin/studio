@@ -34,6 +34,25 @@ export type AdminIdentity = {
   team:  string;
 };
 
+/**
+ * The server-side secrets an admin session needs end to end, and which of them
+ * are missing here.
+ *
+ * Two different secrets have to be present for a sign-in to be worth anything:
+ * AUTH_SECRET signs the session cookie, and ADMIN_PASSWORD is what middleware
+ * hands downstream for the route guards to check. With either one absent a
+ * sign-in can still *look* successful while every subsequent admin request
+ * answers `{"error":"Unauthorized"}` — the console renders, and nothing in it
+ * loads. Sign-in checks this first and refuses with the names of the missing
+ * variables instead.
+ */
+export function missingAdminSecrets(): string[] {
+  const missing: string[] = [];
+  if (!process.env.AUTH_SECRET)    missing.push('AUTH_SECRET');
+  if (!process.env.ADMIN_PASSWORD) missing.push('ADMIN_PASSWORD');
+  return missing;
+}
+
 function secretKey(): Uint8Array | null {
   const s = process.env.AUTH_SECRET;
   if (!s) return null;

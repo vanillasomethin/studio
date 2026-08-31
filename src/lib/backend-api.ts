@@ -162,6 +162,15 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     },
     credentials: 'same-origin',
   });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    // The admin session is gone (expired cookie, or a sign-in that never got
+    // one). Showing a raw {"error":"Unauthorized"} in the middle of a panel
+    // leaves no way forward, so drop the stale flag and go back to the gate —
+    // same behaviour as lib/admin-fetch.ts.
+    sessionStorage.removeItem('alive_admin');
+    sessionStorage.removeItem('alive_admin_pw');
+    window.location.reload();
+  }
   if (!res.ok) {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });

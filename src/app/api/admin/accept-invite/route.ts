@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
-import { ADMIN_COOKIE, SESSION_HOURS, signAdminSession } from '@/lib/admin-session';
+import { ADMIN_COOKIE, SESSION_HOURS, missingAdminSecrets, signAdminSession } from '@/lib/admin-session';
 
 const MIN_PASSWORD = 10;
 
@@ -35,6 +35,16 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'token required' }, { status: 400 });
   if (password.length < MIN_PASSWORD) {
     return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters.` }, { status: 400 });
+  }
+
+  // Check the environment before consuming the invite: the token is single-use,
+  // so failing after the update would burn the link and leave the person with a
+  // password but no session.
+  const missing = missingAdminSecrets();
+  if (missing.length > 0) {
+    return NextResponse.json({
+      error: `Admin sign-in is not configured on this environment — ${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} not set. Your invite link is still valid; try again once it is.`,
+    }, { status: 503 });
   }
 
   const admin = await db.adminUser.findUnique({ where: { inviteToken: token } });

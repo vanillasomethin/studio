@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
-import { ADMIN_COOKIE, SESSION_HOURS, signAdminSession } from '@/lib/admin-session';
+import { ADMIN_COOKIE, SESSION_HOURS, missingAdminSecrets, signAdminSession } from '@/lib/admin-session';
 
 // ─── POST — sign in to the admin console ──────────────────────────────────────
 //
@@ -32,6 +32,18 @@ function setSession(res: NextResponse, token: string) {
 }
 
 export async function POST(req: NextRequest) {
+  // Refuse before checking anybody's password: without both secrets a sign-in
+  // that "succeeds" drops the person into a console where every panel answers
+  // Unauthorized. Better to say which variable is missing than to let them in
+  // to something broken.
+  const missing = missingAdminSecrets();
+  if (missing.length > 0) {
+    return NextResponse.json({
+      ok: false,
+      error: `Admin sign-in is not configured on this environment — ${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} not set.`,
+    }, { status: 503 });
+  }
+
   const body = await req.json().catch(() => null) as Body | null;
   const email    = body?.email?.trim().toLowerCase() ?? '';
   const password = body?.password ?? '';
@@ -56,18 +68,9 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Legacy shared password ──
-  const shared = process.env.ADMIN_PASSWORD;
-
-  if (!shared) {
-    // Fail CLOSED, matching lib/admin-auth.ts: an unset ADMIN_PASSWORD must
-    // authorize nobody. There is deliberately no dev bypass — without a secret
-    // the bootstrap route would be an open door to the whole admin surface,
-    // and the header check downstream rejects the session anyway.
-    return NextResponse.json(
-      { ok: false, error: 'Admin sign-in is not configured on this environment.' },
-      { status: 401 },
-    );
-  }
+  // Guaranteed non-empty: missingAdminSecrets() above already refused an
+  // environment without ADMIN_PASSWORD, so there is no dev bypass to fall into.
+  const shared = process.env.ADMIN_PASSWORD!;
 
   if (accountCount > 0) {
     return NextResponse.json(
@@ -77,10 +80,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (password === shared) {
-    const token = await signAdminSession({ id: 'bootstrap', name: 'Shared admin', email: '', team: 'tech' })
-      .catch(() => null);
-    const res = NextResponse.json({ ok: true, bootstrap: true });
-    return token ? setSession(res, token) : res;
+    // Deliberately not caught: a session that cannot be signed is a failed
+    // sign-in, not a successful one with the cookie quietly missing.
+    const token = await signAdminSession({ id: 'bootstrap', name: 'Shared admin', email: '', team: 'tech' });
+    return setSession(NextResponse.json({ ok: true, bootstrap: true }), token);
   }
 
   return invalid();

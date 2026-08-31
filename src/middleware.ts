@@ -18,23 +18,33 @@ const { auth } = NextAuth(authConfig);
  * every existing admin route keeps working unchanged while the browser never
  * sees ADMIN_PASSWORD.
  *
- * Requests without a valid session are passed through untouched: routes fall
- * back to their own header check, so nothing is newly opened up here.
+ * The x-admin-* headers are stripped from every inbound request first. They are
+ * the audit trail's idea of who did something, and a client that could set them
+ * itself could sign someone else's name to its actions — so downstream they only
+ * ever mean "middleware verified this session cookie".
+ *
+ * Requests without a valid session still reach the route, which falls back to
+ * its own admin-password check: nothing is newly opened up here.
  */
-async function withAdminIdentity(req: NextRequest): Promise<NextResponse | null> {
-  const token = req.cookies.get(ADMIN_COOKIE)?.value;
-  if (!token) return null;
+const IDENTITY_HEADERS = [ADMIN_ID_HEADER, ADMIN_NAME_HEADER, ADMIN_EMAIL_HEADER, ADMIN_TEAM_HEADER];
 
-  const admin = await verifyAdminSession(token);
-  if (!admin) return null;
+async function withAdminIdentity(req: NextRequest): Promise<NextResponse | null> {
+  const forged = IDENTITY_HEADERS.some((h) => req.headers.has(h));
+  const token  = req.cookies.get(ADMIN_COOKIE)?.value;
+  const admin  = token ? await verifyAdminSession(token) : null;
+  if (!admin && !forged) return null;
 
   const headers = new Headers(req.headers);
-  const shared = process.env.ADMIN_PASSWORD;
-  if (shared) headers.set('admin-password', shared);
-  headers.set(ADMIN_ID_HEADER, admin.id);
-  headers.set(ADMIN_NAME_HEADER, admin.name);
-  headers.set(ADMIN_EMAIL_HEADER, admin.email);
-  headers.set(ADMIN_TEAM_HEADER, admin.team);
+  for (const h of IDENTITY_HEADERS) headers.delete(h);
+
+  if (admin) {
+    const shared = process.env.ADMIN_PASSWORD;
+    if (shared) headers.set('admin-password', shared);
+    headers.set(ADMIN_ID_HEADER, admin.id);
+    headers.set(ADMIN_NAME_HEADER, admin.name);
+    headers.set(ADMIN_EMAIL_HEADER, admin.email);
+    headers.set(ADMIN_TEAM_HEADER, admin.team);
+  }
 
   return NextResponse.next({ request: { headers } });
 }
