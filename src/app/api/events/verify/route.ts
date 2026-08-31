@@ -24,9 +24,15 @@ export async function GET(req: NextRequest) {
   if (!deviceId) return NextResponse.json({ error: 'deviceId required' }, { status: 400 });
 
   try {
+    // Walk in INSERTION order, matching how /api/device/events builds the chain.
+    // Walking startedAt instead reported a break every time a device drained an
+    // offline backlog out of order: the rows were chained as they arrived, so
+    // replaying them in play-time order compares each link against the wrong
+    // neighbour. The chain attests to the order evidence was accepted, which is
+    // the only order the writer can observe.
     const events = await db.playEvent.findMany({
       where:   { deviceId },
-      orderBy: { startedAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select:  { id: true, deviceId: true, mediaId: true, startedAt: true, endedAt: true, durationMs: true, tag: true, prevHash: true, rowHash: true },
     });
 
