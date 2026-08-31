@@ -8,8 +8,9 @@
 // column of numbers — a dead code and a busy one should be distinguishable without
 // reading a single figure.
 
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, QrCode, Copy, CheckCircle2, ExternalLink } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { AlertCircle, QrCode, Copy, CheckCircle2, ExternalLink, Download } from 'lucide-react';
 import { adminGetObject } from '@/lib/admin-fetch';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -57,6 +58,63 @@ function ScanSparkline({ daily }: { daily: { date: string; scans: number }[] }) 
           style={{ height: d.scans > 0 ? `${Math.max(8, (d.scans / peak) * 100)}%` : '2px' }}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * The scannable code, plus a PNG export for whoever is doing the printing.
+ *
+ * Rendered as SVG so it stays crisp at any print size, then rasterised on demand
+ * at a fixed 1024px — big enough for a poster, and produced in the browser so no
+ * third-party QR service ever sees our URLs.
+ */
+function QrCodeBlock({ url, slug }: { url: string; slug: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const downloadPng = () => {
+    const svg = wrapRef.current?.querySelector('svg');
+    if (!svg) return;
+    setBusy(true);
+
+    const SIZE = 1024;
+    const xml  = new XMLSerializer().serializeToString(svg);
+    const img  = new window.Image();
+    // Inline the SVG as a data URI: a blob: URL would taint the canvas in some
+    // browsers and make toDataURL throw.
+    img.src = `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(xml)))}`;
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = SIZE;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { setBusy(false); return; }
+      ctx.fillStyle = '#ffffff';               // quiet zone must be opaque for scanners
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      ctx.drawImage(img, 0, 0, SIZE, SIZE);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `alive-qr-${slug}.png`;
+      a.click();
+      setBusy(false);
+    };
+    img.onerror = () => setBusy(false);
+  };
+
+  return (
+    <div className="flex shrink-0 flex-col items-center gap-1.5">
+      <div ref={wrapRef} className="rounded-lg border border-border bg-white p-2">
+        {/* level M tolerates a bit of print smudging without needing a bigger code */}
+        <QRCodeSVG value={url} size={104} level="M" marginSize={0} />
+      </div>
+      <button
+        onClick={downloadPng}
+        disabled={busy}
+        className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+      >
+        <Download className="h-3 w-3" /> {busy ? 'Saving…' : 'PNG'}
+      </button>
     </div>
   );
 }
@@ -156,7 +214,8 @@ export default function QrTab() {
           {d.destinations.map((dest) => (
             <div key={dest.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
+                <QrCodeBlock url={scanUrl(dest.slug)} slug={dest.slug} />
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <QrCode className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <p className="text-sm font-semibold text-foreground">{dest.label || dest.slug}</p>
