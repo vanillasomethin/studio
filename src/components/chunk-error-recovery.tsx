@@ -14,15 +14,29 @@ import { useEffect } from 'react';
 
 const FLAG = 'alive_chunk_reload';
 
-function isChunkLoadError(value: unknown): boolean {
+// Exported for the error boundary (src/app/error.tsx). A chunk failure inside a
+// lazily-imported panel is CAUGHT by React's boundary, so the window-level
+// 'error'/'unhandledrejection' listeners below never see it — the boundary has
+// to recognise it and call recover() itself, or the user is stranded on
+// "Something went wrong" for an error a reload fixes.
+export function isChunkLoadError(value: unknown): boolean {
   const msg =
     value instanceof Error ? `${value.name}: ${value.message}`
     : typeof value === 'string' ? value
     : '';
-  return /ChunkLoadError|Loading chunk \d+ failed|Importing a module script failed/i.test(msg);
+  // The wording varies by bundler and failure mode: webpack throws
+  // ChunkLoadError / "Loading chunk N failed", newer builds and CSS loads say
+  // "Failed to fetch dynamically imported module" / "Loading CSS chunk".
+  return /ChunkLoadError|Loading chunk .+ failed|Loading CSS chunk|Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(msg);
 }
 
-async function recover() {
+/** True once recover() has run this session — the boundary uses it to show the
+ *  real error page on a second failure instead of pretending to update forever. */
+export function recoveryAttempted(): boolean {
+  try { return !!sessionStorage.getItem(FLAG); } catch { return false; }
+}
+
+export async function recover() {
   if (sessionStorage.getItem(FLAG)) return; // already tried once this session
   sessionStorage.setItem(FLAG, '1');
 
