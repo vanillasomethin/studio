@@ -11,7 +11,7 @@ import {
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
-  Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus,
+  Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus, QrCode,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,7 @@ const ContentTab      = dynamic(() => import('@/components/admin/content-tab'), 
 const ProgrammingTab  = dynamic(() => import('@/components/admin/programming-tab'),  { ssr: false });
 const SlotsTab        = dynamic(() => import('@/components/admin/slots-tab'),        { ssr: false });
 const PowerTab        = dynamic(() => import('@/components/admin/power-tab'),        { ssr: false });
+const QrTab           = dynamic(() => import('@/components/admin/qr-tab'),           { ssr: false });
 const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
@@ -74,7 +75,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'power' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'power' | 'qr' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -131,6 +132,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   campaigns:  { eyebrow: 'Brand campaigns',    title: 'All campaigns'      },
   slots:      { eyebrow: 'Slot inventory',     title: 'Loop slots by day'  },
   power:      { eyebrow: 'Electricity',        title: 'Screen power'       },
+  qr:         { eyebrow: 'Scan tracking',      title: 'QR codes'           },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   coupons:    { eyebrow: 'Brand discounts',    title: 'Coupons'            },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
@@ -1458,6 +1460,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
       { id: 'power' as Tab,      label: 'Power',            icon: Zap,             count: null },
       { id: 'monitoring' as Tab, label: 'Monitoring',       icon: Activity,        count: null },
       { id: 'footfall' as Tab,   label: 'Footfall',         icon: Radar,           count: null },
+      { id: 'qr' as Tab,         label: 'QR codes',         icon: QrCode,          count: null },
     ],
   },
   {
@@ -1822,6 +1825,7 @@ function Dashboard() {
     campaigns:  'Campaigns',
     slots:      'Slot inventory',
     power:      'Power',
+    qr:         'QR codes',
     content:    'Creatives',
     compositions: 'Compositions',
     stores:       'Store Partners',
@@ -1895,6 +1899,7 @@ function Dashboard() {
               {tab === 'programming'   && <ProgrammingTab />}
               {tab === 'slots'      && <SlotsTab />}
               {tab === 'power'      && <PowerTab />}
+              {tab === 'qr'         && <QrTab />}
               {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}

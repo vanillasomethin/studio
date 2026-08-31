@@ -1322,3 +1322,36 @@ model PlugReading {
 
   @@index([plugId, at])
 }
+
+// ─── Trackable QR redirects ──────────────────────────────────────────────────
+//
+// A printed QR encodes /r/<slug> rather than the destination itself, so the
+// target can be repointed after the sticker is on the wall, and every scan is
+// counted. The redirect must never wait on the write — see src/app/r/[slug].
+
+model QrDestination {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  targetUrl String
+  label     String?
+  createdAt DateTime @default(now())
+
+  scans QrScan[]
+}
+
+model QrScan {
+  id            String   @id @default(cuid())
+  destinationId String
+  scannedAt     DateTime @default(now())
+  referrer      String?
+  userAgent     String?
+  ip            String?
+  country       String?
+  city          String?
+
+  destination QrDestination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  // The dashboard groups by destination over a date window; this covers both.
+  @@index([destinationId, scannedAt])
+  @@index([scannedAt])
+}
