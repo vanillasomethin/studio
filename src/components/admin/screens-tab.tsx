@@ -15,7 +15,6 @@ import {
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import ScreenTestButton from './screen-test-button';
-import PowerPanel from './power-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
@@ -133,9 +132,6 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                   </div>
                 </div>
               )}
-
-              {/* Sonoff smart plug (eWeLink) — mains switch + power telemetry */}
-              <PowerPanel deviceId={deviceId} />
 
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">What this device receives now</p>
