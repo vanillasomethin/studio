@@ -1660,23 +1660,29 @@ function Ticker({ stats }: { stats: OpsStats | null }) {
 
 // ─── Command Palette ──────────────────────────────────────────────────────────
 
-const PALETTE_GROUPS = [
+// Every item carries its own action — a tab to switch to or an href to open in
+// a new tab — so an entry can't ship as dead chrome (the old external tabMap
+// silently no-opped any label it didn't know about).
+const PALETTE_GROUPS: {
+  label: string;
+  items: { icon: React.ElementType; label: string; hint?: string; tab?: Tab; href?: string }[];
+}[] = [
   {
     label: 'Pages',
     items: [
-      { icon: LayoutDashboard, label: 'Go to Overview',        hint: 'G then O' },
-      { icon: Megaphone,       label: 'Go to Campaigns',       hint: 'G then C' },
-      { icon: Store,           label: 'Go to Store partners', hint: 'G then K' },
-      { icon: IndianRupee,     label: 'Go to Payouts',         hint: 'G then P' },
+      { icon: LayoutDashboard, label: 'Go to Overview',       hint: 'G then O', tab: 'overview'  },
+      { icon: Megaphone,       label: 'Go to Campaigns',      hint: 'G then C', tab: 'campaigns' },
+      { icon: Store,           label: 'Go to Store partners', hint: 'G then K', tab: 'stores'    },
+      { icon: IndianRupee,     label: 'Go to Payouts',        hint: 'G then P', tab: 'payments'  },
     ],
   },
   {
     label: 'Actions',
     items: [
-      { icon: Plus,        label: 'New campaign',              hint: '⌘N' },
-      { icon: Upload,      label: 'Upload 8-second creative',  hint: '⌘U' },
-      { icon: Store,       label: 'Onboard a kirana',          hint: '⌘⇧K' },
-      { icon: IndianRupee, label: 'Release May payouts',       hint: undefined },
+      { icon: Plus,        label: 'New campaign',             hint: '⌘N',  href: '/brand-onboarding' },
+      { icon: Upload,      label: 'Upload 8-second creative', hint: '⌘U',  tab: 'content'            },
+      { icon: Store,       label: 'Onboard a kirana',         hint: '⌘⇧K', href: '/store'            },
+      { icon: IndianRupee, label: 'Release monthly payouts',  tab: 'payments'                        },
     ],
   },
 ];
@@ -1694,13 +1700,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
 
   if (!open) return null;
   const filter = (txt: string) => txt.toLowerCase().includes(q.toLowerCase());
-
-  const tabMap: Record<string, Tab> = {
-    'Go to Overview': 'overview',
-    'Go to Campaigns': 'campaigns',
-    'Go to Store partners': 'stores',
-    'Go to Payouts': 'payments',
-  };
 
   return (
     <div className="cmd__overlay" onClick={onClose}>
@@ -1726,7 +1725,8 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
                   const IconComp = it.icon;
                   return (
                     <button key={k} className="cmd__item" onClick={() => {
-                      if (tabMap[it.label]) onNav(tabMap[it.label]);
+                      if (it.tab) onNav(it.tab);
+                      else if (it.href) window.open(it.href, '_blank');
                       onClose();
                     }}>
                       <span className="cmd__item-icon"><IconComp className="h-3.5 w-3.5" /></span>
