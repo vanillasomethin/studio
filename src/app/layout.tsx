@@ -61,7 +61,7 @@ export default function RootLayout({
         </head>
         <body
           className={cn('min-h-screen bg-background font-sans antialiased')}
-          style={{ fontFamily: 'var(--font-sans), system-ui, sans-serif' }}
+          style={{ fontFamily: 'var(--font-manrope), system-ui, sans-serif' }}
         >
           <ChunkErrorRecovery />
           <PwaRegister />

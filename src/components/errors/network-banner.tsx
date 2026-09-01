@@ -36,7 +36,7 @@ export function NetworkBanner() {
         color: isBack ? '#15803d' : isSlow ? '#92400e' : '#fafafa',
         transform: 'translateY(0)',
         animation: 'bannerSlide .28s cubic-bezier(.22,1,.36,1)',
-        fontFamily: 'var(--font-sans), sans-serif',
+        fontFamily: 'var(--font-manrope), sans-serif',
         fontSize: 13,
       }}
     >

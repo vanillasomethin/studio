@@ -9,7 +9,7 @@ export function Logo({ className }: { className?: string }) {
     <span
       className={className}
       style={{
-        fontFamily: 'var(--font-sans), sans-serif',
+        fontFamily: 'var(--font-poppins), sans-serif',
         fontWeight: 800,
         fontSize: 22,
         letterSpacing: '-0.02em',

@@ -264,14 +264,16 @@ When a generic control and a graphical one both work, use the graphical one.
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
-- Type: **Poppins, and nothing else** — marketing site, store dashboard, admin
-  console, error pages. It is self-hosted by `next/font` in `src/app/fonts.ts`
-  and reaches everything through the single `--font-sans` variable; never add a
-  second family, a Google Fonts `<link>`, or a literal `font-family: 'X'`. Weight
-  and size carry hierarchy, not typeface. Admin's `--font-display` /
-  `--font-body` / `--font-mono` all resolve to it, so the ex-mono labels are
-  Poppins with letter-spacing; numeric columns use `font-variant-numeric:
-  tabular-nums` instead of a monospace face.
+- Type: Poppins (wordmark, brand), Manrope (body, headlines), DM Mono (editorial
+  labels). **One source per family** — all three are declared once in
+  `src/app/fonts.ts`, self-hosted by `next/font`, and reached only through
+  `--font-poppins` / `--font-manrope` / `--font-dm-mono`. Never add a Google
+  Fonts `<link>` or a literal `font-family: 'Poppins'`: a second source means a
+  second download and a face that swaps at a different moment. Components that
+  render their own `<html>` (`error.tsx`) must put `fontVariables` on it, since
+  they inherit nothing from the root layout. The admin console's Inter Tight /
+  JetBrains Mono are still loaded from Google in `admin/admin.css` — one source,
+  but not yet self-hosted.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.

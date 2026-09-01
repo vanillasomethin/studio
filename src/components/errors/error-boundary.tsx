@@ -43,16 +43,16 @@ export class ErrorBoundary extends Component<Props, State> {
             </svg>
           </div>
           <div>
-            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontWeight: 700, fontSize: 15, color: '#0a0a0a', margin: '0 0 6px' }}>
+            <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 700, fontSize: 15, color: '#0a0a0a', margin: '0 0 6px' }}>
               Something went wrong
             </p>
-            <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: 13, color: '#737373', lineHeight: 1.55, margin: 0 }}>
+            <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, color: '#737373', lineHeight: 1.55, margin: 0 }}>
               We've logged this and are looking into it. Try refreshing — your work is still here.
             </p>
           </div>
           <button
             onClick={() => { this.setState({ error: null }); window.location.reload(); }}
-            style={{ fontFamily: 'var(--font-sans), sans-serif', fontWeight: 600, fontSize: 12, padding: '9px 18px', borderRadius: 999, border: '1px solid #e5e5e5', background: '#fff', cursor: 'pointer', color: '#0a0a0a' }}
+            style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 600, fontSize: 12, padding: '9px 18px', borderRadius: 999, border: '1px solid #e5e5e5', background: '#fff', cursor: 'pointer', color: '#0a0a0a' }}
           >
             Refresh page
           </button>

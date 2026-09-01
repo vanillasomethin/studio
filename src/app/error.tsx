@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { isChunkLoadError, recover, recoveryAttempted } from '@/components/chunk-error-recovery';
-import { sans } from './fonts';
+import { fontVariables } from './fonts';
 
 // Next.js global error boundary page — shown for unhandled runtime errors.
 // Keep this minimal and reassuring.
@@ -37,7 +37,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
 
   if (updating) {
     return (
-      <html lang="en" className={sans.variable}>
+      <html lang="en" className={fontVariables}>
         <head>
           <title>Updating — ALIVE</title>
         </head>
@@ -54,24 +54,24 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   }
 
   return (
-    <html lang="en" className={sans.variable}>
+    <html lang="en" className={fontVariables}>
       <head>
         <title>Something went wrong — ALIVE</title>
       </head>
-      <body style={{ margin: 0, fontFamily: 'var(--font-sans), system-ui, sans-serif', background: '#fff', color: '#0a0a0a' }}>
+      <body style={{ margin: 0, fontFamily: 'var(--font-manrope), system-ui, sans-serif', background: '#fff', color: '#0a0a0a' }}>
         <div style={{ minHeight: '100svh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', textAlign: 'center' }}>
 
           {/* Wordmark */}
-          <div style={{ fontFamily: 'var(--font-sans), sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', marginBottom: 48, display: 'flex', alignItems: 'center', gap: 4, opacity: 0.35 }}>
+          <div style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', marginBottom: 48, display: 'flex', alignItems: 'center', gap: 4, opacity: 0.35 }}>
             alive<span style={{ width: 7, height: 7, borderRadius: '50%', background: '#dc2626', display: 'inline-block', transform: 'translateY(1px)' }} />
           </div>
 
           {/* Error marker */}
-          <div style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: 11, letterSpacing: '0.28em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600, marginBottom: 24 }}>
+          <div style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 11, letterSpacing: '0.28em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600, marginBottom: 24 }}>
             Unexpected error
           </div>
 
-          <h1 style={{ fontFamily: 'var(--font-sans), sans-serif', fontWeight: 700, fontSize: 'clamp(24px, 5vw, 40px)', letterSpacing: '-0.035em', lineHeight: 1.15, margin: '0 0 16px', maxWidth: '14ch' }}>
+          <h1 style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 700, fontSize: 'clamp(24px, 5vw, 40px)', letterSpacing: '-0.035em', lineHeight: 1.15, margin: '0 0 16px', maxWidth: '14ch' }}>
             Something went wrong on our end.
           </h1>
 
@@ -85,7 +85,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
               style={{
                 padding: '12px 24px', borderRadius: 999, border: 'none',
                 background: '#0a0a0a', color: '#fff',
-                fontFamily: 'var(--font-sans), sans-serif', fontWeight: 600, fontSize: 14,
+                fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 600, fontSize: 14,
                 cursor: 'pointer', letterSpacing: '-0.01em',
               }}
             >
@@ -96,7 +96,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
               style={{
                 padding: '12px 24px', borderRadius: 999, border: '1px solid #e5e5e5',
                 background: '#fff', color: '#0a0a0a', textDecoration: 'none',
-                fontFamily: 'var(--font-sans), sans-serif', fontWeight: 600, fontSize: 14,
+                fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 600, fontSize: 14,
               }}
             >
               Go home
@@ -104,7 +104,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
           </div>
 
           {error.digest && (
-            <p style={{ marginTop: 40, fontFamily: 'var(--font-sans), sans-serif', fontSize: 10, color: '#d4d4d4', letterSpacing: '0.1em' }}>
+            <p style={{ marginTop: 40, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#d4d4d4', letterSpacing: '0.1em' }}>
               ref: {error.digest}
             </p>
           )}
