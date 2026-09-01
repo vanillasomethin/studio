@@ -6,14 +6,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { code } = await req.json() as { code?: string };
     const normalised = code?.trim().toUpperCase();
@@ -37,6 +35,16 @@ export async function POST(req: NextRequest) {
     await db.device.update({
       where: { id: device.id },
       data:  { pairedAt: new Date() },
+    });
+
+    // Confirming a pairing is what admits a physical screen into the fleet — the
+    // moment an unknown TV starts receiving plans. The code itself is a claim
+    // credential, so it stays out of the record.
+    await logAdminAction({
+      actor, req,
+      action: 'device.pair',
+      target: device.id,
+      meta:   { name: device.name },
     });
 
     return NextResponse.json({ device: { id: device.id, name: device.name, hardwareKey: device.hardwareKey } });

@@ -5,6 +5,9 @@ import {
   Mic, MicOff, ShoppingCart, Trash2, Plus, Minus,
   QrCode, MessageCircle, CheckCircle2, RefreshCw, Loader2, ScanBarcode, X,
 } from 'lucide-react';
+// Attaches the signed x-store-token from the cached session, so these calls
+// authenticate server-side even when the next-auth cookie has expired.
+import { storeFetch } from '@/lib/store-fetch';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +25,8 @@ interface Props {
   storeId?:   string;
   storeName:  string;
   upiId?:     string;
+  /** Signed store token — sent to authenticated store routes (see parseText). */
+  token?:     string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,7 +57,7 @@ type AnySpeechRecognition = any;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
+export default function VoiceBillTab({ storeId, storeName, upiId, token }: Props) {
   const [billRef,       setBillRef]       = useState(() => genBillRef());
   const [billDate]                        = useState(() => new Date());
   const [items,         setItems]         = useState<Item[]>([]);
@@ -130,9 +135,12 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
     setIsParsing(true);
     setParseError(null);
     try {
-      const res  = await fetch('/api/voicebill/parse', {
+      // The signed token is required whenever there's no next-auth cookie —
+      // right after registration, and in admin open-as-partner — otherwise
+      // resolveStoreId() returns null and parsing 401s for exactly those users.
+      const res  = await storeFetch('/api/voicebill/parse', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-store-token': token } : {}) },
         body: JSON.stringify({ text, storeId }),
       });
       const data = await res.json() as { items?: { name: string; qty: number; unit: string; price: number }[] };
@@ -147,7 +155,7 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
     } finally {
       setIsParsing(false);
     }
-  }, []);
+  }, [storeId, token]);
 
   const handleParseVoice  = () => parseText(transcript);
   const handleParseManual = () => parseText(manualText);
@@ -166,7 +174,8 @@ export default function VoiceBillTab({ storeId, storeName, upiId }: Props) {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch('/api/bills', {
+      // storeFetch, not fetch: /api/bills now requires a proven store identity.
+      const res = await storeFetch('/api/bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ billRef, storeName, storeId, items, totalAmount: total, payMethod }),

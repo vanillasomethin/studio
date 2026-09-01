@@ -1,18 +1,16 @@
 // GET  /api/admin/slot-requests?status=pending  — list (default: pending only)
 // POST /api/admin/slot-requests { id, decision: 'approved'|'rejected', decidedBy? }
-// Auth: admin-password header.
+// Auth: named admin session (requireAdmin).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { decideSlotRequest } from '@/lib/slot-requests-db';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
-}
 
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const status = req.nextUrl.searchParams.get('status') ?? 'pending';
   const requests = await db.slotRequest.findMany({
@@ -38,7 +36,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const body = await req.json().catch(() => null) as { id?: string; decision?: string; decidedBy?: string } | null;
   const id = body?.id ?? '';

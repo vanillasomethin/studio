@@ -15,11 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { resolveScheduleDeviceIds } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 type Targeting = {
   deviceIds?:  string[];
@@ -28,8 +24,11 @@ type Targeting = {
   cityFilter?: string | null;
 };
 
+// POST only because the targeting payload is a body — it reads schedules and
+// mutates nothing, so it stays out of the audit trail (the schedule.create it
+// precedes is what actually gets recorded, in POST /api/schedules).
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const body = await req.json() as Targeting & { startAt: string; endAt: string; excludeId?: string };
     if (!body.startAt || !body.endAt) {

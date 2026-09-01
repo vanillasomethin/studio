@@ -6,14 +6,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushPlanUpdated, resolveScheduleDeviceIds } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const rows = await db.schedule.findMany({
       select: {
@@ -80,7 +77,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const {
       name, playlistId, groupName, deviceIds, storeIds, cityFilter,
@@ -185,6 +183,25 @@ export async function POST(req: NextRequest) {
       }),
       ...replacedTargets.map((t) => resolveScheduleDeviceIds(t)),
     ]).then((sets) => pushPlanUpdated(Array.from(new Set(sets.flat())))).catch(() => {});
+
+    // Putting a playlist on screens is the single most consequential admin
+    // action on the platform — it is what a hostile actor would be after. Record
+    // who did it, what it targets, and which schedules it displaced.
+    await logAdminAction({
+      actor, req,
+      action: 'schedule.create',
+      target: schedule.id,
+      meta: {
+        name:       schedule.name,
+        playlistId: schedule.playlistId,
+        priority:   schedule.priority,
+        deviceIds:  schedule.deviceIds,
+        groupName:  schedule.groupName,
+        startAt:    norm.startAt,
+        endAt:      norm.endAt,
+        replaced:   deletedCount,
+      },
+    });
 
     return NextResponse.json({ schedule: norm, replaced: deletedCount });
   } catch (e) {

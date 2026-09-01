@@ -10,13 +10,14 @@
 // keyed by its deterministic client-side id. Auth: admin-password header.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { db } from '@/lib/db';
 
 const TEAMS = new Set(['tech', 'operations', 'marketing']);
 
 export async function GET(req: NextRequest) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const [actions, commentCounts] = await Promise.all([
     db.alertAction.findMany(),
@@ -38,7 +39,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const body = await req.json().catch(() => null) as {
     alertId?: string; action?: string; team?: string | null; assignee?: string | null; closedBy?: string;

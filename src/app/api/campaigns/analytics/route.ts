@@ -13,7 +13,8 @@ export async function GET() {
 
   try {
     const campaigns = await db.campaign.findMany({
-      where:  { email: session.user.email },
+      // Case-insensitive — see the note in /api/campaigns/list.
+      where:  { email: { equals: session.user.email, mode: 'insensitive' } },
       select: { id: true },
     });
 

@@ -1,26 +1,43 @@
-# PWA Icons
+# PWA + notification icons
 
-These are generated — don't hand-edit them.
+These are **generated**, not hand-drawn. Regenerate with:
 
 ```
-npm run icons:pwa
+node scripts/generate-icons.mjs
 ```
 
-`scripts/generate-pwa-icons.js` renders the canonical ALIVE wordmark (Poppins 800
-+ red dot, matching `src/components/icons/logo.tsx`) in headless Chromium and
-writes the full set. Re-run it if the wordmark ever changes.
+## Files
 
-| File                      | Size      | Purpose                              |
-|---------------------------|-----------|--------------------------------------|
-| icon-192.png              | 192×192   | Android home screen icon             |
-| icon-512.png              | 512×512   | Android splash screen / store        |
-| icon-maskable-192.png     | 192×192   | Android adaptive icon (safe zone)    |
-| icon-maskable-512.png     | 512×512   | Android adaptive icon (safe zone)    |
-| apple-touch-icon.png      | 180×180   | iOS home screen icon                 |
+| File                     | Size    | Purpose                                             |
+|--------------------------|---------|-----------------------------------------------------|
+| `icon-192.png`           | 192×192 | Android home screen; notification large icon        |
+| `icon-512.png`           | 512×512 | Android splash / install prompt                     |
+| `icon-maskable-192.png`  | 192×192 | Android adaptive icon                               |
+| `icon-maskable-512.png`  | 512×512 | Android adaptive icon                               |
+| `apple-touch-icon.png`   | 180×180 | iOS home screen (opaque — iOS composites alpha onto black) |
+| `badge-96.png`           | 96×96   | Android notification badge (status bar)             |
 
-The maskable variants render the mark smaller so it stays inside the inner 80%
-safe zone — Android crops maskable icons to a circle, squircle, or rounded
-square depending on the launcher.
+Referenced from `src/app/manifest.ts` (the four PWA icons), `src/app/layout.tsx`
+(apple-touch-icon), and `public/sw.js` (`icon` + `badge` on push notifications).
+Adding or renaming a file means updating those too.
 
-Chrome will not fire `beforeinstallprompt` (so the install banner never appears)
-unless valid 192px and 512px icons resolve, which is why these must exist.
+## Design notes
+
+The mark is the **ALIVE dot** — the same motif as `public/favicon.svg` — not the
+"alive" wordmark. The wordmark is Poppins ExtraBold, which isn't guaranteed to be
+installed wherever this script runs, and a fallback face renders visibly
+off-brand. The dot is font-free, so output is byte-identical on any machine, and
+it stays legible at the ~24dp Android draws a notification icon at, where a
+wordmark would be unreadable.
+
+Two families, and they are not interchangeable:
+
+- **any** — white field, red dot. Shown as-is.
+- **maskable** — red bleeding to all four edges, white dot kept well inside the
+  safe zone. Android crops adaptive icons to a circle/squircle; a white-background
+  icon gets its corners clipped and looks broken, which is exactly what the
+  maskable variants exist to prevent.
+
+`badge-96.png` is white-on-transparent because Android alpha-masks the badge to a
+silhouette and discards colour. Pointing `badge` at a white-background icon (as
+the SW briefly did) masks to a solid blob.

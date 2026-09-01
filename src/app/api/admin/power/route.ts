@@ -3,7 +3,7 @@
 // PATCH /api/admin/power  { storeId, screenWatts?, screenModel?, screenPlatePhotoUrl?,
 //                           screenRatingPhotoUrl? }        — record a store's survey
 //       /api/admin/power  { defaultScreenWatts?, electricityPaisePerKwh? } — fleet settings
-// Auth: admin-password header
+// Auth: named admin session (requireAdmin)
 //
 // Estimates, not meter readings — see lib/power.ts. `usingDefaultWatts` marks the
 // stores still on the fleet guess, i.e. the ones whose numbers should not be trusted
@@ -13,14 +13,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { estimateStorePower, getPowerSettings } from '@/lib/power-db';
 import { istMonthStart } from '@/lib/power';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
-}
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const monthParam = req.nextUrl.searchParams.get('month');
     const since = /^\d{4}-\d{2}$/.test(monthParam ?? '')
@@ -92,7 +90,8 @@ type PatchBody = {
 };
 
 export async function PATCH(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as PatchBody;
 

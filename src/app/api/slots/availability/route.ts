@@ -7,11 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { istToday } from '@/lib/slots';
 import { availabilityGrid } from '@/lib/slots-db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 function dateRange(from: string, to: string): string[] {
   const out: string[] = [];
@@ -24,7 +20,7 @@ function dateRange(from: string, to: string): string[] {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const { searchParams } = req.nextUrl;
     const from = searchParams.get('from') ?? istToday();

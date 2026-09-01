@@ -98,9 +98,14 @@ export default function FootfallTab() {
   // Load store list once
   useEffect(() => {
     searchStores().then((r) => {
-      setStores(r.stores);
-      if (r.stores.length > 0) setStoreId(r.stores[0].id);
-    }).catch((e: Error) => setError(e.message));
+      const list = Array.isArray(r?.stores) ? r.stores : [];
+      setStores(list);
+      // The per-store load below early-returns while storeId is empty, so with no
+      // store to auto-select `loading` would stay true forever and the tab spins
+      // with no way out. Stop here and let the empty state render instead.
+      if (list.length > 0) setStoreId(list[0].id);
+      else setLoading(false);
+    }).catch((e: Error) => { setError(e.message); setLoading(false); });
   }, []);
 
   const days = RANGE_OPTIONS.find((r) => r.id === range)?.days ?? 7;
@@ -203,7 +208,7 @@ export default function FootfallTab() {
               <div className="admin-kpi__icon"><Eye className="h-3.5 w-3.5" /></div>
               <div className="admin-kpi__label">Avg confidence</div>
               <div className="admin-kpi__value">
-                {data?.hourly.length
+                {data?.hourly?.length
                   ? `${Math.round(
                       (data.hourly.reduce((s, h) => s + (h.avgConfidence ?? 0), 0) / data.hourly.length) * 100,
                     )}%`
@@ -234,7 +239,7 @@ export default function FootfallTab() {
                 <p className="card__sub">% of ad plays at this store with a corroborated footfall event nearby</p>
               </div>
             </div>
-            {!data?.presenceByCampaign.length ? (
+            {!data?.presenceByCampaign?.length ? (
               <p className="text-sm text-muted-foreground text-center py-6">No screen-presence events recorded for this range.</p>
             ) : (
               <table className="tbl">
@@ -265,7 +270,7 @@ export default function FootfallTab() {
                   <p className="card__sub">Footfall events filtered before counting — full audit trail, never silently dropped</p>
                 </div>
               </div>
-              {!audit?.breakdown.length ? (
+              {!audit?.breakdown?.length ? (
                 <p className="text-sm text-muted-foreground text-center py-6">No exclusions in this range.</p>
               ) : (
                 <div className="admin-chips" style={{ marginBottom: 12 }}>
@@ -274,7 +279,7 @@ export default function FootfallTab() {
                   ))}
                 </div>
               )}
-              {!!audit?.events.length && (
+              {!!audit?.events?.length && (
                 <table className="tbl">
                   <thead>
                     <tr><th>Time (IST)</th><th>Reason</th><th>Zone</th><th>Confidence</th></tr>
@@ -302,36 +307,36 @@ export default function FootfallTab() {
               </div>
               <div className="admin-feed">
                 <div className="admin-feed-item">
-                  {health?.ruview.status === 'online'
+                  {health?.ruview?.status === 'online'
                     ? <span className="admin-live-dot admin-live-dot--online" />
                     : <span className="admin-live-dot admin-live-dot--offline" />}
                   <div className="admin-feed-item__info">
                     <div className="admin-feed-item__name">RuView (CSI)</div>
                     <div className="admin-feed-item__meta">
-                      {health?.ruview.lastSeen
+                      {health?.ruview?.lastSeen
                         ? `Last seen ${new Date(health.ruview.lastSeen).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`
                         : 'Never seen'}
-                      {health?.ruview.uptime != null ? ` · ${health.ruview.uptime.toFixed(1)}% uptime` : ''}
+                      {health?.ruview?.uptime != null ? ` · ${health.ruview.uptime.toFixed(1)}% uptime` : ''}
                     </div>
                   </div>
-                  {health?.ruview.status === 'online'
+                  {health?.ruview?.status === 'online'
                     ? <Wifi className="h-3.5 w-3.5 text-green-500" />
                     : <WifiOff className="h-3.5 w-3.5 text-red-500" />}
                 </div>
                 <div className="admin-feed-item">
-                  {health?.espresense.status === 'online'
+                  {health?.espresense?.status === 'online'
                     ? <span className="admin-live-dot admin-live-dot--online" />
                     : <span className="admin-live-dot admin-live-dot--offline" />}
                   <div className="admin-feed-item__info">
                     <div className="admin-feed-item__name">ESPresense (BLE)</div>
                     <div className="admin-feed-item__meta">
-                      {health?.espresense.lastSeen
+                      {health?.espresense?.lastSeen
                         ? `Last seen ${new Date(health.espresense.lastSeen).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`
                         : 'Never seen'}
-                      {health?.espresense.uptime != null ? ` · ${health.espresense.uptime.toFixed(1)}% uptime` : ''}
+                      {health?.espresense?.uptime != null ? ` · ${health.espresense.uptime.toFixed(1)}% uptime` : ''}
                     </div>
                   </div>
-                  {health?.espresense.status === 'online'
+                  {health?.espresense?.status === 'online'
                     ? <Wifi className="h-3.5 w-3.5 text-green-500" />
                     : <WifiOff className="h-3.5 w-3.5 text-red-500" />}
                 </div>

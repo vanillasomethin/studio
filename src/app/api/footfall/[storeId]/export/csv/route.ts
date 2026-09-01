@@ -1,13 +1,27 @@
 // CSV export of hourly footfall data for a store.
 // GET /api/footfall/:storeId/export/csv?from=&to=
-// Auth: admin-password header or query param.
+// Auth: admin — named session, or the legacy admin-password as header or query param.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? req.nextUrl.searchParams.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
+// This route is opened as a plain <a href> download (see getFootfallExportUrl in
+// src/lib/backend-api.ts), and a bare browser navigation cannot carry a custom
+// header — which is why the password has always been accepted as a query param
+// here too. The guard reads exactly one header, so it is handed a view of the
+// request where `admin-password` falls back to the query string. Nothing else
+// is widened: every other header, and the session path, are untouched. A named
+// admin session needs none of this, since cookies do ride along on navigation.
+function withQueryPassword(req: NextRequest) {
+  return {
+    headers: {
+      get: (name: string) =>
+        name.toLowerCase() === 'admin-password'
+          ? req.headers.get(name) ?? req.nextUrl.searchParams.get('admin-password')
+          : req.headers.get(name),
+    },
+  };
 }
 
 function esc(v: string | number | null | undefined) {
@@ -19,7 +33,7 @@ function esc(v: string | number | null | undefined) {
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ storeId: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(withQueryPassword(req)))) return adminUnauthorized();
   const { storeId } = await params;
 
   const { searchParams } = new URL(req.url);

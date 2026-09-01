@@ -3,11 +3,7 @@
 // Cached in-memory for 5 min. Admin-guarded.
 
 import { NextRequest, NextResponse } from 'next/server';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 type FeedItem = { title: string; link: string; pubDate: string | null };
 
@@ -38,7 +34,7 @@ function parseRss(xml: string): FeedItem[] {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const url = req.nextUrl.searchParams.get('url');
   if (!url) return NextResponse.json({ error: 'url required' }, { status: 400 });
 

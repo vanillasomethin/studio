@@ -1,15 +1,15 @@
 // PATCH /api/admin/store-photo { storeId, photoUrl } — set/clear a store's
-// storefront photo. Admin-only (admin-password header, same as the other
-// /api/admin routes). The bytes themselves go to R2 via /api/admin/r2-upload;
+// storefront photo. The bytes themselves go to R2 via /api/admin/r2-upload;
 // this only records the resulting public URL against the store.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 import { db } from '@/lib/db';
-import { recordAdminAction } from '@/lib/admin-actor';
 
 export async function PATCH(req: NextRequest) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const body = await req.json().catch(() => null) as { storeId?: string; photoUrl?: string | null } | null;
   const storeId = body?.storeId?.trim();
@@ -26,6 +26,11 @@ export async function PATCH(req: NextRequest) {
   if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
 
   await db.store.update({ where: { id: storeId }, data: { photoUrl } });
-  void recordAdminAction(req, photoUrl ? 'store_photo_set' : 'store_photo_cleared', storeId);
+  await logAdminAction({
+    actor, req,
+    action: photoUrl ? 'store.photo_set' : 'store.photo_cleared',
+    target: storeId,
+    meta:   { photoUrl },
+  });
   return NextResponse.json({ photoUrl });
 }

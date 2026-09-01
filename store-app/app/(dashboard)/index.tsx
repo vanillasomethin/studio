@@ -119,9 +119,12 @@ function GpsPhotoRow({ kind, store, onUploaded }: {
         tvTag,
       });
       const now = new Date().toISOString();
+      // Cache the tag the server STORED, not the one just typed — ops owns the
+      // TV number once recorded, so a second attempt is refused server-side.
       onUploaded(kind === 'shop'
         ? { shopPhotoUrl: out.url, shopPhotoLat: coords.lat, shopPhotoLng: coords.lng, shopPhotoAt: now }
-        : { installPhotoUrl: out.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: now, tvTag: tvTag.trim() || null });
+        : { installPhotoUrl: out.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: now,
+            tvTag: out.tvTag !== undefined ? out.tvTag : (tvTag.trim() || null) });
     } catch (e) {
       Alert.alert('Upload failed', (e as Error).message ?? 'Please try again.');
     } finally {

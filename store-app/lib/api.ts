@@ -124,7 +124,9 @@ export async function uploadVerificationPhoto(opts: {
   source: 'exif' | 'device';
   /** Install photo only: TV number / ID pin marked on the unit. */
   tvTag?: string;
-}): Promise<{ ok: boolean; url: string }> {
+  // `tvTag` in the reply is the tag actually STORED, which differs from the one
+  // submitted when ops already recorded one — cache that, never the input.
+}): Promise<{ ok: boolean; url: string; tvTag?: string | null }> {
   const form = new FormData();
   form.append('storeId', opts.storeId);
   form.append('kind', opts.kind);

@@ -9,11 +9,11 @@
 
 import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyDeviceToken } from '@/lib/device-auth';
+import { verifyDeviceToken, isDevicePaired } from '@/lib/device-auth';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { respond } from '@/lib/api-envelope';
-import { resolveOfflineAlerts } from '@/lib/device-alerts';
+import { resolveOfflineAlerts, backfillMissedOutage } from '@/lib/device-alerts';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -176,7 +176,9 @@ export async function POST(req: NextRequest) {
     // this captures the recovery edge. Only resolve on paths that actually set
     // status ONLINE — resolving without the flip would leave the alert closed
     // while the device still reads OFFLINE, and the next sweep would re-open it.
-    const wasOffline = device.status === 'OFFLINE';
+    // Same pre-write row, so this is the last heartbeat before the update below —
+    // the far edge of any gap the health sweep slept through (backfillMissedOutage).
+    const previousLastSeen = device.lastSeen;
     if (!Array.isArray(events) || events.length === 0) {
       // Allow empty event batches if telemetry-only heartbeat
       if (telemetry) {
@@ -188,9 +190,18 @@ export async function POST(req: NextRequest) {
           },
         }).catch(() => { /* telemetry columns may not exist yet */ });
         // after(), not a bare void — see the note in /api/device/plan: this is the
-    // only writer of RESOLVED, and a promise dropped at response-flush would
-    // strand the alert OPEN and silence the device for good.
-    if (wasOffline) after(() => resolveOfflineAlerts(device.id));
+        // only writer of RESOLVED, and a promise dropped at response-flush would
+        // strand the alert OPEN and silence the device for good.
+        // Backfill runs even after a resolve, not as its else-branch — see the note
+        // on backfillMissedOutage: it also covers a sweep that flipped the status
+        // but never wrote a row, and it no-ops when the gap is already recorded.
+        after(async () => {
+          // Unconditional — see the note in /api/device/plan. resolveOfflineAlerts
+          // early-returns when nothing is OPEN, and gating on the pre-write status
+          // strands an alert on a screen a concurrent sweep flipped mid-request.
+          await resolveOfflineAlerts(device.id);
+          await backfillMissedOutage(device, previousLastSeen);
+        });
         const envelope = await respond({ accepted: 0, telemetry: true }, { route, request: { correlationId, eventsCount: 0 }, outcome: 'success', policyFlags: ['telemetry_only'], startedAtMs });
         return NextResponse.json(envelope);
       }
@@ -198,19 +209,88 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(envelope);
     }
 
+    // Proof-of-play is billable evidence, so an unpaired device must not be able
+    // to write it. The heartbeat/telemetry path above deliberately still runs for
+    // unpaired devices — an operator needs to see a screen is alive in order to
+    // confirm its pairing code — but the ledger stays closed until it is.
+    if (!isDevicePaired(device)) {
+      const envelope = await respond({ accepted: 0, error: 'Device not paired' }, { route, request: { correlationId, eventsCount: events.length }, outcome: 'unauthorized', policyFlags: ['device_unpaired'], errorCategory: 'auth', startedAtMs });
+      return NextResponse.json(envelope, { status: 403 });
+    }
+
     // Cap batch size to prevent abuse
     const batch = events.slice(0, 500);
 
-    // Fetch the last event for this device to chain hashes
+    // Reject physically impossible timings before they reach the ledger. The
+    // client supplies these, so without bounds a device could book a single
+    // "play" lasting a year, or backdate/forward-date plays to land in whichever
+    // billing period suited it. Small skew is tolerated — screens run their own
+    // clocks and NTP repair is best-effort.
+    const nowMs = Date.now();
+    const MAX_DURATION_MS = 6 * 60 * 60 * 1000;   // 6 h — far above any real item
+    const MAX_FUTURE_MS   = 60 * 60 * 1000;       // 1 h of forward clock skew
+    const MAX_AGE_MS      = 30 * 24 * 60 * 60 * 1000; // 30 d of offline backlog
+    // durationMs is billed independently of the interval it claims to span, so an
+    // absolute cap alone still lets an 8-second play invoice six hours of watch
+    // time. Bound it by the event's own window; the tolerance covers rounding and
+    // sub-second NTP nudges without leaving room for a meaningful overclaim.
+    const MAX_DURATION_SKEW_MS = 5 * 1000;
+    const plausible = (ev: PlayEventInput): boolean => {
+      const s = new Date(ev.startedAt).getTime();
+      const e = new Date(ev.endedAt).getTime();
+      if (!Number.isFinite(s) || !Number.isFinite(e)) return false;
+      if (s > nowMs + MAX_FUTURE_MS) return false;
+      if (s < nowMs - MAX_AGE_MS) return false;
+      if (e < s) return false;
+      const d = Number(ev.durationMs);
+      if (!Number.isFinite(d) || d < 0 || d > MAX_DURATION_MS) return false;
+      return d <= (e - s) + MAX_DURATION_SKEW_MS;
+    };
+
+    // Campaign attribution decides who gets invoiced, so it cannot be taken on
+    // the device's word. A play may only be credited to a campaign that actually
+    // holds a slot booking at this device's store (or is the store's house
+    // filler). Anything else still gets recorded as a play — the screen did show
+    // something — but with no campaign attached, so a compromised or modified
+    // player cannot inflate an advertiser's bill or forge another brand's
+    // proof-of-play.
+    const claimedCampaignIds = [...new Set(
+      batch.map((e) => e.campaignId).filter((c): c is string => typeof c === 'string' && !!c),
+    )];
+    let attributable = new Set<string>();
+    if (claimedCampaignIds.length && device.storeId) {
+      const [booked, store] = await Promise.all([
+        db.slotBooking.findMany({
+          where:  { storeId: device.storeId, campaignId: { in: claimedCampaignIds } },
+          select: { campaignId: true },
+          distinct: ['campaignId'],
+        }).catch(() => []),
+        db.store.findUnique({
+          where: { id: device.storeId }, select: { fillerCampaignId: true },
+        }).catch(() => null),
+      ]);
+      attributable = new Set(booked.map((b) => b.campaignId));
+      if (store?.fillerCampaignId) attributable.add(store.fillerCampaignId);
+    }
+
+    // Seed the chain from the last row in INSERTION order, which is the only
+    // order this writer can know. Seeding by startedAt broke the chain whenever a
+    // device drained an offline backlog: a late-arriving earlier play would chain
+    // onto a row that the verifier — walking startedAt ascending — placed after
+    // it, so both rows read as tampered. The verifier now walks this same
+    // ordering, so the chain records the order the server accepted evidence.
+    // (id is a deterministic tiebreak; sequential upserts differ by microseconds
+    // in practice, so it only matters if two rows land in the same instant.)
     const lastEvent = await db.playEvent.findFirst({
       where:   { deviceId: device.id },
-      orderBy: { startedAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select:  { rowHash: true },
     });
 
     let chainHash: string | null = lastEvent?.rowHash ?? null;
     let accepted = 0;
     let duplicates = 0;
+    let rejected = 0;
 
     // Re-sent batches are NORMAL, not exceptional: the player keeps proof-of-play in a
     // local queue and only deletes a row after it sees a 200, so any 200 lost to a
@@ -223,19 +303,38 @@ export async function POST(req: NextRequest) {
     // So find the ids we already hold, in ONE query per batch, and skip them entirely.
     // Skipping is safe for the hash chain too: an event that is already stored was
     // chained when it was first accepted, and re-chaining it here would rewrite history.
+    //
+    // Scoped to this device: PlayEvent.id is client-supplied, so a global lookup
+    // answers "does any device hold this id?" — an existence oracle across the
+    // whole fleet, and a way for one device to have another's ids silently
+    // treated as already-stored.
     const batchIds = batch.map((e) => e.id).filter((id): id is string => !!id);
     const alreadyStored = new Set(
       batchIds.length
         ? (await db.playEvent.findMany({
-            where:  { id: { in: batchIds } },
+            where:  { id: { in: batchIds }, deviceId: device.id },
             select: { id: true },
           }).catch(() => [])).map((r) => r.id)
         : [],
     );
 
+    // alreadyStored answers "was this id accepted in an EARLIER request"; it is
+    // built once and cannot see a repeat inside the batch being processed now.
+    // Without this second set, a batch carrying the same id twice no-ops the
+    // PlayEvent upsert but re-runs the HourlyPop increment on every repeat —
+    // inflating the playCount and totalMs that advertisers are billed from — and
+    // advances chainHash to a rowHash that was never stored, so every later event
+    // in the batch chains onto a link the verifier cannot reproduce.
+    const seenInBatch = new Set<string>();
+
     for (const ev of batch) {
       if (!ev.id || !ev.mediaId || !ev.startedAt || !ev.endedAt) continue;
-      if (alreadyStored.has(ev.id)) { duplicates++; continue; }
+      if (alreadyStored.has(ev.id) || seenInBatch.has(ev.id)) { duplicates++; continue; }
+      if (!plausible(ev)) { rejected++; continue; }
+      seenInBatch.add(ev.id);
+      // Drop an attribution this device is not entitled to make; keep the play.
+      const attributedCampaignId =
+        ev.campaignId && attributable.has(ev.campaignId) ? ev.campaignId : null;
       try {
         const rowHash = computeRowHash(
           ev.id, device.id, ev.mediaId,
@@ -251,7 +350,7 @@ export async function POST(req: NextRequest) {
             deviceId:   device.id,
             mediaId:    ev.mediaId,
             layoutId:   ev.scheduleId ?? null,
-            campaignId: ev.campaignId ?? null,
+            campaignId: attributedCampaignId,
             tag:        ev.tag        ?? null,
             startedAt:  new Date(ev.startedAt),
             endedAt:    new Date(ev.endedAt),
@@ -274,12 +373,12 @@ export async function POST(req: NextRequest) {
             hour,
             playCount:   1,
             totalMs:     created.durationMs,
-            campaignIds: ev.campaignId ? [ev.campaignId] : [],
+            campaignIds: attributedCampaignId ? [attributedCampaignId] : [],
           },
           update: {
             playCount: { increment: 1 },
             totalMs:   { increment: created.durationMs },
-            ...(ev.campaignId ? { campaignIds: { push: ev.campaignId } } : {}),
+            ...(attributedCampaignId ? { campaignIds: { push: attributedCampaignId } } : {}),
             updatedAt: new Date(),
           },
         });
@@ -302,14 +401,36 @@ export async function POST(req: NextRequest) {
     // after(), not a bare void — see the note in /api/device/plan: this is the
     // only writer of RESOLVED, and a promise dropped at response-flush would
     // strand the alert OPEN and silence the device for good.
-    if (wasOffline) after(() => resolveOfflineAlerts(device.id));
+    // Backfill runs even after a resolve, not as its else-branch — see the note
+    // on backfillMissedOutage: it also covers a sweep that flipped the status but
+    // never wrote a row, and it no-ops when the gap is already recorded.
+    after(async () => {
+      // Unconditional — see the note in /api/device/plan. resolveOfflineAlerts
+      // early-returns when nothing is OPEN, and gating on the pre-write status
+      // strands an alert on a screen a concurrent sweep flipped mid-request.
+      await resolveOfflineAlerts(device.id);
+      await backfillMissedOutage(device, previousLastSeen);
+    });
 
     // `duplicates` is reported so a re-sent backlog is visible rather than silent — a
     // device stuck re-sending the same events (a queue that never drains) otherwise
     // looks identical to a healthy one, since both return 200.
+    // `rejected` is reported for the same reason as `duplicates`: an event dropped
+    // for implausible timing is billable evidence discarded, and a device whose
+    // clock has drifted far enough to fail every check would otherwise look
+    // identical to a healthy one — both return 200 with accepted: 0.
     const envelope = await respond(
-      { accepted, ...(duplicates ? { duplicates } : {}) },
-      { route, request: { correlationId, eventsCount: batch.length }, outcome: 'success', policyFlags: duplicates ? ['had_duplicates'] : [], startedAtMs },
+      { accepted, ...(duplicates ? { duplicates } : {}), ...(rejected ? { rejected } : {}) },
+      {
+        route,
+        request: { correlationId, eventsCount: batch.length },
+        outcome: 'success',
+        policyFlags: [
+          ...(duplicates ? ['had_duplicates'] : []),
+          ...(rejected ? ['had_implausible'] : []),
+        ],
+        startedAtMs,
+      },
     );
     return NextResponse.json(envelope);
   } catch (e) {

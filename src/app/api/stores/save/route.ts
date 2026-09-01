@@ -8,6 +8,7 @@ import { mintStoreToken } from '@/lib/store-partner-auth';
 import { respond } from '@/lib/api-envelope';
 import { computeStoreMonthlyPayoutPaiseBatch } from '@/lib/slot-pricing-db';
 import { tierForSignupKey } from '@/lib/store-signup-links';
+import { requireAdmin } from '@/lib/admin-guard';
 
 // ─── Redis (dual-write for admin panel backward compat during migration) ──────
 
@@ -21,8 +22,12 @@ function getRedis(): Redis | null {
 export async function GET(req: NextRequest) {
   const route = '/api/stores/save';
   const startedAtMs = Date.now();
+  // Fail CLOSED. This response includes ADMIN-ONLY fields (wifiPassword,
+  // wifiUsername), and the previous guard rejected only when ADMIN_PASSWORD was
+  // set — so an unset env var published every partner's network credentials.
+  // The envelope is kept so the unauthorized case stays observable in telemetry.
   const pw = req.headers.get('admin-password') ?? '';
-  if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
+  if (!(await requireAdmin(req))) {
     const envelope = await respond({ error: 'Unauthorized' }, { route, request: { hasAdminPassword: !!pw }, outcome: 'unauthorized', policyFlags: ['admin_guard'], errorCategory: 'auth', startedAtMs });
     return NextResponse.json(envelope, { status: 401 });
   }
@@ -88,12 +93,18 @@ export async function GET(req: NextRequest) {
       shopPhotoSource: string | null; shopPhotoAt: Date | null;
       installPhotoUrl: string | null; installPhotoLat: number | null; installPhotoLng: number | null;
       installPhotoSource: string | null; installPhotoAt: Date | null;
+      serialPhotoUrl: string | null; serialPhotoLat: number | null; serialPhotoLng: number | null;
+      serialPhotoSource: string | null; serialPhotoAt: Date | null;
+      plugPhotoUrl: string | null; plugPhotoLat: number | null; plugPhotoLng: number | null;
+      plugPhotoSource: string | null; plugPhotoAt: Date | null;
     };
     let photoMap = new Map<string, PhotoRow>();
     try {
       const photoRows = await db.$queryRaw<PhotoRow[]>`
         SELECT "id", "shopPhotoUrl", "shopPhotoLat", "shopPhotoLng", "shopPhotoSource", "shopPhotoAt",
-               "installPhotoUrl", "installPhotoLat", "installPhotoLng", "installPhotoSource", "installPhotoAt"
+               "installPhotoUrl", "installPhotoLat", "installPhotoLng", "installPhotoSource", "installPhotoAt",
+               "serialPhotoUrl", "serialPhotoLat", "serialPhotoLng", "serialPhotoSource", "serialPhotoAt",
+               "plugPhotoUrl", "plugPhotoLat", "plugPhotoLng", "plugPhotoSource", "plugPhotoAt"
         FROM "Store"
       `;
       photoMap = new Map(photoRows.map((r) => [r.id, r]));
@@ -105,15 +116,18 @@ export async function GET(req: NextRequest) {
     // safe to include here (partner routes never return it).
     type InstallRow = {
       id: string;
-      tvBrand: string | null; tvSizeInches: number | null; tvTag: string | null;
-      tvInstalledAt: Date | null; espSwitchName: string | null;
-      wifiSsid: string | null; wifiPassword: string | null; installNotes: string | null;
+      tvBrand: string | null; tvModel: string | null; tvSizeInches: number | null;
+      tvTag: string | null; tvSerial: string | null;
+      tvInstalledAt: Date | null; espSwitchName: string | null; espPlugId: string | null;
+      wifiSsid: string | null; wifiUsername: string | null; wifiPassword: string | null;
+      wifiAuthType: string | null; installNotes: string | null;
     };
     let installMap = new Map<string, InstallRow>();
     try {
       const installRows = await db.$queryRaw<InstallRow[]>`
-        SELECT "id", "tvBrand", "tvSizeInches", "tvTag", "tvInstalledAt",
-               "espSwitchName", "wifiSsid", "wifiPassword", "installNotes"
+        SELECT "id", "tvBrand", "tvModel", "tvSizeInches", "tvTag", "tvSerial", "tvInstalledAt",
+               "espSwitchName", "espPlugId",
+               "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType", "installNotes"
         FROM "Store"
       `;
       installMap = new Map(installRows.map((r) => [r.id, r]));
@@ -126,12 +140,17 @@ export async function GET(req: NextRequest) {
       return {
         ...s,
         tvBrand:       hw?.tvBrand       ?? null,
+        tvModel:       hw?.tvModel       ?? null,
         tvSizeInches:  hw?.tvSizeInches  ?? null,
         tvTag:         hw?.tvTag         ?? null,
+        tvSerial:      hw?.tvSerial      ?? null,
         tvInstalledAt: hw?.tvInstalledAt instanceof Date ? hw.tvInstalledAt.toISOString() : (hw?.tvInstalledAt ?? null),
         espSwitchName: hw?.espSwitchName ?? null,
+        espPlugId:     hw?.espPlugId     ?? null,
         wifiSsid:      hw?.wifiSsid      ?? null,
+        wifiUsername:  hw?.wifiUsername  ?? null,
         wifiPassword:  hw?.wifiPassword  ?? null,
+        wifiAuthType:  hw?.wifiAuthType  ?? null,
         installNotes:  hw?.installNotes  ?? null,
         shopPhotoUrl:       ph?.shopPhotoUrl       ?? null,
         shopPhotoLat:       ph?.shopPhotoLat       ?? null,
@@ -143,6 +162,16 @@ export async function GET(req: NextRequest) {
         installPhotoLng:    ph?.installPhotoLng    ?? null,
         installPhotoSource: ph?.installPhotoSource ?? null,
         installPhotoAt:     ph?.installPhotoAt instanceof Date ? ph.installPhotoAt.toISOString() : (ph?.installPhotoAt ?? null),
+        serialPhotoUrl:     ph?.serialPhotoUrl     ?? null,
+        serialPhotoLat:     ph?.serialPhotoLat     ?? null,
+        serialPhotoLng:     ph?.serialPhotoLng     ?? null,
+        serialPhotoSource:  ph?.serialPhotoSource  ?? null,
+        serialPhotoAt:      ph?.serialPhotoAt instanceof Date ? ph.serialPhotoAt.toISOString() : (ph?.serialPhotoAt ?? null),
+        plugPhotoUrl:       ph?.plugPhotoUrl       ?? null,
+        plugPhotoLat:       ph?.plugPhotoLat       ?? null,
+        plugPhotoLng:       ph?.plugPhotoLng       ?? null,
+        plugPhotoSource:    ph?.plugPhotoSource    ?? null,
+        plugPhotoAt:        ph?.plugPhotoAt instanceof Date ? ph.plugPhotoAt.toISOString() : (ph?.plugPhotoAt ?? null),
         createdAt:       s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
         updatedAt:       s.updatedAt instanceof Date ? s.updatedAt.toISOString() : s.updatedAt,
         agreedAt:        s.agreedAt instanceof Date  ? s.agreedAt.toISOString()  : (s.agreedAt ?? null),

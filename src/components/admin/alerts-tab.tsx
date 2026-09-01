@@ -32,6 +32,29 @@ type CampaignRow = {
   id: string; brandName: string; totalAmount: number; status: string;
   paymentId?: string; createdAt: string;
 };
+// Real DeviceAlert rows from /api/admin/alerts — joined onto the synthesized
+// offline cards below so the shopkeeper's answer and the telemetry verdict
+// have a persistent surface (the watcher's toast lasts 12 seconds; this page
+// is where an admin looks afterwards).
+type DeviceAlertRow = {
+  id: string; deviceId: string; status: 'OPEN' | 'RESOLVED';
+  startedAt: string;
+  cause: string | null;
+  partnerReportedCause: string | null;
+  partnerReportedAt: string | null;
+};
+
+/** The shopkeeper's answer, worded as testimony — it is what they told us, not telemetry. */
+function partnerSaysText(cause: string | null): string | null {
+  switch (cause) {
+    case 'POWER_CUT':   return 'power cut at the store';
+    case 'NO_INTERNET': return 'no internet at the store';
+    case 'TV_OFF':      return 'the TV was switched off';
+    case 'APP_CLOSED':  return 'the player app was closed';
+    case 'DONT_KNOW':   return 'doesn’t know why it stopped';
+    default:            return null;
+  }
+}
 
 // Durable, team-visible action state layered on top of a computed alert — see
 // /api/admin/alert-actions. Distinct from `dismissed`, a personal, local-only hide.
@@ -110,10 +133,20 @@ function buildAlerts(
   devices: DeviceRow[],
   stores: StoreRow[],
   campaigns: CampaignRow[],
+  deviceAlerts: DeviceAlertRow[],
   dismissed: Set<string>,
 ): Alert[] {
   const alerts: Alert[] = [];
   const now = Date.now();
+
+  // Newest OPEN DeviceAlert per device, so the offline cards can carry what is
+  // actually known about the outage rather than a generic "go check".
+  const openByDevice = new Map<string, DeviceAlertRow>();
+  for (const a of deviceAlerts) {
+    if (a.status !== 'OPEN') continue;
+    const cur = openByDevice.get(a.deviceId);
+    if (!cur || a.startedAt > cur.startedAt) openByDevice.set(a.deviceId, a);
+  }
 
   // Offline devices — critical if >1h, warning if >10min
   for (const d of devices) {
@@ -122,10 +155,18 @@ function buildAlerts(
     const severity: AlertSeverity = lastMs > 60 * 60 * 1000 ? 'critical' : 'warning';
     const offStr = d.lastSeen ? timeSince(d.lastSeen) : 'unknown';
     const id = `device-offline-${d.id}`;
+    // Lead with the shopkeeper's answer when there is one — it usually decides
+    // the next move (wait out the power cut / call the ISP / drive out), and
+    // "check power and internet" is redundant once a human has answered.
+    const row  = openByDevice.get(d.id);
+    const says = partnerSaysText(row?.partnerReportedCause ?? null);
+    const tail = says
+      ? `Partner says: ${says}${row?.partnerReportedAt ? ` (answered ${timeSince(row.partnerReportedAt)})` : ''}.`
+      : 'Check power and internet connection at the store.';
     alerts.push({
       id, severity, category: 'device',
       title: `${d.storeName} is offline`,
-      body: `Last seen ${offStr}${d.locality ? ` · ${d.locality}` : ''}. Check power and internet connection at the store.`,
+      body: `Last seen ${offStr}${d.locality ? ` · ${d.locality}` : ''}. ${tail}`,
       timestamp: d.lastSeen ?? new Date().toISOString(),
       link: { label: 'View screens', tab: 'screens' },
       dismissed: dismissed.has(id),
@@ -421,17 +462,20 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
     const h = { 'admin-password': pw };
     try {
-      const [devR, stR, cmR] = await Promise.all([
+      const [devR, stR, cmR, daR] = await Promise.all([
         fetch('/api/devices',         { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
         fetch('/api/stores/save',     { headers: h }).then((r) => r.ok ? r.json() : []),
         fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+        // Real DeviceAlert rows — carries the partner's "why is it off?" answer.
+        fetch('/api/admin/alerts',    { headers: h }).then((r) => r.ok ? r.json() : { alerts: [] }),
       ]);
       const devs = (devR.devices ?? []) as DeviceRow[];
       const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as StoreRow[];
       const cms  = Array.isArray(cmR) ? cmR : [] as CampaignRow[];
+      const das  = (daR?.alerts ?? []) as DeviceAlertRow[];
       const dis  = loadDismissed();
       setDismissed(dis);
-      setAlerts(buildAlerts(devs, sts, cms, dis));
+      setAlerts(buildAlerts(devs, sts, cms, das, dis));
       setLastFetch(new Date());
     } catch { /* non-critical */ }
     finally { setLoading(false); }

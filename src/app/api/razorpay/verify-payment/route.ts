@@ -57,10 +57,34 @@ export async function POST(req: NextRequest) {
       if (!orderRes.ok) {
         return NextResponse.json({ success: false, error: 'Could not confirm the order amount. Please contact hello@wearealive.in.' }, { status: 502 });
       }
-      const order = await orderRes.json() as { amount?: number };
+      const order = await orderRes.json() as {
+        amount?: number;
+        notes?: Record<string, string>;
+      };
       const chargedRupees = Math.round(Number(order.amount ?? 0) / 100);
 
-      const brand = await db.brand.findFirst({ where: { email: campaign.email } });
+      // Entitlement comes from the ORDER, not the request body. create-order
+      // stamped the screens/months it actually priced into the order notes, so
+      // a client cannot pay for 1 screen × 1 month and then claim 50 × 12 by
+      // editing the body. Orders created before this binding existed have no
+      // notes — those fall back to the body but are clamped to the same
+      // self-serve bounds create-order enforces.
+      const clamp = (v: unknown, lo: number, hi: number, dflt: number) => {
+        const n = Math.floor(Number(v));
+        return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : dflt;
+      };
+      const paidScreens = order.notes?.alive_screens != null
+        ? clamp(order.notes.alive_screens, 1, 50, 1)
+        : clamp(campaign.screens, 1, 50, 1);
+      const paidMonths = order.notes?.alive_months != null
+        ? clamp(order.notes.alive_months, 1, 12, 1)
+        : clamp(campaign.months, 1, 12, 1);
+
+      // Case-insensitive so the campaign still links to its brand when the
+      // address was typed with different capitalisation at signup.
+      const brand = await db.brand.findFirst({
+        where: { email: { equals: campaign.email, mode: 'insensitive' } },
+      });
 
       const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
 
@@ -74,6 +98,8 @@ export async function POST(req: NextRequest) {
             paymentId: razorpay_payment_id,
             status: 'active',
             totalAmount: chargedRupees,
+            screens: paidScreens,
+            months:  paidMonths,
             ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
           },
         });
@@ -85,8 +111,8 @@ export async function POST(req: NextRequest) {
             contactName:    campaign.contactName,
             email:          campaign.email,
             phone:          campaign.phone ?? undefined,
-            screens:        campaign.screens    ?? 1,
-            months:         campaign.months     ?? 1,
+            screens:        paidScreens,
+            months:         paidMonths,
             startDate:      new Date(campaign.startDate),
             pricePerScreen: campaign.pricePerScreen,
             totalAmount:    chargedRupees,
@@ -102,11 +128,29 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Count the redemption against the coupon's usage cap (best-effort).
+        // Count the redemption against the coupon's usage cap.
+        //
+        // The cap is checked when the order is created but incremented only
+        // here, so N shoppers who all pass the check concurrently would all
+        // redeem — a check-then-act race that lets a capped coupon overshoot.
+        // The increment is therefore conditional on the cap in the same
+        // statement: the database, not the application, decides who gets the
+        // last redemption, and the counter can never exceed maxRedemptions.
+        //
+        // A zero-row result means a concurrent payment took the final slot.
+        // The shopper has already been charged the discounted amount by then,
+        // so the payment stands — the alternative is failing a settled
+        // transaction over a coupon — but the counter stays truthful.
         if (campaign.couponCode) {
           await db.coupon.updateMany({
-            where: { code: campaign.couponCode.toUpperCase() },
-            data:  { redemptions: { increment: 1 } },
+            where: {
+              code: campaign.couponCode.toUpperCase(),
+              OR: [
+                { maxRedemptions: null },
+                { redemptions: { lt: db.coupon.fields.maxRedemptions } },
+              ],
+            },
+            data: { redemptions: { increment: 1 } },
           }).catch(() => {});
         }
       }

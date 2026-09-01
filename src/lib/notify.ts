@@ -40,6 +40,64 @@ export async function notifyAdminEmail(subject: string, html: string): Promise<v
   try { await sendResendEmail('hello@wearealive.in', subject, html); } catch { /* non-fatal */ }
 }
 
+/**
+ * Send one transactional email to an arbitrary address, REPORTING whether it
+ * actually went out.
+ *
+ * Deliberately different from notifyAdminEmail above, which is fire-and-forget
+ * because a dropped alert is survivable. An invite is not: if the mail silently
+ * fails, the admin believes a colleague was invited and that colleague never
+ * hears anything, so the account sits password-less and nobody knows why.
+ * Returns false when RESEND_API_KEY is unset or Resend rejects, so the caller
+ * can surface it instead of pretending success.
+ */
+export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  // Two transports, tried in order, because the one that is configured varies by
+  // environment: Resend is the production sender, but a Google Workspace SMTP
+  // account is what ALIVE actually has to hand. Either is sufficient; neither is
+  // required for the app to run.
+  const from = process.env.EMAIL_FROM ?? 'ALIVE <hello@wearealive.in>';
+
+  const key = process.env.RESEND_API_KEY;
+  if (key) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: [to], subject, html }),
+      });
+      if (res.ok) return true;
+      // Fall through to SMTP rather than returning — a Resend outage or a
+      // rejected domain should not strand an invite when SMTP is also set up.
+    } catch { /* fall through to SMTP */ }
+  }
+
+  // SMTP (Gmail / Google Workspace). Uses the same EMAIL_SERVER_* variables the
+  // Auth.js Email provider already reads, so there is one place to configure mail.
+  //
+  // Gmail requires an APP PASSWORD, not the account password, and only when 2-Step
+  // Verification is on — a normal password fails with 535. Port 465 is implicit
+  // TLS (`secure: true`); 587 is STARTTLS (`secure: false`).
+  const host = process.env.EMAIL_SERVER_HOST;
+  const user = process.env.EMAIL_SERVER_USER;
+  const pass = process.env.EMAIL_SERVER_PASSWORD;
+  if (!host || !user || !pass) return false;
+
+  try {
+    // Dynamic import: nodemailer is a Node-only dependency and a static import
+    // would pull it into every bundle that happens to touch this module.
+    const nodemailer = (await import('nodemailer')).default;
+    const port = Number(process.env.EMAIL_SERVER_PORT ?? 465);
+    const transport = nodemailer.createTransport({
+      host, port, secure: port === 465, auth: { user, pass },
+    });
+    await transport.sendMail({ from, to, subject, html });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function notifyStoreWA(phone: string, message: string): Promise<void> {
   // phone: 10-digit or +91XXXXXXXXXX
   const e164 = phone.startsWith('+') ? phone : `+91${phone.replace(/\D/g, '').slice(-10)}`;
@@ -109,6 +167,13 @@ export function deviceOfflinePartnerMsg(d: { storeName: string; since: Date | nu
     ``,
     `Please check that the screen is switched on and your Wi-Fi is working.`,
     `Ads don't run while it's off — it goes back to normal on its own once it reconnects.`,
+    ``,
+    // "or just reply" matters: the dashboard link only works where a partner
+    // session exists (their usual browser). App-only partners land on a login
+    // form — for them, a plain WhatsApp reply reaches us just as well.
+    `Do you know why it stopped? Power cut, Wi-Fi down, TV switched off?`,
+    `Tell us on your dashboard — or just reply to this message:`,
+    `https://wearealive.in/store-dashboard`,
     ``,
     `Need help? WhatsApp us on +91 74113 24448.`,
   ].join('\n');

@@ -15,11 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 const ROW_CAP = 2000; // hard cap on rows returned per page (summary is unaffected)
 
@@ -30,7 +26,7 @@ function csvEsc(v: string | number | null | undefined) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const p          = req.nextUrl.searchParams;
   const deviceId   = p.get('deviceId') ?? undefined;

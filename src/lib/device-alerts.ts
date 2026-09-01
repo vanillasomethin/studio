@@ -34,10 +34,41 @@ async function pushToStoreAllChannels(storeId: string, payload: PushPayload): Pr
   ]);
 }
 
+/** Silence after which the sweep calls a screen offline. */
+export const OFFLINE_AFTER_MS = 20 * 60 * 1000;
+/**
+ * Minimum gap before the recovery-side backfill will reconstruct an outage.
+ *
+ * Deliberately NOT OFFLINE_AFTER_MS. That 20 min is a *sampling* threshold: the
+ * sweep asks "is this screen offline right now", so a device whose heartbeat
+ * merely slipped is almost never caught mid-slip. The backfill is different — it
+ * inspects EVERY gap, so any jitter above the threshold becomes a permanent
+ * record. Both player workers are 15-minute PeriodicWorkRequests
+ * (HeartbeatScheduler.kt / PlanFetchScheduler.kt) and Android's Doze defers them
+ * freely, so 20-plus-minute gaps are ordinary on a perfectly healthy screen.
+ *
+ * 60 min is the codebase's own "this is real, not jitter" bar: the sweep's
+ * MISSING_HEARTBEAT_WINDOWS_THRESHOLD (3) x HEARTBEAT_WINDOW_MS (20 min). The
+ * trade is deliberate — outages between 20 and 60 min that the sweep also slept
+ * through stay unrecorded, which is the right way to be wrong: a missing row is
+ * recoverable, a fabricated outage corrupts uptime and trains you to ignore it.
+ */
+export const BACKFILL_MIN_GAP_MS = 60 * 60 * 1000;
 /** Extra downtime past the offline edge before the partner is told. */
 export const PARTNER_NOTIFY_AFTER_MS = 40 * 60 * 1000; // ≈60 min total downtime
 /** Aggregate rather than spam when a whole batch drops at once (mains cut, ISP outage). */
 const ADMIN_DIGEST_THRESHOLD = 3;
+/**
+ * Silence after which an open OFFLINE alert is auto-closed as abandoned.
+ *
+ * An OFFLINE alert is only ever RESOLVED by the screen heartbeating again, so a
+ * decommissioned unit, a bench TV or a stray test pairing keeps its alert OPEN
+ * forever. Left alone the active list fills with zombies — 13 of 14 when this
+ * was written, aged 4 to 86 days — which buries the one real outage and makes
+ * the admin popup announce "14 screens are offline" on every page load.
+ */
+export const STALE_ALERT_DAYS = 7;
+const STALE_ALERT_MS = STALE_ALERT_DAYS * 24 * 60 * 60 * 1000;
 
 export type NewlyOfflineDevice = {
   id: string;
@@ -202,20 +233,143 @@ export async function openOfflineAlerts(devices: NewlyOfflineDevice[]): Promise<
   if (opened.length >= ADMIN_DIGEST_THRESHOLD) {
     const lines = opened.slice(0, 10).map((d) => `• ${d.store?.storeName ?? 'Unassigned'} — ${d.name}`);
     const more  = opened.length > 10 ? `\n…and ${opened.length - 10} more` : '';
-    void notifyAdminWA(
+    await notifyAdminWA(
       `🔴 *${opened.length} screens went offline*\n${lines.join('\n')}${more}\n\nhttps://wearealive.in/admin`,
     );
   } else {
-    for (const d of opened) {
-      void notifyAdminWA(deviceOfflineAdminMsg({
-        deviceName: d.name,
-        storeName:  d.store?.storeName ?? null,
-        lastSeen:   d.lastSeen,
-      }));
-    }
+    await Promise.all(opened.map((d) => notifyAdminWA(deviceOfflineAdminMsg({
+      deviceName: d.name,
+      storeName:  d.store?.storeName ?? null,
+      lastSeen:   d.lastSeen,
+    }))));
   }
 
   return opened.length;
+}
+
+/** Per-instance floor between opportunistic sweeps. Serverless gives each instance
+ *  its own copy, so this does not bound global frequency — it only stops one warm
+ *  instance from re-sweeping on every request in a burst. The sweep is a single
+ *  indexed UPDATE that matches nothing in the steady state, so that is enough. */
+const SWEEP_MIN_INTERVAL_MS = 2 * 60 * 1000;
+let lastSweepAt = 0;
+
+/**
+ * The offline edge: flip every screen that has gone quiet past the threshold,
+ * open an alert for each, and escalate anything that is now sustained.
+ *
+ * Extracted from the health cron so live traffic can drive it too. The cron is a
+ * GitHub Actions schedule that asks for every 5 minutes and in practice fires with
+ * gaps of hours (0.4h–11.4h observed), so leaning on it alone means a screen can be
+ * dead most of a day before anybody is told — AH Store's outage on 2026-08-27 sat
+ * 7.6h before it raised an alert. Driving the same sweep off requests that already
+ * happen (a device heartbeat, an admin opening the panel) makes detection as timely
+ * as the fleet's own 15-minute heartbeat, with no external scheduler to trust.
+ *
+ * Safe to call concurrently and often. The flip is one atomic UPDATE ... RETURNING,
+ * so exactly one caller can observe a given device crossing the edge no matter how
+ * many run at once, and openOfflineAlerts independently skips devices that already
+ * hold an OPEN row. In the steady state the WHERE matches nothing and the call is
+ * one cheap indexed write.
+ *
+ * `force` bypasses the per-instance throttle — the cron passes it, since it runs on
+ * a fresh instance and is the backstop that must never be skipped.
+ *
+ * Never throws: callers are hot paths and a cron that must not fail on bookkeeping.
+ */
+export async function sweepOfflineDevices(
+  now = new Date(),
+  { force = false }: { force?: boolean } = {},
+): Promise<{ markedOffline: number; opened: number; notified: number }> {
+  const nil = { markedOffline: 0, opened: 0, notified: 0 };
+  if (!force) {
+    if (now.getTime() - lastSweepAt < SWEEP_MIN_INTERVAL_MS) return nil;
+    lastSweepAt = now.getTime();
+  }
+
+  try {
+    // updateManyAndReturn (one UPDATE ... RETURNING) so the set of devices that
+    // crossed the edge is captured atomically with the flip — a plain updateMany
+    // returns only a count, and re-deriving the set afterwards would either miss
+    // devices or re-notify every still-offline screen on every run.
+    const justWentOffline = await db.device.updateManyAndReturn({
+      where: {
+        status:   { not: 'OFFLINE' },
+        lastSeen: { lt: new Date(now.getTime() - OFFLINE_AFTER_MS) },
+      },
+      data: { status: 'OFFLINE' },
+      // bootedAt/appStartedAt/appVersion ride along so openOfflineAlerts can freeze the
+      // pre-outage state onto the alert row — the recovery heartbeat overwrites them.
+      select: {
+        id: true, name: true, storeId: true, lastSeen: true,
+        bootedAt: true, appStartedAt: true, appVersion: true,
+      },
+    });
+
+    const storeNames = new Map<string, string>();
+    const storeIds = justWentOffline.map((d) => d.storeId).filter((s): s is string => !!s);
+    if (storeIds.length) {
+      const stores = await db.store.findMany({
+        where: { id: { in: storeIds } }, select: { id: true, storeName: true },
+      }).catch(() => []);
+      for (const s of stores) storeNames.set(s.id, s.storeName);
+    }
+
+    const opened = await openOfflineAlerts(justWentOffline.map((d) => ({
+      ...d,
+      store: d.storeId ? { storeName: storeNames.get(d.storeId) ?? '' } : null,
+    })));
+
+    // Partners are told only once an outage is sustained — see below.
+    const notified = await escalateSustainedOutages(now);
+
+    return { markedOffline: justWentOffline.length, opened, notified };
+  } catch {
+    return nil;
+  }
+}
+
+/**
+ * Auto-closes alerts for screens that are never coming back. Called once per
+ * cron sweep. Returns the number closed.
+ *
+ * Keyed on the alert's own `lastSeenAt` snapshot (the last heartbeat before the
+ * drop) rather than the alert's age: the alerting feature is newer than some of
+ * these outages, so a months-dead screen can carry a days-old alert row and
+ * would never age out on `startedAt`. A null snapshot means the screen never
+ * reported at all, which is the same verdict.
+ *
+ * Closed as ABANDONED rather than deleted — the incident did happen and the row
+ * stays for reporting. `downtimeSec` is deliberately left null: nothing
+ * recovered, so there is no measured downtime, and inventing one would put a
+ * fake recovery into uptime figures. Silent by design, for the same reason —
+ * this must not fire a "back online" notification.
+ *
+ * Safe against re-alerting: the sweep only opens alerts for devices
+ * *transitioning* into OFFLINE, and these are already OFFLINE, so closing the
+ * alert cannot make them pop straight back up.
+ */
+export async function resolveStaleOfflineAlerts(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_ALERT_MS);
+  try {
+    const { count } = await db.deviceAlert.updateMany({
+      where: {
+        status: 'OPEN',
+        OR: [{ lastSeenAt: { lt: cutoff } }, { lastSeenAt: null }],
+      },
+      data: {
+        status:          'RESOLVED',
+        resolvedAt:      now,
+        cause:           'ABANDONED',
+        causeConfidence: 'high',
+        causeEvidence:   `Auto-closed: no heartbeat for over ${STALE_ALERT_DAYS} days. `
+          + 'The screen never returned, so this alert would otherwise have stayed open forever.',
+      },
+    });
+    return count;
+  } catch {
+    return 0; // table not migrated yet, or a transient DB error — never break the sweep
+  }
 }
 
 /**
@@ -271,10 +425,20 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
 
       // Mark BEFORE sending: a duplicate alert is far worse for a shopkeeper
       // than a missed one, and the next sweep is only 5 minutes away.
-      await db.deviceAlert.update({
-        where: { id: alert.id },
+      // updateMany qualified on `partnerNotifiedAt: null`, not update-by-id: this
+      // must be an atomic CLAIM, not a read-then-write. The eligibility findMany
+      // above can hand the same alert to several sweeps at once, and
+      // sweepOfflineDevices now runs from the device heartbeat and the admin panel
+      // as well as the cron — each its own serverless instance with its own
+      // throttle state — so that is routine rather than theoretical. An
+      // unqualified update-by-id lets every caller win and send, which is exactly
+      // the duplicate the comment above warns about. Postgres re-evaluates the
+      // qual after taking the row lock, so precisely one caller sees count === 1.
+      const claimed = await db.deviceAlert.updateMany({
+        where: { id: alert.id, partnerNotifiedAt: null },
         data:  { partnerNotifiedAt: now, severity: 'critical' },
       });
+      if (claimed.count !== 1) continue; // another sweep already owns this alert
 
       const store = await db.store.findUnique({
         where:  { id: alert.storeId },
@@ -288,7 +452,10 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
 
       await pushToStoreAllChannels(alert.storeId, {
         title: 'Your ALIVE screen is offline',
-        body:  'It stopped playing about an hour ago. Please check the screen’s power and Wi-Fi.',
+        // Ends on the question because answering it is the action we want: the
+        // tap lands on the dashboard banner, whose one-tap buttons write
+        // partnerReportedCause — currently the only cause signal the fleet has.
+        body:  'It stopped playing about an hour ago. Was it a power cut, or the Wi-Fi? Tap to tell us — it helps us fix it faster.',
         url:   '/store-dashboard',
         tag:   `offline-${alert.id}`,
       });
@@ -300,6 +467,112 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
     return notified; // best-effort
   }
   return notified;
+}
+
+/**
+ * Records an outage that the health sweep never saw.
+ *
+ * The sweep can only notice a screen that is STILL offline at the moment it runs,
+ * and its real cadence is a GitHub Actions schedule (Vercel Hobby allows only one
+ * cron a day) that in practice drifts from the requested 5 minutes out to several
+ * hours. Any outage that starts and ends inside one of those gaps is invisible:
+ * by the time anything looks, the device is ONLINE again, `status` never flipped,
+ * so no alert is opened and `resolveOfflineAlerts` has nothing to close. AH Store
+ * lost 5.4 hours on 2026-08-27 that way and it left no trace anywhere.
+ *
+ * The returning heartbeat closes that hole without depending on the schedule at
+ * all. `previousLastSeen` is the row's value from before this heartbeat's write,
+ * so the gap between it and `now` is exactly how long the screen was silent —
+ * whether or not anyone was watching.
+ *
+ * Written already-RESOLVED and WITHOUT notifying: the outage is over by
+ * definition, so paging the admin or the partner about it now would be noise and
+ * would contradict the "resolution notice is never the first thing they hear"
+ * rule below. It exists so uptime figures and the alert history are honest.
+ * (partnerNotifiedAt stays null, which is what keeps these rows out of the
+ * partner dashboard — see the RESOLVED arm of /api/stores/alerts.)
+ *
+ * Safe to call on EVERY heartbeat, including one where the device was already
+ * OFFLINE and resolveOfflineAlerts ran: the dedup below keys on the gap, so it
+ * no-ops rather than shadowing a sweep-opened row. Calling it unconditionally is
+ * what covers the case where the sweep flipped the status but failed to write an
+ * alert — there the recovery path has nothing to resolve and would otherwise
+ * lose the outage entirely.
+ *
+ * Returns true when a row was written. Never throws — a heartbeat must not fail
+ * because of bookkeeping.
+ */
+export async function backfillMissedOutage(
+  device: {
+    id: string; name: string; storeId: string | null; status?: string;
+    bootedAt?: Date | null; appStartedAt?: Date | null; appVersion?: string | null;
+  },
+  previousLastSeen: Date | null | undefined,
+  now = new Date(),
+): Promise<boolean> {
+  if (!previousLastSeen) return false;
+  // A screen that was never commissioned has no service to have been down.
+  if (device.status === 'PENDING') return false;
+
+  const gapMs = now.getTime() - previousLastSeen.getTime();
+  if (gapMs < BACKFILL_MIN_GAP_MS) return false;
+
+  try {
+    // One row per gap, whoever writes it. Keyed on lastSeenAt because that is the
+    // gap's far edge and every writer agrees on it: the cron stores the same value
+    // in lastSeenAt, so this also refuses to duplicate a sweep-opened alert (OPEN
+    // or already resolved) for the very same outage.
+    const alreadyRecorded = await db.deviceAlert.findFirst({
+      where:  { deviceId: device.id, lastSeenAt: previousLastSeen },
+      select: { id: true },
+    });
+    if (alreadyRecorded) return false;
+
+    const storeName = device.storeId
+      ? (await db.store.findUnique({
+          where: { id: device.storeId }, select: { storeName: true },
+        }).catch(() => null))?.storeName ?? null
+      : null;
+
+    await db.deviceAlert.create({
+      data: {
+        // Deterministic id, not a cuid: the check above is a non-atomic read, and
+        // on recovery the player fires its plan poll and its heartbeat within
+        // milliseconds of each other, so both can pass it and reach this create.
+        // Deriving the id from (device, gap) makes the second insert collide on the
+        // primary key and land in the catch below — the database arbitrates instead
+        // of a read that both callers won. Needs no unique index, hence no migration.
+        id:         `bf-${device.id}-${previousLastSeen.getTime()}`,
+        deviceId:   device.id,
+        storeId:    device.storeId,
+        type:       'OFFLINE',
+        // Always 'warning'. In this file 'critical' is not a magnitude — line ~279
+        // sets it together with partnerNotifiedAt, so it means "the partner was
+        // told". Nobody is told about a backfill, so claiming critical would lie.
+        severity:   'warning',
+        deviceName: device.name,
+        storeName,
+        // startedAt is the last heartbeat, not the detection time: for a gap we
+        // reconstruct after the fact the outage genuinely began when the screen
+        // went quiet, and downtimeSec has to match that or uptime reporting lies.
+        lastSeenAt:  previousLastSeen,
+        startedAt:   previousLastSeen,
+        status:      'RESOLVED',
+        resolvedAt:  now,
+        downtimeSec: Math.round(gapMs / 1000),
+        // No pre-outage snapshot exists to diff against — nothing was watching
+        // when it dropped — so the cause genuinely cannot be derived. Say so
+        // explicitly rather than leaving null, which reads as "not computed yet".
+        cause:           'UNKNOWN',
+        causeConfidence: 'low',
+        causeEvidence:   'Reconstructed from the heartbeat gap when the screen came back. '
+          + 'No health sweep ran during the outage, so no pre-outage snapshot was frozen to compare against.',
+      },
+    });
+    return true;
+  } catch {
+    return false; // table not migrated, or a transient DB error — never break the heartbeat
+  }
 }
 
 /**

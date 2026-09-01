@@ -1,17 +1,15 @@
 // GET  /api/admin/alerts/comments?alertId=…   — comment thread for one alert
 // POST /api/admin/alerts/comments { alertId, author?, body }
-// Auth: admin-password header.
+// Auth: named admin session (requireAdmin).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !process.env.ADMIN_PASSWORD || pw === process.env.ADMIN_PASSWORD;
-}
 
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const alertId = req.nextUrl.searchParams.get('alertId') ?? '';
   if (!alertId) return NextResponse.json({ error: 'alertId required' }, { status: 400 });
@@ -25,7 +23,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const body = await req.json().catch(() => null) as { alertId?: string; author?: string; body?: string } | null;
   const alertId = body?.alertId?.trim();

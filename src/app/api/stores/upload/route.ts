@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { putObject, publicUrl } from '@/lib/r2';
+import { putObject, publicUrl, putPrivateObject, isPrivateBucketConfigured } from '@/lib/r2';
 import { resolveStoreId } from '@/lib/store-partner-auth';
 import crypto from 'crypto';
 
@@ -26,9 +26,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Only JPEG, PNG, WebP, or GIF images allowed.' }, { status: 400 });
     }
 
-    const ext     = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const key     = `stores/${storeId}/${crypto.randomUUID()}.${ext}`;
-    const bytes   = await file.arrayBuffer();
+    const ext   = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const bytes = await file.arrayBuffer();
+
+    // Identity documents (PAN, Aadhaar, KYC selfie) go to the private bucket and
+    // are never given a public URL — the caller gets an opaque key it can only
+    // exchange for bytes through the authenticated /api/stores/kyc/doc route.
+    // Everything else (product photos, offer images) stays public as before.
+    if ((form.get('kind') as string | null) === 'kyc') {
+      if (!isPrivateBucketConfigured()) {
+        return NextResponse.json(
+          { error: 'Document upload is temporarily unavailable. Please contact hello@wearealive.in.' },
+          { status: 503 },
+        );
+      }
+      // Prefixed with the owning store so the doc route can prove ownership from
+      // the key alone, independent of what the database happens to hold.
+      const key = `kyc/${storeId}/${crypto.randomUUID()}.${ext}`;
+      await putPrivateObject(key, Buffer.from(bytes), file.type);
+      return NextResponse.json({ key });
+    }
+
+    const key = `stores/${storeId}/${crypto.randomUUID()}.${ext}`;
     await putObject(key, Buffer.from(bytes), file.type);
 
     return NextResponse.json({ url: publicUrl(key) });

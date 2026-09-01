@@ -4,17 +4,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { deleteObject } from '@/lib/r2';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     const content = await db.content.findUnique({ where: { id } });
@@ -27,6 +25,18 @@ export async function DELETE(
       await deleteObject(content.originalObjectKey).catch(() => {});
     }
     if (content.hevcObjectKey) await deleteObject(content.hevcObjectKey).catch(() => {});
+
+    // Media leaving the library is irreversible (the R2 objects go with it), so
+    // record what was removed alongside who removed it.
+    await logAdminAction({
+      actor, req,
+      action: 'content.delete',
+      target: id,
+      // `object`, not `objectKey`: the audit scrubber redacts any key whose words
+      // include "key", so naming it objectKey would store "[redacted]" — losing
+      // the R2 path, which is the only thing identifying the destroyed file.
+      meta:   { name: content.name, object: content.objectKey },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {

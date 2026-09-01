@@ -41,8 +41,18 @@ export default function KycTab() {
   const [loading,  setLoading] = useState(true);
   const [error,    setError]   = useState<string | null>(null);
 
-  // Local upload state — populated by user before submit
-  const [uploads, setUploads] = useState<Record<DocSlot, string | null>>({ pan: null, aadhaar: null, selfie: null });
+  // Two different things per slot, deliberately kept apart:
+  //   key     — the private-bucket object key, sent on submit. Only present for
+  //             documents uploaded in this session; the server keeps the rest.
+  //   preview — something an <img> can render. For an already-submitted document
+  //             that is the authenticated doc route; for a fresh upload it is a
+  //             local blob, since the file has no readable URL by design.
+  type SlotState = { key: string | null; preview: string | null };
+  const [uploads, setUploads] = useState<Record<DocSlot, SlotState>>({
+    pan:     { key: null, preview: null },
+    aadhaar: { key: null, preview: null },
+    selfie:  { key: null, preview: null },
+  });
   const [uploadingSlot, setUploadingSlot] = useState<DocSlot | null>(null);
   const [aadhaarLast4,  setAadhaarLast4]  = useState('');
   const [submitting,    setSubmitting]    = useState(false);
@@ -60,7 +70,11 @@ export default function KycTab() {
       if (res.ok) {
         const d = await res.json() as KycData;
         setData(d);
-        setUploads({ pan: d.panUrl, aadhaar: d.aadhaarUrl, selfie: d.selfieUrl });
+        setUploads({
+          pan:     { key: null, preview: d.panUrl },
+          aadhaar: { key: null, preview: d.aadhaarUrl },
+          selfie:  { key: null, preview: d.selfieUrl },
+        });
         if (d.aadhaarLast4) setAadhaarLast4(d.aadhaarLast4);
       } else if (res.status === 401) {
         // A 401 must not render as "KYC not submitted" — that reads like the
@@ -83,10 +97,16 @@ export default function KycTab() {
       const upload = await compressImageFile(file);
       if (upload.size > PROXY_UPLOAD_LIMIT_BYTES) throw new Error('Image too large — keep under 4 MB.');
       const fd = new FormData();
+      // The downscaled copy, not the original: a raw phone photo is routinely
+      // over the request-body cap, so sending `file` here fails on exactly the
+      // shots partners actually take.
       fd.append('file', upload);
+      // Routes the file to the private bucket; the response is a key, not a URL.
+      fd.append('kind', 'kyc');
       const res = await storeFetch('/api/stores/upload', { method: 'POST', body: fd });
-      const d   = await readJsonOrThrow<{ url?: string }>(res);
-      setUploads((u) => ({ ...u, [slot]: d.url ?? null }));
+      const d   = await res.json() as { key?: string; error?: string };
+      if (!res.ok || !d.key) throw new Error(d.error ?? 'Upload failed');
+      setUploads((u) => ({ ...u, [slot]: { key: d.key!, preview: URL.createObjectURL(upload) } }));
     } catch (e) { setError((e as Error).message); }
     finally { setUploadingSlot(null); }
   };
@@ -97,7 +117,10 @@ export default function KycTab() {
   };
 
   const submit = async () => {
-    if (!uploads.pan || !uploads.aadhaar || !uploads.selfie) {
+    // A slot counts as ready if it was just uploaded (key) or was already
+    // submitted previously (preview) — the server keeps whatever isn't resent.
+    const ready = (s: SlotState) => !!(s.key || s.preview);
+    if (!ready(uploads.pan) || !ready(uploads.aadhaar) || !ready(uploads.selfie)) {
       setError('Please upload all three documents before submitting.');
       return;
     }
@@ -107,9 +130,10 @@ export default function KycTab() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          panUrl:        uploads.pan,
-          aadhaarUrl:    uploads.aadhaar,
-          selfieUrl:     uploads.selfie,
+          // Only newly uploaded keys are sent; omitted slots keep their stored value.
+          panUrl:        uploads.pan.key     ?? undefined,
+          aadhaarUrl:    uploads.aadhaar.key ?? undefined,
+          selfieUrl:     uploads.selfie.key  ?? undefined,
           aadhaarLast4:  aadhaarLast4 || undefined,
         }),
       });
@@ -136,7 +160,8 @@ export default function KycTab() {
   const meta   = STATUS_COPY[status];
   const Icon   = meta.icon;
   const canEdit = status === 'not_started' || status === 'rejected';
-  const allUploaded = uploads.pan && uploads.aadhaar && uploads.selfie;
+  const allUploaded = (['pan', 'aadhaar', 'selfie'] as DocSlot[])
+    .every((s) => uploads[s].key || uploads[s].preview);
 
   return (
     <div className="space-y-4">
@@ -195,7 +220,7 @@ export default function KycTab() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {SLOTS.map(({ key, label, hint, icon: SlotIcon }) => {
-              const url      = uploads[key];
+              const url      = uploads[key].preview;
               const isLoading = uploadingSlot === key;
               return (
                 <div key={key} className="space-y-1.5">

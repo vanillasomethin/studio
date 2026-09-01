@@ -7,14 +7,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getLinkedAccount, listThings, isMeteringDevice, readPowerParams } from '@/lib/ewelink';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
@@ -55,6 +53,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await tx.smartPlug.deleteMany({ where: { OR: [{ deviceId: id }, { ewelinkDeviceId: thing.deviceid }] } });
       return tx.smartPlug.create({ data });
     });
+
+    // Linking a relay gives whoever holds it the ability to cut a screen's power
+    // remotely — worth attributing to a person.
+    await logAdminAction({
+      actor, req,
+      action: 'plug.link',
+      target: id,
+      meta: {
+        plugId:          plug.id,
+        ewelinkDeviceId: thing.deviceid,
+        plugName:        thing.name,
+        productModel:    thing.productModel,
+        ratedWatts,
+      },
+    });
+
     return NextResponse.json({ plug });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -62,13 +76,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
     const body = (await req.json()) as { ratedWatts?: number | null };
     const ratedWatts = typeof body.ratedWatts === 'number' && body.ratedWatts > 0 ? body.ratedWatts : null;
     const plug = await db.smartPlug.update({ where: { deviceId: id }, data: { ratedWatts } });
+
+    await logAdminAction({
+      actor, req,
+      action: 'plug.update',
+      target: id,
+      meta:   { plugId: plug.id, ratedWatts },
+    });
+
     return NextResponse.json({ plug });
   } catch {
     return NextResponse.json({ error: 'No plug linked to this screen' }, { status: 404 });
@@ -76,11 +99,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
-    await db.smartPlug.delete({ where: { deviceId: id } });
+    const plug = await db.smartPlug.delete({ where: { deviceId: id } });
+
+    await logAdminAction({
+      actor, req,
+      action: 'plug.unlink',
+      target: id,
+      meta:   { plugId: plug.id, ewelinkDeviceId: plug.ewelinkDeviceId },
+    });
+
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'No plug linked to this screen' }, { status: 404 });

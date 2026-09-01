@@ -10,11 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import { validateNesting, type PlaylistItemInput } from '@/lib/playlist-nesting';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizePlaylist(pl: any) {
@@ -58,7 +55,7 @@ const ITEMS_INCLUDE = {
 };
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const rows = await db.playlist.findMany({
       include: ITEMS_INCLUDE,
@@ -71,7 +68,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { name, items = [], transition } = await req.json() as {
       name: string;
@@ -99,6 +97,13 @@ export async function POST(req: NextRequest) {
         },
       },
       include: ITEMS_INCLUDE,
+    });
+
+    await logAdminAction({
+      actor, req,
+      action: 'playlist.create',
+      target: playlist.id,
+      meta:   { name: playlist.name, itemCount: items.length },
     });
 
     return NextResponse.json({ playlist: normalizePlaylist(playlist) });

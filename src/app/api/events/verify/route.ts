@@ -5,12 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import crypto from 'crypto';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
 
 function computeRowHash(id: string, deviceId: string, mediaId: string, startedAt: string, endedAt: string, durationMs: number, tag: string | null, prevHash: string | null): string {
   const data = [id, deviceId, mediaId, startedAt, endedAt, String(durationMs), tag ?? '', prevHash ?? ''].join('|');
@@ -18,15 +14,21 @@ function computeRowHash(id: string, deviceId: string, mediaId: string, startedAt
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const deviceId = req.nextUrl.searchParams.get('deviceId');
   if (!deviceId) return NextResponse.json({ error: 'deviceId required' }, { status: 400 });
 
   try {
+    // Walk in INSERTION order, matching how /api/device/events builds the chain.
+    // Walking startedAt instead reported a break every time a device drained an
+    // offline backlog out of order: the rows were chained as they arrived, so
+    // replaying them in play-time order compares each link against the wrong
+    // neighbour. The chain attests to the order evidence was accepted, which is
+    // the only order the writer can observe.
     const events = await db.playEvent.findMany({
       where:   { deviceId },
-      orderBy: { startedAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select:  { id: true, deviceId: true, mediaId: true, startedAt: true, endedAt: true, durationMs: true, tag: true, prevHash: true, rowHash: true },
     });
 

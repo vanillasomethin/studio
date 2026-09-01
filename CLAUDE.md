@@ -72,18 +72,20 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 **Auth — the biggest trap:**
 - Store partners (web): next-auth Credentials — the dashboard login calls `signIn('phone-password')`, which sets a session cookie. `localStorage` key `alive_store_session` is a *cache* of the store payload for instant render, and the fallback when no cookie exists yet (fresh registration, admin open-as-partner).
 - Store-partner API routes: authenticate with `resolveStoreId()` from `src/lib/store-partner-auth.ts`. A bare `storeId` param is NOT a credential (ids are publicly enumerable) — an explicit `storeId` is honored only with a matching signed `x-store-token` header (HMAC, `AUTH_SECRET`; minted by login/registration//api/stores/me, or `/api/admin/store-token` for impersonation) or when it matches the next-auth session owner's store. No `storeId` → next-auth session fallback (web). Don't hand-roll `auth()` checks in these routes.
-- Admin console: **named accounts** (`AdminUser`). A person signs in at `/admin`
-  with their own email + password; `/api/admin/auth` sets an httpOnly
-  `alive_admin_session` cookie. Edge middleware verifies that cookie and injects
-  the shared `admin-password` secret plus `x-admin-*` identity headers into the
-  forwarded request — so the ~74 existing admin routes keep their header check
-  unchanged and the browser never holds `ADMIN_PASSWORD`. Read the actor with
-  `adminActor(req)` and audit with `recordAdminAction(req, …)`
-  (`src/lib/admin-actor.ts`). The shared password is accepted only while zero
-  `AdminUser` rows exist, so the first person in can seed the team
-  (`npm run admin:seed`, add `-- --send` to email the invites — Zoho SMTP when
-  `ZOHO_SMTP_*` is set, else Resend). Invites carry a single-use link, never a
-  password.
+- Admin console: **named accounts with 2FA**. A person signs in at `/admin` with
+  their own `@wearealive.in` email + password + TOTP, via the next-auth
+  `admin-mfa` provider — there is no shared password any more, and
+  `/api/admin/auth` is a 410 stub kept only so a stale tab gets a clear answer.
+  Every admin route starts with `const actor = await requireAdmin(req); if
+  (!actor) return adminUnauthorized();` (`src/lib/admin-guard.ts`) — never a
+  hand-rolled `admin-password` header check, and never a
+  `!process.env.ADMIN_PASSWORD || …` guard, which with the secret retired is an
+  open endpoint. Audit mutations with `logAdminAction({ actor, req, action,
+  target, meta })` (`src/lib/admin-audit.ts`); `action` is a dotted verb like
+  `slot_booking.assign`. Sessions are rows (`AdminSession`) so they are
+  revocable — a signed JWT alone is not. Staff are provisioned from Admin → Team,
+  which mails a single-use `/admin/setup?token=…` link (`src/lib/admin-invite.ts`);
+  invites never carry a password.
 - Brands/admin: next-auth session via `auth()`
 
 **R2 uploads — two paths, pick by size:**
@@ -227,8 +229,8 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 ## Admin Dashboard
 
-- Protected by `admin-password` header vs `ADMIN_PASSWORD` env var
-- `sessionStorage.getItem('alive_admin_pw')` in browser for API calls
+- Protected per-route by `requireAdmin()` — a named session, not a header secret
+- The browser holds no admin credential; the session cookie is httpOnly
 - Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
 
 ---
@@ -312,9 +314,11 @@ R2_ENDPOINT
 R2_ACCESS_KEY_ID
 R2_SECRET_ACCESS_KEY
 R2_BUCKET
+R2_PRIVATE_BUCKET               # KYC/identity docs — a SEPARATE bucket with NO public access. Public access on R2 is per-bucket, so Aadhaar/PAN must not share R2_BUCKET. Served only via /api/stores/kyc/doc.
 R2_PUBLIC_BASE
 AUTH_SECRET
-ADMIN_PASSWORD                  # shared secret — now server-side only, injected by middleware
+ADMIN_PASSWORD                  # RETIRED. Only admin-guard's legacy fallback still reads it;
+                                # leave it unset in new environments — named accounts are the way in.
 ADMIN_BASE_URL                  # origin used in admin invite links (default https://wearealive.in)
 ZOHO_SMTP_USER                  # Zoho mailbox for admin invites (app-specific password, not the account one)
 ZOHO_SMTP_PASSWORD

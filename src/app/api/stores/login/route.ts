@@ -9,23 +9,46 @@ function getRedis(): Redis | null {
   return new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
 }
 
+const LIMIT = 10;
+const WINDOW_SEC = 60;
+
+// In-process backstop for when Redis is unavailable.
+//
+// Failing fully open on a cache outage turns a credential-stuffing brake into a
+// no-op precisely when nobody is watching, but failing closed would lock every
+// partner out of their dashboard over an infrastructure blip. So the shared
+// limiter stays authoritative, and this bounded per-instance map catches the
+// outage case. It is not global — serverless runs many instances — but it costs
+// an attacker an order of magnitude and keeps a single source from running
+// unbounded against one instance.
+const memHits = new Map<string, { n: number; resetAt: number }>();
+const MEM_MAX_KEYS = 10_000;
+
+function memoryAllow(ip: string): boolean {
+  const now = Date.now();
+  const hit = memHits.get(ip);
+  if (!hit || now > hit.resetAt) {
+    // Bound the map so this can't be turned into a memory-exhaustion vector.
+    if (memHits.size > MEM_MAX_KEYS) memHits.clear();
+    memHits.set(ip, { n: 1, resetAt: now + WINDOW_SEC * 1000 });
+    return true;
+  }
+  hit.n += 1;
+  return hit.n <= LIMIT;
+}
+
 // Sliding-window rate limit: max 10 login attempts per IP per 60 seconds.
 async function checkRateLimit(ip: string): Promise<boolean> {
-  // Fail open on ANY Redis problem (bad URL, outage): rate limiting is
-  // best-effort and must never take logins down with it.
   try {
     const kv = getRedis();
-    if (!kv) return true; // allow if Redis unavailable
+    if (!kv) return memoryAllow(ip); // no cache configured — use the backstop
 
-    const key    = `rl:login:${ip}`;
-    const limit  = 10;
-    const window = 60; // seconds
-
+    const key = `rl:login:${ip}`;
     const count = await kv.incr(key);
-    if (count === 1) await kv.expire(key, window);
-    return count <= limit;
+    if (count === 1) await kv.expire(key, WINDOW_SEC);
+    return count <= LIMIT;
   } catch {
-    return true;
+    return memoryAllow(ip); // cache outage — degrade, don't disappear
   }
 }
 
@@ -49,6 +72,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (!user?.passwordHash) {
+      // Compare against a dummy hash before answering. Returning immediately
+      // skips bcrypt entirely, so an unregistered number replies in a fraction
+      // of the time a registered one does — a timing oracle that lets an
+      // attacker enumerate which phone numbers are ALIVE partners without ever
+      // guessing a password.
+      await bcrypt.compare(password, '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy');
       return NextResponse.json({ store: null, error: 'Incorrect number or password.' }, { status: 401 });
     }
 

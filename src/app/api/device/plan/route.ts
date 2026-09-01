@@ -19,7 +19,8 @@ import { resolveFillerCampaign } from '@/lib/slots-db';
 import { getMakegoodWeights } from '@/lib/sla-db';
 import { getPeakBoostedCampaignIds, getSoundAdCampaignId } from '@/lib/addons-db';
 import { isPeakWindowNow, peakBoostPoolWeights } from '@/lib/addons';
-import { resolveOfflineAlerts } from '@/lib/device-alerts';
+import { isDevicePaired } from '@/lib/device-auth';
+import { resolveOfflineAlerts, backfillMissedOutage, sweepOfflineDevices } from '@/lib/device-alerts';
 
 async function authenticate(req: NextRequest) {
   const auth  = req.headers.get('authorization') ?? '';
@@ -175,6 +176,12 @@ export async function GET(req: NextRequest) {
   const device = await authenticate(req);
   if (device === 'gone') return NextResponse.json({ error: 'Device deleted' }, { status: 410 });
   if (!device) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // A claim token alone does not entitle a screen to content — an operator must
+  // have confirmed the on-screen pairing code first (see isDevicePaired). 403,
+  // not 410: the device should keep polling pairing-status, not decommission.
+  if (!isDevicePaired(device)) {
+    return NextResponse.json({ error: 'Device not paired' }, { status: 403 });
+  }
 
   const now       = new Date();
   const windowEnd = new Date(now.getTime() + 72 * 60 * 60 * 1000);
@@ -496,7 +503,29 @@ export async function GET(req: NextRequest) {
     // both leaves a false "screen has stopped" banner on the partner's dashboard
     // and permanently silences that device (openOfflineAlerts skips devices with
     // an OPEN alert). after() keeps the work alive past the response.
-    if (device.status === 'OFFLINE') after(() => resolveOfflineAlerts(device.id, now));
+    //
+    // Then reconstruct any outage the sweep never recorded. Its schedule drifts by
+    // hours, so an outage that began and ended between two runs never flipped the
+    // status and would otherwise vanish; the same is true when the sweep flipped
+    // the status but failed to open a row, which is why this runs even after a
+    // resolve rather than as its else-branch. `device` predates the write above,
+    // so device.lastSeen is still the pre-heartbeat value — the far edge of the gap.
+    after(async () => {
+      // Unconditional, not gated on the pre-write status. resolveOfflineAlerts
+      // early-returns when nothing is OPEN, so the cost is one indexed lookup —
+      // and gating on status loses the case where a sweep flipped this device to
+      // OFFLINE in the window between reading the row above and writing lastSeen.
+      // That leaves an OPEN alert on a screen we can prove is alive, because the
+      // stale snapshot says ONLINE and nothing ever revisits it. This heartbeat
+      // IS the proof; a screen that just spoke has no business holding an alert.
+      await resolveOfflineAlerts(device.id, now);
+      await backfillMissedOutage(device, device.lastSeen, now);
+      // Ride this heartbeat to check the REST of the fleet for the offline edge.
+      // The health cron is a GitHub Actions schedule that drifts by hours, so any
+      // live screen polling every 15 min is a far more dependable clock than it is.
+      // Throttled per instance and a no-op UPDATE in the steady state.
+      await sweepOfflineDevices(now);
+    });
 
     return NextResponse.json({
       planHash,

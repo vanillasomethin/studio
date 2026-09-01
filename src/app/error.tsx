@@ -1,11 +1,31 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { isChunkLoadError, recover, recoveryAttempted } from '@/components/chunk-error-recovery';
 
 // Next.js global error boundary page — shown for unhandled runtime errors.
 // Keep this minimal and reassuring.
+//
+// Chunk-load failures get special treatment. A lazily-imported panel whose chunk
+// 404s (this tab is running a build that a redeploy replaced) throws INSIDE the
+// React tree, so the boundary catches it and the window-level listeners in
+// ChunkErrorRecovery never fire — which stranded an admin on this page for an
+// error a reload fixes (exactly how the Alerts-tab deploy on 2026-08-29 was
+// experienced as "the admin panel is broken"). So the boundary itself detects
+// that case, shows "updating" instead of an error, and runs the same
+// purge-and-reload-once recovery. recover() is sessionStorage-guarded, so a
+// second failure falls through to the real error page rather than looping.
 
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  // Decided in an effect, not during render: sessionStorage isn't available while
+  // the boundary is server-rendered, and reading it must not throw here of all places.
+  const [updating, setUpdating] = useState(false);
+
   useEffect(() => {
+    if (isChunkLoadError(error) && !recoveryAttempted()) {
+      setUpdating(true);
+      void recover();
+      return; // stale build, not an incident — skip the error telemetry
+    }
     // Silent telemetry ping
     fetch('/api/telemetry', {
       method: 'POST',
@@ -13,6 +33,24 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
       body: JSON.stringify({ level: 'error', errorClass: error.name, message: error.message, digest: error.digest, source: 'next-error-page', route: typeof window !== 'undefined' ? window.location.pathname : undefined }),
     }).catch(() => {});
   }, [error]);
+
+  if (updating) {
+    return (
+      <html lang="en">
+        <head>
+          <title>Updating — ALIVE</title>
+        </head>
+        <body style={{ margin: 0, fontFamily: 'system-ui, sans-serif', background: '#fff', color: '#0a0a0a' }}>
+          <div style={{ minHeight: '100svh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+            <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 4, opacity: 0.35 }}>
+              alive<span style={{ width: 7, height: 7, borderRadius: '50%', background: '#dc2626', display: 'inline-block' }} />
+            </div>
+            <p style={{ fontSize: 14, color: '#737373' }}>Getting the latest version…</p>
+          </div>
+        </body>
+      </html>
+    );
+  }
 
   return (
     <html lang="en">

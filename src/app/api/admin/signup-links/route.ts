@@ -6,13 +6,14 @@
 // see what still needs an env var.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { SLOT_TIERS } from '@/lib/slot-pricing';
 import { TIER_KEY_ENV, TIER_LABEL } from '@/lib/store-signup-links';
 import { TIER_MONTHLY_MINIMUM_RUPEES } from '@shared/agreement-terms';
 
 export async function GET(req: NextRequest) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const origin = req.nextUrl.origin;
   const links = SLOT_TIERS.map((tier) => {

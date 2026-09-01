@@ -9,15 +9,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { recordAdminAction } from '@/lib/admin-actor';
 import { buildSlotLoop } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 async function pushStoreDevices(storeId: string) {
   const devices = await db.device.findMany({ where: { storeId }, select: { id: true } });
@@ -25,7 +21,7 @@ async function pushStoreDevices(storeId: string) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const storeId = req.nextUrl.searchParams.get('storeId') ?? '';
     const date    = req.nextUrl.searchParams.get('date') ?? '';
@@ -68,7 +64,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { storeId, date, slotPosition, campaignId } = await req.json() as {
       storeId: string; date: string; slotPosition: number; campaignId: string;
@@ -90,7 +87,16 @@ export async function POST(req: NextRequest) {
     });
 
     pushStoreDevices(storeId).catch(() => {});
-    void recordAdminAction(req, 'slot_assign', `${storeId}:${date}:${slotPosition}`, { campaignId });
+
+    // Selling a loop position is what puts a brand's creative on a screen — and an
+    // upsert silently replaces whoever held the position before. Record who did it.
+    await logAdminAction({
+      actor, req,
+      action: 'slot_booking.assign',
+      target: booking.id,
+      meta:   { storeId, date, slotPosition, campaignId },
+    });
+
     return NextResponse.json({ booking });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -98,13 +104,31 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const id = req.nextUrl.searchParams.get('id') ?? '';
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-    const booking = await db.slotBooking.delete({ where: { id }, select: { storeId: true, date: true, slotPosition: true, campaignId: true } });
+    const booking = await db.slotBooking.delete({
+      where:  { id },
+      select: { storeId: true, date: true, slotPosition: true, campaignId: true },
+    });
     pushStoreDevices(booking.storeId).catch(() => {});
-    void recordAdminAction(req, 'slot_unassign', `${booking.storeId}:${booking.date.toISOString().slice(0, 10)}:${booking.slotPosition}`, { campaignId: booking.campaignId });
+
+    // The row is gone, so the audit note is the only remaining record of which
+    // brand lost which position on which day.
+    await logAdminAction({
+      actor, req,
+      action: 'slot_booking.unassign',
+      target: id,
+      meta: {
+        storeId:      booking.storeId,
+        date:         booking.date.toISOString().slice(0, 10),
+        slotPosition: booking.slotPosition,
+        campaignId:   booking.campaignId,
+      },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

@@ -480,11 +480,16 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
         method: 'POST', body: fd,
         headers: store.token ? { 'x-store-token': store.token } : undefined,
       });
-      const body = await res.json().catch(() => null) as { url?: string; error?: string } | null;
+      const body = await res.json().catch(() => null) as { url?: string; error?: string; tvTag?: string | null } | null;
       if (!res.ok || !body?.url) { setError(body?.error ?? 'Upload failed. Please try again.'); return; }
+      // Cache the tag the server actually STORED, not the one just typed: ops
+      // owns the TV number once they have recorded it, so a partner's second
+      // attempt is refused server-side. Echoing the typed value here used to
+      // leave the dashboard showing a number the database never had.
       onUploaded(kind === 'shop'
         ? { shopPhotoUrl: body.url, shopPhotoLat: coords.lat, shopPhotoLng: coords.lng, shopPhotoAt: new Date().toISOString() }
-        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(), tvTag: tvTag.trim() || undefined });
+        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(),
+            tvTag: body.tvTag !== undefined ? (body.tvTag ?? undefined) : (tvTag.trim() || undefined) });
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
     } finally {
@@ -560,7 +565,12 @@ function GpsPhotoChip({ url, lat, lng, at }: { url: string; lat?: number | null;
     <div className="mt-2 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1.5">
       <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="Verification photo" className="h-9 w-9 rounded object-cover" />
+        {/* Square thumb: object-cover crops horizontally for a landscape photo, so
+            object-top alone would leave the burnt-in GPS banner visible. The
+            top-anchored zoom clips the bottom third regardless of aspect. */}
+        <span className="block h-9 w-9 shrink-0 overflow-hidden rounded">
+          <img src={url} alt="Verification photo" className="h-full w-full origin-top scale-150 object-cover object-top" />
+        </span>
       </a>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-bold text-green-700 flex items-center gap-1">
@@ -1438,7 +1448,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 
           {tab === 'voicebill' && (
             <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
-              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} upiId={storeData.upiId} />
+              <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} upiId={storeData.upiId} token={storeData.token} />
             </motion.div>
           )}
 

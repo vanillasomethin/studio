@@ -7,7 +7,7 @@
 // the window is bounded.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { db } from '@/lib/db';
 
 const IST_OFFSET_MS = 330 * 60 * 1000;
@@ -37,7 +37,8 @@ export type QrResponse = {
 };
 
 export async function GET(req: NextRequest) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const days = Math.min(MAX_DAYS, Math.max(1, Number(req.nextUrl.searchParams.get('days') ?? 30)));
 
