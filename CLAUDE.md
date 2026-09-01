@@ -113,6 +113,9 @@ src/app/api/devices/route.ts              — fleet list
 src/app/api/cron/device-health/route.ts   — offline detection + alerts
 src/app/api/playlists/[id]/route.ts       — PATCH (update items) + DELETE
 src/app/api/admin/r2-upload/route.ts      — server-side R2 proxy upload
+src/app/api/cron/tuya-power/route.ts      — smart-plug power poll (Aziot/Tuya)
+src/lib/tuya.ts                           — Tuya Cloud OpenAPI client (signing, devices)
+src/lib/tuya-power.ts                     — plug poll recording + power summaries
 src/lib/db.ts                             — Prisma singleton
 src/lib/r2.ts                             — Cloudflare R2 helpers
 src/lib/notify.ts                         — notifyAdminWA(), notifyStoreWA()
@@ -143,6 +146,8 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `Bill` + `BillItem` | VoiceBill POS billing. `billRef` = "ALIVE-XXXXXX". |
 | `Customer` | Bill customer. Token-based auth (randomUUID → localStorage `alive_customer`). |
 | `Flyer` | Store offer flyers. |
+| `SmartPlug` | Tuya (Aziot) smart plug linked 1:1 to a Store, with latest-poll power snapshot. |
+| `PlugReading` | Per-poll power/energy time series (5-min cadence, 180-day retention). |
 | `AuditLog` | T2 audit trail (reserved). |
 
 ---
@@ -275,6 +280,10 @@ PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL;
 NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
 PREMIUM_SIGNUP_KEY              # secret for the gated premium store signup link /store?premium=<key> (optional)
 PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (default 100000 = ₹1000)
+TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
+TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
+TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
+ELECTRICITY_RATE_PAISE_PER_KWH  # ₹/unit for display-only cost estimates (default 800 = ₹8/kWh)
 ```
 
 ---

@@ -18,6 +18,7 @@ import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
 import KycTab from '@/components/store/kyc-tab';
 import ScreenAlertBanner from '@/components/store/screen-alert-banner';
+import PowerUsageCard from '@/components/store/power-usage-card';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
 // ─── Animations ─────────────────────────────────────────────────────────────
@@ -1343,6 +1344,9 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                   </div>
                 );
               })()}
+
+              {/* Electricity usage — renders only once admin links an Aziot plug */}
+              <PowerUsageCard storeId={storeData.id} />
 
               {/* Referral */}
               <ReferralCard store={storeData} />

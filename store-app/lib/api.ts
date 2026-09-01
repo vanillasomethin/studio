@@ -77,6 +77,22 @@ export async function getStoreMe(storeId?: string, token?: string | null): Promi
   return request(`/api/stores/me${qs}`, { headers: authHeaders(token) });
 }
 
+/** Partner-safe power summary from the store's linked Aziot smart plug. */
+export type StorePowerSummary = {
+  linked: boolean;
+  online?: boolean | null;
+  powerW?: number | null;
+  todayKwh?: number;
+  monthKwh?: number;
+  estMonthCostPaise?: number;
+  lastPolledAt?: string | null;
+};
+
+export async function getStorePower(storeId?: string, token?: string | null): Promise<StorePowerSummary> {
+  const qs = storeId ? `?storeId=${storeId}` : '';
+  return request(`/api/stores/power${qs}`, { headers: authHeaders(token) });
+}
+
 export async function requestPasswordReset(phone: string): Promise<void> {
   await request('/api/stores/reset-password', {
     method: 'POST',

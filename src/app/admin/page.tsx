@@ -38,9 +38,10 @@ const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-pan
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),            { ssr: false });
+const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
-import { adminGetArray, adminGetObject } from '@/lib/admin-fetch';
+import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1131,6 +1132,10 @@ function StoresPanel() {
                       </p>
                     </div>
 
+                    {/* Live consumption from the linked Tuya/Aziot plug — separate from
+                        the ops-typed label fields above, which stay pure metadata. */}
+                    <StorePlugPanel storeId={s.id} />
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
                         <option value="new">New</option>
@@ -1549,23 +1554,27 @@ function Ticker({ stats }: { stats: OpsStats | null }) {
 
 // ─── Command Palette ──────────────────────────────────────────────────────────
 
-const PALETTE_GROUPS = [
+// Every item must act: `tab` switches the console tab, `href` opens a flow in a
+// new browser tab (campaigns and kiranas are only born through their public
+// onboarding pages — there is no admin-side create form for either).
+type PaletteItem = { icon: React.ElementType; label: string; tab?: Tab; href?: string };
+
+const PALETTE_GROUPS: { label: string; items: PaletteItem[] }[] = [
   {
     label: 'Pages',
     items: [
-      { icon: LayoutDashboard, label: 'Go to Overview',        hint: 'G then O' },
-      { icon: Megaphone,       label: 'Go to Campaigns',       hint: 'G then C' },
-      { icon: Store,           label: 'Go to Kirana partners', hint: 'G then K' },
-      { icon: IndianRupee,     label: 'Go to Payouts',         hint: 'G then P' },
+      { icon: LayoutDashboard, label: 'Go to Overview',        tab: 'overview' },
+      { icon: Megaphone,       label: 'Go to Campaigns',       tab: 'campaigns' },
+      { icon: Store,           label: 'Go to Kirana partners', tab: 'stores' },
+      { icon: IndianRupee,     label: 'Go to Payouts',         tab: 'payments' },
     ],
   },
   {
     label: 'Actions',
     items: [
-      { icon: Plus,        label: 'New campaign',              hint: '⌘N' },
-      { icon: Upload,      label: 'Upload 8-second creative',  hint: '⌘U' },
-      { icon: Store,       label: 'Onboard a kirana',          hint: '⌘⇧K' },
-      { icon: IndianRupee, label: 'Release May payouts',       hint: undefined },
+      { icon: Plus,   label: 'New campaign',              href: '/brand-onboarding' },
+      { icon: Upload, label: 'Upload 8-second creative',  tab: 'content' },
+      { icon: Store,  label: 'Onboard a kirana',          href: '/store' },
     ],
   },
 ];
@@ -1583,13 +1592,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
 
   if (!open) return null;
   const filter = (txt: string) => txt.toLowerCase().includes(q.toLowerCase());
-
-  const tabMap: Record<string, Tab> = {
-    'Go to Overview': 'overview',
-    'Go to Campaigns': 'campaigns',
-    'Go to Kirana partners': 'stores',
-    'Go to Payouts': 'payments',
-  };
 
   return (
     <div className="cmd__overlay" onClick={onClose}>
@@ -1615,12 +1617,12 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
                   const IconComp = it.icon;
                   return (
                     <button key={k} className="cmd__item" onClick={() => {
-                      if (tabMap[it.label]) onNav(tabMap[it.label]);
+                      if (it.tab) onNav(it.tab);
+                      else if (it.href) window.open(it.href, '_blank');
                       onClose();
                     }}>
                       <span className="cmd__item-icon"><IconComp className="h-3.5 w-3.5" /></span>
                       <span className="cmd__item-label">{it.label}</span>
-                      {it.hint && <span className="cmd__item-hint">{it.hint}</span>}
                     </button>
                   );
                 })}
@@ -1629,8 +1631,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
           })}
         </div>
         <div className="cmd__foot">
-          <span><kbd>↑↓</kbd> navigate</span>
-          <span><kbd>↵</kbd> select</span>
           <span><kbd>esc</kbd> close</span>
           <span style={{ marginLeft: 'auto' }}>Alive Command · v4.12</span>
         </div>
@@ -1732,10 +1732,77 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
 
 // ─── New Topbar ───────────────────────────────────────────────────────────────
 
-function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread }: {
-  section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
-  unread: number;
+// "Export" downloads the current tab's backing list as CSV. Each entry names
+// the file and fetches the rows; tabs without an entry hide the button — either
+// there's no list behind them, or (Reports / Proof of Play / Footfall) the tab
+// already has its own filter-aware CSV export that a blunt topbar dump would
+// only duplicate.
+
+const csvCell = (v: unknown): string => {
+  if (v == null) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+function rowsToCsv(rows: Record<string, unknown>[]): string {
+  const cols: string[] = [];
+  for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
+  return [cols, ...rows.map((r) => cols.map((c) => r[c]))]
+    .map((line) => line.map(csvCell).join(',')).join('\r\n');
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+type CsvRows = Record<string, unknown>[];
+
+const listExport = (name: string, fetchRows: () => Promise<CsvRows>) => async () => {
+  const rows = await fetchRows();
+  if (!rows.length) throw new Error('Nothing to export yet');
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(new Blob([rowsToCsv(rows)], { type: 'text/csv;charset=utf-8' }), `alive-${name}-${stamp}.csv`);
+};
+
+const fleetExport = listExport('screens', () =>
+  adminGetObject<{ devices?: CsvRows }>('/api/devices').then((j) => j.devices ?? []));
+
+const TAB_EXPORTS: Partial<Record<Tab, () => Promise<void>>> = {
+  overview:   fleetExport,
+  screens:    fleetExport,
+  monitoring: fleetExport,
+  stores:     listExport('kirana-partners', () => adminGetArray<Record<string, unknown>>('/api/stores/save')),
+  campaigns:  listExport('campaigns',       () => adminGetArray<Record<string, unknown>>('/api/campaigns/admin')),
+  content:    listExport('creatives',   () => adminGetObject<{ content?:   CsvRows }>('/api/content').then((j) => j.content ?? [])),
+  programming: listExport('schedules',  () => adminGetObject<{ schedules?: CsvRows }>('/api/schedules').then((j) => j.schedules ?? [])),
+  coupons:    listExport('coupons',     () => adminGetObject<{ coupons?:   CsvRows }>('/api/coupons').then((j) => j.coupons ?? [])),
+  team:       listExport('team',        () => adminGetObject<{ members?:   CsvRows }>('/api/admin/team').then((j) => j.members ?? [])),
+  // The payouts route already produces the bank-transfer CSV — current month.
+  payments: async () => {
+    const month = new Date().toISOString().slice(0, 7);
+    const res = await fetch(`/api/admin/store-payments/bulk-export?month=${month}`, { headers: { 'admin-password': adminPw() } });
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+    downloadBlob(await res.blob(), `alive-payments-${month}.csv`);
+  },
+};
+
+function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread }: {
+  tab: Tab; section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
+  onNav: (t: Tab) => void; unread: number;
 }) {
+  const [exporting, setExporting] = useState(false);
+  const tabExport = TAB_EXPORTS[tab];
+  const runExport = async () => {
+    if (!tabExport || exporting) return;
+    setExporting(true);
+    try { await tabExport(); }
+    catch (e) { alert(`Export failed: ${(e as Error).message}`); }
+    finally { setExporting(false); }
+  };
   return (
     <header className="tb">
       <div className="tb__crumbs">
@@ -1753,7 +1820,7 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread }: {
       <div className="tb__spacer"></div>
       <span className="live-pill">Live · {liveCount} screens</span>
       <div className="tb__divider"></div>
-      <button className="tb__icon-btn" title="Network status"><Activity className="h-4 w-4" /></button>
+      <button className="tb__icon-btn" title="Network status" onClick={() => onNav('monitoring')}><Activity className="h-4 w-4" /></button>
       <button
         className={`tb__icon-btn${unread > 0 ? ' tb__icon-btn--dot' : ''}`}
         title="Notifications"
@@ -1761,10 +1828,29 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread }: {
       >
         <Bell className="h-4 w-4" />
       </button>
-      <button className="tb__icon-btn" title="Help"><LifeBuoy className="h-4 w-4" /></button>
+      <button
+        className="tb__icon-btn"
+        title="Help"
+        onClick={() => { window.location.href = 'mailto:hello@wearealive.in?subject=Admin%20console%20help'; }}
+      >
+        <LifeBuoy className="h-4 w-4" />
+      </button>
       <div className="tb__divider"></div>
-      <button className="btn btn--outline btn--sm"><Download className="h-3 w-3" /> Export</button>
-      <button className="btn btn--primary btn--sm"><Plus className="h-3 w-3" /> New Campaign</button>
+      {tabExport && (
+        <button className="btn btn--outline btn--sm" onClick={runExport} disabled={exporting}>
+          {exporting
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <Download className="h-3 w-3" />} Export
+        </button>
+      )}
+      {/* There is no admin-side create form — campaigns are only born through the
+          brand-onboarding flow (admin books on behalf of the brand, "Pay later"). */}
+      <button
+        className="btn btn--primary btn--sm"
+        onClick={() => window.open('/brand-onboarding', '_blank')}
+      >
+        <Plus className="h-3 w-3" /> New Campaign
+      </button>
     </header>
   );
 }
@@ -2298,10 +2384,12 @@ function Dashboard() {
 
       <main className="main">
         <Topbar
+          tab={tab}
           section={sectionName[tab] ?? tab}
           liveCount={liveCount}
           onOpenCmd={() => setCmdOpen(true)}
           onOpenNotif={() => handleNav('alerts')}
+          onNav={handleNav}
           unread={alertCount + offlineAlertCount}
         />
         <Ticker stats={tickerStats} />

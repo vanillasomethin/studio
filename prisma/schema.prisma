@@ -300,6 +300,7 @@ model Store {
   footfallHourly       FootfallHourly[]
   screenPresenceEvents ScreenPresenceEvent[]
   sensorHealth         StoreSensorHealth?
+  smartPlug            SmartPlug?
   pushSubscriptions    PushSubscription[]
 
   @@index([city])
@@ -1185,6 +1186,55 @@ model StoreSensorHealth {
   updatedAt          DateTime  @updatedAt
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+// ─── Tuya smart-plug power monitoring (Aziot / Smart Life) ───────────────────
+
+// One Tuya-cloud device (an Aziot 4-node smart plug) linked per store. On
+// Store, not Device: the decommission flow deletes the Device row on re-pair
+// (see the installation-fields note on Store), and the plug is site hardware
+// that outlives any screen swap. The snapshot columns mirror the latest poll
+// so list views never need the readings table.
+model SmartPlug {
+  id           String    @id @default(cuid())
+  storeId      String    @unique
+  tuyaDeviceId String    @unique
+  name         String
+  productName  String?
+  category     String? // Tuya category code, e.g. "pc" (power strip), "cz" (socket)
+  online       Boolean?
+  switchOn     Boolean? // any socket on
+  socketsOn    Int? // how many of the 4 sockets are on
+  socketCount  Int? // boolean switch codes the device exposes
+  powerW       Float?
+  voltageV     Float?
+  currentA     Float?
+  // Per-code multiplier from the device's Tuya specification (raw value → SI
+  // unit, e.g. cur_power reports deci-watts → 0.1). Fetched once at link time;
+  // null means "use defaults" (see parsePlugStatus in src/lib/tuya.ts).
+  scales       Json?
+  lastPolledAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  readings PlugReading[]
+}
+
+model PlugReading {
+  id       String   @id @default(cuid())
+  plugId   String
+  at       DateTime @default(now())
+  online   Boolean
+  switchOn Boolean
+  powerW   Float?
+  // Energy consumed since the previous reading, integrated from wattage over
+  // the (capped) poll gap — see recordPlugPoll in src/lib/tuya-power.ts. Kept
+  // per-interval so month/day totals are a plain SUM regardless of gaps.
+  energyWh Float?
+
+  plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
+
+  @@index([plugId, at])
 }
 
 // Singleton row (id always 1) — fleet-wide player behavior knobs, editable from
