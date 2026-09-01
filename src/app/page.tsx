@@ -512,8 +512,8 @@ export default function Home() {
           <div className="col">
             <h4>Reach Us</h4>
             <p><a href="mailto:hello@wearealive.in" style={{ color: 'inherit' }}><strong>hello@wearealive.in</strong></a>For brand &amp; press enquiries</p>
-            <p style={{ marginTop: 14 }}><a href="tel:+917411324448" style={{ color: 'inherit' }}><strong>+91 74113 24448</strong></a>Mon–Sat · 10 AM to 7 PM IST</p>
-            <p style={{ marginTop: 14 }}><strong>VS Collective LLP · Mangaluru</strong>#13 First Floor, Highland Manor<br />Falnir, Mangaluru 575 002</p>
+            <p style={{ marginTop: 14 }}><a href="tel:+919606072227" style={{ color: 'inherit' }}><strong>+91 96060 72227</strong></a>Mon–Sat · 10 AM to 7 PM IST</p>
+            <p style={{ marginTop: 14 }}><strong>VS Collective LLP · Mangaluru</strong>217, Milestone 25<br />Balmatta, Mangalore</p>
           </div>
         </div>
 

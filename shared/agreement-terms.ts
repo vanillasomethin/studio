@@ -61,3 +61,35 @@ export function agreementTermsFor(monthlyRupees: number): { heading: string; bod
       : t,
   );
 }
+
+// ─── Tiered remuneration (slot-mode partners) ────────────────────────────────
+//
+// A slot-mode partner is paid a guaranteed monthly minimum for their tier, plus a
+// performance-linked incentive settled against the target schedule shared with
+// them separately. The incentive formula itself is deliberately NOT stated in the
+// agreement — partners see their tier's minimum and their actual payout total,
+// not the network's per-slot economics.
+
+export type AgreementTier = 'standard' | 'growth' | 'flagship';
+
+/** Guaranteed monthly minimum per screen, in rupees, by tier. */
+export const TIER_MONTHLY_MINIMUM_RUPEES: Record<AgreementTier, number> = {
+  standard: 650,
+  growth:   1150,
+  flagship: 1650,
+};
+
+export function agreementTermsForTier(tier: AgreementTier): { heading: string; body: string }[] {
+  const min = TIER_MONTHLY_MINIMUM_RUPEES[tier];
+  return AGREEMENT_TERMS.map((t) =>
+    t.heading === 'Remuneration'
+      ? {
+          ...t,
+          body:
+            `VS Collective LLP shall pay a guaranteed monthly remuneration of ₹${min.toLocaleString('en-IN')} per screen, ` +
+            `together with a performance-linked incentive settled against the monthly target schedule communicated to the Shop Owner. ` +
+            `The total payable is settled within 10 working days of month end via UPI/NEFT.`,
+        }
+      : t,
+  );
+}

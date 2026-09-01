@@ -15,6 +15,9 @@ import {
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
+import { SLOT_TIERS, SLOT_TIER_RATE_RUPEES, type SlotTier } from '@/lib/slot-pricing';
+
+const TIER_LABEL: Record<SlotTier, string> = { standard: 'Standard', growth: 'Growth', flagship: 'Flagship' };
 
 type AdminCampaign = { id: string; brandName: string; status: string; slotContentId: string | null };
 
@@ -27,6 +30,15 @@ const addDays = (d: string, n: number) =>
 const dayLabel = (d: string) => {
   const dt = new Date(`${d}T00:00:00Z`);
   return { dow: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][(dt.getUTCDay() + 6) % 7], day: dt.getUTCDate() };
+};
+
+/** What a single loop position is doing, and how it reads in the grid. */
+type SlotState = 'sold' | 'filler' | 'open';
+
+const SLOT_STATE: Record<SlotState, { label: string; pill: string; swatch: string }> = {
+  sold:   { label: 'Filled',      pill: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100',          swatch: 'border-red-300 bg-red-400' },
+  filler: { label: 'ALIVE filler', pill: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100', swatch: 'border-amber-300 bg-amber-400' },
+  open:   { label: 'Open',        pill: 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100',  swatch: 'border-green-300 bg-green-400' },
 };
 
 /** Heat colour by sold ratio — sold-out is a strong signal, not an alarm. */
@@ -108,6 +120,8 @@ export default function SlotsTab() {
         </div>
       </div>
 
+      <SlotRequestsPanel />
+
       {/* Grid */}
       {!slotStores.length ? (
         <div className="rounded-xl border border-dashed border-border bg-muted/10 py-12 text-center">
@@ -137,7 +151,7 @@ export default function SlotsTab() {
                 <tr key={s.id} className="border-b border-border/60 last:border-0">
                   <td className="sticky left-0 z-10 bg-card px-3 py-2 min-w-[150px]">
                     <p className="text-[11px] font-semibold text-foreground truncate">{s.storeName}</p>
-                    <p className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots · {s.hoursStart}–{s.hoursEnd}</p>
+                    <p className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots · {s.hoursStart}–{s.hoursEnd} · {TIER_LABEL[(s.slotPricingTier as SlotTier) || 'standard']}</p>
                   </td>
                   {dates.map((d) => {
                     const sold = s.sold?.[d];
@@ -212,6 +226,7 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
   const [loop,     setLoop]     = useState<SlotLoopEntry[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [busy,     setBusy]     = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
 
   const load = useCallback(() => {
     getSlotBookings(store.id, date)
@@ -248,64 +263,187 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
   const loopByPos = new Map(loop.map((l) => [l.slotPosition, l]));
   const campaignName = (id: string) => campaigns.find((c) => c.id === id)?.brandName ?? id.slice(0, 8);
   const sellable = campaigns.filter((c) => c.status !== 'cancelled');
+  const total = store.loopSlotCount ?? 0;
+
+  const stateOf = (pos: number): SlotState =>
+    byPos.has(pos) ? 'sold' : loopByPos.has(pos) ? 'filler' : 'open';
+
+  const counts = Array.from({ length: total }, (_, p) => stateOf(p))
+    .reduce((acc, s) => ({ ...acc, [s]: acc[s] + 1 }), { sold: 0, filler: 0, open: 0 } as Record<SlotState, number>);
+
+  const selBooking = selected == null ? undefined : byPos.get(selected);
+  const selPlaying = selected == null ? undefined : loopByPos.get(selected);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+      <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div>
             <p className="text-sm font-bold text-foreground">{store.storeName}</p>
-            <p className="text-[11px] text-muted-foreground">{date} · {bookings.length}/{store.loopSlotCount} sold</p>
+            <p className="text-[11px] text-muted-foreground">{date} · {bookings.length}/{total} sold</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
 
         {loading ? (
-          <div className="p-5 space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
+          <div className="p-5 grid grid-cols-10 gap-2">{Array.from({ length: 30 }, (_, i) => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
         ) : (
-          <div className="divide-y divide-border">
-            {Array.from({ length: store.loopSlotCount ?? 0 }, (_, pos) => {
-              const booking = byPos.get(pos);
-              const playing = loopByPos.get(pos);
-              return (
-                <div key={pos} className="flex items-center gap-3 px-5 py-2.5">
-                  <span className="w-6 text-[10px] font-bold text-muted-foreground/60">#{pos + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    {booking ? (
-                      <>
-                        <p className="text-xs font-semibold text-foreground truncate">{booking.campaignName}</p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {booking.hasCreative
-                            ? 'Sold · guaranteed'
-                            : <span className="text-amber-600">Sold but no 10s creative — plays as bonus/house fill</span>}
-                        </p>
-                      </>
-                    ) : playing ? (
-                      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <Gift className="h-3 w-3 text-green-600" />
-                        Empty — bonus play for <span className="font-semibold text-foreground">{campaignName(playing.campaignId)}</span>
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-muted-foreground/60">Empty — no filler creative configured</p>
-                    )}
-                  </div>
-                  <select
-                    value={booking?.campaignId ?? ''}
-                    disabled={busy === pos}
-                    onChange={(e) => e.target.value ? assign(pos, e.target.value) : booking && unassign(booking)}
-                    className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary max-w-[200px]"
+          <div className="p-5 space-y-4">
+            {/* Legend — the loop at a glance */}
+            <div className="flex flex-wrap items-center gap-4">
+              {(['sold', 'filler', 'open'] as SlotState[]).map((s) => (
+                <span key={s} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className={`h-3 w-3 rounded-full border ${SLOT_STATE[s].swatch}`} />
+                  {SLOT_STATE[s].label}
+                  <span className="font-bold text-foreground">{counts[s]}</span>
+                </span>
+              ))}
+            </div>
+
+            {/* The loop itself — one pill per position */}
+            <div className="grid grid-cols-6 gap-2 sm:grid-cols-10">
+              {Array.from({ length: total }, (_, pos) => {
+                const s = stateOf(pos);
+                const isSel = selected === pos;
+                return (
+                  <button
+                    key={pos}
+                    onClick={() => setSelected(isSel ? null : pos)}
+                    title={byPos.get(pos)?.campaignName
+                      ?? (loopByPos.has(pos) ? `Bonus play — ${campaignName(loopByPos.get(pos)!.campaignId)}` : 'Open')}
+                    className={`relative flex h-11 items-center justify-center rounded-lg border text-[11px] font-bold transition-colors ${SLOT_STATE[s].pill} ${
+                      isSel ? 'ring-2 ring-foreground ring-offset-1 ring-offset-card' : ''
+                    }`}
                   >
-                    <option value="">— empty —</option>
+                    {busy === pos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : pos + 1}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Detail for the clicked pill */}
+            {selected == null ? (
+              <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-[11px] text-muted-foreground">
+                Click a slot to see what plays there and reassign it.
+              </p>
+            ) : (
+              <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-foreground">Slot #{selected + 1}</p>
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${SLOT_STATE[stateOf(selected)].pill}`}>
+                    {SLOT_STATE[stateOf(selected)].label}
+                  </span>
+                </div>
+
+                {selBooking ? (
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{selBooking.campaignName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {selBooking.hasCreative
+                        ? 'Sold · guaranteed play'
+                        : <span className="text-amber-600">Sold but no 10s creative — plays as bonus/house fill</span>}
+                    </p>
+                  </div>
+                ) : selPlaying ? (
+                  <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Gift className="h-3.5 w-3.5 text-amber-600" />
+                    Unsold — bonus play for <span className="font-semibold text-foreground">{campaignName(selPlaying.campaignId)}</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70">Unsold, and no filler creative is configured — this position plays nothing.</p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selBooking?.campaignId ?? ''}
+                    disabled={busy === selected}
+                    onChange={(e) => e.target.value ? assign(selected, e.target.value) : selBooking && unassign(selBooking)}
+                    className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] text-foreground focus:border-primary focus:outline-none"
+                  >
+                    <option value="">— leave open —</option>
                     {sellable.map((c) => (
                       <option key={c.id} value={c.id}>{c.brandName}{c.slotContentId ? '' : ' (no creative)'}</option>
                     ))}
                   </select>
-                  {busy === pos && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                  {busy === selected && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                 </div>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pending slot requests (self-serve intake, admin approves) ────────────────
+//
+// A SlotRequest is not a booking — it's a brand spending credits to ask for a
+// store + time-window. Approving just marks it decided; the admin still picks the
+// exact loop position via the grid below (SlotEditor / assignSlot), same as always.
+
+type SlotRequestRow = {
+  id: string; campaignId: string; brandName: string;
+  storeId: string; storeName: string; city: string | null;
+  window: string; creditsCost: number; status: string; note: string | null;
+  requestedAt: string;
+};
+
+function SlotRequestsPanel() {
+  const [requests, setRequests] = useState<SlotRequestRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
+    fetch('/api/admin/slot-requests?status=pending', { headers: { 'admin-password': pw } })
+      .then((r) => r.ok ? r.json() as Promise<{ requests: SlotRequestRow[] }> : { requests: [] })
+      .then((d) => setRequests(d.requests))
+      .catch(() => setRequests([]));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function decide(id: string, decision: 'approved' | 'rejected') {
+    setBusy(id);
+    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
+    try {
+      await fetch('/api/admin/slot-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'admin-password': pw },
+        body: JSON.stringify({ id, decision }),
+      });
+      toast({ title: decision === 'approved' ? 'Approved — assign the exact slot below ✓' : 'Rejected' });
+      load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!requests || requests.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+      <p className="px-4 py-2.5 text-xs font-bold text-amber-700">{requests.length} pending slot request{requests.length > 1 ? 's' : ''}</p>
+      <div className="divide-y divide-border">
+        {requests.map((r) => (
+          <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-foreground truncate">
+                {r.brandName} → {r.storeName}{r.city ? ` · ${r.city}` : ''} · {r.window} ({r.creditsCost} credit{r.creditsCost > 1 ? 's' : ''})
+              </p>
+              {r.note && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">&ldquo;{r.note}&rdquo;</p>}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={() => decide(r.id, 'approved')} disabled={busy === r.id}
+                className="rounded-md border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-bold text-green-700 hover:bg-green-100 transition-colors disabled:opacity-40">
+                Approve
+              </button>
+              <button onClick={() => decide(r.id, 'rejected')} disabled={busy === r.id}
+                className="rounded-md border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40">
+                Reject
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -320,11 +458,12 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
   onClose: () => void; onSaved: () => void;
 }) {
   const [enabled,  setEnabled]  = useState(store.loopSlotCount != null);
-  const [count,    setCount]    = useState(store.loopSlotCount ?? 6);
+  const [count,    setCount]    = useState(store.loopSlotCount ?? 30);
   const [openDays, setOpenDays] = useState(store.openDays);
   const [start,    setStart]    = useState(store.hoursStart);
   const [end,      setEnd]      = useState(store.hoursEnd);
   const [filler,   setFiller]   = useState(store.fillerCampaignId ?? '');
+  const [tier,     setTier]     = useState(store.slotPricingTier || 'standard');
   const [saving,   setSaving]   = useState(false);
 
   // Mirrors resolveFillerCampaign on the server: per-store override, else global
@@ -340,6 +479,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
         loopSlotCount: enabled ? count : null,
         openDays, hoursStart: start, hoursEnd: end,
         fillerCampaignId: filler || null,
+        slotPricingTier: tier,
       });
       const moved = res.reassigned ?? [];
       toast(moved.length
@@ -385,6 +525,23 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
                     Reducing from {store.loopSlotCount}. Upcoming bookings above slot {count} move down into free slots automatically, and the brands see it on their dashboard. Only a day with more bookings than {count} will block the change.
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                  Pricing tier <span className="font-normal normal-case tracking-normal text-muted-foreground/70">— price per slot, and the store's payout</span>
+                </label>
+                <div className="flex gap-1.5">
+                  {SLOT_TIERS.map((t) => (
+                    <button key={t} onClick={() => setTier(t)}
+                      className={`flex-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition-colors ${
+                        tier === t ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground/70'
+                      }`}>
+                      {TIER_LABEL[t]}<br />₹{SLOT_TIER_RATE_RUPEES[t].toLocaleString('en-IN')}/slot
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">Not shown to the store partner — their dashboard only shows the resulting payout total.</p>
               </div>
 
               <div>

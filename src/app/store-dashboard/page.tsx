@@ -17,6 +17,9 @@ import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
 import KycTab from '@/components/store/kyc-tab';
+import ScreenPowerCard from '@/components/store/screen-power-card';
+import SoundAdMuteCard from '@/components/store/sound-ad-mute-card';
+import SlotOccupancyCard from '@/components/store/slot-occupancy-card';
 import ScreenAlertBanner from '@/components/store/screen-alert-banner';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
@@ -1355,7 +1358,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Quick actions</h2>
                 {[
                   { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
-                  { icon: Phone,         label: 'Call us',           desc: '+91 74113 24448',   href: 'tel:+919741324448', color: 'text-blue-500' },
+                  { icon: Phone,         label: 'Call us',           desc: '+91 96060 72227',   href: 'tel:+919606072227', color: 'text-blue-500' },
                 ].map((a) => (
                   <a key={a.label} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
                     className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/30 hover:bg-muted/30 transition-all group"
@@ -1406,6 +1409,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               </div>
 
               {/* 12-month timeline */}
+              {/* Screen + electricity estimate — see components/store/screen-power-card.
+                  Needs a persisted store id; a draft session that hasn't saved yet has none. */}
+              {storeData.id && <ScreenPowerCard storeId={storeData.id} />}
+              {storeData.id && <SlotOccupancyCard storeId={storeData.id} />}
+              {storeData.id && <SoundAdMuteCard storeId={storeData.id} />}
+
               <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 
             </motion.div>

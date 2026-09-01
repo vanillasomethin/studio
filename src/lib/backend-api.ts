@@ -17,6 +17,7 @@ export type Device = {
   storeId?:         string | null;
   linkedAt?:        string | null;
   linkedStoreName?: string | null;
+  storePhotoUrl?:   string | null;
   status:           'ONLINE' | 'OFFLINE' | 'PENDING';
   lastSeen?:        string | null;
   lastPlayAt?:      string | null;
@@ -161,6 +162,15 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     },
     credentials: 'same-origin',
   });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    // The admin session is gone (expired cookie, or a sign-in that never got
+    // one). Showing a raw {"error":"Unauthorized"} in the middle of a panel
+    // leaves no way forward, so drop the stale flag and go back to the gate —
+    // same behaviour as lib/admin-fetch.ts.
+    sessionStorage.removeItem('alive_admin');
+    sessionStorage.removeItem('alive_admin_pw');
+    window.location.reload();
+  }
   if (!res.ok) {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });
@@ -427,6 +437,29 @@ export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | '
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });
 
+// ─── Store photo (storefront shot used to identify a store in the admin) ──────
+
+/** Uploads the bytes to R2 through the admin proxy, then records the URL on the store. */
+export async function uploadStorePhoto(storeId: string, file: File): Promise<string> {
+  const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const form = new FormData();
+  form.append('file', file);
+  form.append('key', `stores/${storeId}/storefront-${Date.now()}.${ext}`);
+
+  // Not apiFetch: FormData must set its own multipart Content-Type boundary.
+  const res = await fetch('/api/admin/r2-upload', { method: 'POST', headers: adminHeaders(), body: form });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+  const { publicUrl } = await res.json() as { publicUrl: string };
+
+  await setStorePhoto(storeId, publicUrl);
+  return publicUrl;
+}
+
+export const setStorePhoto = (storeId: string, photoUrl: string | null) =>
+  apiFetch<{ photoUrl: string | null }>('/api/admin/store-photo', {
+    method: 'PATCH', body: JSON.stringify({ storeId, photoUrl }),
+  });
+
 // ─── Force sync ───────────────────────────────────────────────────────────────
 
 export const forceSyncDevice = (id: string) =>
@@ -446,6 +479,7 @@ export type SlotStore = {
   loopSlotCount: number | null; openDays: number;
   hoursStart: string; hoursEnd: string;
   fillerCampaignId: string | null;
+  slotPricingTier: string; // 'standard' | 'growth' | 'flagship' — see lib/slot-pricing.ts
   sold: Record<string, number | null> | null; // date → sold count; null = closed that day
 };
 
@@ -488,6 +522,7 @@ export type SlotSettingsResult = {
 export const updateSlotSettings = (body: {
   storeId?: string; loopSlotCount?: number | null; openDays?: number;
   hoursStart?: string; hoursEnd?: string; fillerCampaignId?: string | null;
+  slotPricingTier?: string;
   defaultFillerCampaignId?: string | null;
   campaignId?: string; slotContentId?: string | null;
 }) => apiFetch<SlotSettingsResult>('/api/slots/settings', { method: 'PATCH', body: JSON.stringify(body) });

@@ -108,12 +108,8 @@ input, select, textarea { font-family: inherit; }
 }
 .sb__logo {
   display: flex; align-items: center; gap: 8px;
-  font: 700 22px var(--font-display);
-  letter-spacing: -0.03em;
   padding: 4px 10px 18px;
-  color: var(--ink);
 }
-.sb__logo-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--adm-primary); box-shadow: 0 0 12px rgba(220,38,38,.6); animation: pulse-soft 2.4s ease-in-out infinite; }
 .sb__logo-sub { font: 500 9.5px var(--font-mono); letter-spacing: 0.18em; color: var(--adm-muted); text-transform: uppercase; margin-left: auto; font-style: normal; }
 .sb__group { margin-top: 14px; padding: 0 10px 6px; font: 500 9.5px var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--neutral-400); }
 .sb__item {
@@ -286,11 +282,6 @@ input, select, textarea { font-family: inherit; }
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.6); transform: scale(1); }
   50% { box-shadow: 0 0 0 5px rgba(255,255,255,0); transform: scale(1.15); }
 }
-@keyframes pulse-soft {
-  0%, 100% { box-shadow: 0 0 12px rgba(220,38,38,.5); }
-  50% { box-shadow: 0 0 4px rgba(220,38,38,.2); }
-}
-
 /* Date range pill */
 .range {
   display: inline-flex; align-items: stretch; height: 38px;
@@ -344,11 +335,27 @@ input, select, textarea { font-family: inherit; }
 .kpi__spark { width: 80px; height: 28px; }
 .kpi__period { font: 400 10px var(--font-mono); letter-spacing: 0.06em; color: var(--neutral-400); text-transform: uppercase; }
 
-.kpi--feature { color: #fff; border: 0; background: linear-gradient(135deg, #fb6b6b 0%, #dc2626 50%, #a01717 100%); box-shadow: 0 14px 30px -14px rgba(220,38,38,.55); }
-.kpi--feature::after { content: ""; position: absolute; top: -40%; right: -20%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(255,255,255,.32), transparent 60%); pointer-events: none; }
-.kpi--feature .kpi__label, .kpi--feature .kpi__period { color: rgba(255,255,255,.85); }
-.kpi--feature .kpi__icon { background: rgba(255,255,255,.18); color: #fff; }
-.kpi--feature .kpi__delta--up { background: rgba(255,255,255,.20); color: #fff; }
+/* KPI cards navigate, so they read as buttons. */
+.kpi--link { text-align: left; font: inherit; cursor: pointer; width: 100%; }
+
+/* The red treatment follows the pointer instead of being pinned to one card —
+   it marks what you are about to open, not an arbitrary "featured" metric. */
+.kpi--link:hover, .kpi--link:focus-visible {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(135deg, #fb6b6b 0%, #dc2626 50%, #a01717 100%);
+  outline: none;
+}
+.kpi--link:hover .kpi__label, .kpi--link:hover .kpi__period,
+.kpi--link:focus-visible .kpi__label, .kpi--link:focus-visible .kpi__period { color: rgba(255,255,255,.85); }
+.kpi--link:hover .kpi__value, .kpi--link:hover .kpi__value-sub,
+.kpi--link:focus-visible .kpi__value, .kpi--link:focus-visible .kpi__value-sub { color: #fff; }
+.kpi--link:hover .kpi__icon, .kpi--link:focus-visible .kpi__icon { background: rgba(255,255,255,.18); color: #fff; }
+
+/* Something is dark right now — visible without hovering, but quiet enough that
+   the hover treatment still wins when the pointer lands on it. */
+.kpi--alarm { border-color: rgba(220,38,38,.45); background: rgba(220,38,38,.05); }
+.kpi--alarm .kpi__value { color: var(--adm-primary); }
+.kpi--alarm .kpi__period { color: var(--adm-primary); }
 
 /* ===== MAIN GRID ===== */
 .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
@@ -374,9 +381,11 @@ input, select, textarea { font-family: inherit; }
 .feed-item__dot {
   width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0;
 }
-.feed-item__dot--live { background: var(--adm-primary); box-shadow: 0 0 0 3px rgba(220,38,38,.15); animation: pulse-dot 1.8s ease-in-out infinite; }
-.feed-item__dot--idle { background: var(--neutral-400); }
-.feed-item__dot--offline { background: var(--neutral-200); }
+/* Green live, red dark, amber waiting — the dot must agree with the word next to
+   it. This used to paint live screens red and offline ones near-invisible grey. */
+.feed-item__dot--live { background: #16a34a; }
+.feed-item__dot--idle { background: #f59e0b; }
+.feed-item__dot--offline { background: var(--adm-primary); }
 .feed-item__main { flex: 1; min-width: 0; }
 .feed-item__name { font: 500 13.5px var(--font-body); line-height: 1.3; letter-spacing: -0.005em; color: var(--ink); }
 .feed-item__area { font: 400 11px var(--font-mono); letter-spacing: 0.04em; color: var(--adm-muted); }
@@ -767,13 +776,15 @@ input, select, textarea { font-family: inherit; }
   display: flex; align-items: center; align-self: stretch;
 }
 .ticker__track {
-  display: flex; align-items: center; gap: 24px;
+  display: flex; align-items: center;
   animation: ticker-scroll 60s linear infinite;
   white-space: nowrap;
   flex-shrink: 0;
   width: max-content;
 }
-.ticker__item { display: inline-flex; align-items: center; gap: 10px; font: 400 12px var(--font-body); color: var(--ink-2); }
+/* Spacing lives inside each item, not as a track gap — the -50% loop only lands
+   seamlessly if every item occupies an identical advance. */
+.ticker__item { display: inline-flex; align-items: center; gap: 10px; padding-right: 24px; font: 400 12px var(--font-body); color: var(--ink-2); }
 .ticker__red { font: 500 10px var(--font-mono); letter-spacing: 0.10em; color: var(--adm-primary); }
 .ticker__dot { color: var(--neutral-400); }
 @keyframes ticker-scroll {

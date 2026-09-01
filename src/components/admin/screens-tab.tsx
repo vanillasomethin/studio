@@ -1,17 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Loader2, Tv2, Wifi, WifiOff, Clock, AlertCircle, Smartphone, Download, QrCode,
   ChevronDown, ChevronUp, Copy, Check, Play, CalendarDays, Pencil, Stethoscope, X,
   ExternalLink, CheckCircle2, TriangleAlert, Film, ImageIcon, Layers, Trash2,
   Store, Link2, Filter, SlidersHorizontal, LayoutList, LayoutGrid, ChevronLeft, ChevronRight,
-  MapPin, RefreshCw, Monitor, Power, HeartPulse,
+  MapPin, RefreshCw, Monitor, Power, HeartPulse, ArrowUpDown, Camera,
 } from 'lucide-react';
 import {
   getDevices, updateDevice, bulkUpdateDevices, bulkPushSchedule, getDeviceGroups, getPlaylists,
-  searchStores, forceSyncDevice, sendDeviceCommand, confirmPairing,
+  searchStores, forceSyncDevice, sendDeviceCommand, confirmPairing, uploadStorePhoto,
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import ScreenTestButton from './screen-test-button';
@@ -717,77 +717,108 @@ const STATUS_ICONS: Record<Device['status'], React.ElementType> = {
 
 const PAGE_SIZE = 50;
 
-// ─── Sideload APK card ────────────────────────────────────────────────────────
-function SideloadApkCard() {
-  const [open,   setOpen]   = useState(false);
-  const [apkUrl, setApkUrl] = useState('');
-  const [copied, setCopied] = useState(false);
+// ─── Sorting ─────────────────────────────────────────────────────────────────
+// Sorting is client-side over the current page: the API paginates by cursor, so
+// a global sort would need server support. "Problems first" is the default
+// because the reason to open this tab is usually that something is dark.
 
-  const copy = () => {
-    if (!apkUrl) return;
-    navigator.clipboard.writeText(apkUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+type SortKey = 'problems' | 'name' | 'store' | 'lastSeen' | 'uptime';
+
+const SORTS: { id: SortKey; label: string }[] = [
+  { id: 'problems', label: 'Problems first' },
+  { id: 'name',     label: 'Screen name' },
+  { id: 'store',    label: 'Store' },
+  { id: 'lastSeen', label: 'Last heartbeat' },
+  { id: 'uptime',   label: 'Uptime' },
+];
+
+const STATUS_RANK: Record<Device['status'], number> = { OFFLINE: 0, PENDING: 1, ONLINE: 2 };
+
+function sortDevices(list: Device[], key: SortKey): Device[] {
+  const byName = (a: Device, b: Device) =>
+    friendlyDeviceLabel(a).localeCompare(friendlyDeviceLabel(b));
+  const ms = (iso?: string | null) => (iso ? new Date(iso).getTime() : 0);
+
+  return [...list].sort((a, b) => {
+    switch (key) {
+      case 'problems':
+        // offline, then pending, then online; unlinked ahead of linked within a status
+        return STATUS_RANK[a.status] - STATUS_RANK[b.status]
+          || Number(!!a.storeId) - Number(!!b.storeId)
+          || byName(a, b);
+      case 'store':
+        return (a.linkedStoreName ?? '￿').localeCompare(b.linkedStoreName ?? '￿') || byName(a, b);
+      case 'lastSeen':
+        return ms(b.lastSeen) - ms(a.lastSeen) || byName(a, b); // most recent first
+      case 'uptime':
+        return (b.uptimePct ?? -1) - (a.uptimePct ?? -1) || byName(a, b);
+      default:
+        return byName(a, b);
+    }
+  });
+}
+
+/**
+ * Storefront thumbnail on the card face. Doubles as the uploader once the screen
+ * is linked to a store — the photo belongs to the Store, so an unlinked screen
+ * has nothing to attach it to.
+ */
+function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: string | null) => void }) {
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !device.storeId) return;
+    setBusy(true);
+    uploadStorePhoto(device.storeId, file)
+      .then((url) => { onChanged(url); toast({ title: 'Store photo updated ✓' }); })
+      .catch((err: Error) => toast({ variant: 'destructive', title: 'Photo upload failed', description: err.message }))
+      .finally(() => setBusy(false));
   };
 
+  const canUpload = !!device.storeId;
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between text-left"
-      >
-        <span className="text-sm font-semibold text-foreground flex items-center gap-2">
-          {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          Sideload APK — AFTVnews Downloader
-        </span>
-      </button>
-
-      {open && (
-        <div className="mt-4 space-y-4">
-          {/* URL input + copy */}
-          <div className="space-y-1.5">
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground">APK download URL</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="url"
-                value={apkUrl}
-                onChange={(e) => setApkUrl(e.target.value)}
-                placeholder="https://example.com/alive-player.apk"
-                className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-              <button
-                onClick={copy}
-                disabled={!apkUrl}
-                className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-              >
-                {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-          </div>
-
-          {/* Instructions */}
-          <p className="text-xs text-muted-foreground">
-            Open the <span className="font-semibold text-foreground">Downloader</span> app on your Fire TV / Android TV → enter the URL above → install ALIVE Player
-          </p>
-
-          {/* QR code */}
-          {apkUrl && (
-            <div className="flex flex-col items-start gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Scan to open URL on device</p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(apkUrl)}`}
-                alt="APK URL QR code"
-                width={120}
-                height={120}
-                className="rounded-xl border border-border"
-              />
-            </div>
-          )}
+    <div className="relative h-12 w-12 shrink-0">
+      {device.storePhotoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={device.storePhotoUrl} alt="" className="h-12 w-12 rounded-lg border border-border object-cover" />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40">
+          <Store className="h-4 w-4 text-muted-foreground/50" />
         </div>
+      )}
+      {canUpload && (
+        <>
+          <button
+            onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+            disabled={busy}
+            title={device.storePhotoUrl ? 'Replace store photo' : 'Add a store photo'}
+            className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:opacity-100 disabled:opacity-100"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+          </button>
+          <input ref={inputRef} type="file" accept="image/*" onChange={pick} className="hidden" />
+        </>
       )}
     </div>
   );
 }
+
+/** Card treatment per status — offline has to be unmissable, not a grey label. */
+const CARD_TONE: Record<Device['status'], string> = {
+  OFFLINE: 'border-red-300 bg-red-50/60 hover:border-red-400',
+  PENDING: 'border-amber-300 bg-amber-50/50 hover:border-amber-400',
+  ONLINE:  'border-border bg-card hover:border-primary/30',
+};
+
+const RAIL_TONE: Record<Device['status'], string> = {
+  OFFLINE: 'bg-red-500',
+  PENDING: 'bg-amber-400',
+  ONLINE:  'bg-green-500',
+};
 
 // ─── Main tab ────────────────────────────────────────────────────────────────
 export default function ScreensTab() {
@@ -818,6 +849,8 @@ export default function ScreensTab() {
   const [linkIds,      setLinkIds]      = useState<string[] | null>(null);
   const [pushIds,      setPushIds]      = useState<string[] | null>(null);
   const [showFilters,  setShowFilters]  = useState(false);
+  const [sortKey,      setSortKey]      = useState<SortKey>('problems');
+  const [expanded,     setExpanded]     = useState<Set<string>>(new Set());
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -864,6 +897,7 @@ export default function ScreensTab() {
     fetchPage(cur, true);
   };
 
+  const toggleExpand   = (id: string) => setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSelect   = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll      = () => setSelected((prev) => prev.size === devices.length ? new Set() : new Set(devices.map((d) => d.id)));
 
@@ -934,6 +968,8 @@ export default function ScreensTab() {
     } finally { setBulking(false); }
   };
 
+  const sortedDevices = useMemo(() => sortDevices(devices, sortKey), [devices, sortKey]);
+
   const online   = devices.filter((d) => d.status === 'ONLINE').length;
   const offline  = devices.filter((d) => d.status === 'OFFLINE').length;
   const pending  = devices.filter((d) => d.status === 'PENDING').length;
@@ -955,8 +991,6 @@ export default function ScreensTab() {
         </p>
       </div>
 
-      {/* Sideload APK card */}
-      <SideloadApkCard />
 
       {/* Modals */}
       {diagId    && <DiagPanel deviceId={diagId} onClose={() => setDiagId(null)} />}
@@ -1041,6 +1075,17 @@ export default function ScreensTab() {
             <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${showFilters ? 'border-primary/50 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
               <Filter className="h-3.5 w-3.5" /> Filters {(groupF || linkedF) && '•'}
             </button>
+            <label className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground focus-within:border-primary hover:text-foreground transition-colors">
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="cursor-pointer bg-transparent text-xs font-semibold text-foreground focus:outline-none"
+                aria-label="Sort screens"
+              >
+                {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </label>
             <button onClick={() => setShowGroups(true)} className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
               <Layers className="h-3.5 w-3.5" /> Groups
             </button>
@@ -1176,7 +1221,7 @@ export default function ScreensTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {devices.map((d) => {
+                  {sortedDevices.map((d) => {
                     const StatusIcon = STATUS_ICONS[d.status];
                     return (
                       <tr key={d.id} className={`border-b border-border/60 last:border-0 transition-colors hover:bg-muted/20 ${selected.has(d.id) ? 'bg-primary/5' : ''}`}>
@@ -1223,95 +1268,120 @@ export default function ScreensTab() {
             </div>
           ) : (
             /* ── Comfortable card view ──────────────────────────────── */
+            /* Face carries identity + status only; everything else is behind a click. */
             <motion.div className="space-y-2" variants={listStagger} initial="hidden" animate="show">
-              {devices.map((d) => {
+              {sortedDevices.map((d) => {
                 const StatusIcon = STATUS_ICONS[d.status];
                 const sched = d.currentSchedule;
+                const open  = expanded.has(d.id);
                 return (
-                  <motion.div key={d.id} variants={cardIn} className={`group relative rounded-xl border bg-card overflow-hidden transition-colors hover:border-primary/30 ${selected.has(d.id) ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
-                    {/* Health rail — status you can scan without reading */}
-                    <span aria-hidden className={`absolute inset-y-0 left-0 w-[3px] ${STATUS_RAIL[d.status] ?? 'bg-muted'}`} />
-                    {/* Top row */}
-                    <div className="flex items-center justify-between gap-3 pl-5 pr-4 py-3 border-b border-border/60">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} className="h-3.5 w-3.5 rounded accent-primary cursor-pointer shrink-0" />
-                        <Tv2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-[10px] text-muted-foreground/70 truncate">{friendlyDeviceLabel(d)}</p>
-                            {d.linkedStoreName ? (
-                              <button onClick={() => setLinkIds([d.id])} className="flex items-center gap-0.5 text-[10px] text-green-700 hover:underline">
-                                <Store className="h-2.5 w-2.5" />{d.linkedStoreName}
-                                {d.city && <span className="text-muted-foreground/60 ml-0.5">· {d.city}</span>}
-                              </button>
-                            ) : (
-                              <button onClick={() => setLinkIds([d.id])} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:underline">
-                                <Store className="h-2.5 w-2.5" /> Link to store
-                              </button>
-                            )}
-                            {d.groupName && <span className="text-[10px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{d.groupName}</span>}
-                            {d.slotMode && (
-                              <span title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
-                                className="text-[10px] rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
-                                Slot loop
-                              </span>
-                            )}
+                  <motion.div
+                    key={d.id}
+                    variants={cardIn}
+                    className={`relative overflow-hidden rounded-xl border transition-colors ${
+                      selected.has(d.id) ? 'border-primary/40 bg-primary/5' : CARD_TONE[d.status]
+                    }`}
+                  >
+                    {/* Status rail — the at-a-glance signal */}
+                    <span className={`absolute inset-y-0 left-0 w-1 ${RAIL_TONE[d.status]}`} aria-hidden="true" />
+
+                    {/* Face */}
+                    <div className="flex items-center gap-3 py-3 pl-5 pr-4">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(d.id)}
+                        onChange={() => toggleSelect(d.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded accent-primary"
+                      />
+                      <StorePhoto
+                        device={d}
+                        onChanged={(url) => setDevices((prev) => prev.map((x) => x.storeId === d.storeId ? { ...x, storePhotoUrl: url } : x))}
+                      />
+
+                      <button onClick={() => toggleExpand(d.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {d.linkedStoreName
+                              ? <>{d.linkedStoreName}{d.city && ` · ${d.city}`}</>
+                              : <span className="text-amber-600">Not linked to a store</span>}
+                          </p>
+                        </div>
+                        {d.groupName && (
+                          <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground sm:inline">{d.groupName}</span>
+                        )}
+                        {d.slotMode && (
+                          <span
+                            title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
+                            className="hidden shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary sm:inline"
+                          >
+                            Slot loop
+                          </span>
+                        )}
+                        <Badge variant={STATUS_BADGE[d.status]} dot className="shrink-0 px-2 py-0.5 text-[10px] font-bold">
+                          <StatusIcon className="h-2.5 w-2.5" />{d.status}
+                        </Badge>
+                        {d.status === 'OFFLINE' && (
+                          <span className="hidden shrink-0 text-[10px] font-semibold text-red-600 sm:inline">
+                            dark {d.lastSeen ? timeSince(d.lastSeen) : 'since never'}
+                          </span>
+                        )}
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+
+                    {/* Detail — only when opened */}
+                    {open && (
+                      <div className="border-t border-border/60">
+                        <div className="grid grid-cols-2 divide-x divide-border/60 sm:grid-cols-5">
+                          <div className="px-4 py-2.5">
+                            <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
+                            {d.slotMode ? (
+                              <><p className="truncate text-[11px] font-semibold text-primary">Slot loop</p><p className="truncate text-[10px] text-muted-foreground">Schedules ignored while slots play</p></>
+                            ) : sched ? (<><p className="truncate text-[11px] font-semibold text-foreground">{sched.name}</p>{sched.playlistName && <p className="truncate text-[10px] text-muted-foreground">{sched.playlistName}</p>}</>) : <p className="text-[11px] italic text-muted-foreground/50">No active schedule</p>}
+                          </div>
+                          <div className="px-4 py-2.5">
+                            <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Clock className="h-2.5 w-2.5" />Ends at</p>
+                            <p className="text-[11px] text-foreground">{sched ? fmtDate(sched.endsAt) : '—'}</p>
+                          </div>
+                          <div className="px-4 py-2.5">
+                            <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Play className="h-2.5 w-2.5" />Last play</p>
+                            <p className="text-[11px] text-foreground">{d.lastPlayAt ? timeSince(d.lastPlayAt) : '—'}</p>
+                          </div>
+                          <div className="px-4 py-2.5">
+                            <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Wifi className="h-2.5 w-2.5" />Heartbeat</p>
+                            <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
+                            {d.uptimePct != null && <div className="mt-1"><UptimeBar pct={d.uptimePct} /></div>}
+                          </div>
+                          <div className="px-4 py-2.5">
+                            <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Monitor className="h-2.5 w-2.5" />Orientation</p>
+                            <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
+                            <ScreenTestButton deviceId={d.id} />
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        {/* Health first — it's what you came to check */}
-                        <div className="hidden sm:flex flex-col items-end gap-1">
-                          <Badge variant={STATUS_BADGE[d.status]} dot className="text-[10px] py-0.5 px-2 font-bold">
-                            <StatusIcon className="h-2.5 w-2.5" />{d.status}
-                          </Badge>
-                          {d.uptimePct != null && <UptimeBar pct={d.uptimePct} />}
-                        </div>
-                        {/* Actions: one grouped cluster instead of five competing pills.
-                            Details stays labelled — it's the primary action. */}
-                        <div className="flex items-center gap-1">
-                          <CardAction icon={Link2}     label="Link to a store"        onClick={() => setLinkIds([d.id])} />
-                          <CardAction icon={RefreshCw} label="Force re-fetch of the plan on next poll" onClick={() => doForceSync(d.id)} />
-                          <CardAction icon={HeartPulse} label="Ask the screen to report telemetry now" onClick={() => doHealthPing(d.id)} />
-                          <CardAction icon={Power}     label="Remotely reboot this screen (device-owner installs only)" tone="danger"
-                            onClick={() => doReboot(d.id, d.storeName ?? friendlyDeviceLabel(d))} />
-                          <button
-                            onClick={() => setDiagId(d.id)}
-                            className="ml-1 flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[10px] font-bold text-muted-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary active:scale-95"
-                          >
-                            <Stethoscope className="h-3 w-3" /> Details
+
+                        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2.5">
+                          <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />
+                          <div className="flex-1" />
+                          <button onClick={() => setLinkIds([d.id])} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
+                            <Link2 className="h-3 w-3" /> {d.storeId ? 'Change store' : 'Link store'}
+                          </button>
+                          <button onClick={() => setDiagId(d.id)} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
+                            <Stethoscope className="h-3 w-3" /> Diagnose
+                          </button>
+                          <button onClick={() => doForceSync(d.id)} title="Force this screen to re-fetch its plan on next poll" className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
+                            <RefreshCw className="h-3 w-3" /> Sync
+                          </button>
+                          <button onClick={() => doHealthPing(d.id)} title="Ask the screen to report telemetry right now, instead of waiting for its next heartbeat" className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
+                            <HeartPulse className="h-3 w-3" /> Ping
+                          </button>
+                          <button onClick={() => doReboot(d.id, d.storeName ?? friendlyDeviceLabel(d))} title="Remotely reboot this screen (device-owner installs only)" className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive">
+                            <Power className="h-3 w-3" /> Reboot
                           </button>
                         </div>
                       </div>
-                    </div>
-                    {/* Bottom row */}
-                    <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-border/60">
-                      <div className="px-4 py-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
-                        {d.slotMode ? (
-                          <><p className="text-[11px] font-semibold text-primary truncate">Slot loop</p><p className="text-[10px] text-muted-foreground truncate">Schedules ignored while slots play</p></>
-                        ) : sched ? (<><p className="text-[11px] font-semibold text-foreground truncate">{sched.name}</p>{sched.playlistName && <p className="text-[10px] text-muted-foreground truncate">{sched.playlistName}</p>}</>) : <p className="text-[11px] text-muted-foreground/50 italic">No active schedule</p>}
-                      </div>
-                      <div className="px-4 py-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />Ends at</p>
-                        <p className="text-[11px] text-foreground">{sched ? fmtDate(sched.endsAt) : '—'}</p>
-                      </div>
-                      <div className="px-4 py-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Play className="h-2.5 w-2.5" />Last play</p>
-                        <p className="text-[11px] text-foreground">{d.lastPlayAt ? timeSince(d.lastPlayAt) : '—'}</p>
-                      </div>
-                      <div className="px-4 py-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Wifi className="h-2.5 w-2.5" />Heartbeat</p>
-                        <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
-                      </div>
-                      <div className="px-4 py-2.5">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1"><Monitor className="h-2.5 w-2.5" />Orientation</p>
-                        <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
-                          <QualityToggle device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, playsOriginal: updated.playsOriginal } : x))} />
-                          <ScreenTestButton deviceId={d.id} />
-                      </div>
-                    </div>
+                    )}
                   </motion.div>
                 );
               })}

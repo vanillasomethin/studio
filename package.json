@@ -11,7 +11,15 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "verify:slots": "node --experimental-strip-types scripts/verify-slots.mjs"
+    "verify:slots": "node --experimental-strip-types scripts/verify-slots.mjs",
+    "verify:power": "node --experimental-strip-types scripts/verify-power.mjs",
+    "verify:reach": "node --experimental-strip-types scripts/verify-reach.mjs",
+    "verify:sla": "node --experimental-strip-types scripts/verify-sla.mjs",
+    "verify:addons": "node --experimental-strip-types scripts/verify-addons.mjs",
+    "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs",
+    "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs",
+    "verify:tier-links": "node --experimental-strip-types scripts/verify-tier-links.mjs",
+    "icons:pwa": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 
+type StoreStatus = 'live' | 'in_progress';
+
 type StorePin = {
   id: string;
   storeName: string;
@@ -8,7 +10,16 @@ type StorePin = {
   city: string | null;
   lat: number;
   lng: number;
+  status: StoreStatus;
 };
+
+// Live screens are the network; in-progress ones are stores that have signed up
+// and are being installed. Colour carries that difference — a solid red dot is
+// playing today, a hollow amber ring is on its way.
+const PIN = {
+  live:        { fill: '#dc2626', ring: '#ffffff', label: 'Live' },
+  in_progress: { fill: '#ffffff', ring: '#f59e0b', label: 'Coming soon' },
+} as const;
 
 
 export default function StoreLocationsMap() {
@@ -133,7 +144,7 @@ export default function StoreLocationsMap() {
 
   // Add store markers when data loads
   useEffect(() => {
-    if (!mapInstanceRef.current || stores.length === 0) return;
+    if (!mapReady || !mapInstanceRef.current || stores.length === 0) return;
 
     async function addMarkers() {
       const L = (await import('leaflet')).default;
@@ -141,34 +152,47 @@ export default function StoreLocationsMap() {
       if (!map) return; // unmounted while the import was in flight
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const makeIcon = (active: boolean) => (L as any).divIcon({
-        className: '',
-        html: `<div style="width:${active ? 18 : 14}px;height:${active ? 18 : 14}px;border-radius:50%;background:#dc2626;border:${active ? 3 : 2.5}px solid #fff;box-shadow:0 2px ${active ? 14 : 8}px rgba(220,38,38,${active ? '.6' : '.4'});cursor:pointer;transition:all .2s;"></div>`,
-        iconSize:   [active ? 18 : 14, active ? 18 : 14],
-        iconAnchor: [active ? 9  : 7,  active ? 9  : 7],
-        popupAnchor: [0, -12],
-      });
+      const makeIcon = (status: StoreStatus, active: boolean) => {
+        const size = active ? 18 : 14;
+        const p = PIN[status];
+        // Live: red disc, white ring. In progress: white disc, amber ring —
+        // reads as "outlined, not filled in yet" at a glance.
+        return (L as any).divIcon({
+          className: '',
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${p.fill};border:${active ? 3 : 2.5}px solid ${p.ring};box-shadow:0 2px ${active ? 10 : 6}px rgba(0,0,0,.25);cursor:pointer;"></div>`,
+          iconSize:   [size, size],
+          iconAnchor: [size / 2, size / 2],
+          popupAnchor: [0, -12],
+        });
+      };
 
-      const pinIcon   = makeIcon(false);
-      const activePin = makeIcon(true);
+      const iconFor = (s: StorePin, active: boolean) => makeIcon(s.status, active);
 
       stores.forEach(store => {
         if (markersRef.current.has(store.id)) return;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const marker = (L as any).marker([store.lat, store.lng], { icon: pinIcon })
+        const tag = store.status === 'live'
+          ? `<span style="color:#dc2626;">● Live</span>`
+          : `<span style="color:#b45309;">○ Coming soon</span>`;
+
+        const marker = (L as any).marker([store.lat, store.lng], { icon: iconFor(store, false) })
           .addTo(map)
           .bindPopup(
             `<div style="font-family:Manrope,sans-serif;min-width:140px;padding:2px 0;">
               <p style="font-size:13px;font-weight:700;margin:0 0 2px;">${store.storeName}</p>
               <p style="font-size:11px;color:#666;margin:0;">${[store.locality, store.city].filter(Boolean).join(' · ')}</p>
+              <p style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin:4px 0 0;">${tag}</p>
             </div>`,
             { closeButton: false, className: 'alive-popup' }
           );
 
         marker.on('click', () => {
           setSelected(store.id);
-          markersRef.current.forEach((m, id) => m.setIcon(id === store.id ? activePin : pinIcon));
+          markersRef.current.forEach((m, id) => {
+            const s = stores.find((x) => x.id === id);
+            if (s) m.setIcon(iconFor(s, id === store.id));
+          });
         });
 
         markersRef.current.set(store.id, marker);
@@ -183,6 +207,9 @@ export default function StoreLocationsMap() {
 
     addMarkers();
   }, [stores, mapReady]);
+
+  const liveCount     = stores.filter((s) => s.status === 'live').length;
+  const progressCount = stores.length - liveCount;
 
   const flyTo = (store: StorePin) => {
     if (!mapInstanceRef.current) return;
@@ -208,8 +235,21 @@ export default function StoreLocationsMap() {
         <div style={{ background: '#fff', borderLeft: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
             <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
-              {stores.length} live screen{stores.length !== 1 ? 's' : ''}
+              {liveCount} live screen{liveCount !== 1 ? 's' : ''}
             </p>
+            {progressCount > 0 && (
+              <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b45309', fontWeight: 600, marginTop: 3 }}>
+                {progressCount} coming soon
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+              {(['live', 'in_progress'] as StoreStatus[]).map((k) => (
+                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: '"DM Mono",monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: PIN[k].fill, border: `2px solid ${PIN[k].ring}`, boxShadow: '0 0 0 1px rgba(0,0,0,.12)' }} />
+                  {PIN[k].label}
+                </span>
+              ))}
+            </div>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {stores.map(store => (
@@ -224,11 +264,12 @@ export default function StoreLocationsMap() {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ marginTop: 4, width: 7, height: 7, borderRadius: '50%', background: '#dc2626', flexShrink: 0 }} />
+                  <div style={{ marginTop: 4, width: 7, height: 7, borderRadius: '50%', background: PIN[store.status].fill, border: `1.5px solid ${PIN[store.status].ring}`, boxShadow: '0 0 0 1px rgba(0,0,0,.12)', flexShrink: 0 }} />
                   <div>
                     <p style={{ fontFamily: '"Manrope",sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
                     <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
                       {[store.locality, store.city].filter(Boolean).join(' · ')}
+                      {store.status === 'in_progress' && <span style={{ color: '#b45309' }}> · coming soon</span>}
                     </p>
                   </div>
                 </div>

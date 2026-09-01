@@ -280,13 +280,36 @@ model Store {
   // Kept nullable rather than defaulted so enabling this feature never silently
   // flips existing stores from their scheduled playlists to a house-ads loop.
   loopSlotCount    Int?
+  // Installed screen (the TV, not the Android box — see Device for that). Captured at
+  // install per docs/SCREEN_SURVEY_SOP.md: photograph the model plate and the power
+  // rating label, then type the wattage in. Null screenWatts = fall back to the fleet
+  // default in PlayerConfig, which is a guess and dominates the electricity estimate's
+  // error — the photos exist so that guess can be replaced with the real figure.
+  screenWatts          Int?
+  screenModel          String?
+  screenPlatePhotoUrl  String? // photo of the model/serial plate
+  screenRatingPhotoUrl String? // photo of the power rating label (the W figure)
+  screenSurveyedAt     DateTime?
+  // Storefront photo — how an operator recognises this store at a glance in the
+  // admin (screen cards, pickers). R2 public URL. Not the screen, the shop.
+  photoUrl             String?
   openDays         Int    @default(127) // bitmask, bit0=Mon … bit6=Sun; closed days excluded from availability
   hoursStart       String @default("09:00") // IST, loop plays hoursStart–hoursEnd
   hoursEnd         String @default("21:00")
   fillerCampaignId String? // override of the default house-ads filler campaign
+  // Sound Ad add-on: store-owner mute override (Alive Partner app). Forces the
+  // designated sound slot silent regardless of the once/hour cadence — read by
+  // /api/device/plan and enforced by the player's PlaybackEngine.resolveVolume().
+  // No refund logic when muted.
+  soundAdMuted     Boolean @default(false)
+  // Slot pricing tier ('standard'|'growth'|'flagship' — see src/lib/slot-pricing.ts).
+  // Admin-assigned per store. For a slot-mode store this drives BOTH the per-slot
+  // price a brand is billed and the store's payout, replacing monthlyCompensationPaise
+  // below (which stays the flat figure for stores not in slot mode).
+  slotPricingTier  String  @default("standard")
 
   tier              String    @default("standard") // standard | premium — set via gated premium signup link
-  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium
+  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium — flat-rate stores only (slot-mode stores compute dynamically, see slot-pricing-db.ts)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -301,6 +324,8 @@ model Store {
   footfallHourly       FootfallHourly[]
   screenPresenceEvents ScreenPresenceEvent[]
   sensorHealth         StoreSensorHealth?
+  slotAddons           SlotAddon[]
+  slotRequests         SlotRequest[]
   pushSubscriptions    PushSubscription[]
 
   @@index([city])
@@ -375,6 +400,10 @@ model Campaign {
   // uploads without the md5/type the player cache needs, so slot playback goes
   // through a proper Content row. A booked campaign without one plays as filler.
   slotContentId  String?
+  // Governs this campaign's monthly creative-change quota (see lib/content-quota.ts) —
+  // admin-assigned, independent of a store's own slotPricingTier (a campaign can run
+  // across many stores with different tiers; this is the brand's own plan).
+  slotPricingTier String  @default("standard")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -384,10 +413,91 @@ model Campaign {
   slotBookings         SlotBooking[]
   playEvents           PlayEvent[]
   screenPresenceEvents ScreenPresenceEvent[]
+  playGuaranteeCycles  PlayGuaranteeCycle[]
+  slotAddons           SlotAddon[]
+  slotRequests         SlotRequest[]
 
   @@index([brandId])
   @@index([status])
   @@index([email])
+}
+
+// Self-serve slot booking, request-only: a brand spends credits (their Campaign.screens
+// count) requesting a store + time-window; nothing actually books until ALIVE admin
+// approves and assigns the real SlotBooking (unchanged, still admin-only — see
+// lib/slots.ts). Pending AND approved requests both hold their credits reserved;
+// rejected/cancelled release them. See lib/slot-requests-db.ts.
+model SlotRequest {
+  id          String    @id @default(cuid())
+  campaignId  String
+  storeId     String
+  window      String // '1A'|'1B'|'2A'|'2B'|'3A'|'3B'|'3C'|'FULL_DAY' — see lib/slot-windows.ts
+  creditsCost Int // snapshotted at request time (1 off-peak, 2 peak) — a later rate
+  // change must not silently reprice an outstanding request
+  status      String    @default("pending") // 'pending' | 'approved' | 'rejected' | 'cancelled'
+  note        String? // brand's optional note to admin
+  requestedAt DateTime  @default(now())
+  decidedAt   DateTime?
+  decidedBy   String? // free-text, same loose-actor convention as AuditLog.actorId
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([storeId])
+  @@index([status])
+}
+
+// Peak Boost / Sound Ad add-ons — both are flags on top of an existing slot booking,
+// scoped to (store, campaign, type) so a campaign can hold the add-on at each store it
+// has booked independently. First-come-first-served: status is decided once at
+// purchase time against that store's cap (see src/lib/addons.ts) and never revisited,
+// so there is no cancel/refund flow to keep consistent — matches the spec's "no
+// discount/5th slot" stance on going over cap.
+model SlotAddon {
+  id         String   @id @default(cuid())
+  storeId    String
+  campaignId String
+  type       String // 'peak_boost' | 'sound_ad'
+  status     String   @default("active") // 'active' | 'waitlisted'
+  createdAt  DateTime @default(now())
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, type])
+  @@index([storeId, type, status])
+  @@index([campaignId])
+}
+
+// Minimum Play Guarantee (SLA) — one row per closed billing cycle (calendar month
+// of a campaign's flight) once shortfall has been checked (see src/lib/sla.ts).
+// promised/delivered are snapshotted at close time so past cycles read consistently
+// even if slot config changes later. makegoodBalance is the shortfall GRANTED at
+// close — the remaining balance is derived at read time from bonus plays delivered
+// since (see getMakegoodWeights in src/lib/sla-db.ts), not decremented here, so this
+// table stays a pure append-only ledger.
+model PlayGuaranteeCycle {
+  id             String    @id @default(cuid())
+  campaignId     String
+  cycleIndex     Int // 0-based month index within the campaign's flight
+  cycleStart     DateTime  @db.Date
+  cycleEnd       DateTime  @db.Date
+  promisedPlays  Int
+  deliveredPlays Int
+  shortfallPlays Int       @default(0)
+  remedyType     String? // 'makegood' | 'credit' — null when no shortfall
+  // makegood: extra plays owed, redistributed as weighted bonus plays in later cycles.
+  makegoodBalance Int      @default(0)
+  // credit: pro-rated bill credit in rupees (same unit as Campaign.pricePerScreen).
+  creditAmount    Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, cycleIndex])
+  @@index([campaignId])
+  @@index([remedyType, makegoodBalance])
 }
 
 // ─── Coupons (brand onboarding discounts) ────────────────────────────────────
@@ -1007,6 +1117,27 @@ model HourlyPop {
 
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────
 
+// DEAD — do not build on this. Named admin accounts live on `User` (role
+// ADMIN | OPS) with `AdminInvite` + `AdminSession`; nothing reads AdminUser any
+// more. The table is left in place rather than dropped because the migration
+// that created it has already run on production, and removing a table deserves
+// its own deliberate migration rather than a silent one.
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  team         String    // operations | founder | tech — shown on audit entries
+  passwordHash String?   // null until they accept their invite and set one
+  inviteToken  String?   @unique
+  inviteSentAt DateTime?
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([active])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   actorId   String?
@@ -1019,6 +1150,42 @@ model AuditLog {
 
   @@index([actorId])
   @@index([action])
+  @@index([createdAt])
+}
+
+// ─── Alerts & Notifications (admin panel) ─────────────────────────────────────
+//
+// The alerts themselves are computed at read time from live device/store/campaign
+// data (see AlertsTab.buildAlerts on the client) — they have no row of their own.
+// These two tables hold the durable, team-visible state layered on top of a
+// computed alert, keyed by its deterministic client-side id (e.g.
+// "device-offline-<deviceId>"). No admin user accounts exist (single shared
+// ADMIN_PASSWORD — see CLAUDE.md), so assignee/author are free text, same
+// loose-actor convention as AuditLog.actorId.
+
+model AlertAction {
+  id        String    @id @default(cuid())
+  alertId   String    @unique
+  team      String? // 'tech' | 'operations' | 'marketing'
+  assignee  String? // free-text person in charge
+  status    String    @default("open") // 'open' | 'closed'
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+  @@index([team])
+}
+
+model AlertComment {
+  id        String   @id @default(cuid())
+  alertId   String
+  author    String?
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([alertId])
   @@index([createdAt])
 }
 
@@ -1208,6 +1375,12 @@ model PlayerConfig {
   // Default house-ads campaign for slot-loop filler (Store.fillerCampaignId overrides
   // per store). Plain id, not a relation — a deleted campaign just means no filler.
   fillerCampaignId         String?
+  // Electricity estimation. defaultScreenWatts is the fleet fallback when a store has
+  // no measured screenWatts; paisePerKwh is the tariff applied to estimated units.
+  // Both are assumptions — see lib/power.ts on why the result is an estimate, not a
+  // meter reading, and must always be labelled as such to partners.
+  defaultScreenWatts       Int      @default(60)  // 32–43" LED TV + Android box
+  electricityPaisePerKwh   Int      @default(800) // ₹8.00 per unit
   updatedAt                DateTime @updatedAt
 }
 
@@ -1269,4 +1442,37 @@ model PlugReading {
   plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
 
   @@index([plugId, at])
+}
+
+// ─── Trackable QR redirects ──────────────────────────────────────────────────
+//
+// A printed QR encodes /r/<slug> rather than the destination itself, so the
+// target can be repointed after the sticker is on the wall, and every scan is
+// counted. The redirect must never wait on the write — see src/app/r/[slug].
+
+model QrDestination {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  targetUrl String
+  label     String?
+  createdAt DateTime @default(now())
+
+  scans QrScan[]
+}
+
+model QrScan {
+  id            String   @id @default(cuid())
+  destinationId String
+  scannedAt     DateTime @default(now())
+  referrer      String?
+  userAgent     String?
+  ip            String?
+  country       String?
+  city          String?
+
+  destination QrDestination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  // The dashboard groups by destination over a date window; this covers both.
+  @@index([destinationId, scannedAt])
+  @@index([scannedAt])
 }

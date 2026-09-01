@@ -16,6 +16,9 @@ import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetr
 import { resolvePlaylistTree, pickRendition, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
 import { istToday, isOpenOn, buildSlotLoop, SLOT_DURATION_MS } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
+import { getMakegoodWeights } from '@/lib/sla-db';
+import { getPeakBoostedCampaignIds, getSoundAdCampaignId } from '@/lib/addons-db';
+import { isPeakWindowNow, peakBoostPoolWeights } from '@/lib/addons';
 import { isDevicePaired } from '@/lib/device-auth';
 import { resolveOfflineAlerts, backfillMissedOutage, sweepOfflineDevices } from '@/lib/device-alerts';
 
@@ -192,7 +195,7 @@ export async function GET(req: NextRequest) {
           select: {
             id: true, city: true,
             loopSlotCount: true, openDays: true, hoursStart: true, hoursEnd: true,
-            fillerCampaignId: true,
+            fillerCampaignId: true, soundAdMuted: true,
           },
         })
       : null;
@@ -200,7 +203,9 @@ export async function GET(req: NextRequest) {
 
     // Plan items: an item may carry slot attribution (slot mode only) which the
     // player echoes back in proof-of-play events for guaranteed-vs-bonus reporting.
-    type WireItem = PlanMediaItem & { slotPosition?: number; isFiller?: boolean; campaignId?: string };
+    type WireItem = PlanMediaItem & {
+      slotPosition?: number; isFiller?: boolean; campaignId?: string; soundEligible?: boolean;
+    };
 
     // Rendition selection: budget panels (default) get the safe H.264 Main@4.1
     // rendition when one exists; playsOriginal panels keep the full-quality original.
@@ -215,14 +220,25 @@ export async function GET(req: NextRequest) {
     let transition: 'NONE' | 'FADE' | 'SLIDE' = 'NONE';
     let scheduleId: string | null    = null;
 
+    // ── Slot loop (slot-mode stores) ───────────────────────────────────────────
+    // Built first, then attached as the plan's FALLBACK rather than replacing the
+    // schedule. Slot inventory and scheduling are two different settings that have to
+    // coexist: the loop is a store's base programming all day, and any schedule
+    // targeting this device still wins for its own window (priority + dayparting are
+    // unchanged). A store can therefore sell slots AND run scheduled content.
+    //
+    // Only today's loop, and only while the store is actually open — a loop playing to
+    // a shuttered shop would bank proof-of-play rows for hours the brands did not buy.
+    // The 15-min poll (plus FCM push) rolls it over at open/close and at midnight.
+    let slotLoop: WireItem[] = [];
     if (slotMode) {
-      // ── Slot mode: fixed loop of N 10s ad slots, sold by position+date ─────────
-      // Today's loop only (bookings differ per day and the plan format shares one
-      // item list across windows); the 15-min poll + midnight hash change roll the
-      // loop over to the next day's bookings.
       const store = deviceWithStore!;
       const today = istToday(now);
-      if (isOpenOn(store.openDays, today)) {
+      const openNow = isOpenOn(store.openDays, today)
+        && now >= new Date(`${today}T${store.hoursStart}:00+05:30`)
+        && now <  new Date(`${today}T${store.hoursEnd}:00+05:30`);
+
+      if (openNow) {
         const bookings = await db.slotBooking.findMany({
           where:  { storeId: store.id, date: new Date(`${today}T00:00:00Z`) },
           select: {
@@ -231,6 +247,26 @@ export async function GET(req: NextRequest) {
           },
         });
         const filler = await resolveFillerCampaign(store.fillerCampaignId);
+        const bookedCampaignIds = [...new Set(bookings.map((b) => b.campaignId))];
+
+        // Round-robin pool weighting: Minimum Play Guarantee makegood (always-on until
+        // paid down) plus Peak Boost (only during a peak window — see lib/addons.ts).
+        // Both sources reuse the same mechanism, so they just add together.
+        const [makegoodWeights, peakBoostedIds] = await Promise.all([
+          getMakegoodWeights(bookedCampaignIds),
+          getPeakBoostedCampaignIds(store.id),
+        ]);
+        const poolWeights = new Map(makegoodWeights);
+        for (const [id, w] of peakBoostPoolWeights(peakBoostedIds, isPeakWindowNow(now))) {
+          poolWeights.set(id, (poolWeights.get(id) ?? 0) + w);
+        }
+
+        // Sound Ad: which loop position (if any) is this store's designated sound slot.
+        // The once/hour cadence and mute override are enforced player-side (a single
+        // loop pass is replayed all day, so the server can't know "top of the hour"
+        // for a given pass) — see PlaybackEngine.resolveVolume() in ALIVE-Player.
+        const soundAdCampaignId = await getSoundAdCampaignId(store.id);
+
         const loop = buildSlotLoop(
           store.loopSlotCount!,
           bookings.map((b) => ({
@@ -238,6 +274,7 @@ export async function GET(req: NextRequest) {
             slotContentId: b.campaign.slotContentId,
           })),
           filler,
+          poolWeights,
         );
 
         const contentIds = [...new Set(loop.map((a) => a.contentId))];
@@ -249,7 +286,7 @@ export async function GET(req: NextRequest) {
           : [];
         const contentMap = new Map(contents.map((c) => [c.id, c]));
 
-        items = loop.flatMap((a) => {
+        slotLoop = loop.flatMap((a) => {
           const c = contentMap.get(a.contentId);
           if (!c) return [];
           const chosen = pickRendition(c, safeRendition);
@@ -268,19 +305,12 @@ export async function GET(req: NextRequest) {
             slotPosition: a.slotPosition,
             isFiller:     a.isFiller,
             campaignId:   a.campaignId,
+            // Only the campaign's own guaranteed position ever carries sound — never a
+            // bonus/filler play it happens to win, so "single 10s audio-on instance" holds
+            // regardless of how much makegood/Peak Boost weight it's carrying this loop.
+            soundEligible: !a.isFiller && !!soundAdCampaignId && a.campaignId === soundAdCampaignId,
           }];
         });
-
-        const winStart = new Date(`${today}T${store.hoursStart}:00+05:30`);
-        const winEnd   = new Date(`${today}T${store.hoursEnd}:00+05:30`);
-        if (items.length > 0 && winEnd > now) {
-          scheduleId = `slotloop:${today}`;
-          timeline = [{
-            scheduleId, priority: 0,
-            startAt: winStart.toISOString(), endAt: winEnd.toISOString(),
-            playlistId: null, name: `Slot loop ${today}`,
-          }];
-        }
       }
     }
     // A slot-mode day can resolve to nothing playable: store closed, or zero
@@ -435,11 +465,16 @@ export async function GET(req: NextRequest) {
       where: { id: 1 }, update: {}, create: { id: 1 },
     });
 
-    // Xibo-style default layout: content to play when no schedule window is active,
-    // instead of the idle "waiting for content" screen. Flattened only — the fallback
-    // loops in full anyway, so nesting adds nothing here.
+    // What plays when no schedule window is active, instead of the idle "waiting for
+    // content" screen. For a slot-mode store during opening hours that is the sold ad
+    // loop — which is how slot inventory and scheduling combine: the loop is the base
+    // programming, a schedule overrides it for its window, and the loop resumes after.
+    // Otherwise it is the Xibo-style default layout (flattened; the fallback loops in
+    // full anyway, so nesting adds nothing).
     let fallback: typeof items = [];
-    if (playerConfig.fallbackPlaylistId) {
+    if (slotLoop.length > 0) {
+      fallback = slotLoop;
+    } else if (playerConfig.fallbackPlaylistId) {
       fallback = (await resolvePlaylistTree(playerConfig.fallbackPlaylistId, { safeRendition })).flat;
     }
 
@@ -500,6 +535,8 @@ export async function GET(req: NextRequest) {
       orientation: device.orientation,
       transition,
       fallback,
+      // Sound Ad store-owner mute override — see PlaybackEngine.resolveVolume().
+      soundAdMuted: deviceWithStore?.soundAdMuted ?? false,
       config: {
         retryIntervalMs:          playerConfig.retryIntervalMs,
         transitionDurationMs:     playerConfig.transitionDurationMs,

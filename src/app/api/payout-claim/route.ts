@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { notifyAdminWA, payoutClaimMsg } from '@/lib/notify';
 import { withApiHandler } from '@/lib/with-api-handler';
 import { resolveStoreId } from '@/lib/store-partner-auth';
+import { computeStoreMonthlyPayoutPaise } from '@/lib/slot-pricing-db';
 
 export const POST = withApiHandler('/api/payout-claim', 'user', async (req: NextRequest) => {
   const { month, storeId: bodyStoreId } = await req.json() as { month?: string; storeId?: string };
@@ -21,7 +22,8 @@ export const POST = withApiHandler('/api/payout-claim', 'user', async (req: Next
   if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
 
   const claimMonth = month ?? new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-  const monthlyRupees = Math.round((store.monthlyCompensationPaise ?? 50000) / 100);
+  const payoutPaise = await computeStoreMonthlyPayoutPaise(storeId).catch(() => store.monthlyCompensationPaise ?? 50000);
+  const monthlyRupees = Math.round(payoutPaise / 100);
 
   await db.auditLog.create({
     data: {

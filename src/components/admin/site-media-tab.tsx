@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { Upload, RotateCcw, Link, Eye } from 'lucide-react';
+import { compressImageFile, readJsonOrThrow } from '@/lib/client-upload';
 import { adminGetObject } from '@/lib/admin-fetch';
 
 const MEDIA_SLOTS = [
@@ -51,7 +52,14 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
     setMedia(m => ({ ...m, [slot]: url }));
   };
 
-  // Server-side proxy upload — avoids CORS on direct R2 PUT
+  // Presigned PUT, browser → R2 directly — the same path the Content tab uses.
+  //
+  // This used to POST through /api/admin/r2-upload, which put the bytes through a
+  // serverless function and so inherited the platform's ~4.5 MB request-body cap. Site
+  // media is full-bleed hero imagery, routinely larger than that, so uploads failed
+  // with a plain-text "Request Entity Too Large" — and the old error handling called
+  // res.json() on it, surfacing `Unexpected token 'R'…` instead of anything useful.
+  // Going direct removes the cap entirely (needs bucket CORS — see docs/R2_CORS.md).
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     const slot = activeSlotRef.current;
@@ -61,26 +69,35 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
     setUploading(slot);
 
     try {
-      const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-      const key = `site-media/${slot}.${ext}`;
+      // Still worth shrinking oversized photos: these render as page backgrounds, and
+      // a 12 MB hero is a slow page for every visitor. Videos pass through untouched.
+      const upload = await compressImageFile(file, { maxEdge: 2400, quality: 0.85 });
+      const ext = upload.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const key = `site-media/${slot}-${Date.now()}.${ext}`;
+      const contentType = upload.type || 'application/octet-stream';
 
-      const form = new FormData();
-      form.append('file', file);
-      form.append('key', key);
+      // The signature covers Content-Type, so the PUT must send the identical value.
+      const signRes = await fetch(
+        `/api/admin/r2-upload?key=${encodeURIComponent(key)}&type=${encodeURIComponent(contentType)}`,
+        { headers: { 'admin-password': adminPassword } },
+      );
+      const { uploadUrl, publicUrl } = await readJsonOrThrow<{ uploadUrl: string; publicUrl: string }>(signRes);
 
-      const res = await fetch('/api/admin/r2-upload', {
-        method: 'POST',
-        headers: { 'admin-password': adminPassword },
-        body: form,
+      const put = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: upload,
       });
-
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? `Upload failed (${res.status})`);
+      if (!put.ok) {
+        throw new Error(
+          put.status === 0 || put.status === 403
+            ? 'R2 rejected the upload. Check the bucket CORS rules (docs/R2_CORS.md).'
+            : `Upload failed (${put.status}).`,
+        );
       }
 
-      const { publicUrl: cdnUrl } = await res.json() as { publicUrl: string };
-      await saveUrl(slot, cdnUrl);
+      // The key is timestamped, so the new URL is inherently cache-busted.
+      await saveUrl(slot, publicUrl);
     } catch (err) {
       setError((err as Error).message);
     } finally {
