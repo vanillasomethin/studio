@@ -6,9 +6,9 @@
 //   { campaignId, slotContentId } — assign a campaign's 10s slot creative.
 // Auth: admin-password header. Store config changes push plan_updated to its devices.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { parseHHmm } from '@/lib/slots';
+import { istToday, parseHHmm } from '@/lib/slots';
 import { applySlotMoves, planSlotCompaction, resolveFillerCampaign, type SlotMove } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { isSlotTier } from '@/lib/slot-pricing';
@@ -58,6 +58,7 @@ type Body = {
   defaultFillerCampaignId?: string | null;
   campaignId?: string;
   slotContentId?: string | null;
+  slotPlaylistId?: string | null;
 };
 
 export async function PATCH(req: NextRequest) {
@@ -67,10 +68,26 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json() as Body;
 
     if (body.campaignId !== undefined) {
+      // A slot playlist only counts through its direct media items (slot mode is a
+      // flat 10s loop — nested items are skipped), so an all-nested playlist would
+      // silently leave the campaign unplayable. Reject it at attach time instead.
+      if (body.slotPlaylistId) {
+        const pl = await db.playlist.findUnique({
+          where:  { id: body.slotPlaylistId },
+          select: { id: true, items: { where: { contentId: { not: null } }, select: { id: true }, take: 1 } },
+        });
+        if (!pl) return NextResponse.json({ error: 'Playlist not found' }, { status: 400 });
+        if (pl.items.length === 0) {
+          return NextResponse.json({ error: 'That playlist has no direct media items — slot rotation skips nested playlists, so it could never play. Add images/videos to it first.' }, { status: 400 });
+        }
+      }
       const campaign = await db.campaign.update({
         where:  { id: body.campaignId },
-        data:   { slotContentId: body.slotContentId ?? null },
-        select: { id: true, slotContentId: true },
+        data:   {
+          ...(body.slotContentId  !== undefined ? { slotContentId:  body.slotContentId }  : {}),
+          ...(body.slotPlaylistId !== undefined ? { slotPlaylistId: body.slotPlaylistId } : {}),
+        },
+        select: { id: true, slotContentId: true, slotPlaylistId: true },
       });
       // Swapping a campaign's slot creative changes what the screen actually shows
       // for that brand, without touching any booking.
@@ -78,7 +95,25 @@ export async function PATCH(req: NextRequest) {
         actor, req,
         action: 'slot_settings.set_creative',
         target: campaign.id,
-        meta:   { slotContentId: campaign.slotContentId },
+        meta:   { slotContentId: campaign.slotContentId, slotPlaylistId: campaign.slotPlaylistId },
+      });
+      // Screens showing this campaign today are playing the OLD creative until
+      // their next poll — nudge them now so a creative swap is visible in minutes,
+      // not hours. after(), not a floating chain: the instance can suspend at
+      // response flush, and the next scheduled plan poll is 72 h out.
+      after(async () => {
+        try {
+          const rows = await db.slotBooking.findMany({
+            where:    { campaignId: campaign.id, date: new Date(`${istToday()}T00:00:00Z`) },
+            select:   { storeId: true },
+            distinct: ['storeId'],
+          });
+          const devices = await db.device.findMany({
+            where:  { storeId: { in: rows.map((r) => r.storeId) } },
+            select: { id: true },
+          });
+          await pushPlanUpdated(devices.map((d) => d.id));
+        } catch { /* best-effort — the poll is the fallback */ }
       });
       return NextResponse.json({ campaign });
     }

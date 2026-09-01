@@ -8,10 +8,11 @@
 // sold; the expanded panel shows what will actually play (bonus + house fill included).
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Check, Settings2, Gift } from 'lucide-react';
+import { Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Check, Settings2, Gift, CalendarPlus, Copy, ListVideo } from 'lucide-react';
 import {
   getSlotAvailability, getSlotBookings, assignSlot, unassignSlot, updateSlotSettings,
-  type SlotStore, type SlotBookingRow, type SlotLoopEntry,
+  bulkAssignSlots, copySlotDay, getPlaylists,
+  type SlotStore, type SlotBookingRow, type SlotLoopEntry, type BulkAssignResult, type Playlist,
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
@@ -19,7 +20,14 @@ import { SLOT_TIERS, SLOT_TIER_RATE_RUPEES, type SlotTier } from '@/lib/slot-pri
 
 const TIER_LABEL: Record<SlotTier, string> = { standard: 'Standard', growth: 'Growth', flagship: 'Flagship' };
 
-type AdminCampaign = { id: string; brandName: string; status: string; slotContentId: string | null };
+type AdminCampaign = {
+  id: string; brandName: string; status: string; slotContentId: string | null;
+  slotPlaylist: { id: string; name: string; mediaItems: number } | null;
+  preferredStores?: { id: string; storeName: string; locality: string | null }[];
+};
+
+// Playable = a single 10s creative OR a slot playlist with at least one media item.
+const hasSlotCreative = (c: AdminCampaign) => !!c.slotContentId || (c.slotPlaylist?.mediaItems ?? 0) > 0;
 
 const DAY_MS = 86_400_000;
 const WINDOW_DAYS = 14;
@@ -61,6 +69,7 @@ export default function SlotsTab() {
   const [error,    setError]    = useState<string | null>(null);
   const [cell,     setCell]     = useState<{ store: SlotStore; date: string } | null>(null);
   const [configStore, setConfigStore] = useState<SlotStore | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -105,6 +114,10 @@ export default function SlotsTab() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setWizardOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 transition-colors">
+            <CalendarPlus className="h-3.5 w-3.5" />Book slots
+          </button>
           <button onClick={() => setFrom(addDays(from, -WINDOW_DAYS))}
             className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground transition-colors">
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -201,8 +214,16 @@ export default function SlotsTab() {
 
       {cell && (
         <SlotEditor
-          store={cell.store} date={cell.date} campaigns={campaigns}
+          store={cell.store} date={cell.date} campaigns={campaigns} slotStores={slotStores}
           onClose={() => setCell(null)} onChanged={load}
+        />
+      )}
+      {wizardOpen && (
+        <BulkBookingWizard
+          campaigns={campaigns} defaultFrom={from}
+          onCampaignUpdate={(id, slotPlaylist) =>
+            setCampaigns((cs) => cs.map((c) => (c.id === id ? { ...c, slotPlaylist } : c)))}
+          onClose={() => setWizardOpen(false)} onChanged={load}
         />
       )}
       {configStore && (
@@ -218,19 +239,22 @@ export default function SlotsTab() {
 
 // ─── Per-cell slot editor ─────────────────────────────────────────────────────
 
-function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
-  store: SlotStore; date: string; campaigns: AdminCampaign[];
+function SlotEditor({ store, date, campaigns, slotStores, onClose, onChanged }: {
+  store: SlotStore; date: string; campaigns: AdminCampaign[]; slotStores: SlotStore[];
   onClose: () => void; onChanged: () => void;
 }) {
   const [bookings, setBookings] = useState<SlotBookingRow[]>([]);
   const [loop,     setLoop]     = useState<SlotLoopEntry[]>([]);
+  // From the bookings response, not the grid prop — another admin may have resized
+  // the loop since the grid loaded, and selling into a phantom position 400s.
+  const [loopCount, setLoopCount] = useState(store.loopSlotCount ?? 0);
   const [loading,  setLoading]  = useState(true);
   const [busy,     setBusy]     = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
 
   const load = useCallback(() => {
     getSlotBookings(store.id, date)
-      .then((r) => { setBookings(r.bookings); setLoop(r.playableLoop); })
+      .then((r) => { setBookings(r.bookings); setLoop(r.playableLoop); setLoopCount(r.loopSlotCount); })
       .catch((e: Error) => toast({ variant: 'destructive', title: 'Could not load slots', description: e.message }))
       .finally(() => setLoading(false));
   }, [store.id, date]);
@@ -263,7 +287,9 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
   const loopByPos = new Map(loop.map((l) => [l.slotPosition, l]));
   const campaignName = (id: string) => campaigns.find((c) => c.id === id)?.brandName ?? id.slice(0, 8);
   const sellable = campaigns.filter((c) => c.status !== 'cancelled');
-  const total = store.loopSlotCount ?? 0;
+  // Response-driven, not the grid prop — another admin may have resized the loop
+  // since the grid loaded, and selling into a phantom position 400s.
+  const total = loopCount;
 
   const stateOf = (pos: number): SlotState =>
     byPos.has(pos) ? 'sold' : loopByPos.has(pos) ? 'filler' : 'open';
@@ -339,9 +365,11 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
                   <div>
                     <p className="text-sm font-semibold text-foreground">{selBooking.campaignName}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {selBooking.hasCreative
-                        ? 'Sold · guaranteed play'
-                        : <span className="text-amber-600">Sold but no 10s creative — plays as bonus/house fill</span>}
+                      {!selBooking.hasCreative
+                        ? <span className="text-amber-600">Sold but no 10s creative — plays as bonus/house fill</span>
+                        : selBooking.creativeCount > 1
+                          ? <span className="flex items-center gap-1"><ListVideo className="h-3.5 w-3.5" />Sold · rotates {selBooking.creativeCount} playlist creatives daily</span>
+                          : 'Sold · guaranteed play'}
                     </p>
                   </div>
                 ) : selPlaying ? (
@@ -362,7 +390,7 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
                   >
                     <option value="">— leave open —</option>
                     {sellable.map((c) => (
-                      <option key={c.id} value={c.id}>{c.brandName}{c.slotContentId ? '' : ' (no creative)'}</option>
+                      <option key={c.id} value={c.id}>{c.brandName}{hasSlotCreative(c) ? '' : ' (no creative)'}</option>
                     ))}
                   </select>
                   {busy === selected && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
@@ -370,6 +398,10 @@ function SlotEditor({ store, date, campaigns, onClose, onChanged }: {
               </div>
             )}
           </div>
+        )}
+
+        {!loading && bookings.length > 0 && (
+          <CopyDayPanel store={store} date={date} slotStores={slotStores} onChanged={() => { load(); onChanged(); }} />
         )}
       </div>
     </div>
@@ -449,6 +481,85 @@ function SlotRequestsPanel() {
   );
 }
 
+// ─── Copy a day's loop to other dates / stores ───────────────────────────────
+// Same positions, same campaigns; taken positions are never overwritten — the
+// server books what fits and reports the rest as gaps.
+
+function CopyDayPanel({ store, date, slotStores, onChanged }: {
+  store: SlotStore; date: string; slotStores: SlotStore[]; onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(addDays(date, 1));
+  const [to,   setTo]   = useState(addDays(date, 7));
+  const [sel,  setSel]  = useState<Set<string>>(new Set([store.id]));
+  const [busy, setBusy] = useState(false);
+
+  const toggle = (id: string) => setSel((s) => {
+    const next = new Set(s);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await copySlotDay({ sourceStoreId: store.id, sourceDate: date, storeIds: [...sel], from, to });
+      toast({
+        title: `Copied — ${r.booked} slot${r.booked === 1 ? '' : 's'} booked ✓`,
+        description: [
+          r.alreadySatisfied ? `${r.alreadySatisfied} already in place` : null,
+          r.missed ? `${r.missed} missed (position taken or loop too small)` : null,
+          r.raced ? `${r.raced} lost to a concurrent booking — re-run to top up` : null,
+          r.closedSkipped ? `${r.closedSkipped} closed day${r.closedSkipped === 1 ? '' : 's'} skipped` : null,
+        ].filter(Boolean).join(' · ') || 'No gaps.',
+      });
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Copy failed', description: (e as Error).message });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="border-t border-border bg-muted/20 px-5 py-3">
+      {!open ? (
+        <button onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-colors">
+          <Copy className="h-3 w-3" />Copy this day to other dates or stores…
+        </button>
+      ) : (
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Copy to</span>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+              className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary" />
+            <span className="text-[10px] text-muted-foreground">→</span>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+              className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary" />
+          </div>
+          <div className="max-h-28 overflow-y-auto rounded-lg border border-border bg-background p-2 space-y-1">
+            {slotStores.map((s) => (
+              <label key={s.id} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={sel.has(s.id)} onChange={() => toggle(s.id)} className="h-3 w-3 accent-primary" />
+                <span className="text-[11px] text-foreground">{s.storeName}</span>
+                <span className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots{s.id === store.id ? ' · this store' : ''}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={run} disabled={busy || sel.size === 0 || !from || !to || from > to}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
+              {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Copy className="h-3 w-3" />}
+              Copy bookings
+            </button>
+            <button onClick={() => setOpen(false)} className="text-[11px] text-muted-foreground hover:text-foreground">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Per-store slot settings ──────────────────────────────────────────────────
 
 const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -467,9 +578,10 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
   const [saving,   setSaving]   = useState(false);
 
   // Mirrors resolveFillerCampaign on the server: per-store override, else global
-  // default, and the campaign must have a 10s slot creative to actually play.
+  // default, and the campaign must have a playable slot creative (single or playlist).
   const effectiveFillerId = filler || defaultFiller || '';
-  const fillerPlayable    = !!campaigns.find((c) => c.id === effectiveFillerId)?.slotContentId;
+  const fillerCampaign    = campaigns.find((c) => c.id === effectiveFillerId);
+  const fillerPlayable    = !!fillerCampaign && hasSlotCreative(fillerCampaign);
 
   const save = async () => {
     setSaving(true);
@@ -577,7 +689,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
                 <select value={filler} onChange={(e) => setFiller(e.target.value)}
                   className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary">
                   <option value="">Use default house ads{defaultFiller ? '' : ' (none set)'}</option>
-                  {campaigns.map((c) => <option key={c.id} value={c.id}>{c.brandName}{c.slotContentId ? '' : ' (no creative)'}</option>)}
+                  {campaigns.map((c) => <option key={c.id} value={c.id}>{c.brandName}{hasSlotCreative(c) ? '' : ' (no creative)'}</option>)}
                 </select>
                 <p className="mt-1 text-[10px] text-muted-foreground">Plays only when nothing is sold for the day.</p>
                 {enabled && !fillerPlayable && (
@@ -602,6 +714,485 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
             Save settings
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bulk booking wizard ─────────────────────────────────────────────────────
+// Campaign → dates & stores → review. One request books the whole matrix; the
+// server books what fits (existing bookings count toward the target) and the
+// result screen lists every gap instead of anything failing silently.
+
+const weekdayOf = (d: string) => (new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7; // 0=Mon
+
+function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, onChanged }: {
+  campaigns: AdminCampaign[]; defaultFrom: string;
+  onCampaignUpdate: (id: string, slotPlaylist: AdminCampaign['slotPlaylist']) => void;
+  onClose: () => void; onChanged: () => void;
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [campaignId,   setCampaignId]   = useState('');
+  const [playlists,    setPlaylists]    = useState<Playlist[]>([]);
+  const [attachSel,    setAttachSel]    = useState('');
+  const [attachBusy,   setAttachBusy]   = useState(false);
+
+  const [from,   setFrom]   = useState(defaultFrom);
+  const [to,     setTo]     = useState(addDays(defaultFrom, 13));
+  const [dow,    setDow]    = useState(127);
+  const [perDay, setPerDay] = useState(1);
+
+  const [avail,        setAvail]        = useState<{ dates: string[]; stores: SlotStore[] } | null>(null);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [sel,          setSel]          = useState<Set<string>>(new Set());
+
+  const [busy,   setBusy]   = useState(false);
+  const [result, setResult] = useState<BulkAssignResult | null>(null);
+  // Brand-pick pre-selection is applied once per campaign choice, so a deliberate
+  // clear-all is never silently undone by stepping Back and Next again.
+  const [preselectedFor, setPreselectedFor] = useState<string | null>(null);
+
+  const campaign = campaigns.find((c) => c.id === campaignId) ?? null;
+  const sellable = campaigns.filter((c) => c.status !== 'cancelled');
+
+  // The bulk endpoint caps a request at 60 days; the availability grid silently
+  // stops at 60 dates. Surface the cap up front instead of a doomed Book click.
+  const rangeDays = from && to ? (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS + 1 : 0;
+  const rangeTooLong = rangeDays > 60;
+
+  useEffect(() => { getPlaylists().then(setPlaylists).catch(() => setPlaylists([])); }, []);
+
+  // Availability drives the store list's free counts AND the review matrix. The
+  // stale flag drops out-of-order responses — otherwise a slow fetch for an old
+  // range could overwrite the numbers the admin is about to approve.
+  useEffect(() => {
+    if (!from || !to || from > to || rangeTooLong) return;
+    let stale = false;
+    setAvailLoading(true);
+    getSlotAvailability(from, to)
+      .then((r) => { if (!stale) setAvail({ dates: r.dates, stores: r.stores }); })
+      .catch((e: Error) => { if (!stale) toast({ variant: 'destructive', title: 'Could not load availability', description: e.message }); })
+      .finally(() => { if (!stale) setAvailLoading(false); });
+    return () => { stale = true; };
+  }, [from, to, rangeTooLong]);
+
+  const slotStores = (avail?.stores ?? []).filter((s) => s.loopSlotCount != null);
+  const dates      = (avail?.dates ?? []).filter((d) => (dow & (1 << weekdayOf(d))) !== 0);
+  const chosen     = slotStores.filter((s) => sel.has(s.id));
+
+  const mediaCount = (p: Playlist) => p.items.filter((i) => i.contentId).length;
+
+  const attach = async (playlistId: string | null) => {
+    if (!campaign) return;
+    setAttachBusy(true);
+    try {
+      await updateSlotSettings({ campaignId: campaign.id, slotPlaylistId: playlistId });
+      const pl = playlistId ? playlists.find((p) => p.id === playlistId) : undefined;
+      // Update the tab's campaign list, not a local copy — the change must survive
+      // closing the wizard and show up in every creative label on the tab.
+      onCampaignUpdate(campaign.id, pl ? { id: pl.id, name: pl.name, mediaItems: mediaCount(pl) } : null);
+      toast(playlistId
+        ? { title: 'Playlist attached ✓', description: 'Its media items rotate through this campaign’s slots — one per play, advancing daily.' }
+        : { title: 'Playlist detached' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Could not attach playlist', description: (e as Error).message });
+    } finally { setAttachBusy(false); }
+  };
+
+  // Entering step 2: pre-tick the brand's map picks so the common case books itself
+  // — once per campaign choice, so an admin's clear-all is not undone on re-entry.
+  const goStores = () => {
+    if (preselectedFor !== campaignId) {
+      if (sel.size === 0 && campaign?.preferredStores?.length) {
+        setSel(new Set(campaign.preferredStores.map((p) => p.id)));
+      }
+      setPreselectedFor(campaignId);
+    }
+    setStep(2);
+  };
+
+  const toggleStore = (id: string) => setSel((s) => {
+    const next = new Set(s);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const byCity = new Map<string, SlotStore[]>();
+  for (const s of slotStores) {
+    const key = s.city ?? '—';
+    byCity.set(key, [...(byCity.get(key) ?? []), s]);
+  }
+
+  const freeSummary = (s: SlotStore) => {
+    let free = 0, cap = 0;
+    for (const d of dates) {
+      const sold = s.sold?.[d];
+      if (sold == null) continue; // closed
+      cap  += s.loopSlotCount!;
+      free += Math.max(0, s.loopSlotCount! - sold);
+    }
+    return { free, cap };
+  };
+
+  // Client-side estimate for the review matrix. The server additionally counts this
+  // campaign's existing bookings toward the target, so the real result can only be
+  // equal or better; the response is the ground truth shown afterwards.
+  const estimate = (() => {
+    let will = 0, miss = 0;
+    for (const s of chosen) for (const d of dates) {
+      const sold = s.sold?.[d];
+      if (sold == null) continue;
+      const take = Math.min(perDay, Math.max(0, s.loopSlotCount! - sold));
+      will += take; miss += perDay - take;
+    }
+    return { will, miss };
+  })();
+
+  const book = async () => {
+    setBusy(true);
+    try {
+      const r = await bulkAssignSlots({
+        campaignId,
+        storeIds: chosen.map((s) => s.id),
+        from, to,
+        ...(dow !== 127 ? { daysOfWeek: dow } : {}),
+        slotsPerDay: perDay,
+      });
+      setResult(r);
+      onChanged();
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Booking failed', description: (e as Error).message });
+    } finally { setBusy(false); }
+  };
+
+  const stepTitle = result ? 'Booking result' : step === 1 ? 'Campaign & creative' : step === 2 ? 'Dates & stores' : 'Review & book';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-3xl max-h-[88vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div>
+            <p className="text-sm font-bold text-foreground">Book slots — {stepTitle}</p>
+            {!result && <p className="text-[11px] text-muted-foreground">Step {step} of 3 · books what fits, then reports every gap</p>}
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {result ? (
+          <div className="space-y-4 p-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: 'Booked',        value: result.booked,           strong: true },
+                { label: 'Already held',  value: result.alreadySatisfied, strong: false },
+                { label: 'Missed',        value: result.missed,           strong: false },
+                { label: 'Closed days',   value: result.closedSkipped,    strong: false },
+              ].map(({ label, value, strong }) => (
+                <div key={label} className="rounded-xl border border-border bg-background px-3 py-2.5">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
+                  <p className={`text-lg tracking-tight ${strong ? 'font-black text-primary' : 'font-bold text-foreground'}`}>{value}</p>
+                </div>
+              ))}
+            </div>
+            {result.raced > 0 && (
+              <p className="text-[11px] text-amber-600">{result.raced} position(s) were taken by someone else mid-request — re-run to top up from what&apos;s left.</p>
+            )}
+            {result.skippedStores.length > 0 && (
+              <p className="text-[11px] text-amber-600">
+                Skipped stores: {result.skippedStores.map((s) => `${s.storeName} (${s.reason})`).join(', ')}
+              </p>
+            )}
+            {result.gaps.length > 0 ? (
+              <div className="rounded-xl border border-border overflow-hidden">
+                <div className="max-h-56 overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 bg-muted/60">
+                      <tr>
+                        <th className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Store</th>
+                        <th className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Date</th>
+                        <th className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Missed</th>
+                        <th className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Why</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.gaps.map((g, i) => (
+                        <tr key={i} className="border-t border-border/60">
+                          <td className="px-3 py-1.5 text-[11px] text-foreground">{g.storeName}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-muted-foreground">{g.date}</td>
+                          <td className="px-3 py-1.5 text-[11px] font-semibold text-foreground">{g.missed}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-muted-foreground">{g.reason === 'full' ? 'Day sold out' : 'Partially available'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {result.gapsTruncated && <p className="border-t border-border px-3 py-1.5 text-[10px] text-muted-foreground">Showing the first 500 gaps — the totals above cover everything.</p>}
+              </div>
+            ) : (
+              <p className="text-[11px] text-green-700">No gaps — everything requested was booked (or already in place).</p>
+            )}
+            <button onClick={onClose}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary/90">
+              <Check className="h-3.5 w-3.5" />Done
+            </button>
+          </div>
+        ) : (
+        <div className="p-5 space-y-4">
+          {step === 1 && (
+            <>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Campaign</label>
+                {sellable.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">No campaigns yet.</p>
+                ) : (
+                  <div className="rounded-xl border border-border max-h-56 overflow-y-auto divide-y divide-border">
+                    {sellable.map((c) => {
+                      const on = campaignId === c.id;
+                      return (
+                        <button key={c.id}
+                          onClick={() => {
+                            if (campaignId === c.id) return;
+                            setCampaignId(c.id);
+                            // A different campaign means a different booking: drop the
+                            // old selection so ITS brand picks pre-tick on step 2.
+                            setSel(new Set());
+                            setPreselectedFor(null);
+                          }}
+                          className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${on ? 'bg-primary/5' : 'hover:bg-muted/20'}`}>
+                          <span className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${on ? 'border-primary bg-primary' : 'border-border bg-background'}`} />
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate text-[11px] font-semibold text-foreground">{c.brandName}</span>
+                            <span className="block text-[9px] text-muted-foreground capitalize">{c.status}{c.preferredStores?.length ? ` · ${c.preferredStores.length} brand-picked store${c.preferredStores.length === 1 ? '' : 's'}` : ''}</span>
+                          </span>
+                          {c.slotPlaylist && c.slotPlaylist.mediaItems > 0 ? (
+                            <span className="flex shrink-0 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                              <ListVideo className="h-3 w-3" />{c.slotPlaylist.mediaItems} rotating
+                            </span>
+                          ) : c.slotContentId ? (
+                            <span className="shrink-0 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[9px] font-bold text-green-800">10s creative</span>
+                          ) : (
+                            <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">no creative</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {campaign && (
+                <div className="rounded-xl border border-border bg-muted/20 p-3.5 space-y-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">What plays in its slots</p>
+                  {campaign.slotPlaylist && campaign.slotPlaylist.mediaItems > 0 ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="flex items-center gap-1.5 text-[11px] text-foreground">
+                        <ListVideo className="h-3.5 w-3.5 text-primary" />
+                        <span className="font-semibold">{campaign.slotPlaylist.name}</span>
+                        <span className="text-muted-foreground">— {campaign.slotPlaylist.mediaItems} creatives rotate, one per play, advancing daily</span>
+                      </p>
+                      <button onClick={() => attach(null)} disabled={attachBusy}
+                        className="shrink-0 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40">
+                        Detach
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-[11px] text-muted-foreground">
+                        {campaign.slotContentId
+                          ? 'Single 10s creative. Attach a playlist to rotate several creatives instead:'
+                          : <span className="text-amber-600">No creative yet — its slots would book as sold but play as bonus/house fill. Attach a playlist now, or set a 10s creative later:</span>}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <select value={attachSel} onChange={(e) => setAttachSel(e.target.value)}
+                          className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:border-primary">
+                          <option value="">— pick a playlist —</option>
+                          {playlists.map((p) => (
+                            <option key={p.id} value={p.id} disabled={mediaCount(p) === 0}>
+                              {p.name} · {mediaCount(p)} media item{mediaCount(p) === 1 ? '' : 's'}{mediaCount(p) === 0 ? ' (unplayable)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button onClick={() => attachSel && attach(attachSel)} disabled={attachBusy || !attachSel}
+                          className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
+                          {attachBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListVideo className="h-3 w-3" />}Attach
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <div className="flex items-end gap-3 flex-wrap">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">From</label>
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+                    className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">To</label>
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+                    className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Days</label>
+                  <div className="flex gap-1">
+                    {DOW.map((d, i) => {
+                      const on = (dow & (1 << i)) !== 0;
+                      return (
+                        <button key={d} onClick={() => setDow(on ? dow & ~(1 << i) : dow | (1 << i))}
+                          className={`rounded-md border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                            on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground/50'
+                          }`}>{d}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {rangeTooLong && (
+                <p className="text-[11px] text-amber-600">
+                  That range is {rangeDays} days — bookings go out at most 60 days per request. Shorten the range to continue.
+                </p>
+              )}
+
+              {availLoading ? (
+                <div className="space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
+              ) : slotStores.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No stores are in slot mode.</p>
+              ) : (
+                <div className="rounded-xl border border-border max-h-72 overflow-y-auto divide-y divide-border">
+                  {[...byCity.entries()].map(([city, cityStores]) => {
+                    const allOn = cityStores.every((s) => sel.has(s.id));
+                    return (
+                      <div key={city}>
+                        <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5">
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{city}</p>
+                          <button
+                            onClick={() => setSel((s) => {
+                              const next = new Set(s);
+                              cityStores.forEach((st) => { if (allOn) next.delete(st.id); else next.add(st.id); });
+                              return next;
+                            })}
+                            className="text-[10px] font-semibold text-primary hover:underline">
+                            {allOn ? 'Clear' : 'Select all'}
+                          </button>
+                        </div>
+                        {cityStores.map((s) => {
+                          const { free, cap } = freeSummary(s);
+                          const preferred = campaign?.preferredStores?.some((p) => p.id === s.id);
+                          return (
+                            <label key={s.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/20">
+                              <input type="checkbox" checked={sel.has(s.id)} onChange={() => toggleStore(s.id)} className="h-3.5 w-3.5 accent-primary" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[11px] font-semibold text-foreground truncate">
+                                  {s.storeName}
+                                  {preferred && <span className="ml-1.5 rounded bg-primary/10 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-primary">brand pick</span>}
+                                </p>
+                                <p className="text-[9px] text-muted-foreground">{s.loopSlotCount} slots/loop · {s.hoursStart}–{s.hoursEnd}</p>
+                              </div>
+                              <span className={`text-[10px] font-semibold ${free === 0 ? 'text-primary' : 'text-green-700'}`}>{free}/{cap} free</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Slots per day per store</label>
+                  <input type="number" min={1} max={60} value={perDay} onChange={(e) => setPerDay(Math.min(60, Math.max(1, Number(e.target.value) || 1)))}
+                    className="w-24 rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
+                </div>
+                <div className="flex-1 text-[11px] text-muted-foreground pt-4">
+                  <span className="font-semibold text-foreground">{campaign?.brandName}</span> · {chosen.length} store{chosen.length === 1 ? '' : 's'} · {dates.length} day{dates.length === 1 ? '' : 's'} ·
+                  est. <span className="font-semibold text-green-700"> {estimate.will} booked</span>
+                  {estimate.miss > 0 && <span className="font-semibold text-amber-600"> · {estimate.miss} won&apos;t fit</span>}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border overflow-x-auto max-h-72 overflow-y-auto">
+                <table className="border-collapse">
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 top-0 z-10 bg-card px-3 py-1.5 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Store</th>
+                      {dates.map((d) => {
+                        const { dow: wd, day } = dayLabel(d);
+                        return (
+                          <th key={d} className="sticky top-0 bg-card px-1 py-1.5 text-center min-w-[36px]">
+                            <span className="block text-[8px] font-bold uppercase text-muted-foreground/60">{wd}</span>
+                            <span className="block text-[10px] font-semibold text-foreground">{day}</span>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chosen.map((s) => (
+                      <tr key={s.id} className="border-t border-border/60">
+                        <td className="sticky left-0 z-10 bg-card px-3 py-1.5 text-[10px] font-semibold text-foreground whitespace-nowrap">{s.storeName}</td>
+                        {dates.map((d) => {
+                          const sold = s.sold?.[d];
+                          if (sold == null) return <td key={d} className="px-1 py-1 text-center text-[9px] text-muted-foreground/40">—</td>;
+                          const take = Math.min(perDay, Math.max(0, s.loopSlotCount! - sold));
+                          const cls = take === perDay ? 'bg-green-50 text-green-800 border-green-200'
+                                    : take > 0        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    :                   'bg-primary/10 text-primary border-primary/30';
+                          return (
+                            <td key={d} className="px-0.5 py-0.5 text-center">
+                              <span className={`block rounded border px-0.5 py-1 text-[9px] font-semibold ${cls}`}>{take}</span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Each cell = slots this request will book that day (grey — = closed). Positions already held by this campaign count toward the target, so re-running never double-books.
+              </p>
+            </>
+          )}
+
+          <div className="flex items-center justify-between border-t border-border pt-3.5">
+            <button
+              onClick={() => step > 1 ? setStep((s) => (s - 1) as 1 | 2) : onClose()}
+              className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground">
+              {step === 1 ? 'Cancel' : 'Back'}
+            </button>
+            {step === 1 && (
+              <button onClick={goStores} disabled={!campaignId}
+                className="rounded-lg bg-primary px-4 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
+                Next — dates &amp; stores
+              </button>
+            )}
+            {step === 2 && (
+              <button onClick={() => setStep(3)}
+                disabled={chosen.length === 0 || dates.length === 0 || !from || !to || from > to || rangeTooLong || availLoading}
+                className="rounded-lg bg-primary px-4 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
+                Next — review ({chosen.length} store{chosen.length === 1 ? '' : 's'})
+              </button>
+            )}
+            {step === 3 && (
+              <button onClick={book} disabled={busy || chosen.length === 0}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarPlus className="h-3.5 w-3.5" />}
+                Book what fits
+              </button>
+            )}
+          </div>
+        </div>
+        )}
       </div>
     </div>
   );

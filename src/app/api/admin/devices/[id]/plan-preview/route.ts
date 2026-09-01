@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
-import { buildSlotLoop, isOpenOn, istToday } from '@/lib/slots';
+import { buildSlotLoop, isOpenOn, istToday, slotCreativeIds, slotDayIndex } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
@@ -152,13 +152,22 @@ export async function GET(
       if (slotOpenToday) {
         const bookings = await db.slotBooking.findMany({
           where:  { storeId: device.storeId, date: new Date(`${today}T00:00:00Z`) },
-          select: { slotPosition: true, campaignId: true, campaign: { select: { slotContentId: true } } },
+          select: {
+            slotPosition: true, campaignId: true,
+            campaign: { select: {
+              slotContentId: true,
+              slotPlaylist: { select: { items: {
+                where: { contentId: { not: null } }, orderBy: { order: 'asc' }, select: { contentId: true },
+              } } },
+            } },
+          },
         });
         slotSold = bookings.length;
         slotPlayable = buildSlotLoop(
           store.loopSlotCount!,
-          bookings.map((b) => ({ slotPosition: b.slotPosition, campaignId: b.campaignId, slotContentId: b.campaign.slotContentId })),
+          bookings.map((b) => ({ slotPosition: b.slotPosition, campaignId: b.campaignId, creativeIds: slotCreativeIds(b.campaign) })),
           filler,
+          slotDayIndex(today),
         ).length;
       }
     }

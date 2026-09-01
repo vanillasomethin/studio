@@ -9,7 +9,14 @@ export async function GET(req: NextRequest) {
   try {
     const campaigns = await db.campaign.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { brand: { select: { id: true, brandName: true, trialOfferedAt: true, trialUsedAt: true } } },
+      include: {
+        brand: { select: { id: true, brandName: true, trialOfferedAt: true, trialUsedAt: true } },
+        // Slot rotation source — media-item count only (nested items can't play in slots).
+        slotPlaylist: { select: {
+          id: true, name: true,
+          _count: { select: { items: { where: { contentId: { not: null } } } } },
+        } },
+      },
     });
 
     // Resolve map-picked store ids to names for ops — unknown ids drop out.
@@ -44,6 +51,10 @@ export async function GET(req: NextRequest) {
       // Slot-loop 10s creative — a booked campaign without one can't render in a slot
       // (its positions fall through to bonus/filler redistribution).
       slotContentId:   c.slotContentId,
+      // Attached rotation playlist (overrides slotContentId) — see Campaign.slotPlaylistId.
+      slotPlaylist:    c.slotPlaylist
+        ? { id: c.slotPlaylist.id, name: c.slotPlaylist.name, mediaItems: c.slotPlaylist._count.items }
+        : null,
       // Brand's map picks — routing hint for slot assignment, not a reservation.
       preferredStores: c.preferredStoreIds
         .map((id) => storeById.get(id))

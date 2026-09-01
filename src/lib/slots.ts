@@ -55,19 +55,48 @@ export function loopRepeatsPerDay(store: {
 export type SlotAssignment = {
   slotPosition: number;
   campaignId:   string;
-  contentId:    string;      // the campaign's slot creative
+  contentId:    string;      // the creative chosen for this position on this date
   isFiller:     boolean;     // true = bonus/house play in an unsold (or unplayable) position
 };
 
-type BookingRow = { slotPosition: number; campaignId: string; slotContentId: string | null };
+// A campaign's slot creatives in rotation order: the slot playlist's media items
+// when one is attached, else the single slotContentId. Empty = sold but unplayable.
+type BookingRow = { slotPosition: number; campaignId: string; creativeIds: string[] };
+
+/** Stable day number for a 'YYYY-MM-DD' date — the rotation offset that makes a
+ *  single booked position show the NEXT playlist item each day. */
+export function slotDayIndex(dateStr: string): number {
+  return Math.floor(Date.parse(`${dateStr}T00:00:00Z`) / 86_400_000);
+}
+
+/** A campaign's candidate slot creatives. The slot playlist wins over the single
+ *  creative; only its direct media items count (slot mode is a flat 10s loop, so
+ *  nested-playlist items are ignored — pass them pre-filtered to contentId!=null). */
+export function slotCreativeIds(campaign: {
+  slotContentId: string | null;
+  slotPlaylist?: { items: { contentId: string | null }[] } | null;
+}): string[] {
+  const fromPlaylist = (campaign.slotPlaylist?.items ?? [])
+    .map((i) => i.contentId)
+    .filter((id): id is string => id != null);
+  if (fromPlaylist.length > 0) return fromPlaylist;
+  return campaign.slotContentId ? [campaign.slotContentId] : [];
+}
 
 /**
  * Builds the playable loop for one store+date. Returns one assignment per position
  * that CAN play; positions with nothing playable anywhere (no sold creatives and no
  * filler creative) are omitted — the caller decides what an empty loop means.
  *
- * A booked campaign without a slot creative counts as SOLD for availability but
+ * A booked campaign without any creative counts as SOLD for availability but
  * cannot render, so its positions join the redistribution set rather than going dark.
+ *
+ * Creative rotation: a campaign's k-th play of the day (bookings, bonus and filler
+ * plays alike, in position order) shows creativeIds[(dayIndex + k) mod N]. With one
+ * creative that degenerates to the old fixed behaviour; with a playlist, several
+ * positions in one loop each show a different item, and a single position advances
+ * one item per day. Deterministic per (date, bookings) — every plan fetch that day
+ * builds the identical loop, so the plan hash still only rolls at IST midnight.
  *
  * `poolWeights` (campaignId -> extra pool entries) lets a campaign get a bigger share
  * of the round-robin bonus pool without a second scheduling engine — the mechanism
@@ -78,12 +107,14 @@ type BookingRow = { slotPosition: number; campaignId: string; slotContentId: str
  *   - Peak Boost (lib/addons.ts): a boosted campaign gets extra entries during peak
  *     windows only — the caller is responsible for zeroing this out outside a window.
  * Callers merge both sources into one map before calling. Empty/omitted = today's
- * plain round-robin, unchanged.
+ * plain round-robin, unchanged. Weighted bonus plays advance the campaign's creative
+ * rotation like any other play, so a boosted playlist campaign spreads its items.
  */
 export function buildSlotLoop(
   loopSlotCount: number,
   bookings: BookingRow[],
-  filler: { campaignId: string; contentId: string } | null,
+  filler: { campaignId: string; creativeIds: string[] } | null,
+  dayIndex = 0,
   poolWeights: Map<string, number> = new Map(),
 ): SlotAssignment[] {
   const byPosition = new Map<number, BookingRow>();
@@ -91,31 +122,39 @@ export function buildSlotLoop(
     if (b.slotPosition >= 0 && b.slotPosition < loopSlotCount) byPosition.set(b.slotPosition, b);
   }
 
+  const played = new Map<string, number>();
+  const nextCreative = (campaignId: string, ids: string[]): string => {
+    const k = played.get(campaignId) ?? 0;
+    played.set(campaignId, k + 1);
+    return ids[(dayIndex + k) % ids.length];
+  };
+
   // Playable sold campaigns in first-appearance (position) order — the round-robin pool.
   // A campaign with extra pool weight (makegood and/or Peak Boost) gets extra entries,
   // biasing the round-robin selection below in its favour without changing eligibility.
-  const pool: { campaignId: string; contentId: string }[] = [];
+  const pool: { campaignId: string; creativeIds: string[] }[] = [];
   const seen = new Set<string>();
   for (let pos = 0; pos < loopSlotCount; pos++) {
     const b = byPosition.get(pos);
-    if (b?.slotContentId && !seen.has(b.campaignId)) {
+    if (b && b.creativeIds.length > 0 && !seen.has(b.campaignId)) {
       seen.add(b.campaignId);
       const copies = 1 + Math.max(0, poolWeights.get(b.campaignId) ?? 0);
-      for (let i = 0; i < copies; i++) pool.push({ campaignId: b.campaignId, contentId: b.slotContentId });
+      for (let i = 0; i < copies; i++) pool.push({ campaignId: b.campaignId, creativeIds: b.creativeIds });
     }
   }
 
   const out: SlotAssignment[] = [];
   let rr = 0;
+  const playableFiller = filler && filler.creativeIds.length > 0 ? filler : null;
   for (let pos = 0; pos < loopSlotCount; pos++) {
     const b = byPosition.get(pos);
-    if (b?.slotContentId) {
-      out.push({ slotPosition: pos, campaignId: b.campaignId, contentId: b.slotContentId, isFiller: false });
+    if (b && b.creativeIds.length > 0) {
+      out.push({ slotPosition: pos, campaignId: b.campaignId, contentId: nextCreative(b.campaignId, b.creativeIds), isFiller: false });
     } else if (pool.length > 0) {
       const p = pool[rr++ % pool.length]; // bonus play for a sold campaign
-      out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: p.contentId, isFiller: true });
-    } else if (filler) {
-      out.push({ slotPosition: pos, campaignId: filler.campaignId, contentId: filler.contentId, isFiller: true });
+      out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true });
+    } else if (playableFiller) {
+      out.push({ slotPosition: pos, campaignId: playableFiller.campaignId, contentId: nextCreative(playableFiller.campaignId, playableFiller.creativeIds), isFiller: true });
     }
     // else: nothing playable exists — position omitted
   }

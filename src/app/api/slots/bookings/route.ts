@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { buildSlotLoop } from '@/lib/slots';
+import { buildSlotLoop, slotCreativeIds, slotDayIndex } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
@@ -37,24 +37,35 @@ export async function GET(req: NextRequest) {
 
     const bookings = await db.slotBooking.findMany({
       where:   { storeId, date: new Date(`${date}T00:00:00Z`) },
-      include: { campaign: { select: { id: true, name: true, slotContentId: true } } },
+      include: { campaign: { select: {
+        id: true, name: true, slotContentId: true,
+        slotPlaylist: { select: { items: {
+          where: { contentId: { not: null } }, orderBy: { order: 'asc' }, select: { contentId: true },
+        } } },
+      } } },
       orderBy: { slotPosition: 'asc' },
     });
 
     const filler = await resolveFillerCampaign(store.fillerCampaignId);
     const loop = buildSlotLoop(
       store.loopSlotCount,
-      bookings.map((b) => ({ slotPosition: b.slotPosition, campaignId: b.campaignId, slotContentId: b.campaign.slotContentId })),
+      bookings.map((b) => ({ slotPosition: b.slotPosition, campaignId: b.campaignId, creativeIds: slotCreativeIds(b.campaign) })),
       filler,
+      slotDayIndex(date),
     );
 
     return NextResponse.json({
       loopSlotCount: store.loopSlotCount,
-      bookings: bookings.map((b) => ({
-        id: b.id, slotPosition: b.slotPosition,
-        campaignId: b.campaignId, campaignName: b.campaign.name,
-        hasCreative: !!b.campaign.slotContentId,
-      })),
+      bookings: bookings.map((b) => {
+        const creativeCount = slotCreativeIds(b.campaign).length;
+        return {
+          id: b.id, slotPosition: b.slotPosition,
+          campaignId: b.campaignId, campaignName: b.campaign.name,
+          hasCreative: creativeCount > 0,
+          // >1 = a slot playlist rotates through this many creatives day by day.
+          creativeCount,
+        };
+      }),
       // What actually plays, per position — bonus/filler entries carry isFiller=true.
       playableLoop: loop,
     });
@@ -78,6 +89,13 @@ export async function POST(req: NextRequest) {
     if (store.loopSlotCount == null) return NextResponse.json({ error: 'Store is not in slot mode' }, { status: 400 });
     if (slotPosition < 0 || slotPosition >= store.loopSlotCount) {
       return NextResponse.json({ error: `slotPosition must be 0–${store.loopSlotCount - 1}` }, { status: 400 });
+    }
+    // Same guard as the bulk route: a cancelled campaign must not be resurrected
+    // onto a screen, and a typo'd id deserves a 404, not a raw FK 500.
+    const campaign = await db.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+    if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+    if (campaign.status === 'cancelled') {
+      return NextResponse.json({ error: 'Campaign is cancelled — pick another' }, { status: 400 });
     }
 
     const booking = await db.slotBooking.upsert({

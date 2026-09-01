@@ -14,7 +14,7 @@ import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { resolvePlaylistTree, pickRendition, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
-import { istToday, isOpenOn, buildSlotLoop, SLOT_DURATION_MS } from '@/lib/slots';
+import { istToday, isOpenOn, buildSlotLoop, slotCreativeIds, slotDayIndex, SLOT_DURATION_MS } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { getMakegoodWeights } from '@/lib/sla-db';
 import { getPeakBoostedCampaignIds, getSoundAdCampaignId } from '@/lib/addons-db';
@@ -243,7 +243,12 @@ export async function GET(req: NextRequest) {
           where:  { storeId: store.id, date: new Date(`${today}T00:00:00Z`) },
           select: {
             slotPosition: true, campaignId: true,
-            campaign: { select: { slotContentId: true } },
+            campaign: { select: {
+              slotContentId: true,
+              slotPlaylist: { select: { items: {
+                where: { contentId: { not: null } }, orderBy: { order: 'asc' }, select: { contentId: true },
+              } } },
+            } },
           },
         });
         const filler = await resolveFillerCampaign(store.fillerCampaignId);
@@ -271,9 +276,10 @@ export async function GET(req: NextRequest) {
           store.loopSlotCount!,
           bookings.map((b) => ({
             slotPosition: b.slotPosition, campaignId: b.campaignId,
-            slotContentId: b.campaign.slotContentId,
+            creativeIds: slotCreativeIds(b.campaign),
           })),
           filler,
+          slotDayIndex(today),
           poolWeights,
         );
 

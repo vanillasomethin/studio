@@ -492,6 +492,7 @@ export type SlotAvailability = {
 export type SlotBookingRow = {
   id: string; slotPosition: number;
   campaignId: string; campaignName: string; hasCreative: boolean;
+  creativeCount: number;   // >1 = slot playlist rotating this many creatives
 };
 
 export type SlotLoopEntry = {
@@ -524,8 +525,38 @@ export const updateSlotSettings = (body: {
   hoursStart?: string; hoursEnd?: string; fillerCampaignId?: string | null;
   slotPricingTier?: string;
   defaultFillerCampaignId?: string | null;
-  campaignId?: string; slotContentId?: string | null;
+  campaignId?: string; slotContentId?: string | null; slotPlaylistId?: string | null;
 }) => apiFetch<SlotSettingsResult>('/api/slots/settings', { method: 'PATCH', body: JSON.stringify(body) });
+
+// ─── Bulk slot booking ────────────────────────────────────────────────────────
+// One request instead of hundreds of per-position clicks. Policy: book what fits,
+// report the gaps; existing bookings by the same campaign count toward the target,
+// so re-running is idempotent and nothing is ever overwritten.
+
+export type BulkAssignResult = {
+  booked: number;            // rows actually created
+  planned: number;           // rows the planner wanted to create
+  requested: number;         // slots the admin asked for across all open store-days
+  alreadySatisfied: number;  // covered by pre-existing bookings of the same campaign
+  raced: number;             // planned rows lost to a concurrent booking (rare)
+  missed: number;            // requested minus satisfied — the gap total
+  gaps: { storeId: string; storeName: string; date: string; missed: number; reason: 'full' | 'partial' }[];
+  gapsTruncated: boolean;    // true = gaps capped at 500 rows; `missed` stays exact
+  skippedStores: { storeId: string; storeName: string; reason: 'not-found' | 'not-slot-mode' }[];
+  closedSkipped: number;     // store-days skipped because the store is closed
+};
+
+export const bulkAssignSlots = (body: {
+  campaignId: string; storeIds: string[]; from: string; to: string;
+  daysOfWeek?: number; slotsPerDay: number;
+}) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
+
+export const copySlotDay = (body: {
+  sourceStoreId: string; sourceDate: string; storeIds?: string[];
+  from: string; to: string; daysOfWeek?: number;
+}) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', {
+  method: 'POST', body: JSON.stringify({ mode: 'copy-day', ...body }),
+});
 
 // ─── Overlays (on-screen layouts) ─────────────────────────────────────────────
 
