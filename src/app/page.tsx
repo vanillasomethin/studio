@@ -361,7 +361,7 @@ export default function Home() {
             { tag:'Reinvest',title:'Compound the winners.',    desc:'Push budget toward SKUs and PIN codes where lift was highest. Re-run in one click.' },
           ].map((b, i) => (
             <div key={b.tag} className="fade" style={{ '--delay': `${i * 0.12}s`, padding: '40px 48px', borderLeft: i === 1 ? '1px solid var(--rule)' : 'none' } as React.CSSProperties}>
-              <span className="tag" style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--red)', fontWeight: 600 }}>{b.tag}</span>
+              <span className="tag" style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--red)', fontWeight: 600 }}>{b.tag}</span>
               <p style={{ fontWeight: 700, fontSize: 'clamp(15px,1.4vw,19px)', letterSpacing: '-0.02em', margin: '8px 0 10px', lineHeight: 1.25 }}>{b.title}</p>
               <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--ink-2)' }}>{b.desc}</p>
             </div>

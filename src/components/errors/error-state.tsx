@@ -20,7 +20,7 @@ type Props = {
 };
 
 const MONO: React.CSSProperties = {
-  fontFamily: 'var(--font-dm-mono), ui-monospace, monospace',
+  fontFamily: 'var(--font-sans), sans-serif',
   letterSpacing: '0.18em',
   textTransform: 'uppercase' as const,
   fontWeight: 600,
@@ -63,13 +63,13 @@ export function ErrorState({
       {/* Copy */}
       <div style={{ maxWidth: compact ? 200 : 280 }}>
         <p style={{
-          fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 700,
+          fontFamily: 'var(--font-sans), sans-serif', fontWeight: 700,
           fontSize: compact ? 13 : 15, color: '#0a0a0a', lineHeight: 1.3, margin: '0 0 6px',
         }}>
           {displayTitle}
         </p>
         <p style={{
-          fontFamily: 'var(--font-manrope), sans-serif', fontSize: compact ? 11 : 13,
+          fontFamily: 'var(--font-sans), sans-serif', fontSize: compact ? 11 : 13,
           color: '#737373', lineHeight: 1.55, margin: 0,
         }}>
           {displayBody}
@@ -88,7 +88,7 @@ export function ErrorState({
         <button
           onClick={onAction}
           style={{
-            fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 600,
+            fontFamily: 'var(--font-sans), sans-serif', fontWeight: 600,
             fontSize: compact ? 11 : 12,
             padding: compact ? '7px 14px' : '9px 18px',
             borderRadius: 999, border: '1px solid #e5e5e5',
@@ -127,7 +127,7 @@ export function RetryPrompt({ message, onRetry, retryIn }: { message: string; on
       display: 'flex', alignItems: 'center', gap: 10,
       padding: '10px 14px', borderRadius: 10,
       background: '#fef2f2', border: '1px solid #fecaca',
-      fontFamily: 'var(--font-manrope), sans-serif', fontSize: 12,
+      fontFamily: 'var(--font-sans), sans-serif', fontSize: 12,
     }}>
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
         <circle cx="7" cy="7" r="6" fill="#fee2e2" stroke="#fca5a5" strokeWidth="1" />
@@ -135,7 +135,7 @@ export function RetryPrompt({ message, onRetry, retryIn }: { message: string; on
       </svg>
       <span style={{ color: '#991b1b', flex: 1 }}>{message}</span>
       {retryIn ? (
-        <span style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#b91c1c' }}>Retrying in {retryIn}s</span>
+        <span style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: 10, color: '#b91c1c' }}>Retrying in {retryIn}s</span>
       ) : (
         <button onClick={onRetry} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontWeight: 600, fontSize: 12, padding: 0 }}>
           Try again

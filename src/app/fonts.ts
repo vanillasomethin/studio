@@ -1,47 +1,33 @@
-// The site's three typefaces, self-hosted by next/font.
+// The typeface. Singular — the whole product is set in Poppins.
 //
-// They used to come from a <link> to fonts.googleapis.com with display=swap,
-// which put two network round trips (the CSS, then the woff2 from gstatic)
-// between first paint and the real glyphs. Everything painted in the generic
-// `sans-serif` first and then jumped — most visibly on the loading screen, where
-// the alive• wordmark is set in Poppins 800 at up to 140px, so even a small
-// metric difference moves the mark by tens of pixels.
+// It used to be five: Poppins, Manrope and DM Mono on the marketing site and
+// store dashboard, Inter Tight and JetBrains Mono in the admin console, all
+// pulled from fonts.googleapis.com with display=swap. That meant two network
+// round trips (the CSS, then each woff2 from gstatic) before any real glyph, so
+// everything painted in a fallback and then jumped — most visibly on the loading
+// screen, where the alive• wordmark is Poppins 800 at up to 140px.
 //
-// next/font fixes both halves of that:
-//   • the woff2 is downloaded at build time and served from our own origin, so
-//     there is no third-party CSS hop and the file is preloaded;
-//   • it derives a fallback @font-face from the real font's metrics
-//     (size-adjust / ascent-override / descent-override), so the pre-swap paint
-//     occupies the same box as the loaded font and the swap is invisible.
+// Poppins is the one that could not be dropped: the alive• wordmark is Poppins
+// 800 and the brand is defined by it (see CLAUDE.md), so making it the single
+// family is what makes "one font" and "the logo is untouched" the same decision.
 //
-// Each font is exposed as a CSS variable rather than a class, because the
-// stylesheet refers to these families by name in ~40 places.
+// next/font self-hosts it: the woff2 is fetched at build time and served from
+// our own origin with a preload, so there is no third-party hop at all.
+//
+// Everything downstream — the stylesheet, admin.css, Tailwind's font-sans,
+// inline styles — refers to `--font-sans` and nothing else, so swapping the
+// product's typeface is a change to the one call below.
 
-import { Poppins, Manrope, DM_Mono } from 'next/font/google';
+import { Poppins } from 'next/font/google';
 
-/** Wordmark and display headings. Static weights — Poppins has no variable cut. */
-export const poppins = Poppins({
+export const sans = Poppins({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800', '900'],
+  // Poppins has no variable cut, so each weight is its own file. These are the
+  // ones the UI actually uses; adding more costs another download each.
+  weight: ['300', '400', '500', '600', '700', '800'],
   display: 'swap',
-  variable: '--font-poppins',
+  variable: '--font-sans',
 });
 
-/** Body and headline text. Variable font, so the whole 200–800 axis is one file. */
-export const manrope = Manrope({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-manrope',
-});
-
-/** Editorial labels and numerics. */
-export const dmMono = DM_Mono({
-  subsets: ['latin'],
-  weight: ['300', '400', '500'],
-  style: ['normal', 'italic'],
-  display: 'swap',
-  variable: '--font-dm-mono',
-});
-
-/** Every font variable, for the <html> className. */
-export const fontVariables = `${poppins.variable} ${manrope.variable} ${dmMono.variable}`;
+/** For the <html> className, so --font-sans is defined for the whole document. */
+export const fontVariables = sans.variable;

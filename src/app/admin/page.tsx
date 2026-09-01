@@ -1871,7 +1871,13 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onN
   return (
     <header className="tb">
       <div className="tb__crumbs">
-        <span>Network 027</span>
+        {/* This used to read "Network 027" — decorative filler sitting in a
+            breadcrumb, where an operator reasonably reads it as a real network
+            id. It now carries the one number that belongs at the root of this
+            hierarchy: how many stores there are, and how many are live. */}
+        <button className="tb__crumb-root" onClick={() => onNav('stores')} title="Go to Stores">
+          {stats ? `${stats.stores.live} of ${stats.stores.total} stores live` : 'ALIVE network'}
+        </button>
         <ChevronRight className="h-3.5 w-3.5" />
         <strong>{section}</strong>
       </div>

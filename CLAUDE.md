@@ -264,6 +264,14 @@ When a generic control and a graphical one both work, use the graphical one.
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
+- Type: **Poppins, and nothing else** — marketing site, store dashboard, admin
+  console, error pages. It is self-hosted by `next/font` in `src/app/fonts.ts`
+  and reaches everything through the single `--font-sans` variable; never add a
+  second family, a Google Fonts `<link>`, or a literal `font-family: 'X'`. Weight
+  and size carry hierarchy, not typeface. Admin's `--font-display` /
+  `--font-body` / `--font-mono` all resolve to it, so the ex-mono labels are
+  Poppins with letter-spacing; numeric columns use `font-variant-numeric:
+  tabular-nums` instead of a monospace face.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.

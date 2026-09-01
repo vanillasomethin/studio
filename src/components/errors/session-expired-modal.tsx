@@ -47,10 +47,10 @@ export function SessionExpiredModal() {
           </svg>
         </div>
 
-        <h2 id="session-title" style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 700, fontSize: 17, color: '#0a0a0a', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
+        <h2 id="session-title" style={{ fontFamily: 'var(--font-sans), sans-serif', fontWeight: 700, fontSize: 17, color: '#0a0a0a', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
           Your session ended
         </h2>
-        <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, color: '#737373', lineHeight: 1.6, margin: '0 0 24px' }}>
+        <p style={{ fontFamily: 'var(--font-sans), sans-serif', fontSize: 13, color: '#737373', lineHeight: 1.6, margin: '0 0 24px' }}>
           You&apos;ve been signed out after a period of inactivity. Any unsaved changes are preserved locally — sign back in to continue.
         </p>
 
@@ -59,7 +59,7 @@ export function SessionExpiredModal() {
           style={{
             width: '100%', padding: '12px', borderRadius: 10,
             background: '#0a0a0a', color: '#fff', border: 'none',
-            fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 600, fontSize: 14,
+            fontFamily: 'var(--font-sans), sans-serif', fontWeight: 600, fontSize: 14,
             cursor: 'pointer', transition: 'background .15s',
           }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#1f1f1f'; }}
@@ -70,7 +70,7 @@ export function SessionExpiredModal() {
 
         <button
           onClick={() => setOpen(false)}
-          style={{ marginTop: 10, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-manrope), sans-serif', fontSize: 12, color: '#a3a3a3', padding: '4px 8px' }}
+          style={{ marginTop: 10, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans), sans-serif', fontSize: 12, color: '#a3a3a3', padding: '4px 8px' }}
         >
           Stay on this page
         </button>
