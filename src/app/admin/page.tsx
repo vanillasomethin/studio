@@ -1796,8 +1796,8 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
   },
 ];
 
-function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
-  tab: Tab; onTab: (t: Tab) => void; onSignOut: () => void; liveCount: number;
+function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
+  tab: Tab; onTab: (t: Tab) => void; onSignOut: () => void; liveCount: number; email: string | null;
 }) {
   return (
     <aside className="sb">
@@ -1827,11 +1827,14 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
       ))}
 
       <div className="sb__bottom">
-        <button className="sb__user" onClick={onSignOut} title="Sign out">
-          <div className="sb__avatar">A</div>
+        {/* Named logins are the point of the current auth model, so this says who
+            you actually are — a generic "ALIVE Admin" gives an operator no way to
+            notice they are signed in as a colleague. */}
+        <button className="sb__user" onClick={onSignOut} title={email ? `Sign out ${email}` : 'Sign out'}>
+          <div className="sb__avatar">{(email?.[0] ?? 'A').toUpperCase()}</div>
           <div className="sb__user-meta">
-            <div className="sb__user-name">ALIVE Admin</div>
-            <div className="sb__user-role">Network Admin</div>
+            <div className="sb__user-name">{email?.split('@')[0] ?? 'ALIVE Admin'}</div>
+            <div className="sb__user-role">{email ? 'Sign out' : 'Network Admin'}</div>
           </div>
           <LogOut className="h-3.5 w-3.5" style={{ color: 'var(--neutral-400)', marginLeft: 'auto' }} />
         </button>
@@ -2300,7 +2303,7 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
-function Dashboard() {
+function Dashboard({ email }: { email: string | null }) {
   const [tab,         setTab]         = useState<Tab>('overview');
   const [refreshKey,  setRefreshKey]  = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2433,7 +2436,7 @@ function Dashboard() {
         onUnreadChange={setOfflineAlertCount}
         onOpenAlerts={openAlertsTab}
       />
-      <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} />
+      <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} email={email} />
 
       <main className="main">
         <Topbar
@@ -2540,5 +2543,5 @@ export default function AdminPage() {
   // by an unenrolled admin has to land on enrolment, not the dashboard.
   if (state === 'login') return <AdminLogin onAuth={probe} />;
   if (state === 'enrol') return <MfaEnrolment email={email} onDone={probe} />;
-  return <Dashboard />;
+  return <Dashboard email={email} />;
 }
