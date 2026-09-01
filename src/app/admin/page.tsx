@@ -1898,7 +1898,13 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onN
       <button className="btn btn--outline btn--sm" onClick={exportSnapshot} disabled={!stats} title="Download today's network snapshot as CSV">
         <Download className="h-3 w-3" /> Export
       </button>
-      <button className="btn btn--primary btn--sm" onClick={() => onNav('campaigns')}>
+      {/* Opens the booking flow, not the Campaigns tab: the tab is a read-only
+          list with no create UI (campaigns are only born through brand-onboarding,
+          booked on behalf of the brand), so navigating there looked like a no-op. */}
+      <button
+        className="btn btn--primary btn--sm"
+        onClick={() => window.open('/brand-onboarding', '_blank')}
+      >
         <Plus className="h-3 w-3" /> New Campaign
       </button>
     </header>
