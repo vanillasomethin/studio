@@ -173,11 +173,14 @@ A screen gets its content one of two ways. Which one applies is decided by
 - **Slot mode (`loopSlotCount` set, default 30) — the primary model.** The loop is
   generated per store per day from `SlotBooking` rows by `buildSlotLoop()`
   (`src/lib/slots.ts`), called from `/api/device/plan`. A booking points at a
-  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`).
-  **No Playlist is involved at all** — one campaign with one creative serves every
-  store it's booked into, so there is never a reason to hand-build a playlist per
-  store. Unsold positions fill themselves: first as bonus replays of sold campaigns
-  (round-robin), then from the house filler campaign.
+  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`)
+  or, for multi-creative campaigns, a playlist (`Campaign.slotPlaylistId`) whose
+  media items rotate deterministically — the campaign's k-th play of the day shows
+  item (dayIndex+k) mod N. Either way the creative rides on the campaign, so there
+  is never a reason to hand-build a playlist per store. Unsold positions fill
+  themselves: first as bonus replays of sold campaigns (round-robin), then from
+  the house filler campaign. Bulk booking: `POST /api/slots/bookings/bulk`
+  (assign / copy-day; books what fits, reports gaps, never overwrites a sale).
 - **Playlist/schedule mode (`loopSlotCount` null).** The older path — `Playlist` →
   `Schedule` → devices. Use it for screens that aren't selling slots.
 
