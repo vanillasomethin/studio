@@ -126,7 +126,31 @@ export async function refreshPlugIfStale(plug: SmartPlug, force = false): Promis
     const device = await getTuyaDevice(plug.tuyaDeviceId);
     return (await recordPlugPoll(plug, { online: !!device.online, name: device.name, status: device.status }, now, true)) ?? plug;
   } catch {
-    return { ...plug, lastPolledAt: now };
+    // Record the failure as an observation rather than returning empty-handed.
+    //
+    // The claim above already committed lastPolledAt = now to the row, and that
+    // is deliberate (see the note on this function: it caps retries against a
+    // persistently erroring device). But it also means the 5-minute cron's CAS
+    // no longer matches, so the cron counts this plug as `raced` and skips it —
+    // on the stated assumption that whoever took the claim wrote a reading
+    // covering the gap. Returning here left no reading, so that interval was
+    // dropped from SUM(energyWh) entirely and never reimbursed.
+    //
+    // Worse, the row kept its last-known online/powerW while lastPolledAt said
+    // "just now", so a dead integration rendered as a live plug drawing power.
+    // lastPolledAt is the only staleness signal the partner card has.
+    //
+    // Writing an offline observation keeps claims and readings 1:1 — the
+    // invariant the cron already depends on — stops the freshness lie, and
+    // contributes no energy, matching this file's existing rule that an offline
+    // edge contributes nothing rather than a guess. It also stops the next
+    // successful poll using a stale wattage as its trapezoid endpoint.
+    //
+    // Caveat worth a follow-up: this conflates "the plug is offline" with "we
+    // could not reach Tuya". Both mean we have no telemetry, and reporting no
+    // telemetry is the safe direction, but distinguishing them properly needs a
+    // column and a migration.
+    return (await recordPlugPoll(plug, { online: false }, now, true).catch(() => null)) ?? plug;
   }
 }
 
