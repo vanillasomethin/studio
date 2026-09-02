@@ -52,6 +52,9 @@ function stageRank(v: unknown): number {
   return typeof v === 'string' ? (STAGE_ORDER as readonly string[]).indexOf(v) : -1;
 }
 
+/** Rank of the stage at which a screen starts earning, and liveAt is stamped. */
+const LIVE_RANK = STAGE_ORDER.indexOf('live');
+
 function getRedis() {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
   return new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
@@ -137,6 +140,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // as they did when they ranked `undefined`.
     const targetRank = body.onboardingStage ? stageRank(body.onboardingStage) : -1;
     let stampInstalledAt = false;
+    let stampLiveAt = false;
     if (targetRank >= 1) {
       try {
         const rows = await db.$queryRaw<{
@@ -147,10 +151,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           tvSizeInches: number | null; tvTag: string | null; tvInstalledAt: Date | null;
           espPlugId: string | null; wifiSsid: string | null;
           wifiUsername: string | null; wifiPassword: string | null; wifiAuthType: string | null;
+          liveAt: Date | null;
         }[]>`
           SELECT "onboardingStage", "shopPhotoUrl", "installPhotoUrl", "serialPhotoUrl", "plugPhotoUrl",
                  "tvBrand", "tvModel", "tvSerial", "tvSizeInches", "tvTag", "tvInstalledAt",
-                 "espPlugId", "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType"
+                 "espPlugId", "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType",
+                 "liveAt"
             FROM "Store" WHERE "id" = ${id} LIMIT 1
         `;
         const p = rows[0];
@@ -197,6 +203,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           }
           stampInstalledAt = !p.tvInstalledAt;
         }
+
+        // Crossing into 'live' is the moment the screen starts earning, and
+        // liveAt is what the payout export bills from. Nothing ever set it:
+        // the only writer was an admin typing a date into the "Set live date"
+        // modal in the Payments tab, so a store walked all the way to 'live'
+        // with liveAt still NULL and simply never appeared in an export.
+        // Every other consumer reads `stage === 'live' || liveAt` and so looked
+        // correct, which is why this stayed invisible.
+        //
+        // Same reasoning as tvInstalledAt above: the executive is standing in
+        // the shop, so do not make a human remember to type today's date.
+        //
+        // Gated on the crossing, not merely on the target, so a re-save of a
+        // store that has been live for months cannot stamp today over its real
+        // start date — a wrong date silently enters the payout maths, which is
+        // worse than a NULL that is visibly wrong. Rows already at 'live' with
+        // a NULL liveAt therefore still need the modal once.
+        if (p && currentRank < LIVE_RANK && targetRank >= LIVE_RANK) {
+          stampLiveAt = !p.liveAt;
+        }
       } catch (e) {
         // Fail open ONLY for the not-yet-migrated-columns case; any other DB
         // error must not silently disable the gate — rethrow so the save fails
@@ -211,9 +237,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const setClauses: string[] = [];
     const values: unknown[] = [];
 
-    if ('liveAt' in body) {
+    if ('liveAt' in body || stampLiveAt) {
+      const d = body.liveAt ? new Date(body.liveAt) : null;
+      // A cleared or absent date on a successful crossing stamps itself; an
+      // explicit date always wins, so the Payments-tab modal can still correct
+      // a store that went live before this was recorded. An unparseable date
+      // falls through to the stamp rather than writing Invalid Date.
       setClauses.push(`"liveAt" = $${values.length + 1}`);
-      values.push(body.liveAt ? new Date(body.liveAt) : null);
+      values.push(d && !isNaN(d.getTime()) ? d : (stampLiveAt ? new Date() : null));
     }
     if (body.onboardingStage) {
       setClauses.push(`"onboardingStage" = $${values.length + 1}`);
