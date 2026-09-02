@@ -55,10 +55,6 @@ export default function MonitoringTab() {
       .then((r) => { setDevices(r.devices); setLastFetch(new Date()); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-    // Non-fatal: the screens are the point of this tab, the stores are context.
-    adminGetArray<StoreLite>('/api/stores/save')
-      .then(setStores)
-      .catch(() => setStores([]));
   }, []);
 
   useEffect(() => {
@@ -66,6 +62,15 @@ export default function MonitoringTab() {
     const iv = setInterval(load, 30_000);
     return () => clearInterval(iv);
   }, [load]);
+
+  // Once, not on the 30 s poll: the admin store list is the heavy one (it
+  // carries every partner's install record) and a pin changes rarely.
+  // Non-fatal — the screens are the point of this tab, the stores are context.
+  useEffect(() => {
+    adminGetArray<StoreLite>('/api/stores/save')
+      .then(setStores)
+      .catch(() => setStores([]));
+  }, []);
 
   if (error) return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
@@ -157,7 +162,7 @@ export default function MonitoringTab() {
 
       {loading && !devices.length ? (
         <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-      ) : !devices.length ? (
+      ) : !devices.length && !storesNoScreen ? (
         <p className="text-sm text-muted-foreground text-center py-10">No screens registered yet.</p>
       ) : view === 'map' ? (
         <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
@@ -168,6 +173,12 @@ export default function MonitoringTab() {
             Pin colour: green = online, red = offline, yellow = pending.
           </p>
         </Suspense>
+      ) : !devices.length ? (
+        // Stores are pinned but no screen has claimed yet — the map is the view
+        // that has something to show; the grid would be empty.
+        <p className="text-sm text-muted-foreground text-center py-10">
+          No screens registered yet — {storesNoScreen} onboarded store{storesNoScreen !== 1 ? 's' : ''} waiting for one. Switch to Map to see them.
+        </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {devices.map((d) => {

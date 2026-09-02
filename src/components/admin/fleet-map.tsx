@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Device } from '@/lib/backend-api';
 
 const TILE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
@@ -84,6 +84,9 @@ export default function FleetMap({ devices, stores = [] }: Props) {
   const leafletRef    = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const storeLayerRef = useRef<any>(null);
+  // Flips once the map exists, so the store-layer effect below re-runs for a
+  // list that arrived while the Leaflet chunk was still loading.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -122,22 +125,23 @@ export default function FleetMap({ devices, stores = [] }: Props) {
         `;
         L.marker([d.lat!, d.lng!], { icon }).addTo(map).bindPopup(popup);
       }
-      storeLayerRef.current = storeLayer(L, orphans).addTo(map);
+      setReady(true);
     })();
 
     return () => { cancelled = true; };
   }, []); // mount once
 
-  // The store list comes from a second request and can land after the map has
-  // mounted, so screen-less stores sit on their own layer that is redrawn
-  // whenever either list changes.
+  // The store list comes from a second request and can land before or after
+  // the map exists, so screen-less stores sit on their own layer, drawn from
+  // the CURRENT props once the map is ready and redrawn whenever either list
+  // changes — never from the closure the mount effect captured.
   useEffect(() => {
     const map = mapRef.current;
     const L   = leafletRef.current;
-    if (!map || !L) return;
+    if (!ready || !map || !L) return;
     storeLayerRef.current?.remove();
     storeLayerRef.current = storeLayer(L, storesWithoutScreen(devices, stores)).addTo(map);
-  }, [devices, stores]);
+  }, [ready, devices, stores]);
 
   // Update marker colours if devices change (status changes on refresh)
   useEffect(() => {

@@ -72,12 +72,16 @@ export default function MapPicker({ lat, lng, onLocation, error }: Props) {
 
       const onMove = async () => {
         const { lat: newLat, lng: newLng } = marker.getLatLng();
-        try {
-          const { locality, pincode, city } = await reverseGeocode(newLat, newLng);
-          onLocation(String(newLat), String(newLng), locality, pincode, city);
-        } catch {
-          onLocation(String(newLat), String(newLng), '', '', '');
-        }
+        let geo = { locality: '', pincode: '', city: '' };
+        try { geo = await reverseGeocode(newLat, newLng); } catch { /* coordinates still count */ }
+        // The geocode takes a while, and the pin may have been moved meanwhile —
+        // by a drag, or by the caller setting lat/lng (the admin Map pin block's
+        // "Use … photo GPS" buttons). Reporting the position this request was
+        // for would snap the pin back, so a result for a stale position is
+        // dropped; the move that superseded it reports itself.
+        const now = marker.getLatLng();
+        if (now.lat !== newLat || now.lng !== newLng) return;
+        onLocation(String(newLat), String(newLng), geo.locality, geo.pincode, geo.city);
       };
 
       marker.on('dragend', onMove);

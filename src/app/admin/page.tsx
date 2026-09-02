@@ -702,7 +702,9 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
   // An exact match means this photo's fix WAS promoted to the store pin (empty
   // pin filled on upload) — a 0 m distance then certifies nothing, so say what
   // happened instead of showing a reassuring green figure.
-  const setPin = hasCoords && lat === storeLat && lng === storeLng;
+  // Only a shop or install photo can fill it; a serial/plug shot taken seconds
+  // later carries the same cached device fix and must not claim credit.
+  const setPin = (kind === 'shop' || kind === 'install') && hasCoords && lat === storeLat && lng === storeLng;
   return (
     <div className="rounded-lg border border-border bg-background px-3 py-2.5">
       <div className="flex items-center gap-2.5">
