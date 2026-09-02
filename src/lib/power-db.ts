@@ -4,6 +4,9 @@
 import { db } from '@/lib/db';
 import { estimatePower, istMonthStart, type PowerEstimate } from '@/lib/power';
 
+/** A reading below this is standby, not a running screen — no TV plays at 4 W. */
+const RUNNING_WATTS_FLOOR = 5;
+
 export async function getPowerSettings(): Promise<{ defaultWatts: number; paisePerKwh: number }> {
   const cfg = await db.playerConfig.findUnique({
     where:  { id: 1 },
@@ -56,9 +59,11 @@ export async function estimateStorePower(
   }
 
   // Stores with a linked smart plug use the average draw the socket actually
-  // measured while on (this period) instead of the surveyed/default wattage —
-  // see estimatePower's source field. Off/standby readings are excluded so a
-  // screen that idles overnight doesn't drag the running figure down.
+  // measured while running (this period) instead of the surveyed/default
+  // wattage — see estimatePower's source field. The floor is on wattage, not
+  // the relay: partners leave the socket switched on overnight while the
+  // screen sits in ~1 W standby (recorded as powerW 0–2, not null), and those
+  // samples would dilute the running average by a third or more.
   const plugs = await db.smartPlug.findMany({
     where:  { storeId: { in: stores.map((s) => s.id) } },
     select: { id: true, storeId: true },
@@ -68,10 +73,9 @@ export async function estimateStorePower(
     const avgs = await db.plugReading.groupBy({
       by:     ['plugId'],
       where:  {
-        plugId:   { in: plugs.map((p) => p.id) },
-        at:       { gte: since },
-        switchOn: true,
-        powerW:   { not: null },
+        plugId: { in: plugs.map((p) => p.id) },
+        at:     { gte: since },
+        powerW: { gte: RUNNING_WATTS_FLOOR },
       },
       _avg: { powerW: true },
     });
