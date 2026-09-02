@@ -111,12 +111,12 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 
 **Store map pin:**
 - `Store.lat/lng` comes from, in order: the partner's pin at registration (required) →
-  an on-site GPS fix that fills an EMPTY pin (a photo's own EXIF GPS via
-  `/api/stores/verification-photo`; any shop/install photo via
-  `/api/admin/stores/[id]/photo`) → ops setting/moving it in Admin → Stores → Edit →
+  an on-site GPS fix that fills an EMPTY pin (any shop/install photo, EXIF or device
+  fix, via `/api/stores/verification-photo` or `/api/admin/stores/[id]/photo`) → ops
+  setting/moving it in Admin → Stores → Edit →
   Map pin (`PATCH /api/admin/stores/[id]` with `{ lat, lng }`; no clearing path). A pin
   is required to cross into `physically_onboarded` (409 lists `Map pin (shop location)`).
-  A pinned store is on the public map once `contacted`, in the brand picker (non-bookable
+  A pinned store is on the public map at once (any stage but `rejected`), in the brand picker (non-bookable
   "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
   stage. Nothing waits for `live` — don't build a "live only" filter on any map.
 - Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"

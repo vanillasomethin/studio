@@ -857,7 +857,7 @@ function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: numb
 
       {error && <p className="text-[10px] font-medium text-red-600">{error}</p>}
       <p className="text-[10px] text-muted-foreground">
-        Required before Physically onboarded. A pinned store shows on wearealive.in as Coming soon once it is Contacted,
+        Required before Physically onboarded. A pinned store shows on wearealive.in as Coming soon straight away,
         and in the brand screen picker once Physically onboarded.
       </p>
     </div>
