@@ -57,22 +57,75 @@ export async function validateNesting(
   }
   children.set(playlistId, proposedChildren);
 
-  // DFS from the edited playlist: any cycle a new edge can create must pass through it,
-  // and its subtree depth is what the new edges control.
-  const onPath = new Set<string>();
-  let tooDeep = false;
-  let cyclic  = false;
-  const walk = (id: string, depth: number) => {
-    if (cyclic || tooDeep) return;
-    if (depth > MAX_NESTING_DEPTH) { tooDeep = true; return; }
-    if (onPath.has(id)) { cyclic = true; return; }
-    onPath.add(id);
-    for (const child of children.get(id) ?? []) walk(child, depth + 1);
-    onPath.delete(id);
-  };
-  walk(playlistId, 1);
+  // Cycles first, and without a depth limit. A cycle and an over-deep chain are
+  // different problems with different fixes, and the depth cap would otherwise
+  // fire first on a short loop — telling an operator to shorten a chain when
+  // what they actually built was a loop. Any cycle a new edge can create passes
+  // through the edited playlist, so reaching it from here is sufficient.
+  {
+    const seen   = new Set<string>();
+    const onPath = new Set<string>();
+    let found = false;
+    const findCycle = (id: string) => {
+      if (found) return;
+      if (onPath.has(id)) { found = true; return; }
+      if (seen.has(id)) return;      // already cleared by another branch
+      seen.add(id);
+      onPath.add(id);
+      for (const child of children.get(id) ?? []) findCycle(child);
+      onPath.delete(id);
+    };
+    findCycle(playlistId);
+    if (found) return 'nesting would create a cycle';
+  }
 
-  if (cyclic)  return 'nesting would create a cycle';
+  // How deep the edited playlist already sits BELOW some other playlist. Editing
+  // P only changes P's outgoing edges, so who points at P is unaffected by the
+  // proposal, but it decides how much depth budget is left underneath.
+  //
+  // Without this the walk always started at 1, measuring the subtree in
+  // isolation. Build A→B, then edit B to hold C, then C to hold D: each edit
+  // looks two levels deep and passes, while the real chain A→B→C→D is four.
+  // Nothing rejected it and nothing reported it — resolvePlaylistTree caps at
+  // the same MAX_NESTING_DEPTH, so D was simply dropped from the plan and the
+  // media an operator added never played.
+  const parents = new Map<string, string[]>();
+  for (const [parent, kids] of children) {
+    for (const kid of kids) {
+      const list = parents.get(kid) ?? [];
+      list.push(parent);
+      parents.set(kid, list);
+    }
+  }
+
+  // Longest chain ending at `id`, counting `id` itself. Returns 1 on revisit so
+  // a cycle already in the data terminates here rather than hanging; a cycle the
+  // proposal introduces is reported by the walk below.
+  const depthMemo = new Map<string, number>();
+  const depthAbove = (id: string, visiting: Set<string>): number => {
+    const cached = depthMemo.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return 1;
+    visiting.add(id);
+    let best = 1;
+    for (const p of parents.get(id) ?? []) best = Math.max(best, depthAbove(p, visiting) + 1);
+    visiting.delete(id);
+    depthMemo.set(id, best);
+    return best;
+  };
+  const startDepth = depthAbove(playlistId, new Set());
+
+  // Depth from the edited playlist's true position. The graph reachable from
+  // here is known acyclic by the pass above, so this terminates without a
+  // path set.
+  let tooDeep = false;
+  const walk = (id: string, depth: number) => {
+    if (tooDeep) return;
+    if (depth > MAX_NESTING_DEPTH) { tooDeep = true; return; }
+    for (const child of children.get(id) ?? []) walk(child, depth + 1);
+  };
+  walk(playlistId, startDepth);
+
   if (tooDeep) return `nesting exceeds the maximum depth of ${MAX_NESTING_DEPTH} levels`;
   return null;
 }
