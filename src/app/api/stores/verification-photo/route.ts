@@ -35,7 +35,8 @@ export const maxDuration = 30;
 // in the admin panel next to the registered map pin, so the team can verify the
 // photo was really taken at the shop before advancing the onboarding stage —
 // /api/admin/stores/[id] refuses to advance past 'new' without a shop photo and
-// past 'contacted' without an install photo.
+// past 'contacted' without an install photo. An EXIF fix also fills the store's
+// map pin when it has none yet (see the UPDATE below).
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -100,19 +101,31 @@ export async function POST(req: NextRequest) {
     // learned it (no tag sent, or the hardware columns aren't migrated yet), in
     // which case the response omits the field and clients keep their own value.
     let effectiveTvTag: string | null | undefined;
+    // Map pin. A store's pin comes from, in order: the partner at registration
+    // → an on-site GPS fix that fills an EMPTY pin → ops setting or moving it in
+    // Admin → Stores. Here only a fix read from the photo's own EXIF qualifies:
+    // a device-fallback fix is wherever the phone was at upload time (possibly
+    // the partner's home), so it is stored on the photo but never auto-pinned —
+    // ops promotes it with one click in the Stores panel. Pairwise and inside
+    // the one statement, so a stored lat can never pair with a photo lng.
+    const fillPin = source === 'exif';
     try {
       if (kind === 'shop') {
         await db.$executeRaw`
           UPDATE "Store" SET
             "shopPhotoUrl" = ${url}, "shopPhotoLat" = ${lat}, "shopPhotoLng" = ${lng},
-            "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now}
+            "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now},
+            "lat" = CASE WHEN ${fillPin} AND ("lat" IS NULL OR "lng" IS NULL) THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN ${fillPin} AND ("lat" IS NULL OR "lng" IS NULL) THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
       } else {
         await db.$executeRaw`
           UPDATE "Store" SET
             "installPhotoUrl" = ${url}, "installPhotoLat" = ${lat}, "installPhotoLng" = ${lng},
-            "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now}
+            "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now},
+            "lat" = CASE WHEN ${fillPin} AND ("lat" IS NULL OR "lng" IS NULL) THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN ${fillPin} AND ("lat" IS NULL OR "lng" IS NULL) THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
         // TV number is written separately and only when supplied, so an app that

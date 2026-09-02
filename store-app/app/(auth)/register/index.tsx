@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
@@ -37,7 +37,16 @@ export default function RegisterStep1() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission denied', 'Location permission is needed to pin your shop.');
+        // The pin is required — a denied permission is unblocked from Settings or by
+        // registering on the web, where the pin can be dragged instead.
+        Alert.alert(
+          'Location needed',
+          'Allow location access to pin your shop, or register on the web at wearealive.in/store where you can drag the pin.',
+          [
+            { text: 'Open settings', onPress: () => Linking.openSettings() },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
         return;
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -52,7 +61,7 @@ export default function RegisterStep1() {
         if (geo.postalCode) set('pincode', geo.postalCode.replace(/\D/g, '').slice(0, 6));
       }
     } catch {
-      Alert.alert('Error', 'Could not get your location. Enter address manually.');
+      Alert.alert('Error', 'Could not get your location. Turn on location services and try again.');
     } finally {
       setGpsLoading(false);
     }
@@ -139,7 +148,7 @@ export default function RegisterStep1() {
 
           {/* Location */}
           <Text style={s.label}>Shop location</Text>
-          <TouchableOpacity style={s.gpsBtn} onPress={grabLocation} disabled={gpsLoading}>
+          <TouchableOpacity style={[s.gpsBtn, fe('lat') && s.inputErr]} onPress={grabLocation} disabled={gpsLoading}>
             {gpsLoading
               ? <ActivityIndicator size="small" color={C.primary} />
               : <Ionicons name={form.lat ? 'checkmark-circle' : 'locate'} size={16} color={C.primary} />
@@ -148,6 +157,12 @@ export default function RegisterStep1() {
               {form.lat ? `Pinned · ${parseFloat(form.lat).toFixed(4)}, ${parseFloat(form.lng).toFixed(4)}` : 'Use my current location'}
             </Text>
           </TouchableOpacity>
+          {fe('lat') && (
+            <View style={s.errorRow}>
+              <Ionicons name="alert-circle" size={12} color={C.error} />
+              <Text style={s.errorText}>{fe('lat')}</Text>
+            </View>
+          )}
           {form.lat && form.lng ? (
             <View style={s.mapPreview}>
               <View

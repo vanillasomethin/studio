@@ -416,7 +416,7 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
       <div className="space-y-1">
         <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Pin your shop on the map</label>
         <p className="text-[10px] text-gray-400">Tap “Use my current location” or drag the pin. City and pincode will be autofilled.</p>
-        <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} />
+        <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} error={fe('lat')} />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
