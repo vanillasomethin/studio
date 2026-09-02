@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 type StoreStatus = 'live' | 'in_progress';
 
@@ -14,12 +14,51 @@ type StorePin = {
 };
 
 // Live screens are the network; in-progress ones are stores that have signed up
-// and are being installed. Colour carries that difference — a solid red dot is
-// playing today, a hollow amber ring is on its way.
+// and are being installed. Every pin is a shop — a red storefront badge — and
+// fill carries the difference: solid red is playing today, outlined red is on
+// its way.
 const PIN = {
-  live:        { fill: '#dc2626', ring: '#ffffff', label: 'Live' },
-  in_progress: { fill: '#ffffff', ring: '#f59e0b', label: 'Coming soon' },
+  live:        { label: 'Live' },
+  in_progress: { label: 'Coming soon' },
 } as const;
+
+const RED = '#dc2626';
+
+// Lucide "store" glyph (ISC), drawn inside a rounded badge with a pointer tail
+// so the tail tip sits on the shop's coordinates. 30×36; the badge is 28×28.
+const STORE_GLYPH =
+  '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>' +
+  '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>' +
+  '<path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>' +
+  '<path d="M2 7h20"/>' +
+  '<path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>';
+
+/** The marker markup: a red shop badge, solid for a live screen and outlined
+ *  for one on its way. Status is in the fill, not only the colour, so the two
+ *  still read apart for anyone who can't tell red from grey. */
+export function shopPinHtml(status: StoreStatus, active: boolean): string {
+  const solid = status === 'live';
+  const badgeFill   = solid ? RED : '#ffffff';
+  const badgeStroke = solid ? '#ffffff' : RED;
+  const glyphStroke = solid ? '#ffffff' : RED;
+  return (
+    `<div class="alive-shop-pin${active ? ' is-active' : ''}">` +
+      '<svg width="30" height="36" viewBox="0 0 30 36" aria-hidden="true">' +
+        `<path d="M8 1h14a7 7 0 0 1 7 7v14a7 7 0 0 1-7 7h-3.6L15 35l-3.4-6H8a7 7 0 0 1-7-7V8a7 7 0 0 1 7-7z" fill="${badgeFill}" stroke="${badgeStroke}" stroke-width="2" stroke-linejoin="round"/>` +
+        `<g transform="translate(5.65 5.65) scale(0.78)" fill="none" stroke="${glyphStroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${STORE_GLYPH}</g>` +
+      '</svg>' +
+    '</div>'
+  );
+}
+
+/** Legend / list swatch that matches the pin: a small red square, solid or outlined. */
+function swatchStyle(status: StoreStatus, size: number): React.CSSProperties {
+  const solid = status === 'live';
+  return {
+    width: size, height: size, borderRadius: Math.round(size * 0.3), flexShrink: 0,
+    background: solid ? RED : '#ffffff', border: `1.5px solid ${RED}`,
+  };
+}
 
 // Store names/localities are partner-entered (registration is public) — escape
 // before they touch popup markup.
@@ -39,7 +78,6 @@ export default function StoreLocationsMap() {
   const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
-  const boundariesLoaded = useRef(false);
 
   // Fetch store locations
   useEffect(() => {
@@ -91,9 +129,6 @@ export default function StoreLocationsMap() {
 
       mapInstanceRef.current = map;
       setMapReady(true);
-
-      // Load GeoJSON ward boundaries
-      loadWards(L, map);
     }
 
     init();
@@ -104,49 +139,12 @@ export default function StoreLocationsMap() {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-      // Markers/wards belonged to the destroyed map — reset so a remount
-      // (Strict Mode's second pass, HMR) recreates them on the new instance.
+      // Markers belonged to the destroyed map — reset so a remount (Strict
+      // Mode's second pass, HMR) recreates them on the new instance.
       markersRef.current.clear();
-      boundariesLoaded.current = false;
       setMapReady(false);
     };
   }, []);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function loadWards(L: any, map: any) {
-    if (boundariesLoaded.current) return;
-    boundariesLoaded.current = true;
-    try {
-      const res = await fetch('/mangaluru-wards.geojson');
-      const geojson = await res.json();
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).geoJSON(geojson, {
-        style: {
-          color: '#dc2626',
-          weight: 1.5,
-          opacity: 0.5,
-          fillColor: '#dc2626',
-          fillOpacity: 0.04,
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onEachFeature: (feature: any, layer: any) => {
-          const name = feature.properties?.ward_name ?? '';
-          const no   = feature.properties?.ward_no ?? '';
-          if (name) {
-            layer.bindTooltip(
-              `<span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;color:#dc2626;">${name} · Ward ${no}</span>`,
-              { permanent: false, direction: 'center', opacity: 1 }
-            );
-            layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.14, opacity: 0.75 }));
-            layer.on('mouseout',  () => layer.setStyle({ fillOpacity: 0.04, opacity: 0.5  }));
-          }
-        },
-      }).addTo(map);
-    } catch {
-      // decorative — fail silently
-    }
-  }
 
   // Add store markers when data loads
   useEffect(() => {
@@ -157,20 +155,16 @@ export default function StoreLocationsMap() {
       const map = mapInstanceRef.current;
       if (!map) return; // unmounted while the import was in flight
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const makeIcon = (status: StoreStatus, active: boolean) => {
-        const size = active ? 18 : 14;
-        const p = PIN[status];
-        // Live: red disc, white ring. In progress: white disc, amber ring —
-        // reads as "outlined, not filled in yet" at a glance.
-        return (L as any).divIcon({
-          className: '',
-          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${p.fill};border:${active ? 3 : 2.5}px solid ${p.ring};box-shadow:0 2px ${active ? 10 : 6}px rgba(0,0,0,.25);cursor:pointer;"></div>`,
-          iconSize:   [size, size],
-          iconAnchor: [size / 2, size / 2],
-          popupAnchor: [0, -12],
+      // A shop badge with a pointer tail; the tail tip is the anchor, so the
+      // badge floats just above the shop's coordinates.
+      const makeIcon = (status: StoreStatus, active: boolean) =>
+        (L as any).divIcon({
+          className:   '',
+          html:        shopPinHtml(status, active),
+          iconSize:    [30, 36],
+          iconAnchor:  [15, 35],
+          popupAnchor: [0, -30],
         });
-      };
 
       const iconFor = (s: StorePin, active: boolean) => makeIcon(s.status, active);
 
@@ -179,8 +173,8 @@ export default function StoreLocationsMap() {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tag = store.status === 'live'
-          ? `<span style="color:#dc2626;">● Live</span>`
-          : `<span style="color:#b45309;">○ Coming soon</span>`;
+          ? `<span style="color:#dc2626;">■ Live</span>`
+          : `<span style="color:#b91c1c;">□ Coming soon</span>`;
 
         const marker = (L as any).marker([store.lat, store.lng], {
           icon: iconFor(store, false),
@@ -200,7 +194,11 @@ export default function StoreLocationsMap() {
           setSelected(store.id);
           markersRef.current.forEach((m, id) => {
             const s = stores.find((x) => x.id === id);
-            if (s) m.setIcon(iconFor(s, id === store.id));
+            if (!s) return;
+            const isActive = id === store.id;
+            m.setIcon(iconFor(s, isActive));
+            // The chosen shop sits on top of its neighbours while it is enlarged.
+            m.setZIndexOffset(isActive ? 1000 : 0);
           });
         });
 
@@ -247,14 +245,14 @@ export default function StoreLocationsMap() {
               {liveCount} live screen{liveCount !== 1 ? 's' : ''}
             </p>
             {progressCount > 0 && (
-              <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b45309', fontWeight: 600, marginTop: 3 }}>
+              <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b91c1c', fontWeight: 600, marginTop: 3 }}>
                 {progressCount} coming soon
               </p>
             )}
             <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
               {(['live', 'in_progress'] as StoreStatus[]).map((k) => (
                 <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: '"DM Mono",monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: PIN[k].fill, border: `2px solid ${PIN[k].ring}`, boxShadow: '0 0 0 1px rgba(0,0,0,.12)' }} />
+                  <span style={swatchStyle(k, 10)} />
                   {PIN[k].label}
                 </span>
               ))}
@@ -273,12 +271,12 @@ export default function StoreLocationsMap() {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ marginTop: 4, width: 7, height: 7, borderRadius: '50%', background: PIN[store.status].fill, border: `1.5px solid ${PIN[store.status].ring}`, boxShadow: '0 0 0 1px rgba(0,0,0,.12)', flexShrink: 0 }} />
+                  <div style={{ marginTop: 4, ...swatchStyle(store.status, 8) }} />
                   <div>
                     <p style={{ fontFamily: '"Manrope",sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
                     <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
                       {[store.locality, store.city].filter(Boolean).join(' · ')}
-                      {store.status === 'in_progress' && <span style={{ color: '#b45309' }}> · coming soon</span>}
+                      {store.status === 'in_progress' && <span style={{ color: '#b91c1c' }}> · coming soon</span>}
                     </p>
                   </div>
                 </div>
@@ -289,6 +287,12 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
+        .alive-shop-pin{width:30px;height:36px;display:block;transform-origin:50% 100%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
+        .alive-shop-pin svg{display:block;filter:drop-shadow(0 3px 5px rgba(0,0,0,.28));transition:filter .18s ease;}
+        .alive-shop-pin:hover{transform:translateY(-2px) scale(1.08);}
+        .alive-shop-pin.is-active{transform:scale(1.18);}
+        .alive-shop-pin.is-active svg{filter:drop-shadow(0 5px 9px rgba(220,38,38,.45));}
+        @keyframes alive-pin-in{from{opacity:0;transform:translateY(-10px) scale(.5);}to{opacity:1;transform:none;}}
         .alive-popup .leaflet-popup-content-wrapper{border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);padding:0;}
         .alive-popup .leaflet-popup-content{margin:10px 14px;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
