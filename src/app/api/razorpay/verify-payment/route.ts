@@ -115,17 +115,18 @@ export async function POST(req: NextRequest) {
         }).catch(() => {});
       };
 
-      const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
-
-      if (existing) {
+      // Bring an existing campaign to `active`. Shared by the pay-later branch
+      // and by the loser of a create race, which are the same situation once the
+      // row exists: the payment is settled and the row must reflect it.
+      const activateExisting = async (row: { id: string; status: string }) => {
         // Keep the row internally consistent: the charge was recomputed at
         // current rates, so the stored per-screen rate must follow it.
         const ppw = Math.floor(Number(campaign.pricePerScreen));
         // Only the transition into `active` is a redemption. A retried or
         // replayed verify for an already-active campaign must not count again.
-        const wasAlreadyActive = existing.status === 'active';
+        const wasAlreadyActive = row.status === 'active';
         await db.campaign.update({
-          where: { id: existing.id },
+          where: { id: row.id },
           data:  {
             paymentId: razorpay_payment_id,
             status: 'active',
@@ -136,35 +137,56 @@ export async function POST(req: NextRequest) {
             ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
           },
         });
-        // The pay-later flow reaches payment through this branch, so it counted
-        // no redemptions at all until now.
+        // The pay-later flow reaches payment through here, so it counted no
+        // redemptions at all until now.
         if (paidCoupon && !wasAlreadyActive) await countRedemption(paidCoupon);
-      } else {
-        await db.campaign.create({
-          data: {
-            brandId:        brand?.id ?? null,
-            name:           `${campaign.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
-            contactName:    campaign.contactName,
-            email:          campaign.email,
-            phone:          campaign.phone ?? undefined,
-            screens:        paidScreens,
-            months:         paidMonths,
-            startDate:      new Date(campaign.startDate),
-            pricePerScreen: campaign.pricePerScreen,
-            totalAmount:    chargedRupees,
-            couponCode:     paidCoupon,
-            preferredStoreIds: Array.isArray(campaign.preferredStoreIds)
-              ? campaign.preferredStoreIds
-                  .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
-                  .slice(0, 50)
-              : [],
-            paymentId:      razorpay_payment_id,
-            orderId:        razorpay_order_id,
-            status:         'active',
-          },
-        });
+      };
 
-        if (paidCoupon) await countRedemption(paidCoupon);
+      // findUnique, not findFirst: orderId is unique now, so this is an index
+      // lookup for the row that either exists or does not.
+      const existing = await db.campaign.findUnique({ where: { orderId: razorpay_order_id } });
+
+      if (existing) {
+        await activateExisting(existing);
+      } else {
+        try {
+          await db.campaign.create({
+            data: {
+              brandId:        brand?.id ?? null,
+              name:           `${campaign.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
+              contactName:    campaign.contactName,
+              email:          campaign.email,
+              phone:          campaign.phone ?? undefined,
+              screens:        paidScreens,
+              months:         paidMonths,
+              startDate:      new Date(campaign.startDate),
+              pricePerScreen: campaign.pricePerScreen,
+              totalAmount:    chargedRupees,
+              couponCode:     paidCoupon,
+              preferredStoreIds: Array.isArray(campaign.preferredStoreIds)
+                ? campaign.preferredStoreIds
+                    .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
+                    .slice(0, 50)
+                : [],
+              paymentId:      razorpay_payment_id,
+              orderId:        razorpay_order_id,
+              status:         'active',
+            },
+          });
+
+          if (paidCoupon) await countRedemption(paidCoupon);
+        } catch (e) {
+          // P2002 = the unique index on orderId rejected this insert, so a
+          // concurrent confirmation of the same payment created the campaign
+          // between our findUnique and this create. That is the race the index
+          // exists to stop; the correct response is to adopt the winner's row,
+          // not to fail a payment the buyer has already been charged for.
+          //
+          // Deliberately no countRedemption here: the winner already counted it.
+          if ((e as { code?: string }).code !== 'P2002') throw e;
+          const raced = await db.campaign.findUnique({ where: { orderId: razorpay_order_id } });
+          if (raced) await activateExisting(raced);
+        }
       }
     }
 

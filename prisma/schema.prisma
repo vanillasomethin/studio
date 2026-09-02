@@ -393,7 +393,12 @@ model Campaign {
   totalAmount    Int
   couponCode     String?  // coupon applied at checkout, if any
   paymentId      String?
-  orderId        String?
+  // Unique so the DATABASE decides that one Razorpay order yields at most one
+  // campaign. verify-payment used a check-then-create, which two concurrent
+  // confirmations of the same payment could both pass. Nullable and Postgres
+  // allows many NULLs in a unique index, so campaigns with no order — trials,
+  // admin-created, pay-later before checkout — are unaffected.
+  orderId        String?  @unique
   status         String   @default("upcoming") // upcoming | active | completed | cancelled
   creativeUrls   String[] @default([]) // R2 URLs of uploaded ad creatives
   // The campaign's 10s slot creative (slot-loop inventory). creativeUrls are raw R2
