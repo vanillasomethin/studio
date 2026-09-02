@@ -24,10 +24,19 @@ type AdminCampaign = {
   id: string; brandName: string; status: string; slotContentId: string | null;
   slotPlaylist: { id: string; name: string; mediaItems: number } | null;
   preferredStores?: { id: string; storeName: string; locality: string | null }[];
+  // Length class: 1 = 10s ad (one slot per play), 3 = 30s ad (3 consecutive slots
+  // per play). null = mixed/unknown creative durations — booking is blocked.
+  slotSpan?: number | null;
+  slotSpanError?: string | null;
 };
 
 // Playable = a single 10s creative OR a slot playlist with at least one media item.
 const hasSlotCreative = (c: AdminCampaign) => !!c.slotContentId || (c.slotPlaylist?.mediaItems ?? 0) > 0;
+
+// Positions one play occupies (defensive default 1 for old payloads).
+const spanOf = (c: AdminCampaign | undefined) => c?.slotSpan ?? 1;
+const spanLabel = (c: AdminCampaign) =>
+  c.slotSpan == null ? 'mixed lengths' : `${c.slotSpan * 10}s${c.slotSpan > 1 ? ` · ${c.slotSpan} slots/play` : ''}`;
 
 const DAY_MS = 86_400_000;
 const WINDOW_DAYS = 14;
@@ -371,6 +380,14 @@ function SlotEditor({ store, date, campaigns, slotStores, onClose, onChanged }: 
                           ? <span className="flex items-center gap-1"><ListVideo className="h-3.5 w-3.5" />Sold · rotates {selBooking.creativeCount} playlist creatives daily</span>
                           : 'Sold · guaranteed play'}
                     </p>
+                    {selBooking.spanSlots > 1 && (() => {
+                      const head = Math.min(...bookings.filter((b) => b.spanId === selBooking.spanId).map((b) => b.slotPosition));
+                      return (
+                        <p className="text-[11px] font-semibold text-primary">
+                          {selBooking.spanSlots * 10}s ad — one play across slots #{head + 1}–#{head + selBooking.spanSlots}. Unassigning any of them removes the whole booking.
+                        </p>
+                      );
+                    })()}
                   </div>
                 ) : selPlaying ? (
                   <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -836,13 +853,17 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
 
   // Client-side estimate for the review matrix. The server additionally counts this
   // campaign's existing bookings toward the target, so the real result can only be
-  // equal or better; the response is the ground truth shown afterwards.
+  // equal or better; the response is the ground truth shown afterwards. For a
+  // multi-slot ad this divides free positions by the span — it can't see
+  // fragmentation (3 free scattered slots ≠ one 30s run), so it's an upper bound.
+  const bookSpan = spanOf(campaigns.find((c) => c.id === campaignId));
   const estimate = (() => {
     let will = 0, miss = 0;
     for (const s of chosen) for (const d of dates) {
       const sold = s.sold?.[d];
       if (sold == null) continue;
-      const take = Math.min(perDay, Math.max(0, s.loopSlotCount! - sold));
+      const playsFree = Math.floor(Math.max(0, s.loopSlotCount! - sold) / bookSpan);
+      const take = Math.min(perDay, playsFree);
       will += take; miss += perDay - take;
     }
     return { will, miss };
@@ -893,8 +914,11 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                 </div>
               ))}
             </div>
+            {(result.slotSpan ?? 1) > 1 && (
+              <p className="text-[11px] text-muted-foreground">Counts are plays — each play of this {result.slotSpan! * 10}s ad occupies {result.slotSpan} consecutive slots ({result.rowsBooked ?? 0} slots booked in total).</p>
+            )}
             {result.raced > 0 && (
-              <p className="text-[11px] text-amber-600">{result.raced} position(s) were taken by someone else mid-request — re-run to top up from what&apos;s left.</p>
+              <p className="text-[11px] text-amber-600">{result.raced} play(s) were taken by someone else mid-request — re-run to top up from what&apos;s left.</p>
             )}
             {result.skippedStores.length > 0 && (
               <p className="text-[11px] text-amber-600">
@@ -963,12 +987,14 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                             <span className="block truncate text-[11px] font-semibold text-foreground">{c.brandName}</span>
                             <span className="block text-[9px] text-muted-foreground capitalize">{c.status}{c.preferredStores?.length ? ` · ${c.preferredStores.length} brand-picked store${c.preferredStores.length === 1 ? '' : 's'}` : ''}</span>
                           </span>
-                          {c.slotPlaylist && c.slotPlaylist.mediaItems > 0 ? (
+                          {c.slotSpan == null && hasSlotCreative(c) ? (
+                            <span className="shrink-0 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-700" title={c.slotSpanError ?? undefined}>mixed lengths</span>
+                          ) : c.slotPlaylist && c.slotPlaylist.mediaItems > 0 ? (
                             <span className="flex shrink-0 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
-                              <ListVideo className="h-3 w-3" />{c.slotPlaylist.mediaItems} rotating
+                              <ListVideo className="h-3 w-3" />{c.slotPlaylist.mediaItems} rotating · {spanLabel(c)}
                             </span>
                           ) : c.slotContentId ? (
-                            <span className="shrink-0 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[9px] font-bold text-green-800">10s creative</span>
+                            <span className="shrink-0 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[9px] font-bold text-green-800">{spanLabel(c)} creative</span>
                           ) : (
                             <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">no creative</span>
                           )}
@@ -1109,13 +1135,16 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
             <>
               <div className="flex items-center gap-3 flex-wrap">
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Slots per day per store</label>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Plays per day per store</label>
                   <input type="number" min={1} max={60} value={perDay} onChange={(e) => setPerDay(Math.min(60, Math.max(1, Number(e.target.value) || 1)))}
                     className="w-24 rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
+                  {bookSpan > 1 && (
+                    <p className="mt-1 text-[10px] text-amber-700">{bookSpan * 10}s ad — each play takes {bookSpan} consecutive slots</p>
+                  )}
                 </div>
                 <div className="flex-1 text-[11px] text-muted-foreground pt-4">
                   <span className="font-semibold text-foreground">{campaign?.brandName}</span> · {chosen.length} store{chosen.length === 1 ? '' : 's'} · {dates.length} day{dates.length === 1 ? '' : 's'} ·
-                  est. <span className="font-semibold text-green-700"> {estimate.will} booked</span>
+                  est. <span className="font-semibold text-green-700"> {bookSpan > 1 ? '≤' : ''}{estimate.will} booked</span>
                   {estimate.miss > 0 && <span className="font-semibold text-amber-600"> · {estimate.miss} won&apos;t fit</span>}
                 </div>
               </div>
@@ -1143,7 +1172,7 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                         {dates.map((d) => {
                           const sold = s.sold?.[d];
                           if (sold == null) return <td key={d} className="px-1 py-1 text-center text-[9px] text-muted-foreground/40">—</td>;
-                          const take = Math.min(perDay, Math.max(0, s.loopSlotCount! - sold));
+                          const take = Math.min(perDay, Math.floor(Math.max(0, s.loopSlotCount! - sold) / bookSpan));
                           const cls = take === perDay ? 'bg-green-50 text-green-800 border-green-200'
                                     : take > 0        ? 'bg-amber-50 text-amber-800 border-amber-200'
                                     :                   'bg-primary/10 text-primary border-primary/30';

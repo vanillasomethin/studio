@@ -493,10 +493,17 @@ export type SlotBookingRow = {
   id: string; slotPosition: number;
   campaignId: string; campaignName: string; hasCreative: boolean;
   creativeCount: number;   // >1 = slot playlist rotating this many creatives
+  // Multi-slot placement (an ad longer than 10s): every row of one placement
+  // shares spanId; spanSlots is the window size and isSpanHead marks its lowest
+  // position. Plain 10s bookings: spanId null, spanSlots 1, isSpanHead true.
+  spanId: string | null;
+  spanSlots: number;
+  isSpanHead: boolean;
 };
 
 export type SlotLoopEntry = {
   slotPosition: number; campaignId: string; contentId: string; isFiller: boolean;
+  spanSlots: number;    // >1 = one play covering this many consecutive positions
 };
 
 export const getSlotAvailability = (from: string, to: string) =>
@@ -533,13 +540,17 @@ export const updateSlotSettings = (body: {
 // report the gaps; existing bookings by the same campaign count toward the target,
 // so re-running is idempotent and nothing is ever overwritten.
 
+// All counters are PLAYS: one play of a 30s ad = one unit but 3 slot rows.
+// For 10s ads (span 1, the common case) plays and slots are the same number.
 export type BulkAssignResult = {
-  booked: number;            // rows actually created
-  planned: number;           // rows the planner wanted to create
-  requested: number;         // slots the admin asked for across all open store-days
+  booked: number;            // plays actually created
+  planned: number;           // plays the planner wanted to create
+  requested: number;         // plays the admin asked for across all open store-days
   alreadySatisfied: number;  // covered by pre-existing bookings of the same campaign
-  raced: number;             // planned rows lost to a concurrent booking (rare)
+  raced: number;             // planned plays lost to a concurrent booking (rare)
   missed: number;            // requested minus satisfied — the gap total
+  slotSpan?: number;         // assign mode: consecutive slots one play occupies
+  rowsBooked?: number;       // underlying slot rows created (booked × span, minus races)
   gaps: { storeId: string; storeName: string; date: string; missed: number; reason: 'full' | 'partial' }[];
   gapsTruncated: boolean;    // true = gaps capped at 500 rows; `missed` stays exact
   skippedStores: { storeId: string; storeName: string; reason: 'not-found' | 'not-slot-mode' }[];

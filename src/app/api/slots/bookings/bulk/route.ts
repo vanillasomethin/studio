@@ -2,18 +2,24 @@
 // POST /api/slots/bookings/bulk, two shapes:
 //   { campaignId, storeIds[], from, to, daysOfWeek?, slotsPerDay }
 //     — book a campaign into the lowest free positions across stores × dates.
+//       slotsPerDay counts PLAYS per day: a multi-slot ad (30s = 3 slots) books
+//       that many consecutive positions per play, so 2 plays of a 30s ad take 6.
 //   { mode: 'copy-day', sourceStoreId, sourceDate, storeIds?, from, to, daysOfWeek? }
 //     — replicate one store-day's position→campaign map onto other days/stores.
+//       Multi-slot placements copy as whole windows or not at all.
 //
 // Policy (deliberate): book what fits and report the gaps — partial availability
 // must never block selling the rest of the network. Existing bookings by the same
 // campaign count toward the target, so re-running a request is idempotent, and
 // nothing is ever overwritten (unlike the single-assign upsert).
-// Auth: admin-password header. Pushes plan_updated once, batched across stores.
+// All counters (requested/booked/missed/…) are in PLAYS; `rowsBooked` reports the
+// underlying slot rows for span > 1.
+// Auth: admin session. Pushes plan_updated once, batched across stores.
 
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { istWeekday, isOpenOn } from '@/lib/slots';
+import { istWeekday, isOpenOn, uniformSlotSpan, SlotCreativeMeta } from '@/lib/slots';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
@@ -30,7 +36,7 @@ type Body = {
   from?: string;
   to?: string;
   daysOfWeek?: number;      // Mon..Sun bitmask, default 127 (every day)
-  slotsPerDay?: number;
+  slotsPerDay?: number;     // plays per day
   sourceStoreId?: string;
   sourceDate?: string;
 };
@@ -48,6 +54,15 @@ function expandDates(from: string, to: string, daysOfWeek: number): string[] {
   }
   return out;
 }
+
+// A planned play: the row set that must land together (1 row for a 10s ad).
+type PlannedPlay = {
+  storeId: string;
+  date: Date;
+  positions: number[];
+  campaignId: string;
+  spanId: string | null;   // null for single-slot plays (legacy row shape)
+};
 
 export async function POST(req: NextRequest) {
   const actor = await requireAdmin(req);
@@ -72,16 +87,14 @@ export async function POST(req: NextRequest) {
     const dates = expandDates(body.from, body.to, daysOfWeek);
     if (dates.length === 0) return NextResponse.json({ error: 'No dates match the selected weekdays' }, { status: 400 });
 
-    // ── Mode-specific validation + the position→campaign source ──────────────
-    // 'assign' books slotsPerDay lowest-free positions per open day; 'copy-day'
-    // books the exact positions of the source day. Both funnel into one planner.
-    let campaignFor: (position: number) => string;          // campaign for a wanted position
-    let wantedPositions: number[] | null = null;            // copy-day: exact source positions
-    let requestedPerCell = 0;
+    // ── Mode-specific validation ─────────────────────────────────────────────
     let targetStoreIds: string[];
     let auditTarget: string;
-    let slotsPerDay = 0;
-    let sourceRows: { slotPosition: number; campaignId: string }[] = [];
+    let slotsPerDay = 0;      // assign mode: plays per day
+    let assignSpan = 1;       // assign mode: positions per play
+    let assignCampaignId = '';
+    // copy-day: the source day's placements as units (positions sorted ascending).
+    let sourceUnits: { positions: number[]; campaignId: string; span: number }[] = [];
 
     if (mode === 'assign') {
       if (!body.campaignId || !Array.isArray(body.storeIds) || body.storeIds.length === 0) {
@@ -92,17 +105,34 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'slotsPerDay must be 1–60' }, { status: 400 });
       }
       const campaign = await db.campaign.findUnique({
-        where: { id: body.campaignId }, select: { id: true, status: true },
+        where: { id: body.campaignId },
+        select: {
+          id: true, status: true,
+          slotContent: { select: { id: true, durationMs: true, type: true } },
+          slotPlaylist: { select: { items: {
+            where: { contentId: { not: null } }, orderBy: { order: 'asc' },
+            select: { content: { select: { id: true, durationMs: true, type: true } } },
+          } } },
+        },
       });
       if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
       if (campaign.status === 'cancelled') {
         return NextResponse.json({ error: 'Campaign is cancelled — pick another' }, { status: 400 });
       }
-      const cid = campaign.id;
-      campaignFor = () => cid;
-      requestedPerCell = slotsPerDay;
+      const creatives: SlotCreativeMeta[] = (campaign.slotPlaylist?.items ?? [])
+        .map((i) => i.content)
+        .filter((x): x is NonNullable<typeof x> => x != null)
+        .map((x) => ({ contentId: x.id, durationMs: x.durationMs, type: x.type }));
+      const metas = creatives.length > 0 ? creatives
+        : campaign.slotContent
+          ? [{ contentId: campaign.slotContent.id, durationMs: campaign.slotContent.durationMs, type: campaign.slotContent.type }]
+          : [];
+      const spanned = uniformSlotSpan(metas);
+      if ('error' in spanned) return NextResponse.json({ error: spanned.error }, { status: 400 });
+      assignSpan = spanned.span;
+      assignCampaignId = campaign.id;
       targetStoreIds = [...new Set(body.storeIds)];
-      auditTarget = cid;
+      auditTarget = campaign.id;
     } else {
       if (!body.sourceStoreId || !isDate(body.sourceDate)) {
         return NextResponse.json({ error: 'sourceStoreId and sourceDate (YYYY-MM-DD) required' }, { status: 400 });
@@ -114,7 +144,7 @@ export async function POST(req: NextRequest) {
       if (source.loopSlotCount == null) {
         return NextResponse.json({ error: 'Source store is not in slot mode' }, { status: 400 });
       }
-      sourceRows = await db.slotBooking.findMany({
+      const sourceRows = await db.slotBooking.findMany({
         where:   {
           storeId: source.id, date: new Date(`${body.sourceDate}T00:00:00Z`),
           slotPosition: { lt: source.loopSlotCount },
@@ -122,18 +152,32 @@ export async function POST(req: NextRequest) {
           // copy-day would resurrect a dead brand across a whole month.
           campaign: { status: { not: 'cancelled' } },
         },
-        select:  { slotPosition: true, campaignId: true },
+        select:  { slotPosition: true, campaignId: true, spanId: true },
         orderBy: { slotPosition: 'asc' },
       });
       if (sourceRows.length === 0) {
         return NextResponse.json({ error: `Nothing to copy — ${body.sourceDate} has no bookings on that store` }, { status: 400 });
       }
-      const byPos = new Map(sourceRows.map((r) => [r.slotPosition, r.campaignId]));
-      campaignFor = (position) => byPos.get(position)!;
-      requestedPerCell = sourceRows.length;
+      const bySpan = new Map<string, typeof sourceRows>();
+      for (const r of sourceRows) {
+        if (!r.spanId) {
+          sourceUnits.push({ positions: [r.slotPosition], campaignId: r.campaignId, span: 1 });
+          continue;
+        }
+        const list = bySpan.get(r.spanId) ?? [];
+        list.push(r);
+        bySpan.set(r.spanId, list);
+      }
+      for (const rows of bySpan.values()) {
+        sourceUnits.push({
+          positions: rows.map((r) => r.slotPosition).sort((a, b) => a - b),
+          campaignId: rows[0].campaignId,
+          span: rows.length,
+        });
+      }
+      sourceUnits.sort((a, b) => a.positions[0] - b.positions[0]);
       targetStoreIds = [...new Set(body.storeIds?.length ? body.storeIds : [source.id])];
       auditTarget = `${source.id}:${body.sourceDate}`;
-      wantedPositions = sourceRows.map((r) => r.slotPosition);
     }
 
     if (targetStoreIds.length > MAX_STORES) {
@@ -165,17 +209,18 @@ export async function POST(req: NextRequest) {
         // over 60 days must not drag every booking of the whole range from Neon.
         date:    { in: dates.map((d) => new Date(`${d}T00:00:00Z`)) },
       },
-      select: { storeId: true, date: true, slotPosition: true, campaignId: true },
+      select: { storeId: true, date: true, slotPosition: true, campaignId: true, spanId: true },
     });
-    const takenByCell = new Map<string, Map<number, string>>(); // storeId|date → position → campaignId
+    type TakenRow = { campaignId: string; spanId: string | null };
+    const takenByCell = new Map<string, Map<number, TakenRow>>(); // storeId|date → position → holder
     for (const b of existing) {
       const key = `${b.storeId}|${b.date.toISOString().slice(0, 10)}`;
-      const cell = takenByCell.get(key) ?? new Map<number, string>();
-      cell.set(b.slotPosition, b.campaignId);
+      const cell = takenByCell.get(key) ?? new Map<number, TakenRow>();
+      cell.set(b.slotPosition, { campaignId: b.campaignId, spanId: b.spanId });
       takenByCell.set(key, cell);
     }
 
-    const rows: { storeId: string; date: Date; slotPosition: number; campaignId: string }[] = [];
+    const plays: PlannedPlay[] = [];
     const gaps: Gap[] = [];
     let requested = 0, alreadySatisfied = 0, closedSkipped = 0;
 
@@ -184,38 +229,62 @@ export async function POST(req: NextRequest) {
       for (const date of dates) {
         if (mode === 'copy-day' && store.id === body.sourceStoreId && date === body.sourceDate) continue;
         if (!isOpenOn(store.openDays, date)) { closedSkipped++; continue; }
-        requested += requestedPerCell;
 
-        const taken = takenByCell.get(`${store.id}|${date}`) ?? new Map<number, string>();
+        const taken = takenByCell.get(`${store.id}|${date}`) ?? new Map<number, TakenRow>();
+        const dateObj = new Date(`${date}T00:00:00Z`);
         let bookedHere = 0, missedHere = 0;
 
-        if (wantedPositions) {
-          // copy-day: exact positions. Same campaign already there = satisfied;
-          // anyone else holding the position = missed (never overwrite a sale).
-          for (const pos of wantedPositions) {
-            const campaignId = campaignFor(pos);
-            if (pos >= loopSlotCount) { missedHere++; continue; }
-            const holder = taken.get(pos);
-            if (holder === campaignId) { alreadySatisfied++; continue; }
-            if (holder !== undefined)  { missedHere++; continue; }
-            rows.push({ storeId: store.id, date: new Date(`${date}T00:00:00Z`), slotPosition: pos, campaignId });
+        if (mode === 'copy-day') {
+          requested += sourceUnits.length;
+          for (const unit of sourceUnits) {
+            if (unit.positions[unit.positions.length - 1] >= loopSlotCount) { missedHere++; continue; }
+            const holders = unit.positions.map((p) => taken.get(p));
+            if (holders.every((h) => h?.campaignId === unit.campaignId)) { alreadySatisfied++; continue; }
+            if (holders.some((h) => h !== undefined)) { missedHere++; continue; }
+            plays.push({
+              storeId: store.id, date: dateObj,
+              positions: unit.positions, campaignId: unit.campaignId,
+              spanId: unit.span > 1 ? randomUUID() : null,
+            });
+            for (const p of unit.positions) taken.set(p, { campaignId: unit.campaignId, spanId: 'planned' });
             bookedHere++;
           }
         } else {
-          // assign: existing bookings by this campaign count toward the daily target.
-          const campaignId = campaignFor(0);
-          let mine = 0;
+          requested += slotsPerDay;
+          // Existing plays by this campaign count toward the daily target: one play
+          // per span group plus one per legacy single row.
+          const mySpanIds = new Set<string>();
+          let myPlays = 0;
           for (const [pos, holder] of taken) {
-            if (holder === campaignId && pos < loopSlotCount) mine++;
+            if (holder.campaignId !== assignCampaignId || pos >= loopSlotCount) continue;
+            if (holder.spanId) {
+              if (!mySpanIds.has(holder.spanId)) { mySpanIds.add(holder.spanId); myPlays++; }
+            } else {
+              myPlays++;
+            }
           }
-          const already = Math.min(mine, slotsPerDay);
+          const already = Math.min(myPlays, slotsPerDay);
           alreadySatisfied += already;
           let want = slotsPerDay - already;
-          for (let pos = 0; pos < loopSlotCount && want > 0; pos++) {
-            if (taken.has(pos)) continue;
-            rows.push({ storeId: store.id, date: new Date(`${date}T00:00:00Z`), slotPosition: pos, campaignId });
+
+          // Lowest-first run allocation: place each play at the first run of
+          // `assignSpan` consecutive free positions.
+          for (let pos = 0; pos + assignSpan <= loopSlotCount && want > 0; pos++) {
+            let fits = true;
+            for (let i = 0; i < assignSpan; i++) {
+              if (taken.has(pos + i)) { fits = false; break; }
+            }
+            if (!fits) continue;
+            const positions = Array.from({ length: assignSpan }, (_, i) => pos + i);
+            plays.push({
+              storeId: store.id, date: dateObj,
+              positions, campaignId: assignCampaignId,
+              spanId: assignSpan > 1 ? randomUUID() : null,
+            });
+            for (const p of positions) taken.set(p, { campaignId: assignCampaignId, spanId: 'planned' });
             bookedHere++;
             want--;
+            pos += assignSpan - 1;
           }
           missedHere = want;
         }
@@ -229,6 +298,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const rows = plays.flatMap((p) => p.positions.map((pos) => ({
+      storeId: p.storeId, date: p.date, slotPosition: pos, campaignId: p.campaignId, spanId: p.spanId,
+    })));
     if (rows.length > MAX_PLANNED) {
       return NextResponse.json({
         error: `This would create ${rows.length} bookings (max ${MAX_PLANNED} per request) — narrow the date range or store list`,
@@ -237,18 +309,51 @@ export async function POST(req: NextRequest) {
 
     // skipDuplicates: the (storeId, date, slotPosition) unique constraint absorbs a
     // concurrent admin racing us for the same position — their booking survives, ours
-    // is dropped, and the count difference is reported instead of anyone's sale being
+    // is dropped, and the difference is reported instead of anyone's sale being
     // silently replaced.
     const result = rows.length > 0
       ? await db.slotBooking.createMany({ data: rows, skipDuplicates: true })
       : { count: 0 };
-    const raced = rows.length - result.count;
+
+    // Group-integrity repair: a race can drop SOME rows of a multi-slot play,
+    // leaving a 30s window with a hole. Any of our new spanIds that landed
+    // incomplete is rolled back whole and counted as raced — a partial window
+    // must never air.
+    const newSpanIds = plays.map((p) => p.spanId).filter((s): s is string => s != null);
+    let racedPlays = 0;
+    let repairedRows = 0;
+    if (rows.length - result.count > 0 && newSpanIds.length > 0) {
+      const landed = await db.slotBooking.groupBy({
+        by: ['spanId'],
+        where: { spanId: { in: newSpanIds } },
+        _count: { id: true },
+      });
+      const landedCount = new Map(landed.map((g) => [g.spanId as string, g._count.id]));
+      const incomplete: string[] = [];
+      let missingGroupRows = 0;
+      for (const p of plays) {
+        if (!p.spanId) continue;
+        const got = landedCount.get(p.spanId) ?? 0;
+        if (got > 0 && got < p.positions.length) { incomplete.push(p.spanId); repairedRows += got; }
+        if (got < p.positions.length) { missingGroupRows += p.positions.length - got; if (got === 0) racedPlays++; }
+      }
+      if (incomplete.length > 0) {
+        await db.slotBooking.deleteMany({ where: { spanId: { in: incomplete } } });
+        racedPlays += incomplete.length;
+      }
+      // Races on single-slot plays: rows lost overall minus rows lost from groups.
+      racedPlays += (rows.length - result.count) - missingGroupRows;
+    } else {
+      racedPlays = rows.length - result.count; // all plays are single rows
+    }
+    const bookedPlays = plays.length - racedPlays;
+    const rowsBooked = result.count - repairedRows;
 
     // One nudge for the whole batch — the whole point of BUG-07's lesson: a bulk
     // write that never tells the players is a booking that airs a day late. Inside
     // after(), not a floating chain: the instance can suspend at response flush,
     // and the next scheduled plan poll is 72 h out.
-    const affectedStoreIds = [...new Set(rows.map((r) => r.storeId))];
+    const affectedStoreIds = [...new Set(plays.map((p) => p.storeId))];
     if (affectedStoreIds.length > 0) {
       after(async () => {
         try {
@@ -267,21 +372,25 @@ export async function POST(req: NextRequest) {
       target: auditTarget,
       meta: {
         mode, from: body.from, to: body.to, daysOfWeek,
-        ...(mode === 'assign' ? { campaignId: body.campaignId, slotsPerDay } : { sourceStoreId: body.sourceStoreId, sourceDate: body.sourceDate }),
+        ...(mode === 'assign'
+          ? { campaignId: assignCampaignId, slotsPerDay, slotSpan: assignSpan }
+          : { sourceStoreId: body.sourceStoreId, sourceDate: body.sourceDate }),
         stores: slotStores.length, requested, alreadySatisfied,
-        planned: rows.length, booked: result.count, raced, missed, closedSkipped,
+        planned: plays.length, booked: bookedPlays, rowsBooked, raced: racedPlays, missed, closedSkipped,
       },
     });
 
     // Cap the gap detail, never the truth: the aggregate `missed` above is exact.
     const gapsTruncated = gaps.length > 500;
     return NextResponse.json({
-      booked:  result.count,
-      planned: rows.length,
+      booked:  bookedPlays,
+      planned: plays.length,
       requested,
       alreadySatisfied,
-      raced,
+      raced:   racedPlays,
       missed,
+      ...(mode === 'assign' ? { slotSpan: assignSpan } : {}),
+      rowsBooked,
       gaps: gapsTruncated ? gaps.slice(0, 500) : gaps,
       gapsTruncated,
       skippedStores,
