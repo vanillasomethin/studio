@@ -261,11 +261,10 @@ model Store {
   // NULLs as distinct, so every store without a serial yet coexists happily.
   tvSerial      String?   @unique
   tvInstalledAt DateTime? // when the screen was physically installed
-  espSwitchName String? // label on the ESP/Sonoff smart switch at the site (see SmartPlug for the live eWeLink name)
-  // ID printed on the smart plug's own label, typed by ops at the site. Kept
-  // separate from model SmartPlug (which is Device-keyed and only exists once an
-  // eWeLink account is connected) precisely so it CAN be filled during the
-  // install, before any pairing or eWeLink linking has happened.
+  espSwitchName String? // label on the smart switch at the site, recorded by ops during install
+  // ID printed on the smart plug's own label, typed by ops at the site during
+  // the install (see the /admin/pair wizard). Plain install metadata that records
+  // the physical hardware at the shop — no live integration behind it.
   espPlugId     String?
   wifiSsid      String?
   wifiUsername  String? // only for PPPoE / ISP-login networks; null on ordinary WPA-PSK
@@ -324,6 +323,7 @@ model Store {
   footfallHourly       FootfallHourly[]
   screenPresenceEvents ScreenPresenceEvent[]
   sensorHealth         StoreSensorHealth?
+  smartPlug            SmartPlug?
   slotAddons           SlotAddon[]
   slotRequests         SlotRequest[]
   pushSubscriptions    PushSubscription[]
@@ -599,7 +599,6 @@ model Device {
   telemetryEvents    TelemetryEvent[]
   remediationTickets RemediationTicket[]
   alerts             DeviceAlert[]
-  smartPlug          SmartPlug?
 
   @@index([storeId])
   @@index([groupName])
@@ -1361,6 +1360,55 @@ model StoreSensorHealth {
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
 
+// ─── Tuya smart-plug power monitoring (Aziot / Smart Life) ───────────────────
+
+// One Tuya-cloud device (an Aziot 4-node smart plug) linked per store. On
+// Store, not Device: the decommission flow deletes the Device row on re-pair
+// (see the installation-fields note on Store), and the plug is site hardware
+// that outlives any screen swap. The snapshot columns mirror the latest poll
+// so list views never need the readings table.
+model SmartPlug {
+  id           String    @id @default(cuid())
+  storeId      String    @unique
+  tuyaDeviceId String    @unique
+  name         String
+  productName  String?
+  category     String? // Tuya category code, e.g. "pc" (power strip), "cz" (socket)
+  online       Boolean?
+  switchOn     Boolean? // any socket on
+  socketsOn    Int? // how many of the 4 sockets are on
+  socketCount  Int? // boolean switch codes the device exposes
+  powerW       Float?
+  voltageV     Float?
+  currentA     Float?
+  // Per-code multiplier from the device's Tuya specification (raw value → SI
+  // unit, e.g. cur_power reports deci-watts → 0.1). Fetched once at link time;
+  // null means "use defaults" (see parsePlugStatus in src/lib/tuya.ts).
+  scales       Json?
+  lastPolledAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  readings PlugReading[]
+}
+
+model PlugReading {
+  id       String   @id @default(cuid())
+  plugId   String
+  at       DateTime @default(now())
+  online   Boolean
+  switchOn Boolean
+  powerW   Float?
+  // Energy consumed since the previous reading, integrated from wattage over
+  // the (capped) poll gap — see recordPlugPoll in src/lib/tuya-power.ts. Kept
+  // per-interval so month/day totals are a plain SUM regardless of gaps.
+  energyWh Float?
+
+  plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
+
+  @@index([plugId, at])
+}
+
 // Singleton row (id always 1) — fleet-wide player behavior knobs, editable from
 // admin without an APK rebuild. Player reads these via /api/device/plan.
 model PlayerConfig {
@@ -1387,66 +1435,6 @@ model PlayerConfig {
   defaultScreenWatts       Int      @default(60)  // 32–43" LED TV + Android box
   electricityPaisePerKwh   Int      @default(800) // ₹8.00 per unit
   updatedAt                DateTime @updatedAt
-}
-
-// ─── eWeLink smart plugs (Sonoff) — per-screen mains switch + power telemetry ─
-
-// Singleton row (id always 1) — the studio's linked eWeLink account. Tokens come
-// from the OAuth flow (admin > Screens > screen drawer > Power > Connect) and are
-// refreshed by the ewelink-poll cron. needsReauth flips on when a refresh fails;
-// the Power card then shows a re-connect button.
-model EwelinkAccount {
-  id           Int       @id @default(1)
-  region       String // cn | as | us | eu → https://{region}-apia.coolkit.{cn|cc}
-  accessToken  String
-  refreshToken String
-  atExpiresAt  DateTime?
-  rtExpiresAt  DateTime?
-  needsReauth  Boolean   @default(false)
-  updatedAt    DateTime  @updatedAt
-}
-
-// A Sonoff plug/switch wired in front of one screen's mains supply.
-model SmartPlug {
-  id              String    @id @default(cuid())
-  deviceId        String    @unique
-  ewelinkDeviceId String    @unique // eWeLink "deviceid"
-  name            String // name in the eWeLink app at link time
-  productModel    String? // e.g. "BASICR4", "POWR316D"
-  uiid            Int? // eWeLink device type id — drives unit scaling for readings
-  // true = has a metering chip (POW/S31 class): powerW/voltageV/currentA are real.
-  // false = relay-only (BASICR4 class): energy can only be estimated as
-  // ratedWatts × relay-on time, and readings are flagged estimated.
-  supportsEnergy  Boolean   @default(false)
-  ratedWatts      Float? // appliance draw used for relay-only estimates
-  online          Boolean?
-  switchOn        Boolean?
-  powerW          Float?
-  voltageV        Float?
-  currentA        Float?
-  lastPolledAt    DateTime?
-  createdAt       DateTime  @default(now())
-
-  device   Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  readings PlugReading[]
-}
-
-// Time series appended by /api/cron/ewelink-poll (5-min cadence via GitHub
-// Actions). energyWh is the energy consumed since the previous reading —
-// measured for metering plugs, ratedWatts-estimated (estimated=true) otherwise.
-model PlugReading {
-  id        String   @id @default(cuid())
-  plugId    String
-  at        DateTime @default(now())
-  online    Boolean
-  switchOn  Boolean
-  powerW    Float?
-  energyWh  Float?
-  estimated Boolean  @default(false)
-
-  plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
-
-  @@index([plugId, at])
 }
 
 // ─── Trackable QR redirects ──────────────────────────────────────────────────

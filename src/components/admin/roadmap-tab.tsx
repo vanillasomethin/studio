@@ -1555,24 +1555,6 @@ Constraints:
 - Do not fabricate outages from ordinary heartbeat jitter`,
   },
   {
-    id: 'smart-plugs', cluster: 'Admin Panel', label: 'Smart Plug Power Control', sub: 'eWeLink / Sonoff relay + energy',
-    status: 'built', path: 'src/lib/ewelink.ts',
-    description: 'Links a Sonoff smart plug to each screen through the eWeLink Cloud API: remote power-cycle, online state and energy history from the Screens tab. Metering plugs report real watts; relay-only models are estimated from rated watts times on-time and labelled as such.',
-    notes: [
-      'OAuth against dev.ewelink.cc; region is allowlisted before it reaches the request host',
-      'Polled every 5 minutes by its own cron, same CRON_SECRET pattern as device health',
-      'Energy integration caps gaps at 30 minutes; readings retained 90 days',
-      'Power card stays hidden until EWELINK_APP_ID / EWELINK_APP_SECRET are set',
-    ],
-    claudePrompt: `Context: Smart plug control lives in src/lib/ewelink.ts with routes under /api/admin/ewelink and /api/admin/devices/[id]/power|plug.
-
-Task: [DESCRIBE YOUR ENHANCEMENT — e.g. "Auto power-cycle a screen that has been frozen for over an hour, once per day at most."]
-
-Constraints:
-- Never expose OAuth tokens to the client
-- Any automatic power action must be rate-limited and audit-logged`,
-  },
-  {
     id: 'slot-inventory-engine', cluster: 'Data & Infra', label: 'Slot Inventory Engine', sub: 'Sold by store + date + position',
     status: 'built', path: 'src/lib/slots.ts', critical: true,
     description: 'Ad inventory sold as (store, IST date, loop position) rather than clock time, which makes overselling a database constraint instead of a code check. Unsold positions redistribute to paying campaigns as marked bonus plays, so a screen is never dark.',

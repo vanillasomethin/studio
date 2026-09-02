@@ -77,6 +77,29 @@ export async function getStoreMe(storeId?: string, token?: string | null): Promi
   return request(`/api/stores/me${qs}`, { headers: authHeaders(token) });
 }
 
+/** Partner-safe metered power summary from the store's linked Aziot smart plug. */
+export type StorePowerSummary = {
+  linked: boolean;
+  online?: boolean | null;
+  powerW?: number | null;
+  todayKwh?: number;
+  monthKwh?: number;
+  estMonthCostPaise?: number;
+  lastPolledAt?: string | null;
+};
+
+/**
+ * The metered `plug` block of /api/stores/power. The endpoint also carries the
+ * proof-of-play estimate the web dashboard renders; the app's card only shows
+ * real meter data, so an unlinked store resolves to { linked: false } and no
+ * card is shown.
+ */
+export async function getStorePower(storeId?: string, token?: string | null): Promise<StorePowerSummary> {
+  const qs = storeId ? `?storeId=${storeId}` : '';
+  const body = await request<{ plug?: StorePowerSummary }>(`/api/stores/power${qs}`, { headers: authHeaders(token) });
+  return body.plug ?? { linked: false };
+}
+
 export async function requestPasswordReset(phone: string): Promise<void> {
   await request('/api/stores/reset-password', {
     method: 'POST',

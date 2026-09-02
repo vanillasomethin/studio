@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { C } from '../../lib/colors';
 import { loadSession, saveSession } from '../../lib/storage';
-import { getStoreMe, uploadVerificationPhoto, type StoreSession } from '../../lib/api';
+import { getStoreMe, getStorePower, uploadVerificationPhoto, type StoreSession, type StorePowerSummary } from '../../lib/api';
 import { registerForPush } from '../../lib/notifications';
 
 type Stage = 'new' | 'contacted' | 'visited' | 'installed' | 'live' | string;
@@ -175,6 +175,8 @@ export default function Overview() {
   const [store, setStore] = useState<StoreSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  // null until the store has a linked Aziot plug — the card simply doesn't show.
+  const [power, setPower] = useState<StorePowerSummary | null>(null);
 
   useEffect(() => {
     loadSession().then(async (local) => {
@@ -189,6 +191,10 @@ export default function Overview() {
       // Bind this phone to the store's screen-offline alerts (best-effort).
       void registerForPush(session);
       setLoading(false);
+      try {
+        const p = await getStorePower(session?.id, session?.token);
+        if (p.linked) setPower(p);
+      } catch { /* no card on failure */ }
     });
   }, []);
 
@@ -265,6 +271,34 @@ export default function Overview() {
           }
         </Text>
       </View>
+
+      {/* Electricity usage — appears once admin links the Aziot smart plug */}
+      {power && (
+        <View style={s.card}>
+          <View style={s.cardRow}>
+            <Text style={s.cardTitle}>⚡ Electricity usage</Text>
+            <View style={[s.dot, power.online ? s.dotGreen : s.dotYellow]} />
+          </View>
+          <View style={s.powerRow}>
+            <View style={s.powerTile}>
+              <Text style={s.powerVal}>{power.online && power.powerW != null ? Math.round(power.powerW) : '—'}<Text style={s.powerUnit}> W</Text></Text>
+              <Text style={s.powerLbl}>Right now</Text>
+            </View>
+            <View style={s.powerTile}>
+              <Text style={s.powerVal}>{(power.todayKwh ?? 0).toFixed(2)}</Text>
+              <Text style={s.powerLbl}>Units today</Text>
+            </View>
+            <View style={[s.powerTile, s.powerTileGreen]}>
+              <Text style={[s.powerVal, { color: '#15803d' }]}>{(power.monthKwh ?? 0).toFixed(2)}</Text>
+              <Text style={[s.powerLbl, { color: '#15803d99' }]}>Units this month</Text>
+            </View>
+          </View>
+          <Text style={s.cardSub}>
+            Your screen has used {(power.monthKwh ?? 0).toFixed(2)} units (≈ ₹{Math.round((power.estMonthCostPaise ?? 0) / 100)}) this month.
+            Electricity is reimbursed separately from your ₹500 remuneration.
+          </Text>
+        </View>
+      )}
 
       {/* Onboarding timeline */}
       <View style={s.card}>
@@ -438,6 +472,13 @@ const s = StyleSheet.create({
   faqRow: { gap: 3, paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   faqQ: { fontSize: 12, fontWeight: '700', color: C.text },
   faqA: { fontSize: 12, color: C.textSub, lineHeight: 17 },
+  // Electricity usage
+  powerRow: { flexDirection: 'row', gap: 8 },
+  powerTile: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
+  powerTileGreen: { backgroundColor: '#f0fdf4' },
+  powerVal: { fontSize: 16, fontWeight: '800', color: C.text },
+  powerUnit: { fontSize: 10, fontWeight: '600', color: C.textSub },
+  powerLbl: { fontSize: 9, color: C.textSub, marginTop: 2 },
   // GPS verification photos
   photoBox: {
     marginTop: 8, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed',

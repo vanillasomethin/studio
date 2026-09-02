@@ -40,9 +40,10 @@ const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-pan
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),            { ssr: false });
+const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
-import { adminGetArray, adminGetObject } from '@/lib/admin-fetch';
+import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1200,6 +1201,10 @@ function StoresPanel() {
                       </p>
                     </div>
 
+                    {/* Live consumption from the linked Tuya/Aziot plug — separate from
+                        the ops-typed label fields above, which stay pure metadata. */}
+                    <StorePlugPanel storeId={s.id} />
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
                         <option value="new">New</option>
@@ -1731,7 +1736,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
                     }}>
                       <span className="cmd__item-icon"><IconComp className="h-3.5 w-3.5" /></span>
                       <span className="cmd__item-label">{it.label}</span>
-                      {it.hint && <span className="cmd__item-hint">{it.hint}</span>}
                     </button>
                   );
                 })}
@@ -1740,8 +1744,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
           })}
         </div>
         <div className="cmd__foot">
-          <span><kbd>↑↓</kbd> navigate</span>
-          <span><kbd>↵</kbd> select</span>
           <span><kbd>esc</kbd> close</span>
           <span style={{ marginLeft: 'auto' }}>Alive Command · v4.12</span>
         </div>
@@ -1845,28 +1847,76 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
 
 // ─── New Topbar ───────────────────────────────────────────────────────────────
 
-function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onNav }: {
-  section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
-  unread: number; stats: OpsStats | null; onNav: (t: Tab) => void;
+// "Export" downloads the current tab's backing list as CSV. Each entry names
+// the file and fetches the rows; tabs without an entry hide the button — either
+// there's no list behind them, or (Reports / Proof of Play / Footfall) the tab
+// already has its own filter-aware CSV export that a blunt topbar dump would
+// only duplicate.
+
+const csvCell = (v: unknown): string => {
+  if (v == null) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+function rowsToCsv(rows: Record<string, unknown>[]): string {
+  const cols: string[] = [];
+  for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
+  return [cols, ...rows.map((r) => cols.map((c) => r[c]))]
+    .map((line) => line.map(csvCell).join(',')).join('\r\n');
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+type CsvRows = Record<string, unknown>[];
+
+const listExport = (name: string, fetchRows: () => Promise<CsvRows>) => async () => {
+  const rows = await fetchRows();
+  if (!rows.length) throw new Error('Nothing to export yet');
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(new Blob([rowsToCsv(rows)], { type: 'text/csv;charset=utf-8' }), `alive-${name}-${stamp}.csv`);
+};
+
+const fleetExport = listExport('screens', () =>
+  adminGetObject<{ devices?: CsvRows }>('/api/devices').then((j) => j.devices ?? []));
+
+const TAB_EXPORTS: Partial<Record<Tab, () => Promise<void>>> = {
+  overview:   fleetExport,
+  screens:    fleetExport,
+  monitoring: fleetExport,
+  stores:     listExport('kirana-partners', () => adminGetArray<Record<string, unknown>>('/api/stores/save')),
+  campaigns:  listExport('campaigns',       () => adminGetArray<Record<string, unknown>>('/api/campaigns/admin')),
+  content:    listExport('creatives',   () => adminGetObject<{ content?:   CsvRows }>('/api/content').then((j) => j.content ?? [])),
+  programming: listExport('schedules',  () => adminGetObject<{ schedules?: CsvRows }>('/api/schedules').then((j) => j.schedules ?? [])),
+  coupons:    listExport('coupons',     () => adminGetObject<{ coupons?:   CsvRows }>('/api/coupons').then((j) => j.coupons ?? [])),
+  team:       listExport('team',        () => adminGetObject<{ members?:   CsvRows }>('/api/admin/team').then((j) => j.members ?? [])),
+  // The payouts route already produces the bank-transfer CSV — current month.
+  payments: async () => {
+    const month = new Date().toISOString().slice(0, 7);
+    const res = await fetch(`/api/admin/store-payments/bulk-export?month=${month}`, { headers: { 'admin-password': adminPw() } });
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+    downloadBlob(await res.blob(), `alive-payments-${month}.csv`);
+  },
+};
+
+function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread }: {
+  tab: Tab; section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
+  onNav: (t: Tab) => void; unread: number;
 }) {
-  const exportSnapshot = () => {
-    if (!stats) return;
-    const rows: [string, number][] = [
-      ['Screens online', stats.screens.online],
-      ['Screens offline', stats.screens.offline],
-      ['Active schedules', stats.schedules.active],
-      ['Store partners', stats.stores.total],
-      ['Campaigns', stats.campaigns.total],
-      ['Campaigns paid', stats.campaigns.paid],
-      ['Content files', stats.content.count],
-    ];
-    const csv = ['Metric,Value', ...rows.map(([k, v]) => `${k},${v}`)].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `alive-snapshot-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [exporting, setExporting] = useState(false);
+  const tabExport = TAB_EXPORTS[tab];
+  const runExport = async () => {
+    if (!tabExport || exporting) return;
+    setExporting(true);
+    try { await tabExport(); }
+    catch (e) { alert(`Export failed: ${(e as Error).message}`); }
+    finally { setExporting(false); }
   };
   return (
     <header className="tb">
@@ -1895,9 +1945,13 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onN
       </button>
       <button className="tb__icon-btn" title="Help" onClick={() => onNav('roadmap')}><LifeBuoy className="h-4 w-4" /></button>
       <div className="tb__divider"></div>
-      <button className="btn btn--outline btn--sm" onClick={exportSnapshot} disabled={!stats} title="Download today's network snapshot as CSV">
-        <Download className="h-3 w-3" /> Export
-      </button>
+      {tabExport && (
+        <button className="btn btn--outline btn--sm" onClick={runExport} disabled={exporting}>
+          {exporting
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <Download className="h-3 w-3" />} Export
+        </button>
+      )}
       {/* Opens the booking flow, not the Campaigns tab: the tab is a read-only
           list with no create UI (campaigns are only born through brand-onboarding,
           booked on behalf of the brand), so navigating there looked like a no-op. */}
@@ -2446,13 +2500,13 @@ function Dashboard({ email }: { email: string | null }) {
 
       <main className="main">
         <Topbar
+          tab={tab}
           section={sectionName[tab] ?? tab}
           liveCount={liveCount}
           onOpenCmd={() => setCmdOpen(true)}
           onOpenNotif={() => handleNav('alerts')}
-          unread={alertCount + offlineAlertCount}
-          stats={tickerStats}
           onNav={handleNav}
+          unread={alertCount + offlineAlertCount}
         />
         <Ticker stats={tickerStats} />
 
