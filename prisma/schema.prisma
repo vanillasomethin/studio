@@ -409,11 +409,18 @@ model Campaign {
   // admin-assigned, independent of a store's own slotPricingTier (a campaign can run
   // across many stores with different tiers; this is the brand's own plan).
   slotPricingTier String  @default("standard")
+  // Optional multi-creative rotation for slot mode — overrides slotContentId when
+  // set. The playlist's direct media items rotate deterministically: a campaign's
+  // k-th play of the day shows item (dayIndex + k) mod N, so several positions in
+  // one loop each show a different item and a single position cycles day by day.
+  // Slots stay fixed 10s — the playlist supplies WHICH creative, never the duration.
+  slotPlaylistId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   brand                Brand?                @relation(fields: [brandId], references: [id], onDelete: SetNull)
   slotContent          Content?              @relation("CampaignSlotCreative", fields: [slotContentId], references: [id], onDelete: SetNull)
+  slotPlaylist         Playlist?             @relation("CampaignSlotPlaylist", fields: [slotPlaylistId], references: [id], onDelete: SetNull)
   fillerForStores      Store[]               @relation("StoreFiller")
   slotBookings         SlotBooking[]
   playEvents           PlayEvent[]
@@ -841,6 +848,8 @@ model Playlist {
   schedules    Schedule[]
   // Items in OTHER playlists that nest this playlist (SMIL-style Master → Internal).
   referencedBy PlaylistItem[]   @relation("PlaylistNesting")
+  // Campaigns rotating this playlist's media items as their slot-mode creatives.
+  slotCampaigns Campaign[]      @relation("CampaignSlotPlaylist")
 }
 
 enum PlaylistTransition {

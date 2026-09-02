@@ -2,7 +2,7 @@
 // math there stays pure (no Prisma import) and unit-testable.
 
 import { db } from '@/lib/db';
-import { isOpenOn, istToday } from '@/lib/slots';
+import { isOpenOn, istToday, slotCreativeIds } from '@/lib/slots';
 
 // ── Loop resizing ─────────────────────────────────────────────────────────────
 
@@ -93,10 +93,10 @@ export async function applySlotMoves(moves: SlotMove[]): Promise<void> {
 
 /** Resolves the effective filler campaign for a store: per-store override, else the
  *  global PlayerConfig default. Null when neither is set or the campaign has no
- *  playable slot creative. */
+ *  playable slot creative (single 10s creative or slot playlist with media items). */
 export async function resolveFillerCampaign(
   storeFillerCampaignId: string | null,
-): Promise<{ campaignId: string; contentId: string } | null> {
+): Promise<{ campaignId: string; creativeIds: string[] } | null> {
   let campaignId = storeFillerCampaignId;
   if (!campaignId) {
     const cfg = await db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } });
@@ -104,10 +104,18 @@ export async function resolveFillerCampaign(
   }
   if (!campaignId) return null;
   const campaign = await db.campaign.findUnique({
-    where: { id: campaignId }, select: { id: true, slotContentId: true },
+    where: { id: campaignId },
+    select: {
+      id: true, slotContentId: true,
+      slotPlaylist: { select: { items: {
+        where: { contentId: { not: null } }, orderBy: { order: 'asc' }, select: { contentId: true },
+      } } },
+    },
   });
-  if (!campaign?.slotContentId) return null;
-  return { campaignId: campaign.id, contentId: campaign.slotContentId };
+  if (!campaign) return null;
+  const creativeIds = slotCreativeIds(campaign);
+  if (creativeIds.length === 0) return null;
+  return { campaignId: campaign.id, creativeIds };
 }
 
 /** Sold-count availability per store per date, honouring open_days exclusion.
