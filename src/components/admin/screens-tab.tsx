@@ -681,13 +681,18 @@ function UptimeBar({ pct }: { pct: number }) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-// Human-friendly label for a device — avoids exposing raw hardware IDs in the UI.
-// Examples: "Sharma Stores · Screen #b434" or "Screen #b434" if not linked.
+// Human-friendly label for a device — store identity first, hardware IDs last.
+// Examples: "Sharma Stores", or "Screen #B434" only when nothing better exists.
 function friendlyDeviceLabel(d: Device): string {
-  const tail = (d.hardwareKey ?? d.id).slice(-4).toUpperCase();
-  const short = `Screen #${tail}`;
-  if (d.linkedStoreName) return `${d.linkedStoreName} · ${short}`;
-  return short;
+  if (d.linkedStoreName) return d.linkedStoreName;
+  if (d.storeName?.trim()) return d.storeName.trim();
+  return screenIdTag(d);
+}
+
+// Short hardware tag ("Screen #B434") — shown in the muted subtitle so two
+// screens at the same store stay distinguishable.
+function screenIdTag(d: Device): string {
+  return `Screen #${(d.hardwareKey ?? d.id).slice(-4).toUpperCase()}`;
 }
 
 function fmtDate(iso: string) {
@@ -1300,8 +1305,8 @@ export default function ScreensTab() {
                           <p className="truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
                           <p className="truncate text-[11px] text-muted-foreground">
                             {d.linkedStoreName
-                              ? <>{d.linkedStoreName}{d.city && ` · ${d.city}`}</>
-                              : <span className="text-amber-600">Not linked to a store</span>}
+                              ? <>{d.city ? `${d.city} · ` : ''}{screenIdTag(d)}</>
+                              : <span className="text-amber-600">Not linked to a store{friendlyDeviceLabel(d) !== screenIdTag(d) && ` · ${screenIdTag(d)}`}</span>}
                           </p>
                         </div>
                         {d.groupName && (
