@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, Pencil, Trash2, Package, Upload, X, Check, FileSpreadsheet, Lightbulb, ChevronDown, ChevronUp, Sparkles, Loader2, Tag, Barcode, IndianRupee, Clapperboard } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORY_OPTIONS, UNIT_TYPES } from '@/lib/product-id';
+import { compressImageFile, readJsonOrThrow } from '@/lib/client-upload';
 
 // Columns expected in CSV/paste import (header row optional, detected by content)
 // productName, brand, category, sizeVariant, unitType, mrp (optional), barcodeEan (optional)
@@ -179,11 +180,10 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
       const key  = `products/${id}/image.${ext}`;
       const fd   = new FormData();
-      fd.append('file', file);
+      fd.append('file', await compressImageFile(file));
       fd.append('key',  key);
       const up  = await fetch('/api/admin/r2-upload', { method: 'POST', headers: { 'admin-password': adminPw }, body: fd });
-      if (!up.ok) throw new Error('Upload failed');
-      const { publicUrl } = await up.json() as { publicUrl: string };
+      const { publicUrl } = await readJsonOrThrow<{ publicUrl: string }>(up);
       await fetch(`/api/admin/products/${id}`, {
         method: 'PATCH', headers,
         // Real photograph overrides any AI-generated placeholder

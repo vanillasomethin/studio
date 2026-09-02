@@ -14,6 +14,7 @@
 
 import type { SmartPlug } from '@prisma/client';
 import { db } from '@/lib/db';
+import { getPowerSettings } from '@/lib/power-db';
 import { getTuyaDevice, isTuyaConfigured, parsePlugStatus, type TuyaStatus } from '@/lib/tuya';
 
 /** Reading older than this is re-polled in-line on page load. */
@@ -25,11 +26,6 @@ const MAX_INTEGRATION_GAP_MS = 15 * 60 * 1000;
 const RETENTION_DAYS = 180;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-
-export function ratePaisePerKwh(): number {
-  const n = Number(process.env.ELECTRICITY_RATE_PAISE_PER_KWH ?? 800);
-  return Number.isFinite(n) && n >= 0 ? n : 800;
-}
 
 /**
  * Atomically claim the right to record a poll for this plug: advance
@@ -180,7 +176,10 @@ export async function plugPowerSummary(plug: SmartPlug, now: Date = new Date()):
   // now-168h window would add an 8th, partial (and so spuriously low) day.
   const windowStart = new Date(dayStart.getTime() - 6 * 24 * 3_600_000);
 
-  const [todayAgg, monthAgg, recent] = await Promise.all([
+  // Tariff comes from the same PlayerConfig knob the proof-of-play ESTIMATE
+  // uses (getPowerSettings) — measured and estimated ₹ figures must never
+  // disagree on the rate, only on the kWh they price.
+  const [todayAgg, monthAgg, recent, { paisePerKwh: rate }] = await Promise.all([
     db.plugReading.aggregate({ _sum: { energyWh: true }, where: { plugId: plug.id, at: { gte: dayStart } } }),
     db.plugReading.aggregate({ _sum: { energyWh: true }, where: { plugId: plug.id, at: { gte: monthStart } } }),
     db.plugReading.findMany({
@@ -188,6 +187,7 @@ export async function plugPowerSummary(plug: SmartPlug, now: Date = new Date()):
       orderBy: { at: 'asc' },
       select: { at: true, online: true, powerW: true, energyWh: true },
     }),
+    getPowerSettings(),
   ]);
 
   // Hourly average draw, last 24h. Buckets with no online reading stay null so
@@ -219,7 +219,6 @@ export async function plugPowerSummary(plug: SmartPlug, now: Date = new Date()):
     .map(([day, wh]) => ({ day, kwh: Math.round(wh / 10) / 100 }));
 
   const monthKwh = Math.round((monthAgg._sum.energyWh ?? 0) / 10) / 100;
-  const rate = ratePaisePerKwh();
   return {
     linked: true,
     name: plug.name,

@@ -11,7 +11,7 @@ import {
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
-  Megaphone, Image, Radar, Grid3x3, ImagePlus, Camera, ShieldCheck, Users,
+  Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus, QrCode, Camera, ShieldCheck, Users,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { signIn, signOut as authSignOut } from 'next-auth/react';
@@ -25,6 +25,8 @@ const ProofOfPlayTab  = dynamic(() => import('@/components/admin/proof-of-play-t
 const ContentTab      = dynamic(() => import('@/components/admin/content-tab'),       { ssr: false });
 const ProgrammingTab  = dynamic(() => import('@/components/admin/programming-tab'),  { ssr: false });
 const SlotsTab        = dynamic(() => import('@/components/admin/slots-tab'),        { ssr: false });
+const PowerTab        = dynamic(() => import('@/components/admin/power-tab'),        { ssr: false });
+const QrTab           = dynamic(() => import('@/components/admin/qr-tab'),           { ssr: false });
 const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
@@ -83,7 +85,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products' | 'team';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'power' | 'qr' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products' | 'team';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -111,6 +113,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
       { id: 'content',    label: 'Content',     icon: ImageIcon   },
       { id: 'programming',  label: 'Programming',  icon: LayoutGrid    },
       { id: 'slots',        label: 'Slot inventory', icon: Grid3x3     },
+      { id: 'power',        label: 'Power',         icon: Zap         },
       { id: 'compositions', label: 'Compositions', icon: CalendarClock },
       { id: 'layouts',    label: 'Layouts',     icon: Layers       },
       { id: 'reports',    label: 'Reports',     icon: FileBarChart2 },
@@ -139,6 +142,8 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   stores:     { eyebrow: 'Store partners',     title: 'Registered stores'  },
   campaigns:  { eyebrow: 'Brand campaigns',    title: 'All campaigns'      },
   slots:      { eyebrow: 'Slot inventory',     title: 'Loop slots by day'  },
+  power:      { eyebrow: 'Electricity',        title: 'Screen power'       },
+  qr:         { eyebrow: 'Scan tracking',      title: 'QR codes'           },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   coupons:    { eyebrow: 'Brand discounts',    title: 'Coupons'            },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
@@ -453,6 +458,69 @@ function PremiumLinkCard() {
           <Copy className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Copy link'}
         </button>
       )}
+    </div>
+  );
+}
+
+// ─── Gated per-tier signup links ──────────────────────────────────────────────
+// Each link carries the secret that fixes the new store's pricing tier, so this
+// panel is admin-only and the URLs are never rendered anywhere public.
+
+type SignupLink = {
+  tier: string; label: string; envVar: string;
+  monthlyMinimumRupees: number; configured: boolean; url: string | null;
+};
+
+function SignupLinksPanel() {
+  const [links,  setLinks]  = useState<SignupLink[] | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    const pw = sessionStorage.getItem(SS_PW) ?? '';
+    fetch('/api/admin/signup-links', { headers: { 'admin-password': pw } })
+      .then((r) => r.ok ? r.json() : { links: [] })
+      .then((b) => setLinks(b.links ?? []))
+      .catch(() => setLinks([]));
+  }, []);
+
+  const copy = (l: SignupLink) => {
+    if (!l.url) return;
+    navigator.clipboard.writeText(l.url)
+      .then(() => { setCopied(l.tier); setTimeout(() => setCopied(null), 2000); })
+      .catch(() => {});
+  };
+
+  if (!links || links.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 mb-4">
+      <p className="text-sm font-bold text-foreground">Store signup links</p>
+      <p className="text-[11px] text-muted-foreground mt-0.5 mb-3">
+        One per pricing tier — the link decides the store&apos;s tier, so share the right one. Keep these private.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {links.map((l) => (
+          <div key={l.tier} className="rounded-lg border border-border p-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs font-bold text-foreground">{l.label}</span>
+              <span className="text-[10px] text-muted-foreground">₹{l.monthlyMinimumRupees.toLocaleString('en-IN')}/mo min</span>
+            </div>
+            {l.configured ? (
+              <button
+                onClick={() => copy(l)}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              >
+                {copied === l.tier ? <CheckCircle2 className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                {copied === l.tier ? 'Copied' : 'Copy link'}
+              </button>
+            ) : (
+              <p className="mt-2 text-[10px] text-amber-600">
+                Set <code className="font-mono">{l.envVar}</code> to enable
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -909,6 +977,7 @@ function StoresPanel() {
         ))}
       </div>
 
+      <SignupLinksPanel />
       <PremiumLinkCard />
 
       <input type="search" placeholder="Search by name, owner, city, phone, referral code…" value={search} onChange={(e) => setSearch(e.target.value)} className={inp} />
@@ -1327,7 +1396,31 @@ type OpsStats = {
   content:   { count: number; totalMB: number };
   stores:    { total: number; live: number };
   campaigns: { total: number; paid: number };
+  // Today's slot occupancy across every slot-mode store. capacity 0 = none configured.
+  slots:     { sold: number; capacity: number };
 };
+
+/** Today's IST calendar date — slot inventory is keyed by IST day, not UTC. */
+const istToday = () => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+
+/**
+ * Network-wide slot occupancy for today, from /api/slots/availability.
+ * `sold` is per store per date; a null entry means the store is closed that day
+ * and contributes no capacity.
+ */
+function slotTotals(res: unknown): { sold: number; capacity: number } {
+  const stores = (res as { stores?: { loopSlotCount: number | null; sold: Record<string, number | null> | null }[] })?.stores ?? [];
+  const day = istToday();
+  let sold = 0, capacity = 0;
+  for (const s of stores) {
+    if (s.loopSlotCount == null) continue;      // not a slot-mode store
+    const n = s.sold?.[day];
+    if (n == null) continue;                    // closed today
+    sold += n;
+    capacity += s.loopSlotCount;
+  }
+  return { sold, capacity };
+}
 
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
 
@@ -1385,7 +1478,7 @@ function DateRange({ active, onChange }: { active: string; onChange: (v: string)
 
 // ─── KPI Row ──────────────────────────────────────────────────────────────────
 
-function KpiRow({ stats }: { stats: OpsStats | null }) {
+function KpiRow({ stats, onNav }: { stats: OpsStats | null; onNav: (t: Tab) => void }) {
   if (!stats) return (
     <div className="kpi-row">
       {[0,1,2,3].map((i) => (
@@ -1397,41 +1490,59 @@ function KpiRow({ stats }: { stats: OpsStats | null }) {
     </div>
   );
 
-  const cards = [
+  // What an operator actually needs off the landing screen: what is broken, what
+  // is earning, who is live, what is running. Library file counts are inventory
+  // trivia and belong in Creatives, not here.
+  const dark = stats.screens.offline + stats.screens.pending;
+  const slotPct = stats.slots.capacity > 0
+    ? Math.round((stats.slots.sold / stats.slots.capacity) * 100)
+    : null;
+
+  const cards: {
+    label: string; icon: React.ReactNode; value: string; sub?: string; note: string;
+    tab: Tab; alarm?: boolean;
+  }[] = [
     {
-      label: 'Online screens', icon: <MonitorPlay className="h-4 w-4" />,
-      value: stats.screens.online.toLocaleString(),
+      label: 'Screens dark', icon: <MonitorPlay className="h-4 w-4" />,
+      value: dark.toLocaleString(),
       sub: `/ ${stats.screens.total}`,
-      note: stats.screens.pending > 0 ? `${stats.screens.pending} pending` : `${stats.screens.offline} offline`,
-      feature: false,
+      note: stats.screens.pending > 0
+        ? `${stats.screens.offline} offline · ${stats.screens.pending} pending`
+        : dark > 0 ? 'needs attention' : 'all screens live',
+      tab: 'screens',
+      alarm: dark > 0,
     },
     {
-      label: 'Active schedules', icon: <CalendarClock className="h-4 w-4" />,
-      value: stats.schedules.active.toLocaleString(),
-      sub: `/ ${stats.schedules.total} total`,
-      note: 'running now',
-      feature: true,
+      label: 'Slots filled today', icon: <Grid3x3 className="h-4 w-4" />,
+      value: slotPct == null ? '—' : `${slotPct}%`,
+      sub: slotPct == null ? undefined : `${stats.slots.sold} / ${stats.slots.capacity}`,
+      note: slotPct == null ? 'no slot-mode stores' : 'sold across the network',
+      tab: 'programming',
     },
     {
-      label: 'Content files', icon: <ImageIcon className="h-4 w-4" />,
-      value: stats.content.count.toLocaleString(),
-      sub: stats.content.totalMB > 0 ? `${stats.content.totalMB.toFixed(0)} MB` : undefined,
-      note: 'in library',
-      feature: false,
+      label: 'Stores live', icon: <Store className="h-4 w-4" />,
+      value: stats.stores.live.toLocaleString(),
+      sub: `/ ${stats.stores.total}`,
+      note: 'partners running',
+      tab: 'stores',
     },
     {
-      label: 'Store partners', icon: <Store className="h-4 w-4" />,
-      value: stats.stores.total.toLocaleString(),
-      sub: `${stats.stores.live} live`,
-      note: 'registered',
-      feature: false,
+      label: 'Campaigns paid', icon: <Megaphone className="h-4 w-4" />,
+      value: stats.campaigns.paid.toLocaleString(),
+      sub: `/ ${stats.campaigns.total}`,
+      note: 'booked and paid',
+      tab: 'campaigns',
     },
   ];
 
   return (
     <div className="kpi-row">
-      {cards.map((k, i) => (
-        <div key={i} className={`kpi${k.feature ? ' kpi--feature' : ''}`}>
+      {cards.map((k) => (
+        <button
+          key={k.label}
+          onClick={() => onNav(k.tab)}
+          className={`kpi kpi--link${k.alarm ? ' kpi--alarm' : ''}`}
+        >
           <div className="kpi__head">
             <span className="kpi__icon">{k.icon}</span>
             <span className="kpi__label">{k.label}</span>
@@ -1443,7 +1554,7 @@ function KpiRow({ stats }: { stats: OpsStats | null }) {
           <div className="kpi__foot">
             <span className="kpi__period">{k.note}</span>
           </div>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -1554,27 +1665,29 @@ function Ticker({ stats }: { stats: OpsStats | null }) {
 
 // ─── Command Palette ──────────────────────────────────────────────────────────
 
-// Every item must act: `tab` switches the console tab, `href` opens a flow in a
-// new browser tab (campaigns and kiranas are only born through their public
-// onboarding pages — there is no admin-side create form for either).
-type PaletteItem = { icon: React.ElementType; label: string; tab?: Tab; href?: string };
-
-const PALETTE_GROUPS: { label: string; items: PaletteItem[] }[] = [
+// Every item carries its own action — a tab to switch to or an href to open in
+// a new tab — so an entry can't ship as dead chrome (the old external tabMap
+// silently no-opped any label it didn't know about).
+const PALETTE_GROUPS: {
+  label: string;
+  items: { icon: React.ElementType; label: string; hint?: string; tab?: Tab; href?: string }[];
+}[] = [
   {
     label: 'Pages',
     items: [
-      { icon: LayoutDashboard, label: 'Go to Overview',        tab: 'overview' },
-      { icon: Megaphone,       label: 'Go to Campaigns',       tab: 'campaigns' },
-      { icon: Store,           label: 'Go to Kirana partners', tab: 'stores' },
-      { icon: IndianRupee,     label: 'Go to Payouts',         tab: 'payments' },
+      { icon: LayoutDashboard, label: 'Go to Overview',       hint: 'G then O', tab: 'overview'  },
+      { icon: Megaphone,       label: 'Go to Campaigns',      hint: 'G then C', tab: 'campaigns' },
+      { icon: Store,           label: 'Go to Store partners', hint: 'G then K', tab: 'stores'    },
+      { icon: IndianRupee,     label: 'Go to Payouts',        hint: 'G then P', tab: 'payments'  },
     ],
   },
   {
     label: 'Actions',
     items: [
-      { icon: Plus,   label: 'New campaign',              href: '/brand-onboarding' },
-      { icon: Upload, label: 'Upload 8-second creative',  tab: 'content' },
-      { icon: Store,  label: 'Onboard a kirana',          href: '/store' },
+      { icon: Plus,        label: 'New campaign',             hint: '⌘N',  href: '/brand-onboarding' },
+      { icon: Upload,      label: 'Upload 8-second creative', hint: '⌘U',  tab: 'content'            },
+      { icon: Store,       label: 'Onboard a kirana',         hint: '⌘⇧K', href: '/store'            },
+      { icon: IndianRupee, label: 'Release monthly payouts',  tab: 'payments'                        },
     ],
   },
 ];
@@ -1647,19 +1760,19 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     items: [
       { id: 'overview' as Tab,   label: 'Overview',         icon: LayoutDashboard, count: null },
       { id: 'campaigns' as Tab,  label: 'Campaigns',        icon: Megaphone,       count: null },
-      { id: 'content' as Tab,    label: 'Creatives',        icon: Image,           count: null },
       { id: 'compositions' as Tab, label: 'Compositions',     icon: CalendarClock,   count: null },
     ],
   },
   {
     group: 'Network',
     items: [
-      { id: 'stores' as Tab,     label: 'Kirana partners',  icon: Store,           count: null },
+      { id: 'stores' as Tab,     label: 'Store partners',  icon: Store,           count: null },
       { id: 'screens' as Tab,    label: 'Screens',          icon: Tv2,             count: null },
-      { id: 'programming' as Tab, label: 'Programming',       icon: LayoutGrid,      count: null },
-      { id: 'slots' as Tab,      label: 'Slot inventory',   icon: Grid3x3,         count: null },
+      { id: 'programming' as Tab, label: 'Programming',      icon: LayoutGrid,      count: null },
+      { id: 'power' as Tab,      label: 'Power',            icon: Zap,             count: null },
       { id: 'monitoring' as Tab, label: 'Monitoring',       icon: Activity,        count: null },
       { id: 'footfall' as Tab,   label: 'Footfall',         icon: Radar,           count: null },
+      { id: 'qr' as Tab,         label: 'QR codes',         icon: QrCode,          count: null },
     ],
   },
   {
@@ -1685,14 +1798,13 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
   },
 ];
 
-function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
-  tab: Tab; onTab: (t: Tab) => void; onSignOut: () => void; liveCount: number;
+function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
+  tab: Tab; onTab: (t: Tab) => void; onSignOut: () => void; liveCount: number; email: string | null;
 }) {
   return (
     <aside className="sb">
       <div className="sb__logo">
-        <span>alive</span>
-        <span className="sb__logo-dot"></span>
+        <Logo />
       </div>
 
       {NAV_DESIGN.map((section, si) => (
@@ -1717,11 +1829,14 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount }: {
       ))}
 
       <div className="sb__bottom">
-        <button className="sb__user" onClick={onSignOut} title="Sign out">
-          <div className="sb__avatar">A</div>
+        {/* Named logins are the point of the current auth model, so this says who
+            you actually are — a generic "ALIVE Admin" gives an operator no way to
+            notice they are signed in as a colleague. */}
+        <button className="sb__user" onClick={onSignOut} title={email ? `Sign out ${email}` : 'Sign out'}>
+          <div className="sb__avatar">{(email?.[0] ?? 'A').toUpperCase()}</div>
           <div className="sb__user-meta">
-            <div className="sb__user-name">ALIVE Admin</div>
-            <div className="sb__user-role">Network Admin</div>
+            <div className="sb__user-name">{email?.split('@')[0] ?? 'ALIVE Admin'}</div>
+            <div className="sb__user-role">{email ? 'Sign out' : 'Network Admin'}</div>
           </div>
           <LogOut className="h-3.5 w-3.5" style={{ color: 'var(--neutral-400)', marginLeft: 'auto' }} />
         </button>
@@ -1828,13 +1943,7 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread
       >
         <Bell className="h-4 w-4" />
       </button>
-      <button
-        className="tb__icon-btn"
-        title="Help"
-        onClick={() => { window.location.href = 'mailto:hello@wearealive.in?subject=Admin%20console%20help'; }}
-      >
-        <LifeBuoy className="h-4 w-4" />
-      </button>
+      <button className="tb__icon-btn" title="Help" onClick={() => onNav('roadmap')}><LifeBuoy className="h-4 w-4" /></button>
       <div className="tb__divider"></div>
       {tabExport && (
         <button className="btn btn--outline btn--sm" onClick={runExport} disabled={exporting}>
@@ -1843,8 +1952,9 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread
             : <Download className="h-3 w-3" />} Export
         </button>
       )}
-      {/* There is no admin-side create form — campaigns are only born through the
-          brand-onboarding flow (admin books on behalf of the brand, "Pay later"). */}
+      {/* Opens the booking flow, not the Campaigns tab: the tab is a read-only
+          list with no create UI (campaigns are only born through brand-onboarding,
+          booked on behalf of the brand), so navigating there looked like a no-op. */}
       <button
         className="btn btn--primary btn--sm"
         onClick={() => window.open('/brand-onboarding', '_blank')}
@@ -1872,7 +1982,9 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
       fetch('/api/content',        { headers: h }).then((r) => r.ok ? r.json() : { content: [], totalBytes: 0 }),
       fetch('/api/stores/save',    { headers: h }).then((r) => r.ok ? r.json() : []),
       fetch('/api/campaigns/admin',{ headers: h }).then((r) => r.ok ? r.json() : []),
-    ]).then(([devR, schR, ctR, stR, cmR]) => {
+      fetch(`/api/slots/availability?from=${istToday()}&to=${istToday()}`, { headers: h })
+        .then((r) => r.ok ? r.json() : { stores: [] }),
+    ]).then(([devR, schR, ctR, stR, cmR, slR]) => {
       const devs = (devR.devices ?? []) as DeviceRow2[];
       const schs = (schR.schedules ?? []) as { startAt: string; endAt: string }[];
       const cts  = (ctR.content ?? []) as unknown[];
@@ -1893,6 +2005,7 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
         content:   { count: cts.length, totalMB: ctR.totalBytes ? ctR.totalBytes / (1024 * 1024) : 0 },
         stores:    { total: sts.length, live: sts.filter((s: { onboardingStage?: string }) => s.onboardingStage === 'live').length },
         campaigns: { total: cms.length, paid: cms.filter((c: { paymentId?: string }) => c.paymentId && c.paymentId !== 'pending').length },
+        slots:     slotTotals(slR),
       });
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -1913,7 +2026,7 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
       </div>
 
       <SectionLabel n={1} label="Performance" />
-      <KpiRow stats={stats} />
+      <KpiRow stats={stats} onNav={onNav} />
 
       <SectionLabel n={2} label="Network" />
       <DeviceFeedCard devices={devices} />
@@ -2250,7 +2363,7 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
-function Dashboard() {
+function Dashboard({ email }: { email: string | null }) {
   const [tab,         setTab]         = useState<Tab>('overview');
   const [refreshKey,  setRefreshKey]  = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2316,6 +2429,7 @@ function Dashboard() {
         content:   { count: cts.length, totalMB: ctR.totalBytes ? ctR.totalBytes / (1024 * 1024) : 0 },
         stores:    { total: sts.length, live: sts.filter((s: { onboardingStage?: string }) => s.onboardingStage === 'live').length },
         campaigns: { total: cms.length, paid: cms.filter((c: { paymentId?: string }) => c.paymentId && c.paymentId !== 'pending').length },
+        slots:     { sold: 0, capacity: 0 },
       });
     }).catch(() => {});
   }, []);
@@ -2350,9 +2464,11 @@ function Dashboard() {
     overview:   'Overview',
     campaigns:  'Campaigns',
     slots:      'Slot inventory',
+    power:      'Power',
+    qr:         'QR codes',
     content:    'Creatives',
     compositions: 'Compositions',
-    stores:       'Kirana Partners',
+    stores:       'Store Partners',
     screens:      'Screens',
     programming:  'Programming',
     monitoring: 'Monitoring',
@@ -2380,7 +2496,7 @@ function Dashboard() {
         onUnreadChange={setOfflineAlertCount}
         onOpenAlerts={openAlertsTab}
       />
-      <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} />
+      <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} email={email} />
 
       <main className="main">
         <Topbar
@@ -2424,6 +2540,8 @@ function Dashboard() {
               {tab === 'content'    && <ContentTab />}
               {tab === 'programming'   && <ProgrammingTab />}
               {tab === 'slots'      && <SlotsTab />}
+              {tab === 'power'      && <PowerTab />}
+              {tab === 'qr'         && <QrTab />}
               {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
@@ -2485,5 +2603,5 @@ export default function AdminPage() {
   // by an unenrolled admin has to land on enrolment, not the dashboard.
   if (state === 'login') return <AdminLogin onAuth={probe} />;
   if (state === 'enrol') return <MfaEnrolment email={email} onDone={probe} />;
-  return <Dashboard />;
+  return <Dashboard email={email} />;
 }

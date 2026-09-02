@@ -459,7 +459,14 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
         url:   '/store-dashboard',
         tag:   `offline-${alert.id}`,
       });
-      if (store?.whatsapp) void notifyStoreWA(store.whatsapp, msg);
+      // await, not void: partnerNotifiedAt is already committed, so this send is
+      // the only thing between that record and a shopkeeper who was never told.
+      // A floating promise on a serverless instance dies when the invocation is
+      // frozen at response flush, and the claim above guarantees no later sweep
+      // retries — the alert stays marked delivered forever. notifyStoreWA
+      // swallows its own errors and resolves void, so awaiting cannot fail the
+      // sweep or leave the loop half-done.
+      if (store?.whatsapp) await notifyStoreWA(store.whatsapp, msg);
 
       notified++;
     }
@@ -615,8 +622,15 @@ export async function resolveOfflineAlerts(deviceId: string, now = new Date()): 
           )
         : null;
 
-      await db.deviceAlert.update({
-        where: { id: alert.id },
+      // Claim the resolve the same way escalation claims the notify: qualified on
+      // the status we read, not by id alone. This function runs from after() on
+      // every device heartbeat as well as the cron, so several invocations can
+      // hold the same OPEN row from the findMany above. An update-by-id lets each
+      // one win and send its own "back online" message — the shopkeeper's phone
+      // buzzes once per concurrent heartbeat. Postgres re-checks the qual under
+      // the row lock, so exactly one caller sees count === 1.
+      const resolved = await db.deviceAlert.updateMany({
+        where: { id: alert.id, status: 'OPEN' },
         data: {
           status:      'RESOLVED',
           resolvedAt:  now,
@@ -628,6 +642,7 @@ export async function resolveOfflineAlerts(deviceId: string, now = new Date()): 
           } : {}),
         },
       });
+      if (resolved.count !== 1) continue; // another caller already resolved it
 
       if (alert.partnerNotifiedAt && alert.storeId) {
         await pushToStoreAllChannels(alert.storeId, {
@@ -639,8 +654,11 @@ export async function resolveOfflineAlerts(deviceId: string, now = new Date()): 
         const store = await db.store.findUnique({
           where: { id: alert.storeId }, select: { whatsapp: true, storeName: true },
         });
+        // await for the same reason as the offline send above: the alert is
+        // already RESOLVED, so nothing will retry this message if the promise is
+        // dropped when the invocation freezes.
         if (store?.whatsapp) {
-          void notifyStoreWA(store.whatsapp, deviceBackOnlineMsg(store.storeName ?? alert.storeName ?? 'your store'));
+          await notifyStoreWA(store.whatsapp, deviceBackOnlineMsg(store.storeName ?? alert.storeName ?? 'your store'));
         }
       }
     }

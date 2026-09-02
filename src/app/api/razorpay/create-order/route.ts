@@ -46,6 +46,10 @@ export async function POST(req: NextRequest) {
 
     // ── Recompute the authoritative amount (rupees) ────────────────────────────
     let amountRupees: number;
+    // The coupon that was actually honoured, as validated here. Stamped into the
+    // order notes below so verify-payment can count the redemption against the
+    // order rather than against whatever the browser chooses to send back.
+    let appliedCoupon: string | null = null;
 
     if (body.trial) {
       // C1: a free (₹0) campaign is allowed only once per brand — gated by email
@@ -66,7 +70,10 @@ export async function POST(req: NextRequest) {
       if (body.couponCode) {
         const base = campaignTotal({ screens, months, applyGst: false });
         const res  = await resolveCoupon(body.couponCode, base);
-        if (res.valid) discount = res.discount;
+        if (res.valid) {
+          discount = res.discount;
+          appliedCoupon = body.couponCode.toUpperCase();
+        }
       }
       amountRupees = campaignTotal({ screens, months, discount, applyGst: body.applyGst !== false });
     }
@@ -84,6 +91,18 @@ export async function POST(req: NextRequest) {
     // of the same name cannot override it.
     safeNotes.alive_screens = String(screens);
     safeNotes.alive_months  = String(months);
+    // Same reasoning for the coupon: the discount was granted HERE, so the
+    // redemption must be counted against what was granted here. Leaving
+    // verify-payment to read the code off the request body let a buyer take the
+    // discount and then omit the field, so the usage counter never moved and a
+    // capped coupon could be redeemed without limit.
+    //
+    // Set OR DELETE, never just set. The presence of this note is what
+    // verify-payment treats as proof a discount was granted, so a conditional
+    // write would let a client pass notes.alive_coupon by hand and burn a
+    // redemption off a capped promo it never qualified for.
+    if (appliedCoupon) safeNotes.alive_coupon = appliedCoupon;
+    else delete safeNotes.alive_coupon;
 
     const credentials = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
     const response = await fetch('https://api.razorpay.com/v1/orders', {

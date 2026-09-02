@@ -756,6 +756,8 @@ function StepAgreement({
         isTrial
           ? 'Campaign dates are confirmed after creative submission.'
           : 'Campaign dates are confirmed after payment and creative submission.',
+        'Minimum play guarantee: once your screens are booked, we guarantee the "Guaranteed plays/day" figure shown on your dashboard. If we fall short of that guarantee in a billing month, we will add the missed plays to your rotation the following month at no extra cost (make-good); if there is no following month, we will issue a pro-rated bill credit for the shortfall instead. We will never apply both remedies for the same shortfall.',
+        'Peak-window frequency: during peak viewing windows (9–11am, 12:30–2:30pm, 5:30–7:30pm, 7:30–9:30pm), screens with a Peak Boost add-on active play more often than screens without it. Your ad still plays every rotation cycle even without Peak Boost — only its frequency during those specific windows is reduced relative to boosted campaigns. Outside peak windows, all screens rotate equally regardless of Peak Boost.',
       ],
     },
     {
@@ -855,10 +857,10 @@ function StepAgreement({
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
                 <p className="text-muted-foreground">LLP IN-KA43598411418020V</p>
-                <p className="text-muted-foreground">#13, First Floor, Highland Manor</p>
-                <p className="text-muted-foreground">Falnir, Mangaluru 575002, Karnataka</p>
+                <p className="text-muted-foreground">217, Milestone 25, Balmatta</p>
+                <p className="text-muted-foreground">Mangalore, Karnataka</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
-                <p className="text-muted-foreground">hello@wearealive.in · +91 74113 24448</p>
+                <p className="text-muted-foreground">hello@wearealive.in · +91 96060 72227</p>
                 <p className="text-muted-foreground">Operating as: ALIVE advertising platform</p>
               </div>
               <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
@@ -899,7 +901,7 @@ function StepAgreement({
               <div className="space-y-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
-                <p className="text-muted-foreground">#13, First Floor, Highland Manor, Falnir, Mangaluru 575002</p>
+                <p className="text-muted-foreground">217, Milestone 25, Balmatta, Mangalore</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
                 <p className="text-muted-foreground">Authorised by: ALIVE Platform (automated)</p>
                 <p className="text-muted-foreground">Date: {effectiveDate}</p>

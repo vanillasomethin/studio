@@ -110,5 +110,21 @@ eq('more bookings than the new loop holds → blocked',
 eq('turning slot mode off with sold slots → blocked',
   packDate(at(0), 0), { ok: false, stranded: 1, free: 0 });
 
+console.log('buildSlotLoop — makegood weighting (Minimum Play Guarantee)');
+
+// A campaign owed a makegood gets extra entries in the round-robin bonus pool, so it
+// wins a bigger share of the empties — without changing who is eligible to play at all.
+eq('weighted campaign gets more of the empties than its unweighted peer',
+  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER, new Map([['A', 2]]))),
+  ['0:A','1:B','2:A*','3:A*','4:A*','5:B*']);
+
+eq('zero/omitted weight is identical to the plain round-robin',
+  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER, new Map([['A', 0]]))),
+  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER)));
+
+eq('weighting an unsold campaignId is a no-op (not in the pool to begin with)',
+  shape(buildSlotLoop(4, [booking(0, 'A')], FILLER, new Map([['ghost', 5]]))),
+  shape(buildSlotLoop(4, [booking(0, 'A')], FILLER)));
+
 console.log(failures === 0 ? '\nAll slot rules verified.' : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

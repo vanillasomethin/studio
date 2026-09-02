@@ -8,8 +8,8 @@
 - **Shoppers** — see deals/offers at their local kirana store
 
 **Company:** VS Collective LLP · GST 29AAXFV2589C1ZE · LLP IN-KA43598411418020V  
-**Contact:** hello@wearealive.in · +91 74113 24448  
-**Address:** #13 First Floor Highland Manor, Falnir, Mangalore 575002
+**Contact:** hello@wearealive.in · +91 96060 72227  
+**Address:** 217, Milestone 25, Balmatta, Mangalore
 
 ---
 
@@ -72,7 +72,20 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 **Auth — the biggest trap:**
 - Store partners (web): next-auth Credentials — the dashboard login calls `signIn('phone-password')`, which sets a session cookie. `localStorage` key `alive_store_session` is a *cache* of the store payload for instant render, and the fallback when no cookie exists yet (fresh registration, admin open-as-partner).
 - Store-partner API routes: authenticate with `resolveStoreId()` from `src/lib/store-partner-auth.ts`. A bare `storeId` param is NOT a credential (ids are publicly enumerable) — an explicit `storeId` is honored only with a matching signed `x-store-token` header (HMAC, `AUTH_SECRET`; minted by login/registration//api/stores/me, or `/api/admin/store-token` for impersonation) or when it matches the next-auth session owner's store. No `storeId` → next-auth session fallback (web). Don't hand-roll `auth()` checks in these routes.
-- Admin routes: `admin-password` header checked against `ADMIN_PASSWORD` env var
+- Admin console: **named accounts with 2FA**. A person signs in at `/admin` with
+  their own `@wearealive.in` email + password + TOTP, via the next-auth
+  `admin-mfa` provider — there is no shared password any more, and
+  `/api/admin/auth` is a 410 stub kept only so a stale tab gets a clear answer.
+  Every admin route starts with `const actor = await requireAdmin(req); if
+  (!actor) return adminUnauthorized();` (`src/lib/admin-guard.ts`) — never a
+  hand-rolled `admin-password` header check, and never a
+  `!process.env.ADMIN_PASSWORD || …` guard, which with the secret retired is an
+  open endpoint. Audit mutations with `logAdminAction({ actor, req, action,
+  target, meta })` (`src/lib/admin-audit.ts`); `action` is a dotted verb like
+  `slot_booking.assign`. Sessions are rows (`AdminSession`) so they are
+  revocable — a signed JWT alone is not. Staff are provisioned from Admin → Team,
+  which mails a single-use `/admin/setup?token=…` link (`src/lib/admin-invite.ts`);
+  invites never carry a password.
 - Brands/admin: next-auth session via `auth()`
 
 **R2 uploads — two paths, pick by size:**
@@ -152,6 +165,30 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 
 ---
 
+## Two playback modes — don't build a playlist per store
+
+A screen gets its content one of two ways. Which one applies is decided by
+`Store.loopSlotCount`:
+
+- **Slot mode (`loopSlotCount` set, default 30) — the primary model.** The loop is
+  generated per store per day from `SlotBooking` rows by `buildSlotLoop()`
+  (`src/lib/slots.ts`), called from `/api/device/plan`. A booking points at a
+  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`).
+  **No Playlist is involved at all** — one campaign with one creative serves every
+  store it's booked into, so there is never a reason to hand-build a playlist per
+  store. Unsold positions fill themselves: first as bonus replays of sold campaigns
+  (round-robin), then from the house filler campaign.
+- **Playlist/schedule mode (`loopSlotCount` null).** The older path — `Playlist` →
+  `Schedule` → devices. Use it for screens that aren't selling slots.
+
+A slot loop that has anything playable always wins; schedules are only consulted
+when the store isn't in slot mode, or when its loop for the day resolves to
+nothing (closed day, no usable creatives and no filler) — serving an empty plan
+once blanked a real screen for a full day. Admin UI for all of this lives under
+one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
+
+---
+
 ## Key Routes
 
 | Route | Description |
@@ -197,13 +234,32 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 ## Admin Dashboard
 
-- Protected by `admin-password` header vs `ADMIN_PASSWORD` env var
-- `sessionStorage.getItem('alive_admin_pw')` in browser for API calls
+- Protected per-route by `requireAdmin()` — a named session, not a header secret
+- The browser holds no admin credential; the session cookie is httpOnly
 - Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
 
 ---
 
 ## Design Conventions
+
+### Make state visible — the overriding UI rule
+
+Every screen must answer "what's going on?" at a glance, without reading. This
+outranks brevity and outranks matching whatever pattern is already on the page.
+When a generic control and a graphical one both work, use the graphical one.
+
+- **Show status as colour and shape, not words in a cell.** Slot occupancy is a
+  grid of coloured pills, not a count. Online/offline is a strong visual state on
+  the card, not a grey label someone has to hunt for.
+- **Don't hide identity behind IDs.** Pick things by photo, name, and thumbnail —
+  a bare `<select>` of campaign names or store IDs is not acceptable for anything
+  an operator uses daily. Show the creative, show the store.
+- **Progressive disclosure.** Card faces carry identity + status only. Detail
+  belongs behind a click, not crammed onto the surface.
+- **Any list an operator scans needs sort and filter.** Screens, stores,
+  campaigns, content.
+- **Interactive things must look interactive** — real hover states, obvious
+  affordances. A button that does nothing is a bug; wire it or delete it.
 
 **Never:**
 - Neon colours, glowing buttons, rainbow palettes
@@ -213,6 +269,10 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
+- Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
+  with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
+  — never hand-roll the markup, and never restyle its font, weight, or colour.
+  PWA icons are generated from it with `npm run icons:pwa`.
 - Primary red: `#ef4444` / `#b91c1c` — CTAs and key labels only
 - Backgrounds: `bg-white` or `bg-gray-50` / `bg-background`
 - Cards: white + `border border-border` — no shadow stacks
@@ -262,10 +322,17 @@ R2_BUCKET
 R2_PRIVATE_BUCKET               # KYC/identity docs — a SEPARATE bucket with NO public access. Public access on R2 is per-bucket, so Aadhaar/PAN must not share R2_BUCKET. Served only via /api/stores/kyc/doc.
 R2_PUBLIC_BASE
 AUTH_SECRET
-ADMIN_PASSWORD
+ADMIN_PASSWORD                  # RETIRED. Only admin-guard's legacy fallback still reads it;
+                                # leave it unset in new environments — named accounts are the way in.
+ADMIN_BASE_URL                  # origin used in admin invite links (default https://wearealive.in)
+ZOHO_SMTP_USER                  # Zoho mailbox for admin invites (app-specific password, not the account one)
+ZOHO_SMTP_PASSWORD
+ZOHO_SMTP_HOST                  # default smtp.zoho.in — use smtp.zoho.com for a .com account
+ZOHO_SMTP_PORT                  # default 465 (SSL)
+ADMIN_MAIL_FROM                 # default "ALIVE <hello@wearealive.in>"
 TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
-ADMIN_WHATSAPP                  # default +917411324448
+ADMIN_WHATSAPP                  # default +919606072227
 RESEND_API_KEY                  # email alerts (optional)
 MSG91_AUTH_KEY                  # MSG91 account auth key (WhatsApp OTP; falls back to Twilio WhatsApp if absent)
 MSG91_WHATSAPP_NUMBER           # MSG91 integrated (sender) WhatsApp business number
@@ -278,12 +345,16 @@ PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (
 PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
 PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL; overrides the default sideload-latest GitHub Release location. Env vars above win over the manifest (pin/rollback).
 NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
+STORE_SIGNUP_KEY_STANDARD       # secret for the gated Standard-tier signup link /store?tier=<key>
+STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
+STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link
 PREMIUM_SIGNUP_KEY              # secret for the gated premium store signup link /store?premium=<key> (optional)
 PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (default 100000 = ₹1000)
 TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
 TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
 TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
-ELECTRICITY_RATE_PAISE_PER_KWH  # ₹/unit for display-only cost estimates (default 800 = ₹8/kWh)
+# Electricity tariff is NOT an env var: measured (smart plug) and estimated
+# (proof-of-play) costs both price kWh from PlayerConfig.electricityPaisePerKwh.
 ```
 
 ---

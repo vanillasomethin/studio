@@ -86,12 +86,44 @@ export async function POST(req: NextRequest) {
         where: { email: { equals: campaign.email, mode: 'insensitive' } },
       });
 
+      // The coupon comes from the ORDER, exactly as screens and months do.
+      // create-order granted the discount and stamped the code it honoured.
+      // Reading it off the request body instead let a buyer take the discounted
+      // price and then simply omit couponCode here — the redemption was never
+      // counted, so a capped coupon could be redeemed without limit.
+      const paidCoupon = typeof order.notes?.alive_coupon === 'string'
+        ? order.notes.alive_coupon
+        : null;
+
+      // Count one redemption against the cap, atomically. The cap is checked at
+      // create-order but incremented only here, so buyers who pass the check
+      // concurrently would all redeem; the cap is therefore re-asserted inside
+      // the same statement and the database decides who takes the last slot.
+      // A zero-row result means someone else took it — the buyer has already
+      // been charged the discounted amount, so the payment stands (failing a
+      // settled transaction over a coupon is worse) but the counter stays true.
+      const countRedemption = async (code: string) => {
+        await db.coupon.updateMany({
+          where: {
+            code: code.toUpperCase(),
+            OR: [
+              { maxRedemptions: null },
+              { redemptions: { lt: db.coupon.fields.maxRedemptions } },
+            ],
+          },
+          data: { redemptions: { increment: 1 } },
+        }).catch(() => {});
+      };
+
       const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
 
       if (existing) {
         // Keep the row internally consistent: the charge was recomputed at
         // current rates, so the stored per-screen rate must follow it.
         const ppw = Math.floor(Number(campaign.pricePerScreen));
+        // Only the transition into `active` is a redemption. A retried or
+        // replayed verify for an already-active campaign must not count again.
+        const wasAlreadyActive = existing.status === 'active';
         await db.campaign.update({
           where: { id: existing.id },
           data:  {
@@ -100,9 +132,13 @@ export async function POST(req: NextRequest) {
             totalAmount: chargedRupees,
             screens: paidScreens,
             months:  paidMonths,
+            ...(paidCoupon ? { couponCode: paidCoupon } : {}),
             ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
           },
         });
+        // The pay-later flow reaches payment through this branch, so it counted
+        // no redemptions at all until now.
+        if (paidCoupon && !wasAlreadyActive) await countRedemption(paidCoupon);
       } else {
         await db.campaign.create({
           data: {
@@ -116,7 +152,7 @@ export async function POST(req: NextRequest) {
             startDate:      new Date(campaign.startDate),
             pricePerScreen: campaign.pricePerScreen,
             totalAmount:    chargedRupees,
-            couponCode:     campaign.couponCode ?? null,
+            couponCode:     paidCoupon,
             preferredStoreIds: Array.isArray(campaign.preferredStoreIds)
               ? campaign.preferredStoreIds
                   .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
@@ -128,31 +164,7 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Count the redemption against the coupon's usage cap.
-        //
-        // The cap is checked when the order is created but incremented only
-        // here, so N shoppers who all pass the check concurrently would all
-        // redeem — a check-then-act race that lets a capped coupon overshoot.
-        // The increment is therefore conditional on the cap in the same
-        // statement: the database, not the application, decides who gets the
-        // last redemption, and the counter can never exceed maxRedemptions.
-        //
-        // A zero-row result means a concurrent payment took the final slot.
-        // The shopper has already been charged the discounted amount by then,
-        // so the payment stands — the alternative is failing a settled
-        // transaction over a coupon — but the counter stays truthful.
-        if (campaign.couponCode) {
-          await db.coupon.updateMany({
-            where: {
-              code: campaign.couponCode.toUpperCase(),
-              OR: [
-                { maxRedemptions: null },
-                { redemptions: { lt: db.coupon.fields.maxRedemptions } },
-              ],
-            },
-            data: { redemptions: { increment: 1 } },
-          }).catch(() => {});
-        }
+        if (paidCoupon) await countRedemption(paidCoupon);
       }
     }
 
