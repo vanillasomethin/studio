@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw, Bell, LayoutGrid, Map } from 'lucide-react';
 import { getDevices, type Device } from '@/lib/backend-api';
+import { adminGetArray } from '@/lib/admin-fetch';
 import PlayerConfigPanel from './player-config-panel';
+import type { StoreLite } from './fleet-map';
 
 const FleetMap = lazy(() => import('./fleet-map'));
 
@@ -28,6 +30,9 @@ type View = 'grid' | 'map';
 
 export default function MonitoringTab() {
   const [devices,    setDevices]    = useState<Device[]>([]);
+  // Onboarded stores, so the map shows a store from the day it is pinned —
+  // not from the day its screen first phones home.
+  const [stores,     setStores]     = useState<StoreLite[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [lastFetch,  setLastFetch]  = useState<Date | null>(null);
@@ -50,6 +55,10 @@ export default function MonitoringTab() {
       .then((r) => { setDevices(r.devices); setLastFetch(new Date()); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+    // Non-fatal: the screens are the point of this tab, the stores are context.
+    adminGetArray<StoreLite>('/api/stores/save')
+      .then(setStores)
+      .catch(() => setStores([]));
   }, []);
 
   useEffect(() => {
@@ -71,6 +80,10 @@ export default function MonitoringTab() {
   const online  = devices.filter((d) => d.status === 'ONLINE').length;
   const offline = devices.filter((d) => d.status === 'OFFLINE').length;
   const pending = devices.filter((d) => d.status === 'PENDING').length;
+
+  const screened       = new Set(devices.map((d) => d.storeId));
+  const storesNoScreen = stores.filter((s) =>
+    s.lat != null && s.lng != null && s.onboardingStage !== 'rejected' && !screened.has(s.id)).length;
 
   const withUptime = devices.filter((d) => d.uptimePct != null);
   const avgUptime  = withUptime.length > 0
@@ -148,9 +161,10 @@ export default function MonitoringTab() {
         <p className="text-sm text-muted-foreground text-center py-10">No screens registered yet.</p>
       ) : view === 'map' ? (
         <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-          <FleetMap devices={devices} />
+          <FleetMap devices={devices} stores={stores} />
           <p className="text-[10px] text-muted-foreground/50 text-center mt-2">
-            Showing {devices.filter((d) => d.lat != null).length} of {devices.length} screens with known locations.
+            Showing {devices.filter((d) => d.lat != null).length} of {devices.length} screens with known locations
+            · {storesNoScreen} onboarded store{storesNoScreen !== 1 ? 's' : ''} without a screen yet (hollow pins).
             Pin colour: green = online, red = offline, yellow = pending.
           </p>
         </Suspense>

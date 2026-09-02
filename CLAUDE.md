@@ -109,6 +109,20 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 - No react-leaflet — use `async function loadLeaflet()` dynamic import pattern
 - Always `// eslint-disable-next-line @next/next/no-img-element` before `<img>` tags
 
+**Store map pin:**
+- `Store.lat/lng` comes from, in order: the partner's pin at registration (required) →
+  an on-site GPS fix that fills an EMPTY pin (a photo's own EXIF GPS via
+  `/api/stores/verification-photo`; any shop/install photo via
+  `/api/admin/stores/[id]/photo`) → ops setting/moving it in Admin → Stores → Edit →
+  Map pin (`PATCH /api/admin/stores/[id]` with `{ lat, lng }`; no clearing path). A pin
+  is required to cross into `physically_onboarded` (409 lists `Map pin (shop location)`).
+  A pinned store is on the public map once `contacted`, in the brand picker (non-bookable
+  "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
+  stage. Nothing waits for `live` — don't build a "live only" filter on any map.
+- Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"
+  (`SECRET_WORD` in `src/lib/admin-audit.ts`) — name pin-related meta keys
+  `locationSource` / `coords`, never anything with "pin" in it.
+
 ---
 
 ## Key File Paths
@@ -228,7 +242,7 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 
 ## Store Registration Flow
 
-1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map, locality/pincode/city autofill via Nominatim, referral code
+1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map (pin required), locality/pincode/city autofill via Nominatim, referral code
 2. **Step 2** — Agreement preview, party block prefilled, "I agree" checkbox, submit → generates referral code + saves `agreedAt`
 
 Form data persisted to `sessionStorage('alive_store_draft')` so navigating to agreement page and back doesn't lose data.

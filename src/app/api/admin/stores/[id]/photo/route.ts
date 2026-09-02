@@ -142,21 +142,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const url = publicUrl(key);
 
     const at = new Date();
+    // Map pin. A store's pin comes from, in order: the partner at registration
+    // → an on-site GPS fix that fills an EMPTY pin → ops setting or moving it
+    // in Admin → Stores. Ops is standing in the shop, so any shop/install fix
+    // qualifies here (EXIF or device); serial/plug never touch the pin.
+    const fillsPin = kind === 'shop' || kind === 'install';
+    let storeLat: number | null = null;
+    let storeLng: number | null = null;
     try {
       // COALESCE, so a kind that legitimately has no fix (a serial plate shot
       // indoors) records the new photo without erasing coordinates already held
       // for it. A supplied pair still overwrites, which is what a re-shoot at
-      // the real location should do.
-      await db.$executeRawUnsafe(
+      // the real location should do. The pin, by contrast, is only ever FILLED
+      // (both halves, in the one statement, so a stored lat never pairs with a
+      // photo lng) — a pin that exists is left where the partner or ops put it.
+      // RETURNING the pin the row now holds, so the panel can show the store
+      // on the map the moment an upload has put it there.
+      const rows = await db.$queryRawUnsafe<{ lat: number | null; lng: number | null }[]>(
         `UPDATE "Store" SET
            "${prefix}Url" = $1,
            "${prefix}Lat" = COALESCE($2, "${prefix}Lat"),
            "${prefix}Lng" = COALESCE($3, "${prefix}Lng"),
            "${prefix}Source" = COALESCE($4, "${prefix}Source"),
-           "${prefix}At" = $5, "updatedAt" = $6
-         WHERE "id" = $7`,
-        url, lat, lng, source, at, at, id,
+           "${prefix}At" = $5, "updatedAt" = $6,
+           "lat" = CASE WHEN $8 AND $2 IS NOT NULL AND $3 IS NOT NULL AND ("lat" IS NULL OR "lng" IS NULL) THEN $2 ELSE "lat" END,
+           "lng" = CASE WHEN $8 AND $2 IS NOT NULL AND $3 IS NOT NULL AND ("lat" IS NULL OR "lng" IS NULL) THEN $3 ELSE "lng" END
+         WHERE "id" = $7
+         RETURNING "lat", "lng"`,
+        url, lat, lng, source, at, at, id, fillsPin,
       );
+      storeLat = rows[0]?.lat ?? null;
+      storeLng = rows[0]?.lng ?? null;
     } catch (e) {
       // DB write failed — don't leave the fresh object orphaned in R2.
       await deleteObject(key).catch(() => { /* best-effort */ });
@@ -168,14 +184,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Logged after the row is committed, so a failed upload never reads as
     // recorded evidence. `replaced` matters: these photos are the onboarding
     // audit trail, and silently overwriting one is the interesting event.
+    // `locationSource` records that the store's pin now equals this photo's
+    // fix (filled by this upload, or already the same); the key deliberately
+    // avoids the word "pin", which the audit scrubber redacts.
+    const pinIsThisPhoto = fillsPin && lat != null && storeLat === lat && storeLng === lng;
     await logAdminAction({
       actor, req,
       action: 'store.upload_photo',
       target: id,
-      meta:   { kind, lat, lng, source, replaced: !!(oldKey && oldKey !== key) },
+      meta:   {
+        kind, lat, lng, source, replaced: !!(oldKey && oldKey !== key),
+        locationSource: pinIsThisPhoto ? `${kind}_photo` : null,
+      },
     });
 
-    return NextResponse.json({ url, lat, lng, at });
+    // storeLat/storeLng: the store's map pin after this upload (null = still unpinned).
+    return NextResponse.json({ url, lat, lng, at, storeLat, storeLng });
   } catch (e) {
     // Log server-side; never return raw DB/R2 text, which leaks column names,
     // env-var names and bucket details. Matches the partner route's contract.

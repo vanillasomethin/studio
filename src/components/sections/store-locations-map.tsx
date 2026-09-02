@@ -21,6 +21,12 @@ const PIN = {
   in_progress: { fill: '#ffffff', ring: '#f59e0b', label: 'Coming soon' },
 } as const;
 
+// Store names/localities are partner-entered (registration is public) — escape
+// before they touch popup markup.
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 export default function StoreLocationsMap() {
   const mapRef        = useRef<HTMLDivElement>(null);
@@ -176,12 +182,15 @@ export default function StoreLocationsMap() {
           ? `<span style="color:#dc2626;">● Live</span>`
           : `<span style="color:#b45309;">○ Coming soon</span>`;
 
-        const marker = (L as any).marker([store.lat, store.lng], { icon: iconFor(store, false) })
+        const marker = (L as any).marker([store.lat, store.lng], {
+          icon: iconFor(store, false),
+          title: `${store.storeName} — ${PIN[store.status].label}`,
+        })
           .addTo(map)
           .bindPopup(
             `<div style="font-family:Manrope,sans-serif;min-width:140px;padding:2px 0;">
-              <p style="font-size:13px;font-weight:700;margin:0 0 2px;">${store.storeName}</p>
-              <p style="font-size:11px;color:#666;margin:0;">${[store.locality, store.city].filter(Boolean).join(' · ')}</p>
+              <p style="font-size:13px;font-weight:700;margin:0 0 2px;">${esc(store.storeName)}</p>
+              <p style="font-size:11px;color:#666;margin:0;">${esc([store.locality, store.city].filter(Boolean).join(' · '))}</p>
               <p style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin:4px 0 0;">${tag}</p>
             </div>`,
             { closeButton: false, className: 'alive-popup' }

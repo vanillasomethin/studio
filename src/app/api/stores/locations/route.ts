@@ -22,9 +22,17 @@ type Row = {
 };
 
 // Public endpoint — store name + location + whether it is live yet.
+//
+// A pinned store is public as soon as ops has verified it: the shop photo moves
+// it to `contacted`, and from then on it shows as "Coming soon" until it plays.
+// Nothing waits for `live`. Unverified applicants (`new`), rejected ones, and
+// rows with a stage outside the pipeline stay off the map.
+//
 // Raw SQL because onboardingStage post-dates the init migration and may be
 // absent on older databases; if the column isn't there we fall back to treating
 // every pinned store as live, which is how this endpoint behaved before.
+const PUBLIC_STAGES = ['contacted', 'physically_onboarded', 'digitally_onboarded', 'live'];
+
 export async function GET() {
   let rows: Row[] = [];
 
@@ -50,8 +58,8 @@ export async function GET() {
   }
 
   const stores: StoreLocation[] = rows
-    // A rejected applicant is not part of the network and must not be mapped.
-    .filter((r) => r.onboardingStage !== 'rejected')
+    // Verified stores only — see PUBLIC_STAGES above.
+    .filter((r) => r.onboardingStage != null && PUBLIC_STAGES.includes(r.onboardingStage))
     .map(({ onboardingStage, ...r }) => ({
       ...r,
       status: onboardingStage === 'live' ? 'live' : 'in_progress',

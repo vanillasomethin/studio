@@ -34,9 +34,10 @@ async function reverseGeocode(lat: number, lng: number) {
 type Props = {
   lat: string; lng: string;
   onLocation: (lat: string, lng: string, locality: string, pincode: string, city: string) => void;
+  error?: string;   // form validation message (e.g. pin required) — reddens the map border
 };
 
-export default function MapPicker({ lat, lng, onLocation }: Props) {
+export default function MapPicker({ lat, lng, onLocation, error }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef    = useRef<any>(null);
@@ -165,7 +166,7 @@ export default function MapPicker({ lat, lng, onLocation }: Props) {
       )}
 
       {/* Map */}
-      <div className="relative rounded-2xl overflow-hidden border border-gray-200" style={{ height: 240 }}>
+      <div className={`relative rounded-2xl overflow-hidden border ${error ? 'border-red-300' : 'border-gray-200'}`} style={{ height: 240 }}>
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
         {!lat && (
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-none">
@@ -175,6 +176,13 @@ export default function MapPicker({ lat, lng, onLocation }: Props) {
           </div>
         )}
       </div>
+
+      {error && (
+        <div className="flex items-start gap-1.5 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-500" />
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
 
       {lat && (
         <p className="text-[10px] text-gray-400 flex items-center gap-1">
