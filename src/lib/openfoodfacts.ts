@@ -7,7 +7,7 @@
 //
 // Coverage for Indian FMCG is partial — where Open Prices has no INR price we still
 // return the verified product identity so admin can confirm the match, then fall
-// back to Maxun (Amazon/Flipkart) or the bulk CSV import for the MRP figure.
+// back to the bulk CSV import or manual entry for the MRP figure.
 
 export type OffPriceCandidate = {
   source: 'openfoodfacts';

@@ -61,7 +61,7 @@ type Product = {
   barcodeEan: string | null; isActive: boolean;
 };
 
-type MrpCandidate = { source: 'amazon' | 'flipkart' | 'openfoodfacts'; title: string; price: number; url?: string };
+type MrpCandidate = { source: 'openfoodfacts'; title: string; price: number; url?: string };
 
 const BLANK: Omit<Product, 'id' | 'groupId' | 'isActive' | 'imageIsAi'> = {
   productName: '', brand: '', category: 'GRO', sizeVariant: '', unitType: 'g',
@@ -270,38 +270,16 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
     } finally { setAddingTo(null); }
   };
 
-  // MRP fetch from Amazon/Flipkart via Maxun (per-row, review before apply)
-  const [mrpId,     setMrpId]     = useState<string | null>(null);
+  // MRP candidates (per-row, review before apply)
   const [mrpFor,    setMrpFor]    = useState<Product | null>(null);
   const [mrpCands,  setMrpCands]  = useState<MrpCandidate[]>([]);
-  const [mrpErrors, setMrpErrors] = useState<string[]>([]);
   const [mrpNote,   setMrpNote]   = useState<string | null>(null);
   const [bcId,      setBcId]      = useState<string | null>(null);
-
-  const fetchMrp = async (p: Product) => {
-    setMrpId(p.id); setMrpFor(p); setMrpCands([]); setMrpErrors([]); setMrpNote(null);
-    try {
-      const res  = await fetch(`/api/admin/products/${p.id}/fetch-mrp`, {
-        method: 'POST', headers: { 'admin-password': adminPw },
-      });
-      const data = await res.json() as { candidates?: MrpCandidate[]; errors?: string[]; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Fetch failed');
-      setMrpCands(data.candidates ?? []);
-      setMrpErrors(data.errors ?? []);
-      if (!data.candidates?.length) {
-        toast({ title: 'No prices found', description: 'Try a real photo / manual entry.' });
-        setMrpFor(null);
-      }
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'MRP fetch failed', description: (e as Error).message });
-      setMrpFor(null);
-    } finally { setMrpId(null); }
-  };
 
   // Barcode lookup via Open Food Facts + Open Prices (free, no key). Authoritative
   // identity from the EAN; INR price candidates where the community has logged them.
   const lookupBarcode = async (p: Product) => {
-    setBcId(p.id); setMrpFor(p); setMrpCands([]); setMrpErrors([]); setMrpNote(null);
+    setBcId(p.id); setMrpFor(p); setMrpCands([]); setMrpNote(null);
     try {
       const res  = await fetch(`/api/admin/products/${p.id}/lookup-barcode`, {
         method: 'POST', headers: { 'admin-password': adminPw },
@@ -643,11 +621,6 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
                         {bcId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Barcode className="h-3.5 w-3.5" />}
                       </button>
                     )}
-                    <button onClick={() => fetchMrp(p)} disabled={mrpId === p.id}
-                      title="Fetch MRP from Amazon / Flipkart"
-                      className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 disabled:opacity-50">
-                      {mrpId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Tag className="h-3.5 w-3.5" />}
-                    </button>
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -826,15 +799,6 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
         </div>
       )}
 
-      {/* MRP fetch in progress */}
-      {mrpId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-background rounded-xl px-6 py-4 text-sm font-semibold flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Fetching prices from Amazon &amp; Flipkart…
-          </div>
-        </div>
-      )}
-
       {/* Barcode lookup in progress */}
       {bcId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -906,7 +870,7 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
               <button onClick={() => setMrpFor(null)}><X className="h-4 w-4 text-muted-foreground" /></button>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Verify before applying. Barcode (Open Food Facts) prices are real receipts; Amazon/Flipkart figures are usually the MRP at the highest seller.
+              Verify before applying. Barcode (Open Food Facts) prices come from real receipts logged by the community.
             </p>
             <div className="space-y-1.5 max-h-72 overflow-auto">
               {mrpCands.map((c, i) => (
@@ -914,14 +878,13 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
                   className="flex items-center justify-between w-full gap-3 rounded-lg border border-border px-3 py-2 text-left hover:border-primary hover:bg-primary/5 transition-colors">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-foreground truncate">{c.title}</p>
-                    <span className={`text-[10px] font-bold uppercase ${c.source === 'amazon' ? 'text-amber-600' : c.source === 'flipkart' ? 'text-blue-600' : 'text-emerald-600'}`}>{c.source === 'openfoodfacts' ? 'Open Food Facts' : c.source}</span>
+                    <span className="text-[10px] font-bold uppercase text-emerald-600">Open Food Facts</span>
                   </div>
                   <span className="font-bold text-foreground shrink-0">₹{c.price}</span>
                 </button>
               ))}
             </div>
             {mrpNote && <p className="text-[11px] text-muted-foreground bg-muted rounded-lg px-3 py-2">{mrpNote}</p>}
-            {mrpErrors.length > 0 && <p className="text-[10px] text-amber-600">{mrpErrors.join(' · ')}</p>}
           </div>
         </div>
       )}
