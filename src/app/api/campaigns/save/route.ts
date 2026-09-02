@@ -28,6 +28,7 @@ import { db } from '@/lib/db';
 import { respond } from '@/lib/api-envelope';
 import { hitLimit } from '@/lib/rate-limit';
 import { notifyAdminWA } from '@/lib/notify';
+import { sanitizeStoreIds } from '@/lib/store-ids';
 
 // Free-text fields are written straight to rows that ops reads. Caps stop an
 // anonymous caller using the table as free storage, and keep a hostile string
@@ -116,16 +117,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Map-picked store ids — a routing hint for ops, not a reservation. Sanitised
-    // hard because the route is unauthenticated: strings only, cuid-shaped, capped
-    // at the screen ceiling. Unknown ids are tolerated (ops sees names resolved
-    // from the DB; anything unresolvable simply doesn't render).
-    // Truncate BEFORE per-element work so an oversized hostile array costs nothing.
-    const preferredStoreIds = Array.isArray(body.preferredStoreIds)
-      ? body.preferredStoreIds
-          .slice(0, 200)
-          .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
-          .slice(0, 50)
-      : [];
+    // hard because the route is unauthenticated: strings only, id-shaped (cuid or
+    // legacy uuid — prod has both), capped at the screen ceiling. Unknown ids are
+    // tolerated (ops sees names resolved from the DB; anything unresolvable
+    // simply doesn't render).
+    const preferredStoreIds = sanitizeStoreIds(body.preferredStoreIds);
 
     // A ₹0 booking IS a trial regardless of what the client claims, and a
     // claimed trial is always ₹0 — normalising here keeps the two in lockstep

@@ -19,6 +19,7 @@
     "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs",
     "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs",
     "verify:tier-links": "node --experimental-strip-types scripts/verify-tier-links.mjs",
+    "verify:store-ids": "node --experimental-strip-types scripts/verify-store-ids.mjs",
     "icons:pwa": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {

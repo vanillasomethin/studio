@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { db } from '@/lib/db';
+import { sanitizeStoreIds } from '@/lib/store-ids';
 
 type Body = {
   razorpay_order_id:   string;
@@ -163,11 +164,7 @@ export async function POST(req: NextRequest) {
               pricePerScreen: campaign.pricePerScreen,
               totalAmount:    chargedRupees,
               couponCode:     paidCoupon,
-              preferredStoreIds: Array.isArray(campaign.preferredStoreIds)
-                ? campaign.preferredStoreIds
-                    .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
-                    .slice(0, 50)
-                : [],
+              preferredStoreIds: sanitizeStoreIds(campaign.preferredStoreIds),
               paymentId:      razorpay_payment_id,
               orderId:        razorpay_order_id,
               status:         'active',
