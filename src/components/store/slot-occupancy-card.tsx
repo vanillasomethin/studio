@@ -15,17 +15,19 @@ type OccupancyResponse = {
   missingBrands?: { campaignId: string; brandName: string; storeCount: number }[];
 };
 
-export default function SlotOccupancyCard({ storeId }: { storeId: string }) {
+export default function SlotOccupancyCard({ storeId, token }: { storeId: string; token?: string }) {
   const [data, setData] = useState<OccupancyResponse | null>(null);
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/stores/slot-occupancy?storeId=${storeId}`)
+    fetch(`/api/stores/slot-occupancy?storeId=${storeId}`, {
+      headers: token ? { 'x-store-token': token } : undefined,
+    })
       .then((r) => r.ok ? r.json() as Promise<OccupancyResponse> : null)
       .then((d) => { if (live && d) setData(d); })
       .catch(() => {});
     return () => { live = false; };
-  }, [storeId]);
+  }, [storeId, token]);
 
   if (!data?.slotMode) return null;
 

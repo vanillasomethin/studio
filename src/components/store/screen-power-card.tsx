@@ -36,18 +36,23 @@ type PowerResponse = {
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-export default function ScreenPowerCard({ storeId }: { storeId: string }) {
+export default function ScreenPowerCard({ storeId, token }: { storeId: string; token?: string }) {
   const [data, setData] = useState<PowerResponse | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/stores/power?storeId=${storeId}`)
+    // The signed token is required whenever there's no next-auth cookie —
+    // right after registration, and in admin open-as-partner. Without it
+    // resolveStoreId() rejects the explicit storeId and the card vanishes.
+    fetch(`/api/stores/power?storeId=${storeId}`, {
+      headers: token ? { 'x-store-token': token } : undefined,
+    })
       .then((r) => r.ok ? r.json() as Promise<PowerResponse> : null)
       .then((d) => { if (live) { if (d) setData(d); else setFailed(true); } })
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
-  }, [storeId]);
+  }, [storeId, token]);
 
   if (failed || !data) return null;
 
