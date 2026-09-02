@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { safeFetchText } from '@/lib/ssrf-guard';
 
 type FeedItem = { title: string; link: string; pubDate: string | null };
 
@@ -50,20 +51,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: cached.items, cached: true });
   }
 
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'AliveStudio/1.0 (+https://wearealive.in)' },
-      signal:  AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      return NextResponse.json({ error: `Feed responded ${res.status}` }, { status: 502 });
-    }
-    const text = await res.text();
-    const items = parseRss(text);
-    cache.set(url, { items, at: now });
-    return NextResponse.json({ items, cached: false });
-  } catch (e) {
-    const msg = (e as Error).message;
-    return NextResponse.json({ error: `Couldn't fetch feed: ${msg}` }, { status: 502 });
+  // safeFetchText enforces http/https, re-validates the resolved address on
+  // every redirect hop, and caps the body. A plain fetch here made this route a
+  // confused deputy: it reaches from the server's network position, so an admin
+  // could read cloud metadata or anything on a private subnet through it.
+  const result = await safeFetchText(url);
+
+  if (!result.ok) {
+    // One message for every failure. Distinguishing "connection refused" from
+    // "timed out" turns the route into a port scanner for the private network:
+    // an attacker learns which internal hosts exist from the error text alone.
+    const status = result.reason === 'scheme' || result.reason === 'blocked' ? 400 : 502;
+    return NextResponse.json({ error: "Couldn't fetch that feed." }, { status });
   }
+
+  const items = parseRss(result.body);
+  cache.set(url, { items, at: now });
+  return NextResponse.json({ items, cached: false });
 }
