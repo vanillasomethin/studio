@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
             costPaise: e.costPaise,
             watts:     e.watts,
             usingDefaultWatts: e.usingDefaultWatts,
+            source:    e.source,
           },
         };
       }),

@@ -55,12 +55,41 @@ export async function estimateStorePower(
     byStore.set(storeId, list);
   }
 
+  // Stores with a linked smart plug use the average draw the socket actually
+  // measured while on (this period) instead of the surveyed/default wattage —
+  // see estimatePower's source field. Off/standby readings are excluded so a
+  // screen that idles overnight doesn't drag the running figure down.
+  const plugs = await db.smartPlug.findMany({
+    where:  { storeId: { in: stores.map((s) => s.id) } },
+    select: { id: true, storeId: true },
+  });
+  const meteredByStore = new Map<string, number>();
+  if (plugs.length > 0) {
+    const avgs = await db.plugReading.groupBy({
+      by:     ['plugId'],
+      where:  {
+        plugId:   { in: plugs.map((p) => p.id) },
+        at:       { gte: since },
+        switchOn: true,
+        powerW:   { not: null },
+      },
+      _avg: { powerW: true },
+    });
+    const storeOfPlug = new Map(plugs.map((p) => [p.id, p.storeId]));
+    for (const a of avgs) {
+      const storeId = storeOfPlug.get(a.plugId);
+      const w = a._avg.powerW;
+      if (storeId && w != null && w >= 1) meteredByStore.set(storeId, Math.round(w));
+    }
+  }
+
   for (const s of stores) {
     out.set(s.id, estimatePower({
       buckets:      byStore.get(s.id) ?? [],
       storeWatts:   s.screenWatts,
       defaultWatts,
       paisePerKwh,
+      meteredWatts: meteredByStore.get(s.id) ?? null,
     }));
   }
   return out;

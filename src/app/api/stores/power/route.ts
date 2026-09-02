@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
         watts:     est.watts,
         paisePerKwh: est.paisePerKwh,
         usingDefaultWatts: est.usingDefaultWatts,
+        source:    est.source,
       },
       screen: {
         model:           store.screenModel,

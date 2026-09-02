@@ -49,6 +49,10 @@ export type PowerEstimate = {
    *  recorded figure — i.e. the estimate is a guess about the hardware. Surfaced so
    *  UIs can flag which stores need a real wattage before anyone trusts the number. */
   usingDefaultWatts: boolean;
+  /** Where `watts` came from. `metered` (average draw the store's smart plug
+   *  actually measured while on) beats `surveyed` (label-plate rating) beats
+   *  `default` (fleet guess) — the socket knows better than the sticker. */
+  source: 'metered' | 'surveyed' | 'default';
 };
 
 export function estimatePower(args: {
@@ -56,8 +60,12 @@ export function estimatePower(args: {
   storeWatts:  number | null;
   defaultWatts: number;
   paisePerKwh: number;
+  meteredWatts?: number | null;
 }): PowerEstimate {
-  const watts   = args.storeWatts ?? args.defaultWatts;
+  const metered = args.meteredWatts != null && args.meteredWatts >= 1 ? args.meteredWatts : null;
+  const watts   = metered ?? args.storeWatts ?? args.defaultWatts;
+  const source  = metered != null ? 'metered' as const
+    : args.storeWatts != null ? 'surveyed' as const : 'default' as const;
   const onHours = onHoursFromBuckets(args.buckets);
   const kwh     = estimateKwh(watts, onHours);
   return {
@@ -66,7 +74,8 @@ export function estimatePower(args: {
     costPaise: estimateCostPaise(kwh, args.paisePerKwh),
     watts,
     paisePerKwh: args.paisePerKwh,
-    usingDefaultWatts: args.storeWatts == null,
+    usingDefaultWatts: source === 'default',
+    source,
   };
 }
 

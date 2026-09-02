@@ -42,11 +42,21 @@ console.log('estimatePower — store wattage vs fleet default');
 const month = Array.from({ length: 30 }, () => ({ totalMs: 12 * HOUR / 12 })); // 30 × 1h = 30h
 eq('uses the store’s own wattage when surveyed',
   estimatePower({ buckets: month, storeWatts: 90, defaultWatts: 60, paisePerKwh: 800 }),
-  { onHours: 30, kwh: 2.7, costPaise: 2160, watts: 90, paisePerKwh: 800, usingDefaultWatts: false });
+  { onHours: 30, kwh: 2.7, costPaise: 2160, watts: 90, paisePerKwh: 800, usingDefaultWatts: false, source: 'surveyed' });
 
 eq('falls back to the fleet default and flags it',
   estimatePower({ buckets: month, storeWatts: null, defaultWatts: 60, paisePerKwh: 800 }),
-  { onHours: 30, kwh: 1.8, costPaise: 1440, watts: 60, paisePerKwh: 800, usingDefaultWatts: true });
+  { onHours: 30, kwh: 1.8, costPaise: 1440, watts: 60, paisePerKwh: 800, usingDefaultWatts: true, source: 'default' });
+
+// The smart plug measured the actual socket draw — it outranks the label plate.
+eq('metered wattage beats the survey figure',
+  estimatePower({ buckets: month, storeWatts: 90, defaultWatts: 60, paisePerKwh: 800, meteredWatts: 82 }),
+  { onHours: 30, kwh: 2.46, costPaise: 1968, watts: 82, paisePerKwh: 800, usingDefaultWatts: false, source: 'metered' });
+
+// A sub-1W average means the plug only ever saw standby — that's noise, not a wattage.
+eq('a sub-1W metered average is ignored',
+  estimatePower({ buckets: month, storeWatts: null, defaultWatts: 60, paisePerKwh: 800, meteredWatts: 0.4 }).source,
+  'default');
 
 // The point of the SOP: an unsurveyed store's figure can be off by ~2×.
 const surveyed = estimatePower({ buckets: month, storeWatts: 120, defaultWatts: 60, paisePerKwh: 800 });
