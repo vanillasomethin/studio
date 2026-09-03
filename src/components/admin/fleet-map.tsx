@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 import type { Device } from '@/lib/backend-api';
 
-const TILE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const MANGALURU: [number, number] = [12.8698, 74.8431];
 
 const STATUS_COLOR: Record<Device['status'], string> = {
@@ -108,7 +108,7 @@ export default function FleetMap({ devices, stores = [] }: Props) {
         : MANGALURU;
 
       const map = L.map(containerRef.current, { zoomControl: true }).setView(center, pinned.length ? 13 : 12);
-      L.tileLayer(TILE, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(map);
+      L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(map);
       mapRef.current     = map;
       leafletRef.current = L;
 

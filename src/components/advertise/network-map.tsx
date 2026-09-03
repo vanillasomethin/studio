@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 import { brand, brandType } from '@/lib/brand';
 import {
   NETWORK_STORES,
@@ -86,13 +87,7 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any)
-        .tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          subdomains: 'abcd',
-          maxZoom: 19,
-          attribution: '© OpenStreetMap · CARTO',
-        })
-        .addTo(map);
+      (L as any).tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(map);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (L as any).control.zoom({ position: 'bottomright' }).addTo(map);

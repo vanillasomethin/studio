@@ -18,9 +18,9 @@
 //   vanishes can't re-init. We overlay a notice instead.
 
 import { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 import { MapPin, X } from 'lucide-react';
 
-const TILE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const MANGALURU: [number, number] = [12.8698, 74.8431];
 
 type ScreenPin = {
@@ -132,7 +132,7 @@ export default function ScreenPickerMap({
           // pinch-zoom still works for positioning.
           dragging: !L.Browser.mobile,
         }).setView(pins.length ? center : MANGALURU, 13);
-        L.tileLayer(TILE, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(mapRef.current);
+        L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(mapRef.current);
       }
 
       // Rebuild markers from the current pins.

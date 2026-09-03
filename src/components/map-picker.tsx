@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 import { MapPin, LocateFixed, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 // Dynamically import leaflet only on client — avoids SSR window errors
@@ -62,10 +63,7 @@ export default function MapPicker({ lat, lng, onLocation, error }: Props) {
       if (cancelled || !containerRef.current || mapRef.current) return;
 
       const map = L.map(containerRef.current, { zoomControl: true }).setView([initLat, initLng], lat ? 17 : 13);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '© OpenStreetMap contributors © CARTO',
-        maxZoom: 19,
-      }).addTo(map);
+      L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(map);
 
       const marker = L.marker([initLat, initLng], { draggable: true }).addTo(map);
       marker.bindPopup('<b>Drag to pin your exact shop location</b>').openPopup();

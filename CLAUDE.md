@@ -60,7 +60,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 | Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
 | Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
 | Payments | Razorpay (brand campaigns) |
-| Maps | Plain Leaflet + CartoDB Voyager tiles (no react-leaflet — React 19 only) |
+| Maps | Plain Leaflet (no react-leaflet — React 19 only). Tiles always come from `BASEMAP` in `src/lib/map-tiles.ts`: CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OpenStreetMap otherwise. Never paste a tile URL — CARTO tiles without a key render "API key required". |
 | Geocoding | OpenStreetMap Nominatim |
 | AI | Genkit + Google AI (Gemini 2.5 Flash) |
 | React | 18.3.1 — NOT 19 |
@@ -370,6 +370,7 @@ PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (d
 TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
 TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
 TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
+NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https://carto.com/basemaps/apikey. Unset → every map falls back to OpenStreetMap tiles. Mirror it as EXPO_PUBLIC_CARTO_API_KEY for store-app.
 # Electricity tariff is NOT an env var: measured (smart plug) and estimated
 # (proof-of-play) costs both price kWh from PlayerConfig.electricityPaisePerKwh.
 ```
