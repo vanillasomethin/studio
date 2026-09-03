@@ -232,9 +232,28 @@ export function buildSlotLoop(
     }
   }
 
+  const playableFiller = filler && filler.creativeIds.length > 0 ? filler : null;
+
+  // Last-resort pool: if NOTHING else can fill the empties — no single-slot sold
+  // campaigns and no filler — fall back to the multi-slot campaigns' creatives as
+  // plain 10s bonus plays (truncated at the slot boundary). Without this, a day
+  // whose only sale is a 30s ad and whose store has no filler produced a loop of
+  // just that one window: the player replayed it continuously and every replay
+  // logged as a guaranteed (isFiller=false) play, wrecking SLA delivery counts.
+  // Bonus attribution (isFiller=true) stays honest and the screen stays full.
+  if (pool.length === 0 && !playableFiller) {
+    const seenSpan = new Set<string>();
+    for (const g of groups) {
+      const b = g.row;
+      if (b.creativeIds.length > 0 && !seenSpan.has(b.campaignId)) {
+        seenSpan.add(b.campaignId);
+        pool.push({ campaignId: b.campaignId, creativeIds: b.creativeIds });
+      }
+    }
+  }
+
   const out: SlotAssignment[] = [];
   let rr = 0;
-  const playableFiller = filler && filler.creativeIds.length > 0 ? filler : null;
   for (let pos = 0; pos < loopSlotCount; pos++) {
     const g = headByPosition.get(pos);
     if (g && g.row.creativeIds.length > 0) {

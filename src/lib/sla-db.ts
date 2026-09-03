@@ -10,14 +10,29 @@ import { cycleBounds, evaluateCycle, remainingMakegoodWeight, type GuaranteeCycl
  *  simplification /api/brand/slot-stats already makes for "today"); loop configs
  *  change rarely enough that this is accurate in practice for a just-closed cycle. */
 async function sumPromisedPlays(campaignId: string, from: Date, to: Date): Promise<number> {
-  const bookings = await db.slotBooking.groupBy({
-    by: ['storeId', 'date'],
-    where: { campaignId, date: { gte: from, lt: to } },
-    _count: { id: true },
+  // PLAYS, not rows: a multi-slot placement (30s ad = 3 rows sharing a spanId) is
+  // ONE play per loop pass — counting rows promised 3× what proof-of-play can ever
+  // deliver and manufactured a phantom shortfall (then makegood/credit) for every
+  // span campaign.
+  const rows = await db.slotBooking.findMany({
+    where:  { campaignId, date: { gte: from, lt: to } },
+    select: { storeId: true, date: true, spanId: true },
   });
-  if (bookings.length === 0) return 0;
+  if (rows.length === 0) return 0;
 
-  const storeIds = [...new Set(bookings.map((b) => b.storeId))];
+  const playsByCell = new Map<string, number>();
+  const seenSpans = new Set<string>();
+  for (const r of rows) {
+    const cell = `${r.storeId}|${r.date.toISOString().slice(0, 10)}`;
+    if (r.spanId) {
+      const spanKey = `${cell}|${r.spanId}`;
+      if (seenSpans.has(spanKey)) continue;
+      seenSpans.add(spanKey);
+    }
+    playsByCell.set(cell, (playsByCell.get(cell) ?? 0) + 1);
+  }
+
+  const storeIds = [...new Set(rows.map((b) => b.storeId))];
   const stores = await db.store.findMany({
     where: { id: { in: storeIds } },
     select: { id: true, loopSlotCount: true, hoursStart: true, hoursEnd: true },
@@ -25,10 +40,10 @@ async function sumPromisedPlays(campaignId: string, from: Date, to: Date): Promi
   const storeMap = new Map(stores.map((s) => [s.id, s]));
 
   let total = 0;
-  for (const b of bookings) {
-    const s = storeMap.get(b.storeId);
+  for (const [cell, plays] of playsByCell) {
+    const s = storeMap.get(cell.split('|')[0]);
     if (!s?.loopSlotCount) continue;
-    total += b._count.id * loopRepeatsPerDay({
+    total += plays * loopRepeatsPerDay({
       loopSlotCount: s.loopSlotCount, hoursStart: s.hoursStart, hoursEnd: s.hoursEnd,
     });
   }

@@ -156,9 +156,15 @@ export async function resolveFillerCampaign(
   const candidates = campaign.slotPlaylist && campaign.slotPlaylist.items.length > 0
     ? campaign.slotPlaylist.items.map((i) => i.content).filter((c): c is NonNullable<typeof c> => c != null)
     : campaign.slotContent ? [campaign.slotContent] : [];
-  const creativeIds = candidates
+  const tenSecond = candidates
     .filter((c) => slotSpanForDuration(c.durationMs) === 1)
     .map((c) => c.id);
+  // Never-dark beats grid purity: a filler configured BEFORE the 10s rule (all its
+  // creatives longer) must not silently vanish on deploy and blank zero-booking
+  // days. Grandfather the whole set — the player truncates each play at the slot
+  // boundary — until someone re-cuts or re-points the filler. New configs can't
+  // get here (fillerCampaignError rejects >10s at assignment time).
+  const creativeIds = tenSecond.length > 0 ? tenSecond : candidates.map((c) => c.id);
   if (creativeIds.length === 0) return null;
   return { campaignId: campaign.id, creativeIds };
 }

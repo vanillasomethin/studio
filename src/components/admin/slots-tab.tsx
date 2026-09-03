@@ -90,13 +90,14 @@ export default function SlotsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
+  const loadCampaigns = useCallback(() => {
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
     fetch('/api/campaigns/admin', { headers: { 'admin-password': pw } })
       .then((r) => r.json() as Promise<AdminCampaign[]>)
       .then((cs) => setCampaigns(Array.isArray(cs) ? cs : []))
       .catch(() => setCampaigns([]));
   }, []);
+  useEffect(() => { loadCampaigns(); }, [loadCampaigns]);
 
   const slotStores = stores.filter((s) => s.loopSlotCount != null);
   const offStores  = stores.filter((s) => s.loopSlotCount == null);
@@ -230,8 +231,13 @@ export default function SlotsTab() {
       {wizardOpen && (
         <BulkBookingWizard
           campaigns={campaigns} defaultFrom={from}
-          onCampaignUpdate={(id, slotPlaylist) =>
-            setCampaigns((cs) => cs.map((c) => (c.id === id ? { ...c, slotPlaylist } : c)))}
+          onCampaignUpdate={(id, slotPlaylist) => {
+            // Optimistic merge for instant UI, then refetch: slotSpan is computed
+            // server-side from creative durations, so an attach/detach changes it
+            // in ways the client can't derive.
+            setCampaigns((cs) => cs.map((c) => (c.id === id ? { ...c, slotPlaylist, slotSpan: undefined } : c)));
+            loadCampaigns();
+          }}
           onClose={() => setWizardOpen(false)} onChanged={load}
         />
       )}
@@ -522,7 +528,7 @@ function CopyDayPanel({ store, date, slotStores, onChanged }: {
     try {
       const r = await copySlotDay({ sourceStoreId: store.id, sourceDate: date, storeIds: [...sel], from, to });
       toast({
-        title: `Copied — ${r.booked} slot${r.booked === 1 ? '' : 's'} booked ✓`,
+        title: `Copied — ${r.booked} play${r.booked === 1 ? '' : 's'} booked ✓`,
         description: [
           r.alreadySatisfied ? `${r.alreadySatisfied} already in place` : null,
           r.missed ? `${r.missed} missed (position taken or loop too small)` : null,

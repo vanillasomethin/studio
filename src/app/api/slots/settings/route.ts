@@ -73,6 +73,10 @@ async function fillerCampaignError(campaignId: string): Promise<string | null> {
       ? [{ contentId: campaign.slotContent.id, durationMs: campaign.slotContent.durationMs, type: campaign.slotContent.type }]
       : [];
   if (metas.length === 0) return 'That campaign has no slot creative attached yet';
+  const unknown = metas.filter((c) => c.type === 'VIDEO' && (!c.durationMs || c.durationMs <= 0));
+  if (unknown.length > 0) {
+    return 'A filler video has no known duration — re-upload it so its length can be read';
+  }
   const long = metas.filter((c) => slotSpanForDuration(c.durationMs) !== 1);
   if (long.length > 0) {
     return `Filler campaigns must use 10-second creatives — ${long.length} of its ${metas.length} creative(s) run longer`;
@@ -144,6 +148,20 @@ export async function PATCH(req: NextRequest) {
         }
         const spanned = uniformSlotSpan(metas);
         if ('error' in spanned) return NextResponse.json({ error: spanned.error }, { status: 400 });
+        // Filler campaigns are validated 10s-only when ASSIGNED as filler — but a
+        // later creative swap on the campaign itself must not sneak a longer
+        // creative under an existing filler pointer.
+        if (spanned.span > 1) {
+          const [fillerStores, cfg] = await Promise.all([
+            db.store.count({ where: { fillerCampaignId: body.campaignId } }),
+            db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } }),
+          ]);
+          if (fillerStores > 0 || cfg?.fillerCampaignId === body.campaignId) {
+            return NextResponse.json({
+              error: `This campaign is a filler (house-ads) campaign — filler creatives must stay 10 seconds, but this set is ${spanned.span * 10}s. Detach it as filler first.`,
+            }, { status: 400 });
+          }
+        }
       }
       const campaign = await db.campaign.update({
         where:  { id: body.campaignId },

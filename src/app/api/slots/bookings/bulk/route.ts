@@ -239,7 +239,15 @@ export async function POST(req: NextRequest) {
           for (const unit of sourceUnits) {
             if (unit.positions[unit.positions.length - 1] >= loopSlotCount) { missedHere++; continue; }
             const holders = unit.positions.map((p) => taken.get(p));
-            if (holders.every((h) => h?.campaignId === unit.campaignId)) { alreadySatisfied++; continue; }
+            // "Already satisfied" for a multi-slot unit means the target holds the
+            // same campaign as ONE placement across these positions — same-campaign
+            // scattered single rows are NOT the 30s window and must report as
+            // missed, not silently pass.
+            if (holders.every((h) => h?.campaignId === unit.campaignId)) {
+              const spanIds = new Set(holders.map((h) => h!.spanId));
+              if (unit.span === 1 || (spanIds.size === 1 && !spanIds.has(null))) { alreadySatisfied++; continue; }
+              missedHere++; continue;
+            }
             if (holders.some((h) => h !== undefined)) { missedHere++; continue; }
             plays.push({
               storeId: store.id, date: dateObj,
@@ -307,47 +315,54 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // skipDuplicates: the (storeId, date, slotPosition) unique constraint absorbs a
-    // concurrent admin racing us for the same position — their booking survives, ours
-    // is dropped, and the difference is reported instead of anyone's sale being
-    // silently replaced.
-    const result = rows.length > 0
-      ? await db.slotBooking.createMany({ data: rows, skipDuplicates: true })
-      : { count: 0 };
-
-    // Group-integrity repair: a race can drop SOME rows of a multi-slot play,
-    // leaving a 30s window with a hole. Any of our new spanIds that landed
-    // incomplete is rolled back whole and counted as raced — a partial window
-    // must never air.
+    // One transaction for insert + group-integrity repair. skipDuplicates lets a
+    // concurrent admin keep a position they raced us for (their booking survives,
+    // our row is dropped) — but a dropped row can leave a multi-slot play with a
+    // hole, and "a partial window must never air". Doing the repair in the SAME
+    // transaction means (a) no plan fetch can ever observe a partial group — the
+    // rows only become visible at commit, already whole-or-absent — and (b) if
+    // the repair itself fails, the whole insert rolls back rather than leaving
+    // torn groups behind forever.
     const newSpanIds = plays.map((p) => p.spanId).filter((s): s is string => s != null);
     let racedPlays = 0;
+    let insertedRows = 0;
     let repairedRows = 0;
-    if (rows.length - result.count > 0 && newSpanIds.length > 0) {
-      const landed = await db.slotBooking.groupBy({
-        by: ['spanId'],
-        where: { spanId: { in: newSpanIds } },
-        _count: { id: true },
+    if (rows.length > 0) {
+      const txn = await db.$transaction(async (tx) => {
+        const result = await tx.slotBooking.createMany({ data: rows, skipDuplicates: true });
+        let raced = 0, repaired = 0;
+        if (rows.length - result.count > 0 && newSpanIds.length > 0) {
+          const landed = await tx.slotBooking.groupBy({
+            by: ['spanId'],
+            where: { spanId: { in: newSpanIds } },
+            _count: { id: true },
+          });
+          const landedCount = new Map(landed.map((g) => [g.spanId as string, g._count.id]));
+          const incomplete: string[] = [];
+          let missingGroupRows = 0;
+          for (const p of plays) {
+            if (!p.spanId) continue;
+            const got = landedCount.get(p.spanId) ?? 0;
+            if (got > 0 && got < p.positions.length) { incomplete.push(p.spanId); repaired += got; }
+            if (got < p.positions.length) { missingGroupRows += p.positions.length - got; if (got === 0) raced++; }
+          }
+          if (incomplete.length > 0) {
+            await tx.slotBooking.deleteMany({ where: { spanId: { in: incomplete } } });
+            raced += incomplete.length;
+          }
+          // Races on single-slot plays: rows lost overall minus rows lost from groups.
+          raced += (rows.length - result.count) - missingGroupRows;
+        } else {
+          raced = rows.length - result.count; // all plays are single rows
+        }
+        return { inserted: result.count, raced, repaired };
       });
-      const landedCount = new Map(landed.map((g) => [g.spanId as string, g._count.id]));
-      const incomplete: string[] = [];
-      let missingGroupRows = 0;
-      for (const p of plays) {
-        if (!p.spanId) continue;
-        const got = landedCount.get(p.spanId) ?? 0;
-        if (got > 0 && got < p.positions.length) { incomplete.push(p.spanId); repairedRows += got; }
-        if (got < p.positions.length) { missingGroupRows += p.positions.length - got; if (got === 0) racedPlays++; }
-      }
-      if (incomplete.length > 0) {
-        await db.slotBooking.deleteMany({ where: { spanId: { in: incomplete } } });
-        racedPlays += incomplete.length;
-      }
-      // Races on single-slot plays: rows lost overall minus rows lost from groups.
-      racedPlays += (rows.length - result.count) - missingGroupRows;
-    } else {
-      racedPlays = rows.length - result.count; // all plays are single rows
+      racedPlays = txn.raced;
+      insertedRows = txn.inserted;
+      repairedRows = txn.repaired;
     }
     const bookedPlays = plays.length - racedPlays;
-    const rowsBooked = result.count - repairedRows;
+    const rowsBooked = insertedRows - repairedRows;
 
     // One nudge for the whole batch — the whole point of BUG-07's lesson: a bulk
     // write that never tells the players is a booking that airs a day late. Inside

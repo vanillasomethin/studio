@@ -152,21 +152,38 @@ export async function POST(req: NextRequest) {
     if (span === 1) {
       // A position inside someone's multi-slot window cannot be replaced one 10s
       // chunk at a time — the admin would be evicting a 30s ad they cannot see
-      // from this cell. Unassign the placement first, explicitly.
-      const holder = await db.slotBooking.findUnique({
-        where:  { storeId_date_slotPosition: { storeId, date: dateObj, slotPosition } },
-        select: { spanId: true },
+      // from this cell. The guard must hold AT WRITE TIME, not in a prior read: a
+      // plain upsert here raced a concurrent multi-slot createMany and silently
+      // overwrote one member row of the new placement (keeping its spanId, so the
+      // hijacked sale never aired and a later unassign destroyed the whole rival
+      // window). updateMany filtered on spanId:null converts that interleaving
+      // into a clean 409 instead.
+      const replaced = await db.slotBooking.updateMany({
+        where: { storeId, date: dateObj, slotPosition, spanId: null },
+        data:  { campaignId },
       });
-      if (holder?.spanId) {
-        return NextResponse.json({
-          error: 'This position is part of a multi-slot booking — unassign that booking first',
-        }, { status: 409 });
+      let booking = null;
+      if (replaced.count === 1) {
+        booking = await db.slotBooking.findUnique({
+          where: { storeId_date_slotPosition: { storeId, date: dateObj, slotPosition } },
+        });
       }
-      const booking = await db.slotBooking.upsert({
-        where:  { storeId_date_slotPosition: { storeId, date: dateObj, slotPosition } },
-        update: { campaignId },
-        create: { storeId, date: dateObj, slotPosition, campaignId },
-      });
+      if (!booking) {
+        try {
+          booking = await db.slotBooking.create({
+            data: { storeId, date: dateObj, slotPosition, campaignId },
+          });
+        } catch (e) {
+          // Row exists but didn't match spanId:null — it is (or just became) part
+          // of a multi-slot window.
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            return NextResponse.json({
+              error: 'This position is part of a multi-slot booking — unassign that booking first',
+            }, { status: 409 });
+          }
+          throw e;
+        }
+      }
 
       pushStoreDevices(storeId).catch(() => {});
       await logAdminAction({
@@ -240,6 +257,13 @@ export async function DELETE(req: NextRequest) {
     if (!row) return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
 
     // A multi-slot placement is one sale: removing any member removes the window.
+    // Capture the sibling positions first — after the delete, the audit row is
+    // the only record of WHICH positions the brand lost.
+    const groupPositions = row.spanId
+      ? (await db.slotBooking.findMany({
+          where: { spanId: row.spanId }, select: { slotPosition: true }, orderBy: { slotPosition: 'asc' },
+        })).map((r) => r.slotPosition)
+      : [row.slotPosition];
     const removed = row.spanId
       ? await db.slotBooking.deleteMany({ where: { spanId: row.spanId } })
       : await db.slotBooking.deleteMany({ where: { id } });
@@ -257,7 +281,7 @@ export async function DELETE(req: NextRequest) {
         date:         row.date.toISOString().slice(0, 10),
         slotPosition: row.slotPosition,
         campaignId:   row.campaignId,
-        ...(row.spanId ? { spanId: row.spanId, removedRows: removed.count } : {}),
+        ...(row.spanId ? { spanId: row.spanId, removedRows: removed.count, positions: groupPositions } : {}),
       },
     });
 
