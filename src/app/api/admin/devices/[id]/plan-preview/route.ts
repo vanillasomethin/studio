@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
-import { buildSlotLoop, isOpenOn, istToday, slotCreativeIds, slotDayIndex } from '@/lib/slots';
+import { buildSlotLoop, isOpenOn, istToday, slotCreativeIds, slotDayIndex, slotSpanForDuration } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
@@ -153,22 +153,37 @@ export async function GET(
         const bookings = await db.slotBooking.findMany({
           where:  { storeId: device.storeId, date: new Date(`${today}T00:00:00Z`) },
           select: {
-            slotPosition: true, campaignId: true,
+            slotPosition: true, campaignId: true, spanId: true,
             campaign: { select: {
               slotContentId: true,
+              slotContent: { select: { durationMs: true } },
               slotPlaylist: { select: { items: {
-                where: { contentId: { not: null } }, orderBy: { order: 'asc' }, select: { contentId: true },
+                where: { contentId: { not: null } }, orderBy: { order: 'asc' },
+                select: { contentId: true, content: { select: { durationMs: true } } },
               } } },
             } },
           },
         });
         slotSold = bookings.length;
+        // Positions that play = each assignment's whole window (a 30s placement
+        // covers 3 positions with one play), so the N/loopSlotCount arithmetic
+        // still speaks in positions.
         slotPlayable = buildSlotLoop(
           store.loopSlotCount!,
-          bookings.map((b) => ({ slotPosition: b.slotPosition, campaignId: b.campaignId, creativeIds: slotCreativeIds(b.campaign) })),
+          bookings.map((b) => {
+            const durations = b.campaign.slotPlaylist?.items.length
+              ? b.campaign.slotPlaylist.items.map((i) => i.content?.durationMs ?? null)
+              : [b.campaign.slotContent?.durationMs ?? null];
+            return {
+              slotPosition: b.slotPosition, campaignId: b.campaignId,
+              creativeIds: slotCreativeIds(b.campaign),
+              spanId: b.spanId,
+              creativeSpan: Math.max(1, ...durations.map((d) => slotSpanForDuration(d))),
+            };
+          }),
           filler,
           slotDayIndex(today),
-        ).length;
+        ).reduce((n, a) => n + a.spanSlots, 0);
       }
     }
 
