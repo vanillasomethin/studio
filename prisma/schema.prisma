@@ -1490,3 +1490,61 @@ model QrScan {
   @@index([destinationId, scannedAt])
   @@index([scannedAt])
 }
+
+// ─── Brand enquiries from /advertise ─────────────────────────────────────────
+//
+// A lead from the advertiser landing page: the brand picked stores, saw a price
+// and accepted the advertising terms. It is deliberately NOT a Brand/User row —
+// nobody has an account yet, and creating one from an unauthenticated form would
+// hand anyone the ability to squat an email address.
+//
+// Money is stored in paise, recomputed on the server from the tier rate card.
+// The figure the browser posted is display-only and never written, the same rule
+// campaigns/save and verify-payment already follow.
+
+model BrandEnquiry {
+  id String @id @default(cuid())
+  // Short human-readable handle ("ENQ-7K3M9QPD") — sales reads it down a phone
+  // line, so it is not the cuid. Unique so it can be quoted back as an id.
+  reference String @unique
+
+  brandName     String
+  contactPerson String
+  phone         String
+  whatsapp      String?
+
+  category   String?
+  budgetBand String?
+
+  // Slugs from src/lib/advertise-network.ts (e.g. "nilgiris-mg-road") — page
+  // config, NOT Store.id. Named so nobody joins them against Store by mistake.
+  // Filtered against the known list before write, so an arbitrary string from a
+  // hostile body can never land here.
+  storeSlugs    String[]
+  slotsPerStore Int
+  months        Int
+
+  creativeStatus String? // ready | not-ready | need-help
+  notes          String?
+
+  // What was accepted, and when. A bare "accepted: true" is not evidence — the
+  // version pins the exact clause text (src/lib/advertise-agreement.ts).
+  agreementVersion    String
+  agreementAcceptedAt DateTime
+
+  // Server-recomputed estimate at the time of enquiry. A quote is still issued
+  // by hand; this is what the brand was shown, kept so a later dispute is
+  // answerable.
+  estMonthlyPaise Int
+  estTotalPaise   Int
+
+  status String @default("new") // new | contacted | won | lost
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Sales works the newest unworked leads first; both indexes serve that list.
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([phone])
+}
