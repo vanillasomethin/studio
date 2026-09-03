@@ -11,7 +11,10 @@
 //     message is always actionable ("check the plug / the router").
 
 import { db } from '@/lib/db';
-import { notifyAdminWA, notifyStoreWA, deviceOfflineAdminMsg, deviceOfflinePartnerMsg, deviceBackOnlineMsg } from '@/lib/notify';
+import {
+  notifyAdminWA, notifyStoreWA, deviceOfflineAdminMsg, deviceOfflinePartnerMsg,
+  deviceBackOnlineMsg, screensStillOfflineMsg,
+} from '@/lib/notify';
 import { pushToStore, type PushPayload } from '@/lib/web-push';
 import { pushExpoToStore } from '@/lib/expo-push';
 
@@ -56,6 +59,25 @@ export const OFFLINE_AFTER_MS = 20 * 60 * 1000;
 export const BACKFILL_MIN_GAP_MS = 60 * 60 * 1000;
 /** Extra downtime past the offline edge before the partner is told. */
 export const PARTNER_NOTIFY_AFTER_MS = 40 * 60 * 1000; // ≈60 min total downtime
+/**
+ * How long a screen must have been down before it appears in a "still offline"
+ * digest. Comfortably past the partner escalation at ~60 min, so the digest can
+ * never merely echo a message the admin was sent minutes earlier — by the time
+ * an outage qualifies, both the edge alert and the partner nudge have already
+ * failed to produce a fix, which is precisely what makes the reminder worth
+ * sending.
+ */
+export const DIGEST_MIN_DOWNTIME_MS = 2 * 60 * 60 * 1000;
+/**
+ * Cadence of the "still offline" reminder.
+ *
+ * Six hours is a deliberate compromise. The alert this repeats is a WhatsApp
+ * message to a single human, so the cost of being too eager is that the whole
+ * channel gets muted — which would cost more than the outage. Four reminders a
+ * day is enough that a screen cannot quietly stay dark for days, and few enough
+ * that each one still reads as news.
+ */
+export const DIGEST_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** Aggregate rather than spam when a whole batch drops at once (mains cut, ISP outage). */
 const ADMIN_DIGEST_THRESHOLD = 3;
 /**
@@ -280,8 +302,8 @@ let lastSweepAt = 0;
 export async function sweepOfflineDevices(
   now = new Date(),
   { force = false }: { force?: boolean } = {},
-): Promise<{ markedOffline: number; opened: number; notified: number }> {
-  const nil = { markedOffline: 0, opened: 0, notified: 0 };
+): Promise<{ markedOffline: number; opened: number; notified: number; digested: number }> {
+  const nil = { markedOffline: 0, opened: 0, notified: 0, digested: 0 };
   if (!force) {
     if (now.getTime() - lastSweepAt < SWEEP_MIN_INTERVAL_MS) return nil;
     lastSweepAt = now.getTime();
@@ -323,7 +345,14 @@ export async function sweepOfflineDevices(
     // Partners are told only once an outage is sustained — see below.
     const notified = await escalateSustainedOutages(now);
 
-    return { markedOffline: justWentOffline.length, opened, notified };
+    // Remind the admin about anything still down. Driven from the sweep rather
+    // than the cron alone for the reason given above: the GitHub Actions schedule
+    // has been observed firing 0.4h to 11.4h apart, and a reminder that inherits
+    // that drift is no reminder at all. Its own interval is enforced in the DB,
+    // so running it from every sweep costs one indexed read and cannot spam.
+    const digested = await sendStillOfflineDigest(now);
+
+    return { markedOffline: justWentOffline.length, opened, notified, digested };
   } catch {
     return nil;
   }
@@ -474,6 +503,90 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
     return notified; // best-effort
   }
   return notified;
+}
+
+/**
+ * Reminds the admin about screens that are STILL offline. Returns how many were
+ * reported (0 when nothing is due, or when another caller sent it first).
+ *
+ * Why this exists: openOfflineAlerts tells the admin ONCE, at the moment a screen
+ * crosses the offline edge, and explicitly skips any device that already holds an
+ * OPEN alert — so nothing ever repeats while the outage continues. The entire
+ * admin-facing story for a dead screen is one WhatsApp message. If that message
+ * is missed, buried in a fleet digest, or silently dropped (notify.ts no-ops when
+ * Twilio is unconfigured and swallows every send error), the screen stays dark
+ * with nobody told again. Four screens sat offline unnoticed exactly this way.
+ *
+ * Deliberately reports only what is verifiably still down: the alert row is a
+ * snapshot, so the live Device.status is re-checked in the query — the same
+ * self-healing guard escalateSustainedOutages applies before messaging a partner.
+ * Nagging someone about a screen that is already playing is how a channel gets
+ * muted.
+ *
+ * Never throws — callers are hot paths and a cron that must not fail on
+ * bookkeeping.
+ */
+export async function sendStillOfflineDigest(now = new Date()): Promise<number> {
+  try {
+    const cutoff = new Date(now.getTime() - DIGEST_INTERVAL_MS);
+
+    // Global cadence, derived from the rows themselves rather than a singleton or
+    // any scheduler state. Deliberately ignores `status`: a digest covering screens
+    // that have since recovered still counts as "a digest was sent recently", and
+    // without that a fleet recovering right after a send would let the next outage
+    // nag immediately. This is also what stops a newly-qualifying screen (its own
+    // adminDigestAt still null) from triggering an off-cadence message.
+    const lastSent = await db.deviceAlert.findFirst({
+      where:   { adminDigestAt: { not: null } },
+      orderBy: { adminDigestAt: 'desc' },
+      select:  { adminDigestAt: true },
+    });
+    if (lastSent?.adminDigestAt && lastSent.adminDigestAt > cutoff) return 0;
+
+    const due = await db.deviceAlert.findMany({
+      where: {
+        status:    'OPEN',
+        type:      'OFFLINE',
+        startedAt: { lt: new Date(now.getTime() - DIGEST_MIN_DOWNTIME_MS) },
+        // Snapshot rows lie once a screen returns; only the device says what is
+        // true now. Also drops alerts whose device row has been deleted.
+        device:    { status: 'OFFLINE' },
+      },
+      select:  { id: true, deviceName: true, storeName: true, startedAt: true },
+      orderBy: { startedAt: 'asc' }, // longest outage first — the worst news leads
+      take:    50,                   // a fleet-wide outage must not blow the time budget
+    });
+    if (!due.length) return 0;
+
+    // Atomic claim, the same shape escalateSustainedOutages uses: qualified on the
+    // freshness the check above tested, never on id alone. sweepOfflineDevices runs
+    // from the cron, from device heartbeats and from an admin opening the panel —
+    // each its own serverless instance with its own throttle state — so several
+    // callers holding this same set is routine. An unqualified update lets every
+    // one of them send. The losers see count 0 because the winner has already
+    // stamped the rows, and Postgres re-evaluates the qual under the row lock.
+    const claimed = await db.deviceAlert.updateMany({
+      where: {
+        id: { in: due.map((a) => a.id) },
+        OR: [{ adminDigestAt: null }, { adminDigestAt: { lt: cutoff } }],
+      },
+      data: { adminDigestAt: now },
+    });
+    if (!claimed.count) return 0;
+
+    // Awaited, not fire-and-forget, for the reason given on pushToStoreAllChannels:
+    // the rows are already stamped as digested, so a send dropped when the instance
+    // freezes at response flush is never retried by a later sweep.
+    await notifyAdminWA(screensStillOfflineMsg(due.map((a) => ({
+      deviceName: a.deviceName,
+      storeName:  a.storeName,
+      since:      a.startedAt,
+    }))));
+
+    return due.length;
+  } catch {
+    return 0; // table not migrated yet, or a transient DB error — never break the sweep
+  }
 }
 
 /**

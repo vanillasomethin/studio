@@ -671,6 +671,11 @@ model DeviceAlert {
   adminReadAt       DateTime? // admin dismissed/saw it in the panel
   partnerNotifiedAt DateTime? // partner push/WhatsApp actually attempted
   partnerReadAt     DateTime?
+  // Last time this outage was included in a "still offline" digest to the admin.
+  // Doubles as the digest's own cadence marker: the most recent value across the
+  // table is when the last digest went out, so no separate singleton row is
+  // needed. See sendStillOfflineDigest in src/lib/device-alerts.ts.
+  adminDigestAt     DateTime?
 
   createdAt DateTime @default(now())
 

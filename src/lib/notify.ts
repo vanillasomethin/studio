@@ -157,6 +157,53 @@ export function deviceOfflineAdminMsg(d: {
   ].join('\n');
 }
 
+/** "7h" / "3 days" — how long a screen has been down, for the digest lines. */
+function downFor(since: Date): string {
+  const mins = Math.max(1, Math.round((Date.now() - since.getTime()) / 60000));
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h`;
+  return `${Math.round(hrs / 24)} days`;
+}
+
+/**
+ * The recurring "these are STILL down" reminder.
+ *
+ * deviceOfflineAdminMsg above is sent once, at the offline edge, and never
+ * repeats — so a single missed or undelivered message is enough for a screen to
+ * stay dark indefinitely with nobody told again. This is the nag that follows.
+ *
+ * Deliberately blunt and ordered worst-first: the point of a repeat message is
+ * that the previous one did not produce a fix, so it has to lead with how long
+ * this has been going on rather than restate the same neutral notice.
+ */
+export function screensStillOfflineMsg(screens: {
+  deviceName: string; storeName: string | null; since: Date;
+}[]) {
+  const one  = screens.length === 1;
+  const head = one
+    ? `1 screen is STILL offline`
+    : `${screens.length} screens are STILL offline`;
+  const tail = one
+    ? `It has not come back on its own. Ads are not playing on it.`
+    : `These have not come back on their own. Ads are not playing on them.`;
+  const lines = screens.slice(0, 10).map(
+    (s) => `• ${s.storeName ?? 'Unassigned'} — ${s.deviceName} — down ${downFor(s.since)}`,
+  );
+  const more = screens.length > 10 ? [`…and ${screens.length - 10} more`] : [];
+
+  return [
+    `🔴 *${head}*`,
+    ``,
+    ...lines,
+    ...more,
+    ``,
+    tail,
+    ``,
+    `https://wearealive.in/admin`,
+  ].join('\n');
+}
+
 // Partner-facing: no admin link, no jargon, and it always ends in the ONE
 // action a shopkeeper can actually take.
 export function deviceOfflinePartnerMsg(d: { storeName: string; since: Date | null }) {
