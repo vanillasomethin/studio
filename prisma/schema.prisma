@@ -948,6 +948,12 @@ model SlotBooking {
   slotPosition Int      // 0-based position within the loop
   campaignId   String
   status       String   @default("booked") // reserved for future states; unassign = row delete
+  // Multi-slot placement marker: rows created together for one ad longer than 10s
+  // share a spanId (one row per covered position, consecutive at booking time).
+  // The GROUP defines the playback window — buildSlotLoop emits one item of
+  // rowCount × 10s at the lowest position and skips the rest. Null = a plain
+  // single-slot booking (all legacy rows). Groups are created and deleted whole.
+  spanId       String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -957,6 +963,7 @@ model SlotBooking {
   @@unique([storeId, date, slotPosition])
   @@index([campaignId])
   @@index([date])
+  @@index([spanId])
 }
 
 // ─── Proof-of-play ───────────────────────────────────────────────────────────

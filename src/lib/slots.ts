@@ -12,6 +12,51 @@
 
 export const SLOT_DURATION_MS = 10_000;
 
+// ── Slot spans (ads longer than one slot) ─────────────────────────────────────
+//
+// Every position is exactly 10 s and a loop of N positions is exactly N×10 s —
+// that grid is the product brands buy, so it is never stretched. An ad longer
+// than 10 s instead occupies several CONSECUTIVE positions: 30 s → 3 slots,
+// 40 s → 4. Policy (user-approved 2026-09-02): round UP and hold — a 25 s ad
+// books 3 slots and plays in a 30 s window (the player shows it in full; the
+// remainder holds on the final frame once the APK honours durationMs for
+// videos, and merely advances early until then). The ±0.49 s snap grace
+// absorbs encoder drift: a "10-second" export of 10.3 s is still one slot,
+// trimmed at the boundary rather than booking a second slot to hold a frozen
+// frame for 9.7 s.
+
+export const SLOT_SNAP_GRACE_MS = 490;
+
+/** How many consecutive 10s positions a creative of this length occupies.
+ *  Images and unknown durations count as one slot (they hold for the window). */
+export function slotSpanForDuration(durationMs: number | null | undefined): number {
+  if (!durationMs || durationMs <= 0) return 1;
+  return Math.max(1, Math.ceil((durationMs - SLOT_SNAP_GRACE_MS) / SLOT_DURATION_MS));
+}
+
+export type SlotCreativeMeta = { contentId: string; durationMs: number | null; type?: string };
+
+/**
+ * The single span shared by all of a campaign's slot creatives, or a rejection.
+ * Rotation swaps creatives into the same booked window, so a slot playlist
+ * mixing a 10 s and a 30 s item has no honest span — reject at attach time.
+ * Videos with unknown duration are rejected too: span cannot be derived, and
+ * guessing 1 would silently truncate a longer ad.
+ */
+export function uniformSlotSpan(creatives: SlotCreativeMeta[]): { span: number } | { error: string } {
+  if (creatives.length === 0) return { span: 1 };
+  const unknown = creatives.filter((c) => c.type === 'VIDEO' && (!c.durationMs || c.durationMs <= 0));
+  if (unknown.length > 0) {
+    return { error: 'A video creative has no known duration — re-upload it so its length can be read' };
+  }
+  const spans = new Set(creatives.map((c) => slotSpanForDuration(c.durationMs)));
+  if (spans.size > 1) {
+    const classes = [...new Set(creatives.map((c) => `${slotSpanForDuration(c.durationMs) * 10}s`))].join(' and ');
+    return { error: `All creatives in a slot rotation must be the same length class — this mixes ${classes}` };
+  }
+  return { span: [...spans][0] };
+}
+
 const IST_OFFSET_MS = 330 * 60 * 1000; // +05:30, no DST
 
 /** Today's IST calendar date as 'YYYY-MM-DD'. */
@@ -57,11 +102,23 @@ export type SlotAssignment = {
   campaignId:   string;
   contentId:    string;      // the creative chosen for this position on this date
   isFiller:     boolean;     // true = bonus/house play in an unsold (or unplayable) position
+  // How many consecutive positions this play occupies (1 = a plain 10s slot).
+  // The wire durationMs is spanSlots × 10s; covered positions get no assignment.
+  spanSlots:    number;
 };
 
 // A campaign's slot creatives in rotation order: the slot playlist's media items
 // when one is attached, else the single slotContentId. Empty = sold but unplayable.
-type BookingRow = { slotPosition: number; campaignId: string; creativeIds: string[] };
+// spanId groups the rows of one multi-slot placement; creativeSpan is the span of
+// the campaign's CURRENT creatives (bonus-pool eligibility — only 1-slot creatives
+// can fill scattered single empties).
+type BookingRow = {
+  slotPosition: number;
+  campaignId:   string;
+  creativeIds:  string[];
+  spanId?:      string | null;
+  creativeSpan?: number;
+};
 
 /** Stable day number for a 'YYYY-MM-DD' date — the rotation offset that makes a
  *  single booked position show the NEXT playlist item each day. */
@@ -117,9 +174,37 @@ export function buildSlotLoop(
   dayIndex = 0,
   poolWeights: Map<string, number> = new Map(),
 ): SlotAssignment[] {
-  const byPosition = new Map<number, BookingRow>();
-  for (const b of bookings) {
-    if (b.slotPosition >= 0 && b.slotPosition < loopSlotCount) byPosition.set(b.slotPosition, b);
+  const inRange = bookings.filter((b) => b.slotPosition >= 0 && b.slotPosition < loopSlotCount);
+
+  // Group multi-slot placements: rows sharing a spanId are ONE play whose window
+  // is rowCount × 10s at the group's lowest position. The group is what was sold,
+  // so it keeps its window even if the campaign's creative was swapped since.
+  // Positions of non-head members are consumed — never bonus/filler-filled.
+  type Group = { head: number; span: number; row: BookingRow };
+  const groups: Group[] = [];
+  const bySpan = new Map<string, BookingRow[]>();
+  for (const b of inRange) {
+    if (!b.spanId) { groups.push({ head: b.slotPosition, span: 1, row: b }); continue; }
+    const list = bySpan.get(b.spanId) ?? [];
+    list.push(b);
+    bySpan.set(b.spanId, list);
+  }
+  for (const rows of bySpan.values()) {
+    const head = Math.min(...rows.map((r) => r.slotPosition));
+    groups.push({ head, span: rows.length, row: rows.find((r) => r.slotPosition === head)! });
+  }
+
+  // Positions consumed by a PLAYABLE multi-slot window (head included): the whole
+  // window belongs to that placement. An UNPLAYABLE group (sold but no creative)
+  // keeps the old single-slot semantics instead — every one of its positions joins
+  // the redistribution set, because a window that cannot render must not go dark.
+  const headByPosition = new Map<number, Group>();
+  const consumed = new Set<number>();
+  for (const g of groups) {
+    headByPosition.set(g.head, g);
+    if (g.span > 1 && g.row.creativeIds.length > 0) {
+      for (const r of bySpan.get(g.row.spanId!) ?? []) consumed.add(r.slotPosition);
+    }
   }
 
   const played = new Map<string, number>();
@@ -132,29 +217,62 @@ export function buildSlotLoop(
   // Playable sold campaigns in first-appearance (position) order — the round-robin pool.
   // A campaign with extra pool weight (makegood and/or Peak Boost) gets extra entries,
   // biasing the round-robin selection below in its favour without changing eligibility.
+  // Multi-slot campaigns are excluded: a 30s creative cannot fill one scattered empty
+  // 10s position, so bonus fill (and therefore makegood/Peak Boost weighting) is a
+  // single-slot mechanism by construction.
   const pool: { campaignId: string; creativeIds: string[] }[] = [];
   const seen = new Set<string>();
   for (let pos = 0; pos < loopSlotCount; pos++) {
-    const b = byPosition.get(pos);
-    if (b && b.creativeIds.length > 0 && !seen.has(b.campaignId)) {
+    const g = headByPosition.get(pos);
+    const b = g?.row;
+    if (b && b.creativeIds.length > 0 && (b.creativeSpan ?? 1) === 1 && g!.span === 1 && !seen.has(b.campaignId)) {
       seen.add(b.campaignId);
       const copies = 1 + Math.max(0, poolWeights.get(b.campaignId) ?? 0);
       for (let i = 0; i < copies; i++) pool.push({ campaignId: b.campaignId, creativeIds: b.creativeIds });
     }
   }
 
+  const playableFiller = filler && filler.creativeIds.length > 0 ? filler : null;
+
+  // Last-resort pool: if NOTHING else can fill the empties — no single-slot sold
+  // campaigns and no filler — fall back to the multi-slot campaigns' creatives as
+  // plain 10s bonus plays (truncated at the slot boundary). Without this, a day
+  // whose only sale is a 30s ad and whose store has no filler produced a loop of
+  // just that one window: the player replayed it continuously and every replay
+  // logged as a guaranteed (isFiller=false) play, wrecking SLA delivery counts.
+  // Bonus attribution (isFiller=true) stays honest and the screen stays full.
+  if (pool.length === 0 && !playableFiller) {
+    const seenSpan = new Set<string>();
+    for (const g of groups) {
+      const b = g.row;
+      if (b.creativeIds.length > 0 && !seenSpan.has(b.campaignId)) {
+        seenSpan.add(b.campaignId);
+        pool.push({ campaignId: b.campaignId, creativeIds: b.creativeIds });
+      }
+    }
+  }
+
   const out: SlotAssignment[] = [];
   let rr = 0;
-  const playableFiller = filler && filler.creativeIds.length > 0 ? filler : null;
   for (let pos = 0; pos < loopSlotCount; pos++) {
-    const b = byPosition.get(pos);
-    if (b && b.creativeIds.length > 0) {
-      out.push({ slotPosition: pos, campaignId: b.campaignId, contentId: nextCreative(b.campaignId, b.creativeIds), isFiller: false });
+    const g = headByPosition.get(pos);
+    if (g && g.row.creativeIds.length > 0) {
+      out.push({
+        slotPosition: pos,
+        campaignId:   g.row.campaignId,
+        contentId:    nextCreative(g.row.campaignId, g.row.creativeIds),
+        isFiller:     false,
+        spanSlots:    g.span,
+      });
+    } else if (consumed.has(pos)) {
+      // A member of a multi-slot placement (or an unplayable head) — the window
+      // belongs to that placement; never redistribute it.
+      continue;
     } else if (pool.length > 0) {
       const p = pool[rr++ % pool.length]; // bonus play for a sold campaign
-      out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true });
+      out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true, spanSlots: 1 });
     } else if (playableFiller) {
-      out.push({ slotPosition: pos, campaignId: playableFiller.campaignId, contentId: nextCreative(playableFiller.campaignId, playableFiller.creativeIds), isFiller: true });
+      out.push({ slotPosition: pos, campaignId: playableFiller.campaignId, contentId: nextCreative(playableFiller.campaignId, playableFiller.creativeIds), isFiller: true, spanSlots: 1 });
     }
     // else: nothing playable exists — position omitted
   }

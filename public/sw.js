@@ -13,7 +13,9 @@
 // v3 -> v4: /offline now auto-reloads when connectivity returns. The old copy
 // is precached, so without this bump existing browsers would keep serving the
 // dead-end version that strands users on the offline screen after a blip.
-const CACHE     = 'alive-partner-v4';
+// v4 -> v5: uploads (POST/PATCH/DELETE) are passed straight through — never
+// cached, and a dropped one answers with a message the dashboard can show.
+const CACHE     = 'alive-partner-v5';
 const PRECACHE  = [
   '/store-dashboard',
   '/store',
@@ -46,6 +48,19 @@ self.addEventListener('fetch', (e) => {
 
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
+
+  // Writes — form posts, photo uploads, PATCHes — go straight to the network.
+  // The Cache API only stores GET, so the put() below rejects for anything
+  // else; and a cached reply could never stand in for a write anyway. When
+  // the network drops mid-upload, say so in the shape the dashboard renders
+  // (`{ error }`) instead of a bare "offline" the partner can't act on.
+  if (request.method !== 'GET') {
+    e.respondWith(fetch(request).catch(() => new Response(
+      JSON.stringify({ error: 'No connection. Check your internet and try again.' }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } },
+    )));
+    return;
+  }
 
   // API routes and auth — always network-first, short timeout fallback
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) {

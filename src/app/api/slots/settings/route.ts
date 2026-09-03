@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { istToday, parseHHmm } from '@/lib/slots';
+import { istToday, parseHHmm, slotSpanForDuration, uniformSlotSpan, type SlotCreativeMeta } from '@/lib/slots';
 import { applySlotMoves, planSlotCompaction, resolveFillerCampaign, type SlotMove } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { isSlotTier } from '@/lib/slot-pricing';
@@ -47,6 +47,43 @@ async function recordMoves(
   }).catch(() => { /* the note is valuable, but never worth failing the resize over */ });
 }
 
+/**
+ * Filler is a single-slot mechanism — it fills scattered single empties, so every
+ * creative of a filler campaign must be a one-slot (10s) creative. Returns a
+ * user-facing error, or null when the campaign is acceptable as filler.
+ */
+async function fillerCampaignError(campaignId: string): Promise<string | null> {
+  const campaign = await db.campaign.findUnique({
+    where: { id: campaignId },
+    select: {
+      slotContent: { select: { id: true, durationMs: true, type: true } },
+      slotPlaylist: { select: { items: {
+        where: { contentId: { not: null } },
+        select: { content: { select: { id: true, durationMs: true, type: true } } },
+      } } },
+    },
+  });
+  if (!campaign) return 'Campaign not found';
+  const fromPlaylist: SlotCreativeMeta[] = (campaign.slotPlaylist?.items ?? [])
+    .map((i) => i.content)
+    .filter((c): c is NonNullable<typeof c> => c != null)
+    .map((c) => ({ contentId: c.id, durationMs: c.durationMs, type: c.type }));
+  const metas = fromPlaylist.length > 0 ? fromPlaylist
+    : campaign.slotContent
+      ? [{ contentId: campaign.slotContent.id, durationMs: campaign.slotContent.durationMs, type: campaign.slotContent.type }]
+      : [];
+  if (metas.length === 0) return 'That campaign has no slot creative attached yet';
+  const unknown = metas.filter((c) => c.type === 'VIDEO' && (!c.durationMs || c.durationMs <= 0));
+  if (unknown.length > 0) {
+    return 'A filler video has no known duration — re-upload it so its length can be read';
+  }
+  const long = metas.filter((c) => slotSpanForDuration(c.durationMs) !== 1);
+  if (long.length > 0) {
+    return `Filler campaigns must use 10-second creatives — ${long.length} of its ${metas.length} creative(s) run longer`;
+  }
+  return null;
+}
+
 type Body = {
   storeId?: string;
   loopSlotCount?: number | null;
@@ -79,6 +116,51 @@ export async function PATCH(req: NextRequest) {
         if (!pl) return NextResponse.json({ error: 'Playlist not found' }, { status: 400 });
         if (pl.items.length === 0) {
           return NextResponse.json({ error: 'That playlist has no direct media items — slot rotation skips nested playlists, so it could never play. Add images/videos to it first.' }, { status: 400 });
+        }
+      }
+      // Span validation on the PROPOSED creative set (body merged over current):
+      // every creative must land in the same 10s-multiple length class, and video
+      // durations must be known. Booking derives how many consecutive slots the
+      // campaign needs from exactly this — a mixed or unknown set has no answer.
+      {
+        const current = await db.campaign.findUnique({
+          where:  { id: body.campaignId },
+          select: { slotContentId: true, slotPlaylistId: true },
+        });
+        if (!current) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+        const nextContentId  = body.slotContentId  !== undefined ? body.slotContentId  : current.slotContentId;
+        const nextPlaylistId = body.slotPlaylistId !== undefined ? body.slotPlaylistId : current.slotPlaylistId;
+        let metas: SlotCreativeMeta[] = [];
+        if (nextPlaylistId) {
+          const items = await db.playlistItem.findMany({
+            where:  { playlistId: nextPlaylistId, contentId: { not: null } },
+            select: { content: { select: { id: true, durationMs: true, type: true } } },
+          });
+          metas = items
+            .map((i) => i.content)
+            .filter((c): c is NonNullable<typeof c> => c != null)
+            .map((c) => ({ contentId: c.id, durationMs: c.durationMs, type: c.type }));
+        } else if (nextContentId) {
+          const c = await db.content.findUnique({
+            where: { id: nextContentId }, select: { id: true, durationMs: true, type: true },
+          });
+          if (c) metas = [{ contentId: c.id, durationMs: c.durationMs, type: c.type }];
+        }
+        const spanned = uniformSlotSpan(metas);
+        if ('error' in spanned) return NextResponse.json({ error: spanned.error }, { status: 400 });
+        // Filler campaigns are validated 10s-only when ASSIGNED as filler — but a
+        // later creative swap on the campaign itself must not sneak a longer
+        // creative under an existing filler pointer.
+        if (spanned.span > 1) {
+          const [fillerStores, cfg] = await Promise.all([
+            db.store.count({ where: { fillerCampaignId: body.campaignId } }),
+            db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } }),
+          ]);
+          if (fillerStores > 0 || cfg?.fillerCampaignId === body.campaignId) {
+            return NextResponse.json({
+              error: `This campaign is a filler (house-ads) campaign — filler creatives must stay 10 seconds, but this set is ${spanned.span * 10}s. Detach it as filler first.`,
+            }, { status: 400 });
+          }
         }
       }
       const campaign = await db.campaign.update({
@@ -119,6 +201,10 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (body.defaultFillerCampaignId !== undefined) {
+      if (body.defaultFillerCampaignId) {
+        const err = await fillerCampaignError(body.defaultFillerCampaignId);
+        if (err) return NextResponse.json({ error: err }, { status: 400 });
+      }
       const config = await db.playerConfig.upsert({
         where:  { id: 1 },
         update: { fillerCampaignId: body.defaultFillerCampaignId },
@@ -171,6 +257,10 @@ export async function PATCH(req: NextRequest) {
     }
     if (body.slotPricingTier !== undefined && !isSlotTier(body.slotPricingTier)) {
       return NextResponse.json({ error: "slotPricingTier must be 'standard', 'growth' or 'flagship'" }, { status: 400 });
+    }
+    if (body.fillerCampaignId) {
+      const err = await fillerCampaignError(body.fillerCampaignId);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
     }
 
     // Re-home the stranded bookings BEFORE narrowing the loop, so there is no window

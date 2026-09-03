@@ -167,9 +167,16 @@ export async function uploadVerificationPhoto(opts: {
       method: 'POST', body: form, signal: controller.signal,
       headers: authHeaders(opts.token), // no Content-Type — RN sets the multipart boundary
     });
-    const body = await res.json().catch(() => ({})) as { ok?: boolean; url?: string; error?: string };
-    if (!res.ok || !body.ok || !body.url) throw new Error(body.error ?? `HTTP ${res.status}`);
-    return { ok: true, url: body.url };
+    const body = await res.json().catch(() => ({})) as { ok?: boolean; url?: string; error?: string; tvTag?: string | null };
+    if (!res.ok || !body.ok || !body.url) {
+      // A body over the platform limit is refused by the edge with a plain-text
+      // 413 before the route runs, so there is no JSON `error` to show.
+      if (res.status === 413) throw new Error('Photo is too large to upload. Please retake it at a lower resolution.');
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    // Pass the stored tag through: the caller caches what the server holds,
+    // not what was typed (see GpsPhotoRow).
+    return { ok: true, url: body.url, ...(body.tvTag !== undefined ? { tvTag: body.tvTag } : {}) };
   } catch (e) {
     const err = e as Error;
     throw new Error(err.name === 'AbortError' ? 'Upload timed out. Please try again.' : err.message);
