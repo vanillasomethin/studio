@@ -9,7 +9,9 @@ import { NextRequest, NextResponse } from 'next/server';
  *
  * TODO: replace this stub with the real endpoint. It needs to:
  *   1. Write the enquiry to Postgres (a BrandEnquiry model, or a Brand row with
- *      status 'enquiry' — decide with whoever owns the brand pipeline).
+ *      status 'enquiry' — decide with whoever owns the brand pipeline). Store
+ *      agreementVersion and agreementAcceptedAt alongside it: an accepted
+ *      agreement is only evidence if we can reproduce what was accepted.
  *   2. Notify sales — notifyAdminWA() in src/lib/notify.ts.
  *   3. Rate-limit by IP (src/lib/rate-limit.ts): this route is public and
  *      unauthenticated.
@@ -29,6 +31,9 @@ type Body = {
   months?: number;
   creativeStatus?: string;
   notes?: string;
+  agreementAccepted?: boolean;
+  agreementVersion?: string;
+  agreementAcceptedAt?: string;
 };
 
 const PHONE = /^[6-9]\d{9}$/;
@@ -45,10 +50,19 @@ export async function POST(req: NextRequest) {
   const contactPerson = body.contactPerson?.trim() ?? '';
   const phone = body.phone?.trim() ?? '';
 
-  // The browser validates the same three fields; this is the copy that counts.
+  // The browser validates the same fields; this is the copy that counts.
   if (!brandName || !contactPerson || !PHONE.test(phone)) {
     return NextResponse.json(
       { error: 'Brand name, contact person and a valid 10-digit mobile number are required.' },
+      { status: 400 }
+    );
+  }
+
+  // Acceptance is the point of the agreement — a submission without it is not a
+  // booking enquiry, and a client-side checkbox alone is not a record.
+  if (body.agreementAccepted !== true || !body.agreementVersion) {
+    return NextResponse.json(
+      { error: 'The advertising terms must be accepted before we can take the enquiry.' },
       { status: 400 }
     );
   }

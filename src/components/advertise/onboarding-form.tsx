@@ -14,6 +14,8 @@ import {
   type NetworkStore,
 } from '@/lib/advertise-network';
 import { Stepper } from './estimator';
+import Agreement from './agreement';
+import { AGREEMENT_VERSION } from '@/lib/advertise-agreement';
 
 // TODO: confirm the category list with sales — these are the segments we sell to
 // today, not a fixed taxonomy.
@@ -47,7 +49,15 @@ const CREATIVE_STATES = [
 ] as const;
 
 type CreativeStatus = (typeof CREATIVE_STATES)[number]['value'];
-type FieldKey = 'brandName' | 'contactPerson' | 'phone' | 'whatsapp' | 'category' | 'budget' | 'creative';
+type FieldKey =
+  | 'brandName'
+  | 'contactPerson'
+  | 'phone'
+  | 'whatsapp'
+  | 'category'
+  | 'budget'
+  | 'creative'
+  | 'agreement';
 
 /** Reading order, so a failed submit sends focus to the first thing to fix. */
 const FIELD_ORDER: FieldKey[] = [
@@ -58,6 +68,7 @@ const FIELD_ORDER: FieldKey[] = [
   'category',
   'budget',
   'creative',
+  'agreement',
 ];
 
 const FIELD_SELECTOR: Record<FieldKey, string> = {
@@ -68,6 +79,7 @@ const FIELD_SELECTOR: Record<FieldKey, string> = {
   category: '#product-category',
   budget: '#monthly-budget',
   creative: 'input[name="creative"]',
+  agreement: '#agreement-accepted',
 };
 
 /** Accepts 9876543210, 09876543210, +91 98765 43210. Returns the 10 digits, or null. */
@@ -100,6 +112,7 @@ export default function OnboardingForm({ selectedIds, slots, setSlots, months, s
   const [budget, setBudget] = useState('');
   const [creative, setCreative] = useState<CreativeStatus | ''>('');
   const [notes, setNotes] = useState('');
+  const [agreed, setAgreed] = useState(false);
 
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -145,6 +158,7 @@ export default function OnboardingForm({ selectedIds, slots, setSlots, months, s
     if (!category) next.category = 'Pick a category.';
     if (!budget) next.budget = 'Pick a budget band.';
     if (!creative) next.creative = 'Tell us where your creative stands.';
+    if (!agreed) next.agreement = 'Please read and accept the terms to continue.';
     return next;
   }
 
@@ -178,6 +192,9 @@ export default function OnboardingForm({ selectedIds, slots, setSlots, months, s
           months,
           creativeStatus: creative,
           notes: notes.trim(),
+          agreementAccepted: agreed,
+          agreementVersion: AGREEMENT_VERSION,
+          agreementAcceptedAt: new Date().toISOString(),
           estimatedMonthlyRupees: totals.monthlyRupees,
           estimatedTotalRupees: totals.totalRupees,
         }),
@@ -233,6 +250,10 @@ export default function OnboardingForm({ selectedIds, slots, setSlots, months, s
             </dd>
           </div>
         </dl>
+        <p className="mt-4 text-xs" style={{ color: 'var(--brand-ink-muted)' }}>
+          You accepted the {brand.name} advertising terms (version {AGREEMENT_VERSION}) with this
+          enquiry. We will send you a copy with the written quote.
+        </p>
         <p className="mt-5 text-sm">
           In a hurry?{' '}
           <a
@@ -472,6 +493,17 @@ export default function OnboardingForm({ selectedIds, slots, setSlots, months, s
           />
         )}
       </Field>
+
+      <Agreement
+        brandName={brandName}
+        contactPerson={contactPerson}
+        phone={phone}
+        stores={chosenStores}
+        totals={totals}
+        accepted={agreed}
+        onAccept={setAgreed}
+        error={errors.agreement}
+      />
 
       {submitError ? (
         <p role="alert" className="text-sm font-bold" style={{ color: 'var(--brand-accent-strong)' }}>
