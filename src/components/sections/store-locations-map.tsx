@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 
 type StoreStatus = 'live' | 'in_progress';
 
@@ -118,14 +119,12 @@ export default function StoreLocationsMap() {
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd', maxZoom: 20,
-      }).addTo(map);
+      (L as any).tileLayer(BASEMAP.url, { maxZoom: BASEMAP.maxZoom }).addTo(map);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (L as any).control.zoom({ position: 'bottomright' }).addTo(map);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).control.attribution({ position: 'bottomleft', prefix: '© OpenStreetMap · CartoDB' }).addTo(map);
+      (L as any).control.attribution({ position: 'bottomleft', prefix: BASEMAP.attribution }).addTo(map);
 
       mapInstanceRef.current = map;
       setMapReady(true);
