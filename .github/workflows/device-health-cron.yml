@@ -46,6 +46,13 @@ concurrency:
 
 jobs:
   ping:
+    # Upstream only. A fork inherits this file, and if its owner enables Actions
+    # there the same schedule fires against production with no CRON_SECRET of
+    # its own: every call 401s, the run goes red, and GitHub mails the fork
+    # owner for each firing. Seen on a personal fork of this repo, whose runs
+    # died with "CRON_SECRET is not set". A skipped job is not a failed one, so
+    # a fork stays quiet instead of alerting on a secret it never held.
+    if: github.repository == 'vanillasomethin/studio'
     runs-on: ubuntu-latest
     # Generous vs LOOP_MINUTES so the runner is reclaimed if a curl wedges.
     timeout-minutes: 70
