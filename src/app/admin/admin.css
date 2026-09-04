@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
 
 :root {
   --surface: #ffffff;
@@ -11,11 +10,6 @@
   --ink-4: #a3a3a3;
   --adm-primary: #dc2626;
   --adm-muted: #737373;
-  --font-display: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --font-headline: var(--font-display);
-  --font-sans: var(--font-body);
   --neutral-0: #ffffff;
   --neutral-50: #fafafa;
   --neutral-100: #f5f5f5;
@@ -30,6 +24,18 @@
   --dur-slow: 500ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* The console's type. On .admin-fonts rather than :root because the next/font
+   variables it refers to are declared there by app/admin/layout.tsx, and a
+   custom property containing var() resolves on the element it is declared on. */
+.admin-fonts {
+  --font-display:  var(--font-inter-tight), system-ui, -apple-system, sans-serif;
+  --font-body:     var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-mono:     var(--font-jetbrains-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-headline: var(--font-display);
+  --font-sans:     var(--font-body);
+}
+
 
 .adm[data-theme="dark"] {
   --surface: #141414;

@@ -43,5 +43,10 @@ export const dmMono = DM_Mono({
   variable: '--font-dm-mono',
 });
 
-/** Every font variable, for the <html> className. */
+// The admin console's own three faces live in app/admin/fonts.ts, NOT here:
+// next/font preloads every face a module declares onto every route that imports
+// that module, so keeping them in this file made a shopper on the homepage
+// preload the console's fonts too.
+
+/** Every site font variable, for the <html> className. */
 export const fontVariables = `${poppins.variable} ${manrope.variable} ${dmMono.variable}`;

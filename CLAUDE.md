@@ -271,9 +271,14 @@ When a generic control and a graphical one both work, use the graphical one.
   Fonts `<link>` or a literal `font-family: 'Poppins'`: a second source means a
   second download and a face that swaps at a different moment. Components that
   render their own `<html>` (`error.tsx`) must put `fontVariables` on it, since
-  they inherit nothing from the root layout. The admin console's Inter Tight /
-  JetBrains Mono are still loaded from Google in `admin/admin.css` — one source,
-  but not yet self-hosted.
+  they inherit nothing from the root layout. The admin console keeps its own type
+  — Inter Tight / Inter / JetBrains Mono — declared in `src/app/admin/fonts.ts`
+  and applied by the admin layout, deliberately a separate module: next/font
+  preloads every face a module declares on every route importing it, so putting
+  them in `app/fonts.ts` made the marketing site preload the console's fonts.
+  `admin.css` hangs `--font-display` / `--font-body` / `--font-mono` off
+  `.admin-fonts`, not `:root`, because a custom property containing `var()`
+  resolves on the element it is declared on.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.
