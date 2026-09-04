@@ -195,7 +195,7 @@ export async function GET(req: NextRequest) {
           select: {
             id: true, city: true,
             loopSlotCount: true, openDays: true, hoursStart: true, hoursEnd: true,
-            fillerCampaignId: true, soundAdMuted: true,
+            fillerCreativeId: true, soundAdMuted: true,
           },
         })
       : null;
@@ -253,7 +253,7 @@ export async function GET(req: NextRequest) {
             } },
           },
         });
-        const filler = await resolveFillerCampaign(store.fillerCampaignId);
+        const filler = await resolveFillerCampaign(store.fillerCreativeId);
         const bookedCampaignIds = [...new Set(bookings.map((b) => b.campaignId))];
 
         // Round-robin pool weighting: Minimum Play Guarantee makegood (always-on until

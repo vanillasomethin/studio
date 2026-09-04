@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, storeName: true, city: true,
         loopSlotCount: true, openDays: true, hoursStart: true, hoursEnd: true,
-        fillerCampaignId: true, slotPricingTier: true,
+        fillerCreativeId: true, slotPricingTier: true,
       },
       orderBy: [{ city: 'asc' }, { storeName: 'asc' }],
     });
@@ -45,11 +45,11 @@ export async function GET(req: NextRequest) {
       dates,
     );
 
-    const cfg = await db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } });
+    const cfg = await db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCreativeId: true } });
 
     return NextResponse.json({
       dates,
-      defaultFillerCampaignId: cfg?.fillerCampaignId ?? null,
+      defaultFillerCampaignId: cfg?.fillerCreativeId ?? null,
       stores: stores.map((s) => ({
         ...s,
         // sold per date; null = closed that day; absent map = slot mode off

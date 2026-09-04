@@ -1,8 +1,8 @@
 // PATCH /api/slots/settings — slot-mode configuration, three shapes:
-//   { storeId, loopSlotCount?, openDays?, hoursStart?, hoursEnd?, fillerCampaignId? }
+//   { storeId, loopSlotCount?, openDays?, hoursStart?, hoursEnd?, fillerCreativeId? }
 //     — per-store slot config. loopSlotCount: null disables slot mode (store reverts
 //       to its normal schedules); an integer enables the fixed loop.
-//   { defaultFillerCampaignId } — global house-ads default (PlayerConfig).
+//   { defaultFillerCreativeId } — global house-ads default (PlayerConfig).
 //   { campaignId, slotContentId } — assign a campaign's 10s slot creative.
 // Auth: admin-password header. Store config changes push plan_updated to its devices.
 
@@ -49,30 +49,30 @@ async function recordMoves(
 
 /**
  * Filler is a single-slot mechanism — it fills scattered single empties, so every
- * creative of a filler campaign must be a one-slot (10s) creative. Returns a
- * user-facing error, or null when the campaign is acceptable as filler.
+ * creative of a filler must be a one-slot (10s) creative. Returns a user-facing
+ * error, or null when the filler is acceptable.
  */
-async function fillerCampaignError(campaignId: string): Promise<string | null> {
-  const campaign = await db.campaign.findUnique({
-    where: { id: campaignId },
+async function fillerCreativeError(fillerId: string): Promise<string | null> {
+  const filler = await db.fillerCreative.findUnique({
+    where: { id: fillerId },
     select: {
-      slotContent: { select: { id: true, durationMs: true, type: true } },
-      slotPlaylist: { select: { items: {
+      content: { select: { id: true, durationMs: true, type: true } },
+      playlist: { select: { items: {
         where: { contentId: { not: null } },
         select: { content: { select: { id: true, durationMs: true, type: true } } },
       } } },
     },
   });
-  if (!campaign) return 'Campaign not found';
-  const fromPlaylist: SlotCreativeMeta[] = (campaign.slotPlaylist?.items ?? [])
+  if (!filler) return 'Filler not found';
+  const fromPlaylist: SlotCreativeMeta[] = (filler.playlist?.items ?? [])
     .map((i) => i.content)
     .filter((c): c is NonNullable<typeof c> => c != null)
     .map((c) => ({ contentId: c.id, durationMs: c.durationMs, type: c.type }));
   const metas = fromPlaylist.length > 0 ? fromPlaylist
-    : campaign.slotContent
-      ? [{ contentId: campaign.slotContent.id, durationMs: campaign.slotContent.durationMs, type: campaign.slotContent.type }]
+    : filler.content
+      ? [{ contentId: filler.content.id, durationMs: filler.content.durationMs, type: filler.content.type }]
       : [];
-  if (metas.length === 0) return 'That campaign has no slot creative attached yet';
+  if (metas.length === 0) return 'That filler has no creative attached yet';
   const unknown = metas.filter((c) => c.type === 'VIDEO' && (!c.durationMs || c.durationMs <= 0));
   if (unknown.length > 0) {
     return 'A filler video has no known duration — re-upload it so its length can be read';
@@ -90,9 +90,9 @@ type Body = {
   openDays?: number;
   hoursStart?: string;
   hoursEnd?: string;
-  fillerCampaignId?: string | null;
+  fillerCreativeId?: string | null;
   slotPricingTier?: string;
-  defaultFillerCampaignId?: string | null;
+  defaultFillerCreativeId?: string | null;
   campaignId?: string;
   slotContentId?: string | null;
   slotPlaylistId?: string | null;
@@ -153,10 +153,10 @@ export async function PATCH(req: NextRequest) {
         // creative under an existing filler pointer.
         if (spanned.span > 1) {
           const [fillerStores, cfg] = await Promise.all([
-            db.store.count({ where: { fillerCampaignId: body.campaignId } }),
-            db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } }),
+            db.store.count({ where: { fillerCreativeId: body.campaignId } }),
+            db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCreativeId: true } }),
           ]);
-          if (fillerStores > 0 || cfg?.fillerCampaignId === body.campaignId) {
+          if (fillerStores > 0 || cfg?.fillerCreativeId === body.campaignId) {
             return NextResponse.json({
               error: `This campaign is a filler (house-ads) campaign — filler creatives must stay 10 seconds, but this set is ${spanned.span * 10}s. Detach it as filler first.`,
             }, { status: 400 });
@@ -200,23 +200,23 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ campaign });
     }
 
-    if (body.defaultFillerCampaignId !== undefined) {
-      if (body.defaultFillerCampaignId) {
-        const err = await fillerCampaignError(body.defaultFillerCampaignId);
+    if (body.defaultFillerCreativeId !== undefined) {
+      if (body.defaultFillerCreativeId) {
+        const err = await fillerCreativeError(body.defaultFillerCreativeId);
         if (err) return NextResponse.json({ error: err }, { status: 400 });
       }
       const config = await db.playerConfig.upsert({
         where:  { id: 1 },
-        update: { fillerCampaignId: body.defaultFillerCampaignId },
-        create: { id: 1, fillerCampaignId: body.defaultFillerCampaignId },
-        select: { fillerCampaignId: true },
+        update: { fillerCreativeId: body.defaultFillerCreativeId },
+        create: { id: 1, fillerCreativeId: body.defaultFillerCreativeId },
+        select: { fillerCreativeId: true },
       });
       // Fleet-wide: this is what fills every unsold position on every slot-mode store.
       await logAdminAction({
         actor, req,
         action: 'slot_settings.set_default_filler',
         target: null,
-        meta:   { defaultFillerCampaignId: config.fillerCampaignId },
+        meta:   { defaultFillerCreativeId: config.fillerCreativeId },
       });
       return NextResponse.json({ config });
     }
@@ -258,8 +258,8 @@ export async function PATCH(req: NextRequest) {
     if (body.slotPricingTier !== undefined && !isSlotTier(body.slotPricingTier)) {
       return NextResponse.json({ error: "slotPricingTier must be 'standard', 'growth' or 'flagship'" }, { status: 400 });
     }
-    if (body.fillerCampaignId) {
-      const err = await fillerCampaignError(body.fillerCampaignId);
+    if (body.fillerCreativeId) {
+      const err = await fillerCreativeError(body.fillerCreativeId);
       if (err) return NextResponse.json({ error: err }, { status: 400 });
     }
 
@@ -274,12 +274,12 @@ export async function PATCH(req: NextRequest) {
         ...(body.openDays         !== undefined ? { openDays:         body.openDays }         : {}),
         ...(body.hoursStart       !== undefined ? { hoursStart:       body.hoursStart }       : {}),
         ...(body.hoursEnd         !== undefined ? { hoursEnd:         body.hoursEnd }         : {}),
-        ...(body.fillerCampaignId !== undefined ? { fillerCampaignId: body.fillerCampaignId } : {}),
+        ...(body.fillerCreativeId !== undefined ? { fillerCreativeId: body.fillerCreativeId } : {}),
         ...(body.slotPricingTier  !== undefined ? { slotPricingTier:  body.slotPricingTier }  : {}),
       },
       select: {
         id: true, storeName: true, loopSlotCount: true, openDays: true,
-        hoursStart: true, hoursEnd: true, fillerCampaignId: true, slotPricingTier: true,
+        hoursStart: true, hoursEnd: true, fillerCreativeId: true, slotPricingTier: true,
       },
     });
 
@@ -298,7 +298,7 @@ export async function PATCH(req: NextRequest) {
         openDays:         store.openDays,
         hoursStart:       store.hoursStart,
         hoursEnd:         store.hoursEnd,
-        fillerCampaignId: store.fillerCampaignId,
+        fillerCreativeId: store.fillerCreativeId,
         reassigned:       moves.length,
       },
     });
@@ -308,7 +308,7 @@ export async function PATCH(req: NextRequest) {
     // to schedules, and a screen with none goes dark. Surface that at save time
     // instead of during a fleet incident.
     let warning: string | undefined;
-    if (store.loopSlotCount != null && !(await resolveFillerCampaign(store.fillerCampaignId))) {
+    if (store.loopSlotCount != null && !(await resolveFillerCampaign(store.fillerCreativeId))) {
       warning = 'No playable filler campaign is set for this store (and no global default with a 10s slot creative). On days with zero bookings the screen falls back to its schedules — if it has none, it goes dark.';
     }
 

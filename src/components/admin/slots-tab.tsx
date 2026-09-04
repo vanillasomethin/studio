@@ -33,6 +33,17 @@ type AdminCampaign = {
 // Playable = a single 10s creative OR a slot playlist with at least one media item.
 const hasSlotCreative = (c: AdminCampaign) => !!c.slotContentId || (c.slotPlaylist?.mediaItems ?? 0) > 0;
 
+/** A house filler as /api/admin/fillers returns it. Not a campaign — house
+ *  content is billed to nobody and never appears in the brands' lists. */
+type FillerRow = {
+  id: string;
+  name: string;
+  active: boolean;
+  contentId: string | null;
+  playlist: { id: string; name: string; itemCount: number } | null;
+  isDefault: boolean;
+};
+
 // Positions one play occupies (defensive default 1 for old payloads).
 const spanOf = (c: AdminCampaign | undefined) => c?.slotSpan ?? 1;
 const spanLabel = (c: AdminCampaign) =>
@@ -73,6 +84,8 @@ export default function SlotsTab() {
   const [stores,   setStores]   = useState<SlotStore[]>([]);
   const [dates,    setDates]    = useState<string[]>([]);
   const [defaultFiller, setDefaultFiller] = useState<string | null>(null);
+  // House fillers are their own thing now, not campaigns — see FillerCreative.
+  const [fillers, setFillers] = useState<FillerRow[]>([]);
   const [campaigns, setCampaigns] = useState<AdminCampaign[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
@@ -83,7 +96,7 @@ export default function SlotsTab() {
   const load = useCallback(() => {
     setLoading(true);
     getSlotAvailability(from, addDays(from, WINDOW_DAYS - 1))
-      .then((r) => { setStores(r.stores); setDates(r.dates); setDefaultFiller(r.defaultFillerCampaignId); setError(null); })
+      .then((r) => { setStores(r.stores); setDates(r.dates); setDefaultFiller(r.defaultFillerCreativeId); setError(null); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [from]);
@@ -92,6 +105,10 @@ export default function SlotsTab() {
 
   const loadCampaigns = useCallback(() => {
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
+    fetch('/api/admin/fillers')
+      .then((r) => (r.ok ? r.json() : { fillers: [] }))
+      .then((d: { fillers?: FillerRow[] }) => setFillers(d.fillers ?? []))
+      .catch(() => {});
     fetch('/api/campaigns/admin', { headers: { 'admin-password': pw } })
       .then((r) => r.json() as Promise<AdminCampaign[]>)
       .then((cs) => setCampaigns(Array.isArray(cs) ? cs : []))
@@ -243,7 +260,7 @@ export default function SlotsTab() {
       )}
       {configStore && (
         <StoreSlotSettings
-          store={configStore} campaigns={campaigns} defaultFiller={defaultFiller}
+          store={configStore} campaigns={campaigns} fillers={fillers} defaultFiller={defaultFiller}
           onClose={() => setConfigStore(null)}
           onSaved={() => { setConfigStore(null); load(); }}
         />
@@ -587,8 +604,8 @@ function CopyDayPanel({ store, date, slotStores, onChanged }: {
 
 const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }: {
-  store: SlotStore; campaigns: AdminCampaign[]; defaultFiller: string | null;
+function StoreSlotSettings({ store, campaigns, fillers, defaultFiller, onClose, onSaved }: {
+  store: SlotStore; campaigns: AdminCampaign[]; fillers: FillerRow[]; defaultFiller: string | null;
   onClose: () => void; onSaved: () => void;
 }) {
   const [enabled,  setEnabled]  = useState(store.loopSlotCount != null);
@@ -596,15 +613,16 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
   const [openDays, setOpenDays] = useState(store.openDays);
   const [start,    setStart]    = useState(store.hoursStart);
   const [end,      setEnd]      = useState(store.hoursEnd);
-  const [filler,   setFiller]   = useState(store.fillerCampaignId ?? '');
+  const [filler,   setFiller]   = useState(store.fillerCreativeId ?? '');
   const [tier,     setTier]     = useState(store.slotPricingTier || 'standard');
   const [saving,   setSaving]   = useState(false);
 
-  // Mirrors resolveFillerCampaign on the server: per-store override, else global
-  // default, and the campaign must have a playable slot creative (single or playlist).
+  // Mirrors resolveFillerCampaign on the server: per-store override, else the
+  // fleet default, and the filler must be active with a playable creative.
   const effectiveFillerId = filler || defaultFiller || '';
-  const fillerCampaign    = campaigns.find((c) => c.id === effectiveFillerId);
-  const fillerPlayable    = !!fillerCampaign && hasSlotCreative(fillerCampaign);
+  const effectiveFiller   = fillers.find((f) => f.id === effectiveFillerId);
+  const fillerPlayable    = !!effectiveFiller && effectiveFiller.active
+    && (!!effectiveFiller.contentId || (effectiveFiller.playlist?.itemCount ?? 0) > 0);
 
   const save = async () => {
     setSaving(true);
@@ -613,7 +631,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
         storeId: store.id,
         loopSlotCount: enabled ? count : null,
         openDays, hoursStart: start, hoursEnd: end,
-        fillerCampaignId: filler || null,
+        fillerCreativeId: filler || null,
         slotPricingTier: tier,
       });
       const moved = res.reassigned ?? [];
@@ -624,7 +642,7 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
           }
         : { title: 'Slot settings saved ✓' });
       if (res.warning) {
-        toast({ variant: 'destructive', title: 'No filler campaign — screen can go dark', description: res.warning });
+        toast({ variant: 'destructive', title: 'No filler — screen can go dark', description: res.warning });
       }
       onSaved();
     } catch (e) {
@@ -708,11 +726,17 @@ function StoreSlotSettings({ store, campaigns, defaultFiller, onClose, onSaved }
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Filler campaign</label>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">House filler</label>
                 <select value={filler} onChange={(e) => setFiller(e.target.value)}
                   className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary">
-                  <option value="">Use default house ads{defaultFiller ? '' : ' (none set)'}</option>
-                  {campaigns.map((c) => <option key={c.id} value={c.id}>{c.brandName}{hasSlotCreative(c) ? '' : ' (no creative)'}</option>)}
+                  <option value="">Use the fleet default{defaultFiller ? '' : ' (none set)'}</option>
+                  {fillers.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                      {f.active ? '' : ' (off)'}
+                      {f.contentId || (f.playlist?.itemCount ?? 0) > 0 ? '' : ' (no creative)'}
+                    </option>
+                  ))}
                 </select>
                 <p className="mt-1 text-[10px] text-muted-foreground">Plays only when nothing is sold for the day.</p>
                 {enabled && !fillerPlayable && (

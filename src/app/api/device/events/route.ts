@@ -266,11 +266,21 @@ export async function POST(req: NextRequest) {
           distinct: ['campaignId'],
         }).catch(() => []),
         db.store.findUnique({
-          where: { id: device.storeId }, select: { fillerCampaignId: true },
+          where: { id: device.storeId }, select: { fillerCreativeId: true },
         }).catch(() => null),
       ]);
       attributable = new Set(booked.map((b) => b.campaignId));
-      if (store?.fillerCampaignId) attributable.add(store.fillerCampaignId);
+      // The effective filler is the store's override OR the fleet default, and
+      // it has to be both here: checking only the override rejected every filler
+      // play from the stores that simply use the default — which is most of them.
+      let fillerId = store?.fillerCreativeId ?? null;
+      if (!fillerId) {
+        const cfg = await db.playerConfig
+          .findUnique({ where: { id: 1 }, select: { fillerCreativeId: true } })
+          .catch(() => null);
+        fillerId = cfg?.fillerCreativeId ?? null;
+      }
+      if (fillerId) attributable.add(fillerId);
     }
 
     // Seed the chain from the last row in INSERTION order, which is the only

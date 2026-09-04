@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     }
     const store = await db.store.findUnique({
       where:  { id: storeId },
-      select: { loopSlotCount: true, fillerCampaignId: true },
+      select: { loopSlotCount: true, fillerCreativeId: true },
     });
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
     if (store.loopSlotCount == null) return NextResponse.json({ error: 'Store is not in slot mode' }, { status: 400 });
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
       orderBy: { slotPosition: 'asc' },
     });
 
-    const filler = await resolveFillerCampaign(store.fillerCampaignId);
+    const filler = await resolveFillerCampaign(store.fillerCreativeId);
     const loop = buildSlotLoop(
       store.loopSlotCount,
       bookings.map((b) => {

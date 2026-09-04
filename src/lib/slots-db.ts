@@ -127,35 +127,46 @@ export async function applySlotMoves(moves: SlotMove[]): Promise<void> {
   );
 }
 
-/** Resolves the effective filler campaign for a store: per-store override, else the
- *  global PlayerConfig default. Null when neither is set or the campaign has no
- *  playable slot creative. Filler is a single-slot mechanism (10s creatives only —
- *  it fills scattered single empties), so longer creatives are dropped here even if
- *  someone attaches them; if none survive, there is no filler. */
+/**
+ * Resolves the effective house filler for a store: the per-store override, else
+ * the global PlayerConfig default. Null when neither is set, the row is inactive,
+ * or it has no playable creative.
+ *
+ * Filler is a single-slot mechanism — it fills scattered single empties — so only
+ * 10s creatives qualify and longer ones are dropped even if someone attaches them.
+ *
+ * The returned shape still calls the id `campaignId` because that is the key the
+ * slot loop and PlayEvent attribution are built around, and a filler play is
+ * still recorded against an id. It is now a FillerCreative id, which is why the
+ * ids were preserved through the migration rather than reissued.
+ */
 export async function resolveFillerCampaign(
-  storeFillerCampaignId: string | null,
+  storeFillerCreativeId: string | null,
 ): Promise<{ campaignId: string; creativeIds: string[] } | null> {
-  let campaignId = storeFillerCampaignId;
-  if (!campaignId) {
-    const cfg = await db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } });
-    campaignId = cfg?.fillerCampaignId ?? null;
+  let fillerId = storeFillerCreativeId;
+  if (!fillerId) {
+    const cfg = await db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCreativeId: true } });
+    fillerId = cfg?.fillerCreativeId ?? null;
   }
-  if (!campaignId) return null;
-  const campaign = await db.campaign.findUnique({
-    where: { id: campaignId },
+  if (!fillerId) return null;
+
+  const filler = await db.fillerCreative.findUnique({
+    where: { id: fillerId },
     select: {
       id: true,
-      slotContent: { select: { id: true, durationMs: true } },
-      slotPlaylist: { select: { items: {
+      active: true,
+      content: { select: { id: true, durationMs: true } },
+      playlist: { select: { items: {
         where: { contentId: { not: null } }, orderBy: { order: 'asc' },
         select: { content: { select: { id: true, durationMs: true } } },
       } } },
     },
   });
-  if (!campaign) return null;
-  const candidates = campaign.slotPlaylist && campaign.slotPlaylist.items.length > 0
-    ? campaign.slotPlaylist.items.map((i) => i.content).filter((c): c is NonNullable<typeof c> => c != null)
-    : campaign.slotContent ? [campaign.slotContent] : [];
+  if (!filler || !filler.active) return null;
+
+  const candidates = filler.playlist && filler.playlist.items.length > 0
+    ? filler.playlist.items.map((i) => i.content).filter((c): c is NonNullable<typeof c> => c != null)
+    : filler.content ? [filler.content] : [];
   const tenSecond = candidates
     .filter((c) => slotSpanForDuration(c.durationMs) === 1)
     .map((c) => c.id);
@@ -163,10 +174,10 @@ export async function resolveFillerCampaign(
   // creatives longer) must not silently vanish on deploy and blank zero-booking
   // days. Grandfather the whole set — the player truncates each play at the slot
   // boundary — until someone re-cuts or re-points the filler. New configs can't
-  // get here (fillerCampaignError rejects >10s at assignment time).
+  // get here (fillerCreativeError rejects >10s at assignment time).
   const creativeIds = tenSecond.length > 0 ? tenSecond : candidates.map((c) => c.id);
   if (creativeIds.length === 0) return null;
-  return { campaignId: campaign.id, creativeIds };
+  return { campaignId: filler.id, creativeIds };
 }
 
 /** Sold-count availability per store per date, honouring open_days exclusion.
