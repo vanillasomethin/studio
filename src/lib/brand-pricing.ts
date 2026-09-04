@@ -34,11 +34,45 @@ export function getListPrice(screens: number): number {
   return PRICE_TIERS[PRICE_TIERS.length - 1].list;
 }
 
-/** Base campaign cost before discounts/GST, in rupees. */
-export function campaignBase(screens: number, months: number): number {
+// Longer commitments are discounted, on top of the per-screen volume tiers
+// above. Two separate levers on purpose: volume rewards width (more screens),
+// duration rewards length (more months), and a booking can earn both.
+//
+// Thresholds are inclusive and read longest-first, so 6+ months takes 5%.
+export const DURATION_DISCOUNTS = [
+  { minMonths: 6, rate: 0.05  },
+  { minMonths: 3, rate: 0.025 },
+] as const;
+
+/** Fractional duration discount for a booking length. 0 for under 3 months. */
+export function durationDiscountRate(months: number): number {
+  const m = Math.max(1, Math.floor(months || 1));
+  for (const d of DURATION_DISCOUNTS) if (m >= d.minMonths) return d.rate;
+  return 0;
+}
+
+/** Rupees off for the duration discount alone, before any coupon. */
+export function durationDiscountRupees(screens: number, months: number): number {
+  return Math.round(campaignListBase(screens, months) * durationDiscountRate(months));
+}
+
+/** Cost before ANY discount — per-screen price × screens × months. */
+export function campaignListBase(screens: number, months: number): number {
   const s = Math.max(1, Math.floor(screens || 1));
   const m = Math.max(1, Math.floor(months  || 1));
   return getScreenPrice(s) * s * m;
+}
+
+/**
+ * Base campaign cost before coupons/GST, in rupees — duration discount applied.
+ *
+ * The duration discount lives here rather than alongside coupons so that every
+ * caller gets it: the browser's displayed total and create-order's authoritative
+ * recompute both go through this one function, which is the only reason the two
+ * can't drift.
+ */
+export function campaignBase(screens: number, months: number): number {
+  return campaignListBase(screens, months) - durationDiscountRupees(screens, months);
 }
 
 export function gstOn(net: number): number {

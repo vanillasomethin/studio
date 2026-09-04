@@ -16,6 +16,7 @@
     "verify:reach": "node --experimental-strip-types scripts/verify-reach.mjs",
     "verify:sla": "node --experimental-strip-types scripts/verify-sla.mjs",
     "verify:addons": "node --experimental-strip-types scripts/verify-addons.mjs",
+    "verify:brand-pricing": "node --experimental-strip-types scripts/verify-brand-pricing.mjs",
     "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs",
     "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs",
     "verify:tier-links": "node --experimental-strip-types scripts/verify-tier-links.mjs",

@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths } from 'date-fns';
 import { useSession } from 'next-auth/react';
-import { getScreenPrice, getListPrice } from '@/lib/brand-pricing';
+import { getScreenPrice, getListPrice, campaignBase, campaignListBase, durationDiscountRate, durationDiscountRupees } from '@/lib/brand-pricing';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -451,7 +451,7 @@ function StepCampaign({
 }) {
   const pricePerScreen = getScreenPrice(data.screens);
   const listPerScreen  = getListPrice(data.screens);
-  const total          = pricePerScreen * data.screens * data.months;
+  const total          = campaignBase(data.screens, data.months);
   const valid          = data.screens > 0 && data.months > 0 && data.startDate;
   const mapDriven      = data.preferredStoreIds.length > 0;
   const [capHit, setCapHit] = useState(false);
@@ -968,7 +968,12 @@ function StepPayment({
 
   const pricePerScreen = getScreenPrice(data.screens);
   const listPerScreen  = getListPrice(data.screens);
-  const baseSubtotal   = pricePerScreen * data.screens * data.months;
+  // Both of these come from lib/brand-pricing so the browser's arithmetic is the
+  // same arithmetic create-order re-runs server-side.
+  const listSubtotal   = campaignListBase(data.screens, data.months);
+  const durationOff    = durationDiscountRupees(data.screens, data.months);
+  const durationPct    = durationDiscountRate(data.months) * 100;
+  const baseSubtotal   = campaignBase(data.screens, data.months);
   // Discount derived live from the coupon rule so it stays correct if the buyer
   // changes screens/months after applying (esp. PERCENT coupons).
   const promoCode      = appliedCoupon?.code ?? '';
@@ -1154,8 +1159,16 @@ function StepPayment({
           <div className="pt-2 border-t border-border space-y-2">
             <motion.div variants={fadeUp} className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-semibold text-foreground">{fmt(baseSubtotal)}</span>
+              <span className="font-semibold text-foreground">{fmt(listSubtotal)}</span>
             </motion.div>
+            {durationOff > 0 && (
+              <motion.div variants={fadeUp} className="flex items-center justify-between text-sm text-green-700">
+                <span className="font-semibold">
+                  Duration discount ({durationPct % 1 === 0 ? durationPct : durationPct.toFixed(1)}% · {data.months} months)
+                </span>
+                <span className="font-semibold">−{fmt(durationOff)}</span>
+              </motion.div>
+            )}
             {promoDiscount > 0 && (
               <motion.div variants={fadeUp} className="flex items-center justify-between text-sm text-green-700">
                 <span className="font-semibold">Promo ({promoCode})</span>
@@ -1569,6 +1582,17 @@ function BrandOnboardingInner() {
 
   const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length + 2)); };
   const back = () => { setDirection(-1); setStep((s) => Math.max(s - 1, 1)); };
+
+  // Each step is a page as far as the reader is concerned, but they are all one
+  // scroll container — so advancing from the long Campaign step left the browser
+  // holding its scroll offset and the Agreement opened part-way down, or at the
+  // bottom. Reset it on every step change, including the resume-to-payment jump.
+  //
+  // Instant, not smooth: the step itself is already animating in, and scrolling
+  // the old offset away underneath that reads as a glitch rather than motion.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [step]);
 
   // Save campaign data when the user reaches the payment step
   useEffect(() => {
