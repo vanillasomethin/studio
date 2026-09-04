@@ -29,6 +29,7 @@ type PowerStore = {
   estimate: {
     onHours: number; units: number; costPaise: number;
     watts: number; usingDefaultWatts: boolean;
+    source: 'metered' | 'surveyed' | 'default';
   };
 };
 
@@ -66,7 +67,8 @@ export default function PowerTab() {
 
   const totalPaise   = data.stores.reduce((s, x) => s + x.estimate.costPaise, 0);
   const totalUnits   = data.stores.reduce((s, x) => s + x.estimate.units, 0);
-  const unsurveyed   = data.stores.filter((s) => s.screen.watts == null).length;
+  // Metered stores don't need a survey — the plug already measured the draw.
+  const unsurveyed   = data.stores.filter((s) => s.estimate.usingDefaultWatts).length;
 
   return (
     <div className="space-y-4">
@@ -121,8 +123,13 @@ export default function PowerTab() {
                   </td>
                   <td className="px-3 py-2">
                     <p className="text-foreground">{s.screen.model ?? <span className="text-muted-foreground/60">Not surveyed</span>}</p>
-                    <p className={`text-[10px] ${s.estimate.usingDefaultWatts ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                      {s.estimate.watts}W {s.estimate.usingDefaultWatts ? '(fleet default)' : ''}
+                    <p className={`text-[10px] ${
+                      s.estimate.source === 'metered' ? 'text-green-700'
+                        : s.estimate.usingDefaultWatts ? 'text-amber-600' : 'text-muted-foreground'
+                    }`}>
+                      {s.estimate.source === 'metered' && <Zap className="mr-0.5 inline h-2.5 w-2.5" />}
+                      {s.estimate.watts}W {s.estimate.source === 'metered' ? '(metered)'
+                        : s.estimate.usingDefaultWatts ? '(fleet default)' : ''}
                     </p>
                   </td>
                   <td className="px-3 py-2">

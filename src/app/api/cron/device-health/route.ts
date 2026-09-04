@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     // every 5 min, observed firing 0.4h to 11.4h apart — that it is the backstop
     // rather than the primary trigger. force: it runs on a cold instance and must
     // never be skipped by the opportunistic throttle.
-    const { markedOffline, opened: openedAlerts, notified: partnersNotified } =
+    const { markedOffline, opened: openedAlerts, notified: partnersNotified, digested } =
       await sweepOfflineDevices(now, { force: true });
 
     // Retire alerts for screens that are never coming back, so the active list
@@ -167,7 +167,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true, markedOffline, updatedUptime: devices.length, createdTickets,
-      openedAlerts, partnersNotified, staleClosed,
+      openedAlerts, partnersNotified, staleClosed, digested,
     });
   } catch (e) {
     const error = e as Error;

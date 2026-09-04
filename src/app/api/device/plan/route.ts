@@ -14,7 +14,7 @@ import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { resolvePlaylistTree, pickRendition, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
-import { istToday, isOpenOn, buildSlotLoop, SLOT_DURATION_MS } from '@/lib/slots';
+import { istToday, isOpenOn, buildSlotLoop, slotCreativeIds, slotDayIndex, slotSpanForDuration, SLOT_DURATION_MS } from '@/lib/slots';
 import { resolveFillerCampaign } from '@/lib/slots-db';
 import { getMakegoodWeights } from '@/lib/sla-db';
 import { getPeakBoostedCampaignIds, getSoundAdCampaignId } from '@/lib/addons-db';
@@ -242,8 +242,15 @@ export async function GET(req: NextRequest) {
         const bookings = await db.slotBooking.findMany({
           where:  { storeId: store.id, date: new Date(`${today}T00:00:00Z`) },
           select: {
-            slotPosition: true, campaignId: true,
-            campaign: { select: { slotContentId: true } },
+            slotPosition: true, campaignId: true, spanId: true,
+            campaign: { select: {
+              slotContentId: true,
+              slotContent: { select: { durationMs: true } },
+              slotPlaylist: { select: { items: {
+                where: { contentId: { not: null } }, orderBy: { order: 'asc' },
+                select: { contentId: true, content: { select: { durationMs: true } } },
+              } } },
+            } },
           },
         });
         const filler = await resolveFillerCampaign(store.fillerCampaignId);
@@ -269,11 +276,19 @@ export async function GET(req: NextRequest) {
 
         const loop = buildSlotLoop(
           store.loopSlotCount!,
-          bookings.map((b) => ({
-            slotPosition: b.slotPosition, campaignId: b.campaignId,
-            slotContentId: b.campaign.slotContentId,
-          })),
+          bookings.map((b) => {
+            const durations = b.campaign.slotPlaylist?.items.length
+              ? b.campaign.slotPlaylist.items.map((i) => i.content?.durationMs ?? null)
+              : [b.campaign.slotContent?.durationMs ?? null];
+            return {
+              slotPosition: b.slotPosition, campaignId: b.campaignId,
+              creativeIds: slotCreativeIds(b.campaign),
+              spanId: b.spanId,
+              creativeSpan: Math.max(1, ...durations.map((d) => slotSpanForDuration(d))),
+            };
+          }),
           filler,
+          slotDayIndex(today),
           poolWeights,
         );
 
@@ -296,7 +311,9 @@ export async function GET(req: NextRequest) {
             url:        publicUrl(chosen.objectKey),
             md5:        chosen.md5,
             type:       c.type,
-            durationMs: SLOT_DURATION_MS,
+            // A multi-slot placement is ONE wire item spanning its whole window —
+            // covered positions get no item, so order stays strictly increasing.
+            durationMs: a.spanSlots * SLOT_DURATION_MS,
             order:      a.slotPosition,
             hevcUrl:    c.hevcObjectKey ? publicUrl(c.hevcObjectKey) : undefined,
             hevcMd5:    c.hevcMd5 ?? undefined,

@@ -40,6 +40,17 @@ function tvSize(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 && n <= 200 ? Math.round(n) : null;
 }
 
+/**
+ * One map coordinate as ops may send it: a finite JSON number, or a plain
+ * decimal string ("12.9141"). Nothing else — Number() would happily turn '',
+ * '0x1f' or '1e2' into a point on the map, and null/true into 0.
+ */
+function coord(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) return Number(v.trim());
+  return null;
+}
+
 /** The onboarding pipeline in order; 'rejected' sits deliberately outside it. */
 const STAGE_ORDER = ['new', 'contacted', 'physically_onboarded', 'digitally_onboarded', 'live'] as const;
 
@@ -51,6 +62,9 @@ const STAGE_ORDER = ['new', 'contacted', 'physically_onboarded', 'digitally_onbo
 function stageRank(v: unknown): number {
   return typeof v === 'string' ? (STAGE_ORDER as readonly string[]).indexOf(v) : -1;
 }
+
+/** Rank of the stage at which a screen starts earning, and liveAt is stamped. */
+const LIVE_RANK = STAGE_ORDER.indexOf('live');
 
 function getRedis() {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
@@ -82,6 +96,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       wifiPassword?: string | null;
       wifiAuthType?: string | null;
       installNotes?: string | null;
+      // Map pin — set or moved from Admin → Stores → Edit → Map pin.
+      lat?: unknown;
+      lng?: unknown;
     };
 
     // A text column is a string, or null/undefined to clear/leave it. Anything
@@ -99,6 +116,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           { status: 400 },
         );
       }
+    }
+
+    // ── Map pin ──────────────────────────────────────────────────────────────
+    // A store's pin comes from, in order: the partner at registration → an
+    // on-site GPS fix that fills an EMPTY pin (the photo routes) → ops setting
+    // or moving it here. Both halves or neither, and there is NO clearing path:
+    // a store that has ever been pinned stays on the maps until the pin is
+    // moved somewhere better.
+    let pin: { lat: number; lng: number } | null = null;
+    if ('lat' in body || 'lng' in body) {
+      const lat = coord(body.lat);
+      const lng = coord(body.lng);
+      if (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) {
+        return NextResponse.json(
+          { error: 'Send both lat and lng as decimal degrees. Move the pin rather than clearing it.' },
+          { status: 400 },
+        );
+      }
+      pin = { lat, lng };
     }
 
     // Blank clears the field (same as every other text column); anything else
@@ -128,15 +164,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // The onboarding pipeline requires field evidence before milestones pass: a
     // GPS-tagged shop-front photo to cross INTO 'contacted' (Team
     // verification), and the complete site-install record — TV identity, smart
-    // plug, network and three photos — to cross INTO 'physically_onboarded' or
-    // beyond (Site visit & install). Gates fire only on FORWARD crossings of
-    // those milestones — re-saving the current stage (the admin Save button
-    // always sends it), demoting, 'rejected', and stores already past a
-    // milestone (the pre-feature fleet) are unaffected.
+    // plug, network, three photos and a map pin — to cross INTO
+    // 'physically_onboarded' or beyond (Site visit & install). Gates fire only
+    // on FORWARD crossings of those milestones — re-saving the current stage
+    // (the admin Save button always sends it), demoting, 'rejected', and stores
+    // already past a milestone (the pre-feature fleet) are unaffected.
     // 'rejected' and an absent stage both rank -1, so they skip the gate exactly
     // as they did when they ranked `undefined`.
     const targetRank = body.onboardingStage ? stageRank(body.onboardingStage) : -1;
     let stampInstalledAt = false;
+    let stampLiveAt = false;
     if (targetRank >= 1) {
       try {
         const rows = await db.$queryRaw<{
@@ -147,10 +184,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           tvSizeInches: number | null; tvTag: string | null; tvInstalledAt: Date | null;
           espPlugId: string | null; wifiSsid: string | null;
           wifiUsername: string | null; wifiPassword: string | null; wifiAuthType: string | null;
+          liveAt: Date | null;
+          lat: number | null; lng: number | null;
         }[]>`
           SELECT "onboardingStage", "shopPhotoUrl", "installPhotoUrl", "serialPhotoUrl", "plugPhotoUrl",
                  "tvBrand", "tvModel", "tvSerial", "tvSizeInches", "tvTag", "tvInstalledAt",
-                 "espPlugId", "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType"
+                 "espPlugId", "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType",
+                 "liveAt", "lat", "lng"
             FROM "Store" WHERE "id" = ${id} LIMIT 1
         `;
         const p = rows[0];
@@ -186,6 +226,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           if (!p.installPhotoUrl) missing.push('Photo of the installed TV');
           if (!p.serialPhotoUrl) missing.push('Photo of the serial plate');
           if (!p.plugPhotoUrl) missing.push('Photo of the smart plug');
+          // The pin this save leaves behind: the body's, else the row's. Not
+          // derived from the photo columns — the photo routes already fill an
+          // empty pin on upload, and the backfill migration covered legacy rows.
+          if (!pin && (p.lat == null || p.lng == null)) missing.push('Map pin (shop location)');
           // Every miss at once — the executive is standing in the shop and must
           // see the whole list, not discover it one round trip at a time.
           if (missing.length) {
@@ -196,6 +240,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             );
           }
           stampInstalledAt = !p.tvInstalledAt;
+        }
+
+        // Crossing into 'live' is the moment the screen starts earning, and
+        // liveAt is what the payout export bills from. Nothing ever set it:
+        // the only writer was an admin typing a date into the "Set live date"
+        // modal in the Payments tab, so a store walked all the way to 'live'
+        // with liveAt still NULL and simply never appeared in an export.
+        // Every other consumer reads `stage === 'live' || liveAt` and so looked
+        // correct, which is why this stayed invisible.
+        //
+        // Same reasoning as tvInstalledAt above: the executive is standing in
+        // the shop, so do not make a human remember to type today's date.
+        //
+        // Gated on the crossing, not merely on the target, so a re-save of a
+        // store that has been live for months cannot stamp today over its real
+        // start date — a wrong date silently enters the payout maths, which is
+        // worse than a NULL that is visibly wrong. Rows already at 'live' with
+        // a NULL liveAt therefore still need the modal once.
+        if (p && currentRank < LIVE_RANK && targetRank >= LIVE_RANK) {
+          stampLiveAt = !p.liveAt;
         }
       } catch (e) {
         // Fail open ONLY for the not-yet-migrated-columns case; any other DB
@@ -211,9 +275,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const setClauses: string[] = [];
     const values: unknown[] = [];
 
-    if ('liveAt' in body) {
+    if ('liveAt' in body || stampLiveAt) {
+      const d = body.liveAt ? new Date(body.liveAt) : null;
+      // A cleared or absent date on a successful crossing stamps itself; an
+      // explicit date always wins, so the Payments-tab modal can still correct
+      // a store that went live before this was recorded. An unparseable date
+      // falls through to the stamp rather than writing Invalid Date.
       setClauses.push(`"liveAt" = $${values.length + 1}`);
-      values.push(body.liveAt ? new Date(body.liveAt) : null);
+      values.push(d && !isNaN(d.getTime()) ? d : (stampLiveAt ? new Date() : null));
     }
     if (body.onboardingStage) {
       setClauses.push(`"onboardingStage" = $${values.length + 1}`);
@@ -251,6 +320,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       values.push(d && !isNaN(d.getTime()) ? d : (stampInstalledAt ? new Date() : null));
     }
 
+    // ── Map pin ──────────────────────────────────────────────────────────────
+    // Already validated above; written as a pair so lat and lng can never
+    // disagree about which save they came from.
+    if (pin) {
+      setClauses.push(`"lat" = $${values.length + 1}`);
+      values.push(pin.lat);
+      setClauses.push(`"lng" = $${values.length + 1}`);
+      values.push(pin.lng);
+    }
+
     if (setClauses.length === 0) return NextResponse.json({ ok: true });
 
     setClauses.push(`"updatedAt" = NOW()`);
@@ -279,7 +358,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Stage advancement is the field-ops milestone money hangs off (a store
     // reaching 'live' starts earning), so record who moved it and which columns
     // the save touched. Only the changed field NAMES — the body carries the
-    // store's WiFi credentials.
+    // store's WiFi credentials. The pin itself is fine to record (it is on the
+    // public map), but under a key without the word "pin" in it — the audit
+    // scrubber redacts any key that contains it (see SECRET_WORD).
     await logAdminAction({
       actor, req,
       action: 'store.update',
@@ -288,6 +369,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         onboardingStage: body.onboardingStage ?? null,
         payoutStatus:    body.payoutStatus ?? null,
         fields:          Object.keys(body),
+        locationSource:  pin ? 'body' : null,
+        ...(pin ? { coords: { lat: pin.lat, lng: pin.lng } } : {}),
       },
     });
 

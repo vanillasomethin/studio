@@ -96,7 +96,7 @@ Field Executives, Operations Executives, BDEs, Technology, and (for the sections
 | **playbackAliveAt** | Timestamp content last actually advanced. Answers: *is content still playing?* `lastSeen` fresh + `playbackAliveAt` stale = **frozen screen** (process up, display stuck). |
 | **bootedAt** | The device's boot time, reported in heartbeat telemetry. Answers: *did it reboot during the outage?* A boot **inside** the offline gap = power cut; boot **before** it = something else broke. |
 | **uptimePctD30** | Rolling 30-day uptime percentage per device, recomputed by the 5-minute health cron; a drop of >15 points opens a remediation ticket. |
-| **Onboarding stage** | `Store.onboardingStage`: `new` → `contacted` → `physically_onboarded` → `digitally_onboarded` → `live` (plus `rejected`). Advancement is gated by GPS photos — see §3. |
+| **Onboarding stage** | `Store.onboardingStage`: `new` → `contacted` → `physically_onboarded` → `digitally_onboarded` → `live` (plus `rejected`). Advancement is gated by GPS photos and a map pin — see §3. |
 | **liveAt** | Timestamp the admin marks a store live. **The partner's earning clock starts here** — ₹500/month standard, ₹1000/month premium, pro-rated from `liveAt`. |
 | **Decommission** | Full device wipe (cached plan, media, Room tables, SharedPreferences incl. token and FCM token) and return to the pairing screen. Triggered only by an HTTP **410 carrying `{"error":"Device deleted"}`** or a token-addressed FCM `decommission` push. A bare 410 is treated as transient. The wipe is deliberate and irreversible — which is why device deletion is Technology-only (§2). |
 | **Force Sync** | Admin action (`POST /api/devices/[id]/force-sync`) that sets `forceSyncAt` and changes the plan hash, making the player invalidate its cache and re-download immediately instead of waiting for the next poll. |
@@ -129,15 +129,17 @@ Field Executives, Operations Executives, BDEs, Technology, and (for the sections
 
 ### 3.1 The pipeline at a glance
 
-A store moves through five stages on `Store.onboardingStage`. The admin console (Admin → **Stores** tab) is where stages are advanced; the server (`/api/admin/stores/[id]`) enforces two GPS-photo gates and will answer **HTTP 409** with an explanatory error if you try to advance without the evidence. Gates fire only on **forward** crossings — re-saving the current stage, demoting, `rejected`, and stores that predate the photo feature are unaffected.
+A store moves through five stages on `Store.onboardingStage`. The admin console (Admin → **Stores** tab) is where stages are advanced; the server (`/api/admin/stores/[id]`) enforces two gates (shop photo; install record + map pin) and will answer **HTTP 409** with an explanatory error if you try to advance without the evidence. Gates fire only on **forward** crossings — re-saving the current stage, demoting, `rejected`, and stores that predate the photo feature are unaffected.
 
 | Stage | Entry criteria | Gate to exit (server-enforced) | Who advances | Where |
 |---|---|---|---|---|
 | `new` | Registration submitted (web `/store` or Expo store app); `agreedAt` timestamp saved; referral code generated | **GPS shop-front photo** uploaded (`shopPhotoUrl`). Without it the server refuses with 409: *"Cannot advance stage: the partner has not uploaded the GPS shop-front photo yet (required for Team verification)."* Ops must also visually verify the photo coordinates against the registered map pin. | Operations Executive | Admin → Stores → store row → stage selector |
-| `contacted` | Shop photo verified; first contact made; site visit scheduled | **GPS installed-TV photo** uploaded (`installPhotoUrl`). Without it: 409 *"Cannot advance stage: the GPS photo of the installed TV has not been uploaded yet (required for Site visit & install)."* | Operations Executive (after Field Executive confirms install) | Admin → Stores |
+| `contacted` | Shop photo verified; first contact made; site visit scheduled | Full install record (TV serial, company, model, size, tag; smart plug ID; Wi-Fi name, security type, password, username for PPPoE/portal), the three install photos, **and a map pin**. The server answers 409 listing every missing item by name, e.g. *"Cannot advance stage: TV serial number, Smart plug ID, Photo of the installed TV, Map pin (shop location) are still missing (required for Site visit & install)."* | Operations Executive (after Field Executive confirms install) | Admin → Stores |
 | `physically_onboarded` | TV mounted, powered, on Wi-Fi; device claimed and pairing confirmed in Admin → Screens; install photo on file | KYC submitted and approved; payout method captured; partner can log in to the dashboard/app | Operations Executive | Admin → Stores |
 | `digitally_onboarded` | `kycStatus = approved`; `payoutStatus = ready`; partner logged in at least once | Screen verifiably playing (PlayEvents visible in Reports); admin sets `liveAt` | Operations Executive, countersigned by Technology for the first screens | Admin → Stores (stage + `liveAt` field) |
 | `live` | `liveAt` set — **earning clock running** | — (exit is decommission or `rejected`, both Technology-only) | — | — |
+
+**Map pin.** A store's map pin (`Store.lat/lng`) comes from, in order: the partner's pin at registration (required) → an on-site GPS fix that fills an *empty* pin (any shop or install photo, whether the fix came from the photo's EXIF or the phone's location — uploaded by the partner, or by ops from the admin panel or the pair wizard) → ops setting or moving it in Admin → Stores → Edit → **Map pin**. A pin is required to cross into `physically_onboarded`. A pinned store shows on the public map (wearealive.in → Network) as *Coming soon* **immediately, at any stage** (only `rejected` is kept off), and in the brand screen picker (not bookable) once `physically_onboarded` — nobody waits for `live`, or for ops, to put a store on the map. A pin that came from a photo is flagged in the panel ("Pin taken from the … photo GPS — confirm it on the map"); check it by eye and move it if it is wrong.
 
 ### 3.2 Registration
 
@@ -146,7 +148,7 @@ Two ways in — both create the same `Store` row at stage `new`:
 - **Web:** `https://wearealive.in/store` on the partner's own phone (preferred — the session lands on their device).
 - **Expo store app**, where already distributed.
 
-**Step 1 — details.** Store name, owner name, WhatsApp number (this becomes the login username), password (minimum 6 characters), GSTIN (optional), map pin on the Leaflet map (locality/pincode/city autofill via Nominatim — drag the pin to the actual shopfront, this pin is what the GPS photo is checked against), and referral code if another partner referred them. The draft persists in `sessionStorage` (`alive_store_draft`), so opening the agreement page and coming back does not lose the form.
+**Step 1 — details.** Store name, owner name, WhatsApp number (this becomes the login username), password (minimum 6 characters), GSTIN (optional), map pin — **required** (web: tap the Leaflet map or drag the pin to the actual shopfront, or use current location; app: current location — a denied location permission is unblocked from the phone's Settings, or by registering on the web instead; locality/pincode/city autofill via Nominatim; this pin is what the GPS photos are checked against), and referral code if another partner referred them. The draft persists in `sessionStorage` (`alive_store_draft`), so opening the agreement page and coming back does not lose the form.
 
 **Step 2 — agreement and consent.** The partner sees the full VS Collective LLP agreement (`/store-agreement`) with the party block prefilled (name, owner, address, phone, GSTIN if given). They tick **"I agree"** and submit. Submission saves the consent timestamp to `agreedAt` and generates the store's unique **referral code**. There is no paper-only path: no `agreedAt`, no store.
 
@@ -172,7 +174,7 @@ Every store gets a unique `referralCode` at registration. It does three jobs: (1
 ### 3.5 GPS shop-front photo (gate out of `new`)
 
 1. On the first visit (or guided remotely), the partner or Field Executive uploads a photo of the shopfront from the partner dashboard. The upload is `POST /api/stores/verification-photo` with FormData: `file` (JPEG/PNG/WebP, max 4 MB — the client downscales larger), `kind=shop`, `lat`/`lng` in decimal degrees, and `source` = `exif` (coordinates from the photo's EXIF GPS tags) or `device` (phone geolocation at upload time). Coordinates of exactly 0,0 or missing location are rejected — enable location services first.
-2. The photo, its coordinates and `shopPhotoAt` timestamp appear in the admin panel **next to the registered map pin**. The Operations Executive checks they match — a photo taken kilometres from the pin means either the pin or the visit is wrong; resolve before advancing.
+2. The photo, its coordinates and `shopPhotoAt` timestamp appear in the admin panel **next to the registered map pin**. The Operations Executive checks they match — a photo taken kilometres from the pin means either the pin or the visit is wrong; resolve before advancing. If the pin was auto-filled from this photo, the panel says *"This photo set the map pin"* instead of a distance — a 0 m match certifies nothing, so verify by eye against the registered address and the shopfront photo, and move the pin in Admin → Stores → Edit → **Map pin** if it is wrong.
 3. Only then set the stage to `contacted`.
 
 > **Known limitation:** the Expo mobile app does not yet have the photo-upload UI — use the partner web dashboard in the phone's browser for both GPS photos.
@@ -191,8 +193,8 @@ Scheduling is manual (WhatsApp/phone) — there is no scheduler in the system. O
 After mounting, powering and pairing the screen (installation and pairing procedure is covered in the installation section of this SOP; summary: first boot shows a 6-character pairing code, Ops confirms it in Admin → Screens):
 
 1. Take a photo of the **installed, powered-on TV showing content**, upload via the same route with `kind=install`. Same GPS rules apply (`installPhotoUrl`, `installPhotoLat/Lng`, `installPhotoAt`, `source`).
-2. The server refuses to advance the stage to `physically_onboarded` (or beyond) without it — 409, message quoted in §3.1.
-3. Ops verifies coordinates against the pin, then sets `physically_onboarded`.
+2. The server refuses to advance the stage to `physically_onboarded` (or beyond) without it — or without the rest of the install record and a map pin — 409, message format quoted in §3.1.
+3. Ops verifies coordinates against the pin, then sets `physically_onboarded`. If the pin was auto-filled from a photo, the "N m from registered pin" figure certifies nothing (the panel says *"This photo set the map pin"*) — verify by eye against the address and the shopfront photo, and move the pin in Admin → Stores → Edit → **Map pin** if it is wrong.
 
 ### 3.8 KYC collection and review
 
@@ -249,12 +251,13 @@ Before setting stage `live`:
 | 2 | GSTIN (only if the store has one) | `Store.gstin` | Optional, capture at registration |
 | 3 | GPS shop-front photo (+ coordinates, timestamp) | `shopPhotoUrl` / `shopPhotoAt` | Leaving `new` |
 | 4 | GPS installed-TV photo (+ coordinates, timestamp) | `installPhotoUrl` / `installPhotoAt` | Leaving `contacted` |
-| 5 | PAN card photo | `kycPanUrl` | `digitally_onboarded` |
-| 6 | Aadhaar card photo + last-4 | `kycAadhaarUrl`, `kycAadhaarLast4` | `digitally_onboarded` |
-| 7 | Live selfie | `kycSelfieUrl` | `digitally_onboarded` |
-| 8 | Payout details (UPI id, or bank name/account/IFSC/holder) | `payoutMethod` + fields | `payoutStatus = ready`, before `live` |
-| 9 | Referral code noted on partner sticker | Printed sticker at the counter | Handover at install visit |
-| 10 | `liveAt` set and communicated to partner | `Store.liveAt` | First payout cycle |
+| 5 | Map pin | `Store.lat/lng` | Before `physically_onboarded` |
+| 6 | PAN card photo | `kycPanUrl` | `digitally_onboarded` |
+| 7 | Aadhaar card photo + last-4 | `kycAadhaarUrl`, `kycAadhaarLast4` | `digitally_onboarded` |
+| 8 | Live selfie | `kycSelfieUrl` | `digitally_onboarded` |
+| 9 | Payout details (UPI id, or bank name/account/IFSC/holder) | `payoutMethod` + fields | `payoutStatus = ready`, before `live` |
+| 10 | Referral code noted on partner sticker | Printed sticker at the counter | Handover at install visit |
+| 11 | `liveAt` set and communicated to partner | `Store.liveAt` | First payout cycle |
 
 
 ---
@@ -344,11 +347,11 @@ Target: **box to playing-and-verified in 25 minutes on site.** Pre-provisioned D
 | 8 | Assign a playlist via a Schedule, or enable the store's slot loop. First plan fetch happens immediately after pairing — no waiting on the poll interval | 2 | Diagnose panel shows the intended plan |
 | 9 | Verify first frame renders + kiosk lock active: content playing; BACK/HOME presses are swallowed | 3 | Video/image on glass, remote can't escape |
 | 10 | Anti-sleep settings sweep (§4.4, all 4 settings) | 2 | All four confirmed OFF/Never |
-| 11 | Record the install in the wizard: **TV** (serial, company, model, size, ALIVE tag) · **network** (SSID, security type, password, and username on PPPoE/portal sites) · **smart plug ID**; then take the three **GPS photos** — installed TV playing, serial plate, plug in socket | 3 | Every field green in the wizard; 3 of 3 photos uploaded |
+| 11 | Record the install in the wizard: **TV** (serial, company, model, size, ALIVE tag) · **network** (SSID, security type, password, and username on PPPoE/portal sites) · **smart plug ID**; then take the three **GPS photos** — installed TV playing, serial plate, plug in socket | 3 | Every field green in the wizard; 3 of 3 photos uploaded; map pin present (auto-filled from the install photo; else set in Admin → Stores) |
 | 12 | Tap **Save & finish install**. The wizard writes the record and advances the stage to `physically_onboarded` | 1 | "Install recorded" screen; `live` + `liveAt` are set later by Ops once KYC and payout clear (§3.10) |
 | | **Total** | **25** | |
 
-Step-12 gate, by design: the admin API **refuses** to advance a store past `contacted` (into `physically_onboarded` or beyond) until the whole install record is present — every field listed in step 11 plus the installed-TV, serial-plate and smart-plug photos. It answers 409 with the exact list of what is still missing, which the wizard shows as a checklist with a jump-back link per item. Likewise a store cannot leave `new` without the GPS shop-front photo. Do not ask [Ops Lead — name] to bypass this; this record is the field evidence trail, and nobody can read a serial or a Wi-Fi password off the router remotely afterwards.
+Step-12 gate, by design: the admin API **refuses** to advance a store past `contacted` (into `physically_onboarded` or beyond) until the whole install record is present — every field listed in step 11 plus the installed-TV, serial-plate and smart-plug photos, and a map pin. It answers 409 with the exact list of what is still missing, which the wizard shows as a checklist with a jump-back link per item. Likewise a store cannot leave `new` without the GPS shop-front photo. Do not ask [Ops Lead — name] to bypass this; this record is the field evidence trail, and nobody can read a serial or a Wi-Fi password off the router remotely afterwards.
 
 Read the serial and model off the back-panel plate **before** you tidy the cable, and the plug ID **before** you push the plug into the socket — both become unreachable once mounted, and that is the single most common reason an install runs over.
 
@@ -1038,7 +1041,7 @@ ALIVE (VS Collective LLP, GST 29AAXFV2589C1ZE) holds partner PII, KYC documents,
 | Partner identity | Store name, owner name, phone/WhatsApp (doubles as login username), GSTIN | Neon Postgres (`Store`, `User`) | Admin password holders; the partner themselves (own record only) |
 | Partner payment details | Bank account / UPI for payouts | Neon Postgres (`Store`, `StorePayment`) | Admin password holders; the partner (own record only) |
 | Partner KYC | PAN, Aadhaar, selfie. **Aadhaar: only the last 4 digits are stored, as text — never the full number, never an image of the full number** | Documents in Cloudflare R2 (uploaded via the small server-side proxy `POST /api/admin/r2-upload`); references + last-4 text in Postgres | Admin password holders only |
-| GPS-tagged photos | Shop-front photo (gates stage past `new`), installed-TV photo (gates stage past `contacted`) | R2 under `verification/` (`shopPhotoUrl`, `installPhotoUrl` on `Store`) | Admin password holders; the partner (own photos) |
+| GPS-tagged photos | Shop-front photo (gates stage past `new`), installed-TV photo (with the install record and map pin, gates stage past `contacted`); a GPS fix from either (EXIF or phone location) fills an empty map pin — `Store.lat/lng` is then public on the Network map immediately | R2 under `verification/` (`shopPhotoUrl`, `installPhotoUrl` on `Store`) | Admin password holders; the partner (own photos) |
 | Brand contact data | Company, contact person, email, phone, Razorpay order/payment IDs | Neon Postgres (`Brand`, `Campaign`) | Admin password holders; the brand (own dashboard via Auth.js session) |
 | Play logs | `PlayEvent` rows — device, campaign, media, timestamps, slot position, tamper-evident `rowHash` chain | Neon Postgres | Admin; brands see rollups for their own campaigns only |
 | Device telemetry | `lastSeen`, CPU temp, storage, versions, incident stack traces (`TelemetryEvent`) | Neon Postgres | Admin password holders only |
@@ -1137,7 +1140,7 @@ ALIVE (VS Collective LLP, GST 29AAXFV2589C1ZE) holds partner PII, KYC documents,
 | ☐ | 9 | Content playing on the screen, full-screen portrait, no letterboxing | Visual check |
 | ☐ | 10 | `PlayEvent` rows appear in Reports within 10 min of playback | **If not: treat as P0** (PoP is the grant deliverable) |
 | ☐ | 11 | Take **GPS-tagged installed-TV photo** and upload (required to advance the store past `contacted`) | Photo on store record |
-| ☐ | 12 | Advance onboarding stage → `physically_onboarded` in admin (`live` + `liveAt` come later from Ops, §3.10) | Stage saved without a 409 gate error |
+| ☐ | 12 | Advance onboarding stage → `physically_onboarded` in admin (`live` + `liveAt` come later from Ops, §3.10) | Map pin present (auto-filled from the install photo; else set in Admin → Stores); stage saved without a 409 gate error |
 | ☐ | 13 | Show the partner: power button, "call us before touching anything else" | Partner briefed |
 
 **Installer sign-off:** ______________________  **Partner sign-off:** ______________________  **Time completed:** ________
@@ -1192,7 +1195,7 @@ ALIVE (VS Collective LLP, GST 29AAXFV2589C1ZE) holds partner PII, KYC documents,
 | `uptimePctD30` | Rolling 30-day uptime %, recomputed each 5-min health sweep; a > 15-point drop auto-opens a remediation ticket |
 | `planHash` | SHA-256 fingerprint of the device's current plan; the player skips re-processing when it matches. Diagnose shows drift between assigned and fetched |
 | `transcodeStatus` | Media pipeline state for a `Content` row. A creative is fleet-safe only after transcode (H.264 Main@4.1 ≤1080p30 + optional HEVC rendition) completes |
-| `onboardingStage` | Store pipeline: `new → contacted → physically_onboarded → digitally_onboarded → live`. GPS shop photo gates leaving `new`; GPS install photo gates advancing past `contacted` (server enforces with a 409) |
+| `onboardingStage` | Store pipeline: `new → contacted → physically_onboarded → digitally_onboarded → live`. GPS shop photo gates leaving `new`; the install record + map pin gate advancing past `contacted` (server enforces with a 409) |
 | `payoutStatus` | State of the store's monthly ₹500/₹1000 remuneration (`StorePayment`, one row per store per `YYYY-MM`) |
 
 ### 15.5 Appendix E — Incident report form (blank)

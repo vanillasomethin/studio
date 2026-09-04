@@ -60,7 +60,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 | Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
 | Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
 | Payments | Razorpay (brand campaigns) |
-| Maps | Plain Leaflet + CartoDB Voyager tiles (no react-leaflet — React 19 only) |
+| Maps | Plain Leaflet (no react-leaflet — React 19 only). Tiles always come from `BASEMAP` in `src/lib/map-tiles.ts`: CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OpenStreetMap otherwise. Never paste a tile URL — CARTO tiles without a key render "API key required". |
 | Geocoding | OpenStreetMap Nominatim |
 | AI | Genkit + Google AI (Gemini 2.5 Flash) |
 | React | 18.3.1 — NOT 19 |
@@ -109,6 +109,20 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 - No react-leaflet — use `async function loadLeaflet()` dynamic import pattern
 - Always `// eslint-disable-next-line @next/next/no-img-element` before `<img>` tags
 
+**Store map pin:**
+- `Store.lat/lng` comes from, in order: the partner's pin at registration (required) →
+  an on-site GPS fix that fills an EMPTY pin (any shop/install photo, EXIF or device
+  fix, via `/api/stores/verification-photo` or `/api/admin/stores/[id]/photo`) → ops
+  setting/moving it in Admin → Stores → Edit →
+  Map pin (`PATCH /api/admin/stores/[id]` with `{ lat, lng }`; no clearing path). A pin
+  is required to cross into `physically_onboarded` (409 lists `Map pin (shop location)`).
+  A pinned store is on the public map at once (any stage but `rejected`), in the brand picker (non-bookable
+  "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
+  stage. Nothing waits for `live` — don't build a "live only" filter on any map.
+- Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"
+  (`SECRET_WORD` in `src/lib/admin-audit.ts`) — name pin-related meta keys
+  `locationSource` / `coords`, never anything with "pin" in it.
+
 ---
 
 ## Key File Paths
@@ -126,6 +140,9 @@ src/app/api/devices/route.ts              — fleet list
 src/app/api/cron/device-health/route.ts   — offline detection + alerts
 src/app/api/playlists/[id]/route.ts       — PATCH (update items) + DELETE
 src/app/api/admin/r2-upload/route.ts      — server-side R2 proxy upload
+src/app/api/cron/tuya-power/route.ts      — smart-plug power poll (Aziot/Tuya)
+src/lib/tuya.ts                           — Tuya Cloud OpenAPI client (signing, devices)
+src/lib/tuya-power.ts                     — plug poll recording + power summaries
 src/lib/db.ts                             — Prisma singleton
 src/lib/r2.ts                             — Cloudflare R2 helpers
 src/lib/notify.ts                         — notifyAdminWA(), notifyStoreWA()
@@ -156,6 +173,8 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `Bill` + `BillItem` | VoiceBill POS billing. `billRef` = "ALIVE-XXXXXX". |
 | `Customer` | Bill customer. Token-based auth (randomUUID → localStorage `alive_customer`). |
 | `Flyer` | Store offer flyers. |
+| `SmartPlug` | Tuya (Aziot) smart plug linked 1:1 to a Store, with latest-poll power snapshot. |
+| `PlugReading` | Per-poll power/energy time series (5-min cadence, 180-day retention). |
 | `AuditLog` | T2 audit trail (reserved). |
 
 ---
@@ -168,11 +187,14 @@ A screen gets its content one of two ways. Which one applies is decided by
 - **Slot mode (`loopSlotCount` set, default 30) — the primary model.** The loop is
   generated per store per day from `SlotBooking` rows by `buildSlotLoop()`
   (`src/lib/slots.ts`), called from `/api/device/plan`. A booking points at a
-  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`).
-  **No Playlist is involved at all** — one campaign with one creative serves every
-  store it's booked into, so there is never a reason to hand-build a playlist per
-  store. Unsold positions fill themselves: first as bonus replays of sold campaigns
-  (round-robin), then from the house filler campaign.
+  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`)
+  or, for multi-creative campaigns, a playlist (`Campaign.slotPlaylistId`) whose
+  media items rotate deterministically — the campaign's k-th play of the day shows
+  item (dayIndex+k) mod N. Either way the creative rides on the campaign, so there
+  is never a reason to hand-build a playlist per store. Unsold positions fill
+  themselves: first as bonus replays of sold campaigns (round-robin), then from
+  the house filler campaign. Bulk booking: `POST /api/slots/bookings/bulk`
+  (assign / copy-day; books what fits, reports gaps, never overwrites a sale).
 - **Playlist/schedule mode (`loopSlotCount` null).** The older path — `Playlist` →
   `Schedule` → devices. Use it for screens that aren't selling slots.
 
@@ -193,6 +215,7 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 | `/store-dashboard` | Store partner dashboard (overview / earnings / flyers / voicebill tabs) |
 | `/store-agreement` | VS Collective LLP store partner contract |
 | `/brand-onboarding` | Brand campaign onboarding + Razorpay |
+| `/advertise` | Advertiser landing page — network map, slot-rate estimator, advertiser agreement + enquiry form. Brand config in `src/lib/brand.ts`; rates reuse `SLOT_TIER_RATE_RUPEES`. Never surfaces store payouts. |
 | `/admin` | Admin panel (stores / flyers / campaigns / screens / content / playlists / schedules / reports / monitoring / payments / site-media / roadmap) |
 | `/bill/[billRef]` | Public receipt — customer can claim bill |
 | `/customer-dashboard` | Customer purchase history + local offers |
@@ -220,7 +243,7 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 
 ## Store Registration Flow
 
-1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map, locality/pincode/city autofill via Nominatim, referral code
+1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map (pin required), locality/pincode/city autofill via Nominatim, referral code
 2. **Step 2** — Agreement preview, party block prefilled, "I agree" checkbox, submit → generates referral code + saves `agreedAt`
 
 Form data persisted to `sessionStorage('alive_store_draft')` so navigating to agreement page and back doesn't lose data.
@@ -363,8 +386,12 @@ STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
 STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link
 PREMIUM_SIGNUP_KEY              # secret for the gated premium store signup link /store?premium=<key> (optional)
 PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (default 100000 = ₹1000)
-EWELINK_APP_ID                  # eWeLink OAuth app (dev.ewelink.cc) — Sonoff smart plug power control (optional)
-EWELINK_APP_SECRET              # eWeLink OAuth app secret; whitelist <site>/api/ewelink/callback in the app settings
+TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
+TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
+TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
+NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https://carto.com/basemaps/apikey. Unset → every map falls back to OpenStreetMap tiles. Mirror it as EXPO_PUBLIC_CARTO_API_KEY for store-app.
+# Electricity tariff is NOT an env var: measured (smart plug) and estimated
+# (proof-of-play) costs both price kWh from PlayerConfig.electricityPaisePerKwh.
 ```
 
 ---

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { db } from '@/lib/db';
+import { sanitizeStoreIds } from '@/lib/store-ids';
 
 type Body = {
   razorpay_order_id:   string;
@@ -86,72 +87,102 @@ export async function POST(req: NextRequest) {
         where: { email: { equals: campaign.email, mode: 'insensitive' } },
       });
 
-      const existing = await db.campaign.findFirst({ where: { orderId: razorpay_order_id } });
+      // The coupon comes from the ORDER, exactly as screens and months do.
+      // create-order granted the discount and stamped the code it honoured.
+      // Reading it off the request body instead let a buyer take the discounted
+      // price and then simply omit couponCode here — the redemption was never
+      // counted, so a capped coupon could be redeemed without limit.
+      const paidCoupon = typeof order.notes?.alive_coupon === 'string'
+        ? order.notes.alive_coupon
+        : null;
 
-      if (existing) {
+      // Count one redemption against the cap, atomically. The cap is checked at
+      // create-order but incremented only here, so buyers who pass the check
+      // concurrently would all redeem; the cap is therefore re-asserted inside
+      // the same statement and the database decides who takes the last slot.
+      // A zero-row result means someone else took it — the buyer has already
+      // been charged the discounted amount, so the payment stands (failing a
+      // settled transaction over a coupon is worse) but the counter stays true.
+      const countRedemption = async (code: string) => {
+        await db.coupon.updateMany({
+          where: {
+            code: code.toUpperCase(),
+            OR: [
+              { maxRedemptions: null },
+              { redemptions: { lt: db.coupon.fields.maxRedemptions } },
+            ],
+          },
+          data: { redemptions: { increment: 1 } },
+        }).catch(() => {});
+      };
+
+      // Bring an existing campaign to `active`. Shared by the pay-later branch
+      // and by the loser of a create race, which are the same situation once the
+      // row exists: the payment is settled and the row must reflect it.
+      const activateExisting = async (row: { id: string; status: string }) => {
         // Keep the row internally consistent: the charge was recomputed at
         // current rates, so the stored per-screen rate must follow it.
         const ppw = Math.floor(Number(campaign.pricePerScreen));
+        // Only the transition into `active` is a redemption. A retried or
+        // replayed verify for an already-active campaign must not count again.
+        const wasAlreadyActive = row.status === 'active';
         await db.campaign.update({
-          where: { id: existing.id },
+          where: { id: row.id },
           data:  {
             paymentId: razorpay_payment_id,
             status: 'active',
             totalAmount: chargedRupees,
             screens: paidScreens,
             months:  paidMonths,
+            ...(paidCoupon ? { couponCode: paidCoupon } : {}),
             ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
           },
         });
-      } else {
-        await db.campaign.create({
-          data: {
-            brandId:        brand?.id ?? null,
-            name:           `${campaign.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
-            contactName:    campaign.contactName,
-            email:          campaign.email,
-            phone:          campaign.phone ?? undefined,
-            screens:        paidScreens,
-            months:         paidMonths,
-            startDate:      new Date(campaign.startDate),
-            pricePerScreen: campaign.pricePerScreen,
-            totalAmount:    chargedRupees,
-            couponCode:     campaign.couponCode ?? null,
-            preferredStoreIds: Array.isArray(campaign.preferredStoreIds)
-              ? campaign.preferredStoreIds
-                  .filter((v): v is string => typeof v === 'string' && /^[a-z0-9]{20,32}$/.test(v))
-                  .slice(0, 50)
-              : [],
-            paymentId:      razorpay_payment_id,
-            orderId:        razorpay_order_id,
-            status:         'active',
-          },
-        });
+        // The pay-later flow reaches payment through here, so it counted no
+        // redemptions at all until now.
+        if (paidCoupon && !wasAlreadyActive) await countRedemption(paidCoupon);
+      };
 
-        // Count the redemption against the coupon's usage cap.
-        //
-        // The cap is checked when the order is created but incremented only
-        // here, so N shoppers who all pass the check concurrently would all
-        // redeem — a check-then-act race that lets a capped coupon overshoot.
-        // The increment is therefore conditional on the cap in the same
-        // statement: the database, not the application, decides who gets the
-        // last redemption, and the counter can never exceed maxRedemptions.
-        //
-        // A zero-row result means a concurrent payment took the final slot.
-        // The shopper has already been charged the discounted amount by then,
-        // so the payment stands — the alternative is failing a settled
-        // transaction over a coupon — but the counter stays truthful.
-        if (campaign.couponCode) {
-          await db.coupon.updateMany({
-            where: {
-              code: campaign.couponCode.toUpperCase(),
-              OR: [
-                { maxRedemptions: null },
-                { redemptions: { lt: db.coupon.fields.maxRedemptions } },
-              ],
+      // findUnique, not findFirst: orderId is unique now, so this is an index
+      // lookup for the row that either exists or does not.
+      const existing = await db.campaign.findUnique({ where: { orderId: razorpay_order_id } });
+
+      if (existing) {
+        await activateExisting(existing);
+      } else {
+        try {
+          await db.campaign.create({
+            data: {
+              brandId:        brand?.id ?? null,
+              name:           `${campaign.brandName} — ${new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`,
+              contactName:    campaign.contactName,
+              email:          campaign.email,
+              phone:          campaign.phone ?? undefined,
+              screens:        paidScreens,
+              months:         paidMonths,
+              startDate:      new Date(campaign.startDate),
+              pricePerScreen: campaign.pricePerScreen,
+              totalAmount:    chargedRupees,
+              couponCode:     paidCoupon,
+              preferredStoreIds: sanitizeStoreIds(campaign.preferredStoreIds),
+              paymentId:      razorpay_payment_id,
+              orderId:        razorpay_order_id,
+              status:         'active',
             },
-            data: { redemptions: { increment: 1 } },
-          }).catch(() => {});
+          });
+
+          if (paidCoupon) await countRedemption(paidCoupon);
+        } catch (e) {
+          // P2002 = the unique index on orderId rejected this insert, so a
+          // concurrent confirmation of the same payment created the campaign
+          // between our findUnique and this create. That is the race the index
+          // exists to stop; the correct response is to adopt the winner's row,
+          // not to fail a payment the buyer has already been charged for.
+          //
+          // Deliberately no countRedemption here: the winner already counted it.
+          if ((e as { code?: string }).code !== 'P2002') throw e;
+          const raced = await db.campaign.findUnique({ where: { orderId: razorpay_order_id } });
+          if (raced) await activateExisting(raced);
         }
       }
     }

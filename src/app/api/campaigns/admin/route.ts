@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { uniformSlotSpan, type SlotCreativeMeta } from '@/lib/slots';
 
 export async function GET(req: NextRequest) {
   // Fail CLOSED: the previous guard only rejected when ADMIN_PASSWORD was set,
@@ -9,7 +10,20 @@ export async function GET(req: NextRequest) {
   try {
     const campaigns = await db.campaign.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { brand: { select: { id: true, brandName: true, trialOfferedAt: true, trialUsedAt: true } } },
+      include: {
+        brand: { select: { id: true, brandName: true, trialOfferedAt: true, trialUsedAt: true } },
+        // Slot rotation source — media items + durations (nested items can't play in
+        // slots; durations feed the slot-span chip so ops see "30s · 3 slots/play").
+        slotContent: { select: { id: true, durationMs: true, type: true } },
+        slotPlaylist: { select: {
+          id: true, name: true,
+          _count: { select: { items: { where: { contentId: { not: null } } } } },
+          items: {
+            where: { contentId: { not: null } },
+            select: { content: { select: { id: true, durationMs: true, type: true } } },
+          },
+        } },
+      },
     });
 
     // Resolve map-picked store ids to names for ops — unknown ids drop out.
@@ -25,7 +39,18 @@ export async function GET(req: NextRequest) {
       for (const s of batch) storeById.set(s.id, s);
     }
 
-    const result = campaigns.map((c) => ({
+    const result = campaigns.map((c) => {
+      // The campaign's slot length class: 1 = a plain 10s ad, 3 = a 30s ad that
+      // books 3 consecutive positions per play. null = mixed/unknown durations
+      // (blocked from booking until the rotation is fixed).
+      const metas: SlotCreativeMeta[] = (c.slotPlaylist?.items ?? [])
+        .map((i) => i.content)
+        .filter((x): x is NonNullable<typeof x> => x != null)
+        .map((x) => ({ contentId: x.id, durationMs: x.durationMs, type: x.type }));
+      const effective = metas.length > 0 ? metas
+        : c.slotContent ? [{ contentId: c.slotContentId!, durationMs: c.slotContent.durationMs, type: c.slotContent.type }] : [];
+      const spanned = uniformSlotSpan(effective);
+      return {
       id:              c.id,
       brandId:         c.brand?.id ?? null,
       brandName:       c.brand?.brandName ?? c.name.split(' — ')[0],
@@ -44,6 +69,10 @@ export async function GET(req: NextRequest) {
       // Slot-loop 10s creative — a booked campaign without one can't render in a slot
       // (its positions fall through to bonus/filler redistribution).
       slotContentId:   c.slotContentId,
+      // Attached rotation playlist (overrides slotContentId) — see Campaign.slotPlaylistId.
+      slotPlaylist:    c.slotPlaylist
+        ? { id: c.slotPlaylist.id, name: c.slotPlaylist.name, mediaItems: c.slotPlaylist._count.items }
+        : null,
       // Brand's map picks — routing hint for slot assignment, not a reservation.
       preferredStores: c.preferredStoreIds
         .map((id) => storeById.get(id))
@@ -51,7 +80,10 @@ export async function GET(req: NextRequest) {
         .map((s) => ({ id: s.id, storeName: s.storeName, locality: s.locality })),
       trialOfferedAt:  c.brand?.trialOfferedAt?.toISOString() ?? null,
       trialUsedAt:     c.brand?.trialUsedAt?.toISOString()    ?? null,
-    }));
+      slotSpan:        'error' in spanned ? null : spanned.span,
+      slotSpanError:   'error' in spanned ? spanned.error : null,
+      };
+    });
 
     return NextResponse.json(result);
   } catch (e) {

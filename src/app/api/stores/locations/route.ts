@@ -22,6 +22,13 @@ type Row = {
 };
 
 // Public endpoint — store name + location + whether it is live yet.
+//
+// A store is public the moment it has a pin — registration, or the first GPS
+// photo — and shows as "Coming soon" until it plays. Nothing waits for `live`,
+// and nothing waits for ops either: the founder's rule is that a store onboarded
+// with its GPS data appears on the map automatically. Only a rejected applicant
+// is kept off.
+//
 // Raw SQL because onboardingStage post-dates the init migration and may be
 // absent on older databases; if the column isn't there we fall back to treating
 // every pinned store as live, which is how this endpoint behaved before.

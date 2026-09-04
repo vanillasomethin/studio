@@ -3,8 +3,9 @@
 // Body: { deviceIds: string[], playlistId: string, durationMins: number, name?: string }
 // Auth: admin-password header
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
+import { pushPlanUpdated, resolveScheduleDeviceIds } from '@/lib/fcm';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 
@@ -37,6 +38,30 @@ export async function POST(req: NextRequest) {
         recurrence: 'ONCE',
         orientation: 'portrait',
       },
+    });
+
+    // Tell the screens now instead of leaving them on the old playlist until
+    // their next poll. This route created the takeover and returned, so a
+    // priority-9 override — the most time-critical schedule the platform has,
+    // the one an operator reaches for when the wrong thing is on screen — took
+    // up to a full poll interval to appear. Every sibling schedule route pushes.
+    //
+    // after(), not a floating promise: on Vercel the instance can be frozen the
+    // moment the response is sent, which drops an in-flight push and puts the
+    // delay straight back. The sibling routes use a bare `.catch(() => {})` and
+    // have the same exposure; /api/device/events already made this argument in
+    // its own comment. Errors stay swallowed — a push that fails must not fail
+    // a takeover that is already committed to the database.
+    after(async () => {
+      try {
+        const ids = await resolveScheduleDeviceIds({
+          deviceIds:  schedule.deviceIds,
+          groupName:  null,
+          storeIds:   [],
+          cityFilter: null,
+        });
+        if (ids.length) await pushPlanUpdated(ids);
+      } catch { /* best-effort */ }
     });
 
     // priority 9 overrides every other active schedule on the targeted screens.

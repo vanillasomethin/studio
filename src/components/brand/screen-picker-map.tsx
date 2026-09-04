@@ -1,8 +1,10 @@
 'use client';
 
-// Onboarding map picker: live store screens on a Leaflet map, click to select.
-// Selection is a routing hint for ops (Campaign.preferredStoreIds), not a hard
-// slot reservation — copy in the parent explains that. Leaflet is dynamically
+// Onboarding map picker: onboarded store screens on a Leaflet map, click to
+// select — live ones are bookable, the rest show as hollow "Coming soon" pins
+// so a brand can see where the network is heading. Selection is a routing hint
+// for ops (Campaign.preferredStoreIds), not a hard slot reservation — copy in
+// the parent explains that. Leaflet is dynamically
 // imported (no react-leaflet — React 19 only) and its CSS ships globally.
 //
 // Lifecycle rules learned the hard way:
@@ -16,9 +18,9 @@
 //   vanishes can't re-init. We overlay a notice instead.
 
 import { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 import { MapPin, X } from 'lucide-react';
 
-const TILE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const MANGALURU: [number, number] = [12.8698, 74.8431];
 
 type ScreenPin = {
@@ -28,6 +30,7 @@ type ScreenPin = {
   city: string | null;
   lat: number;
   lng: number;
+  live: boolean;                  // playing today; false = onboarded, screen not up yet
   slotStatus: 'available' | 'limited' | 'sold_out' | null;
 };
 
@@ -50,19 +53,27 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// 36px hit target (touch minimum) around a smaller visual dot.
+// 36px hit target (touch minimum) around a smaller visual dot. A non-live pin
+// is hollow (white, amber ring) — same language as the public Network map.
 function markerHtml(pin: ScreenPin, selected: boolean) {
   const dot = STATUS_DOT[pin.slotStatus ?? 'none'];
   const inner = selected
     ? `<div style="width:26px;height:26px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
       </div>`
-    : `<div style="width:16px;height:16px;border-radius:50%;background:${dot};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`;
+    : pin.live
+    ? `<div style="width:16px;height:16px;border-radius:50%;background:${dot};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`
+    : `<div style="width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid #f59e0b;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`;
   return `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">${inner}</div>`;
 }
 
+function statusLabel(pin: ScreenPin) {
+  return pin.live ? STATUS_LABEL[pin.slotStatus ?? 'none'] : 'Coming soon';
+}
+
 function tooltipHtml(pin: ScreenPin) {
-  return `<strong>${esc(pin.storeName)}</strong><br/>${esc(pin.locality ?? pin.city ?? '')} · ${STATUS_LABEL[pin.slotStatus ?? 'none']}`;
+  const status = pin.live ? statusLabel(pin) : 'Coming soon — not bookable yet';
+  return `<strong>${esc(pin.storeName)}</strong><br/>${esc(pin.locality ?? pin.city ?? '')} · ${status}`;
 }
 
 export default function ScreenPickerMap({
@@ -121,7 +132,7 @@ export default function ScreenPickerMap({
           // pinch-zoom still works for positioning.
           dragging: !L.Browser.mobile,
         }).setView(pins.length ? center : MANGALURU, 13);
-        L.tileLayer(TILE, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(mapRef.current);
+        L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(mapRef.current);
       }
 
       // Rebuild markers from the current pins.
@@ -134,11 +145,14 @@ export default function ScreenPickerMap({
           html: markerHtml(pin, isSel), className: '',
           iconSize: [36, 36], iconAnchor: [18, 18],
         });
-        const marker = L.marker([pin.lat, pin.lng], { icon }).addTo(mapRef.current);
+        const marker = L.marker([pin.lat, pin.lng], {
+          icon, title: `${pin.storeName} — ${statusLabel(pin)}`,
+        }).addTo(mapRef.current);
         marker.bindTooltip(tooltipHtml(pin), { direction: 'top', offset: [0, -14] });
         marker.on('click', () => {
           const current = pinsRef.current.get(pin.id);
-          if (current?.slotStatus === 'sold_out') return;
+          // Coming-soon stores can't be booked yet; sold-out ones are full.
+          if (!current?.live || current.slotStatus === 'sold_out') return;
           onToggleRef.current(pin.id, current?.storeName ?? pin.storeName);
         });
         markersRef.current.set(pin.id, marker);
@@ -187,7 +201,7 @@ export default function ScreenPickerMap({
         />
         {loading && (
           <div className="absolute inset-0 z-[500] flex items-center justify-center rounded-xl bg-muted/40 text-xs text-muted-foreground">
-            Loading live screens…
+            Loading screens…
           </div>
         )}
         {error && !loading && (
@@ -201,6 +215,7 @@ export default function ScreenPickerMap({
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-green-500 inline-block" /> Slots open</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500 inline-block" /> Few left</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-400 inline-block" /> Sold out</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-white border-2 border-amber-500 inline-block" /> Coming soon</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary inline-block" /> Selected</span>
       </div>
 

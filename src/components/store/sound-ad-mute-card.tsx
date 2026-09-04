@@ -8,18 +8,20 @@
 import { useEffect, useState } from 'react';
 import { Volume2, VolumeX, Loader2 } from 'lucide-react';
 
-export default function SoundAdMuteCard({ storeId }: { storeId: string }) {
+export default function SoundAdMuteCard({ storeId, token }: { storeId: string; token?: string }) {
   const [muted, setMuted] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/stores/sound-ad-mute?storeId=${storeId}`)
+    fetch(`/api/stores/sound-ad-mute?storeId=${storeId}`, {
+      headers: token ? { 'x-store-token': token } : undefined,
+    })
       .then((r) => r.ok ? r.json() as Promise<{ muted: boolean }> : null)
       .then((d) => { if (live && d) setMuted(d.muted); })
       .catch(() => {});
     return () => { live = false; };
-  }, [storeId]);
+  }, [storeId, token]);
 
   if (muted === null) return null;
 
@@ -28,7 +30,8 @@ export default function SoundAdMuteCard({ storeId }: { storeId: string }) {
     setSaving(true);
     try {
       const res = await fetch('/api/stores/sound-ad-mute', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-store-token': token } : {}) },
         body: JSON.stringify({ storeId, muted: next }),
       });
       if (res.ok) setMuted(next);

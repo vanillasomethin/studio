@@ -3,6 +3,7 @@
 
 import { db } from './db';
 import { decideAddonStatus, type AddonStatus, type AddonType } from './addons';
+import { slotSpanForDuration } from './slots';
 
 export type PurchaseResult = { status: AddonStatus } | { error: string };
 
@@ -18,6 +19,29 @@ export async function purchaseAddon(storeId: string, campaignId: string, type: A
 
   const booked = await db.slotBooking.findFirst({ where: { storeId, campaignId }, select: { id: true } });
   if (!booked) return { error: 'This campaign has no booked slot at that store yet.' };
+
+  // Peak Boost works by biasing the single-slot bonus round-robin, and multi-slot
+  // campaigns are excluded from that pool by construction (a 30s creative cannot
+  // fill one scattered 10s empty). Selling them the boost would charge for
+  // something provably inert — refuse instead.
+  if (type === 'peak_boost') {
+    const campaign = await db.campaign.findUnique({
+      where: { id: campaignId },
+      select: {
+        slotContent: { select: { durationMs: true } },
+        slotPlaylist: { select: { items: {
+          where: { contentId: { not: null } },
+          select: { content: { select: { durationMs: true } } },
+        } } },
+      },
+    });
+    const durations = campaign?.slotPlaylist?.items.length
+      ? campaign.slotPlaylist.items.map((i) => i.content?.durationMs ?? null)
+      : [campaign?.slotContent?.durationMs ?? null];
+    if (durations.some((d) => slotSpanForDuration(d) > 1)) {
+      return { error: 'Peak Boost multiplies 10-second bonus plays — it has no effect on longer multi-slot ads, so it cannot be added to this campaign.' };
+    }
+  }
 
   const activeCount = await db.slotAddon.count({ where: { storeId, type, status: 'active' } });
   const status = decideAddonStatus(activeCount, type);

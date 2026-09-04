@@ -40,9 +40,11 @@ const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-pan
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),            { ssr: false });
+const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
+const MapPicker        = dynamic(() => import('@/components/map-picker'),                { ssr: false });
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
-import { adminGetArray, adminGetObject } from '@/lib/admin-fetch';
+import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -53,7 +55,7 @@ type Flyer = {
 type StoreReg = {
   id: string; storeName: string; ownerName: string; phone: string;
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
-  lat?: string; lng?: string; gstin?: string; email?: string; createdAt: string;
+  lat?: number | null; lng?: number | null; gstin?: string; email?: string; createdAt: string;
   onboardingStage?: string | null; payoutStatus?: string | null; payoutMethod?: string | null; upiId?: string | null;
   tier?: string | null; monthlyCompensationPaise?: number | null;
   bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
@@ -389,7 +391,7 @@ async function openAsPartner(s: StoreReg) {
     storeName: s.storeName, ownerName: s.ownerName,
     whatsapp: s.whatsapp, phone: s.phone || s.whatsapp,
     address: s.address, locality: s.locality, city: s.city, pincode: s.pincode,
-    lat: s.lat, lng: s.lng, gstin: s.gstin || null,
+    lat: s.lat ?? undefined, lng: s.lng ?? undefined, gstin: s.gstin || null,
     referralCode: s.referralCode, referredBy: s.referredBy || null,
     agreedAt: s.agreedAt || null, liveAt: s.liveAt || null,
     upiId: s.upiId || null, payoutMethod: s.payoutMethod || null,
@@ -639,17 +641,25 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
       const pw   = sessionStorage.getItem(SS_PW) ?? '';
       const res  = await fetch(`/api/admin/stores/${storeId}/photo`, { method: 'POST', headers: { 'admin-password': pw }, body: fd });
       if (res.status === 401) throw new Error('Admin session expired — reload the panel and sign in again.');
-      const body = await res.json().catch(() => null) as { url?: string; lat?: number | null; lng?: number | null; at?: string | null; error?: string } | null;
+      const body = await res.json().catch(() => null) as {
+        url?: string; lat?: number | null; lng?: number | null; at?: string | null;
+        storeLat?: number | null; storeLng?: number | null; error?: string;
+      } | null;
       if (!res.ok || !body?.url) throw new Error(body?.error ?? `Upload failed (HTTP ${res.status})`);
       // Straight into the card's store row so the thumbnail — and the gate's
-      // view of what's collected — updates without a re-read.
-      onUploaded(photoPatch(kind, {
-        url:    body.url,
-        lat:    body.lat ?? null,
-        lng:    body.lng ?? null,
-        source: body.lat != null ? 'device' : null,
-        at:     body.at ?? null,
-      }));
+      // view of what's collected — updates without a re-read. The route also
+      // returns the store's map pin, which this upload may have just filled,
+      // so the "No map pin" state clears on the spot.
+      onUploaded({
+        ...photoPatch(kind, {
+          url:    body.url,
+          lat:    body.lat ?? null,
+          lng:    body.lng ?? null,
+          source: body.lat != null ? 'device' : null,
+          at:     body.at ?? null,
+        }),
+        ...(body.storeLat != null && body.storeLng != null ? { lat: body.storeLat, lng: body.storeLng } : {}),
+      });
     } catch (e) {
       setError((e as Error).message || 'Upload failed. Check the connection and try again.');
     } finally {
@@ -689,6 +699,12 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
   // exclusivity radius is a natural threshold for "same shop").
   const dist = hasCoords && typeof storeLat === 'number' && typeof storeLng === 'number'
     ? distanceMetres(lat!, lng!, storeLat, storeLng) : null;
+  // An exact match means this photo's fix WAS promoted to the store pin (empty
+  // pin filled on upload) — a 0 m distance then certifies nothing, so say what
+  // happened instead of showing a reassuring green figure.
+  // Only a shop or install photo can fill it; a serial/plug shot taken seconds
+  // later carries the same cached device fix and must not claim credit.
+  const setPin = (kind === 'shop' || kind === 'install') && hasCoords && lat === storeLat && lng === storeLng;
   return (
     <div className="rounded-lg border border-border bg-background px-3 py-2.5">
       <div className="flex items-center gap-2.5">
@@ -711,7 +727,9 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
               {lat!.toFixed(6)}, {lng!.toFixed(6)}
             </a>
           ) : <p className="text-[10px] text-muted-foreground">No coordinates</p>}
-          {dist != null && (
+          {setPin ? (
+            <p className="text-[10px] text-muted-foreground">This photo set the map pin</p>
+          ) : dist != null && (
             <p className={`text-[10px] font-semibold ${dist > 200 ? 'text-amber-600' : 'text-green-700'}`}>
               {dist > 200 ? '⚠ ' : ''}{dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`} from registered pin
             </p>
@@ -720,6 +738,128 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
         {picker}
       </div>
       {error && <p className="mt-1.5 text-[10px] font-medium text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+/** Map pin block for the expanded store card. A store's pin comes from the
+ *  partner's registration → an on-site GPS fix that fills an EMPTY pin → ops
+ *  moving it here. The draft lives in this component and is NOT written
+ *  through patchLocal until "Save pin" succeeds: the global Save never sends
+ *  lat/lng, so a half-dragged pin can neither ride along with it nor be lost
+ *  to a stale re-sync. */
+function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: number, lng: number) => void }) {
+  const pinned = store.lat != null && store.lng != null;
+  const [draft,  setDraft]  = useState<{ lat: number; lng: number } | null>(pinned ? { lat: store.lat!, lng: store.lng! } : null);
+  const [saving, setSaving] = useState(false);
+  const [saved,  setSaved]  = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
+
+  // Follow the store row when its pin changes underneath us (a save landed).
+  useEffect(() => {
+    setDraft(store.lat != null && store.lng != null ? { lat: store.lat, lng: store.lng } : null);
+  }, [store.lat, store.lng]);
+
+  const dirty = draft != null && (draft.lat !== store.lat || draft.lng !== store.lng);
+  const hasShopFix    = store.shopPhotoLat    != null && store.shopPhotoLng    != null;
+  const hasInstallFix = store.installPhotoLat != null && store.installPhotoLng != null;
+  // Provenance by exact equality: an upload that filled an empty pin copied the
+  // photo's fix verbatim, so a match means "auto-filled, nobody has looked".
+  const from = !pinned ? null
+    : store.lat === store.shopPhotoLat    && store.lng === store.shopPhotoLng    ? 'shop'
+    : store.lat === store.installPhotoLat && store.lng === store.installPhotoLng ? 'install'
+    : null;
+
+  const save = async () => {
+    if (!draft || !dirty) return;
+    setSaving(true); setError(null);
+    try {
+      const pw  = sessionStorage.getItem(SS_PW) ?? '';
+      // ONLY the pin — this PATCH must never carry the hardware fields the
+      // global Save owns, and the global Save never carries this.
+      const res = await fetch(`/api/admin/stores/${store.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'admin-password': pw },
+        body: JSON.stringify({ lat: draft.lat, lng: draft.lng }),
+      });
+      if (res.status === 401) throw new Error('Admin session expired — reload the panel and sign in again.');
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error ?? `Save failed (HTTP ${res.status})`);
+      onSaved(draft.lat, draft.lng);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError((e as Error).message || 'Save failed. Check the connection and try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const smallBtn = 'inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Map pin</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {dirty && (
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Unsaved pin</span>
+          )}
+          {saved && !dirty && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-500/15 dark:text-green-300">
+              <CheckCircle2 className="h-2.5 w-2.5" /> Saved
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={!dirty || saving}
+            className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <MapPin className="h-3 w-3" />} Save pin
+          </button>
+        </div>
+      </div>
+
+      {!pinned ? (
+        <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">No map pin — this store is on no map yet.</p>
+      ) : (
+        <div className="text-[11px] text-muted-foreground">
+          <a href={`https://maps.google.com/?q=${store.lat},${store.lng}`} target="_blank" rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground">
+            {store.lat!.toFixed(6)}, {store.lng!.toFixed(6)}
+          </a>
+          {from && (
+            <p className="mt-0.5 font-semibold text-amber-700 dark:text-amber-300">
+              Pin taken from the {from === 'shop' ? 'shop-photo' : 'install-photo'} GPS — confirm it on the map
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Address fields are the partner's — the picker's reverse-geocode is ignored. */}
+      <MapPicker
+        lat={draft ? String(draft.lat) : ''}
+        lng={draft ? String(draft.lng) : ''}
+        onLocation={(lat, lng) => setDraft({ lat: Number(lat), lng: Number(lng) })}
+      />
+
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" className={smallBtn} disabled={!hasShopFix}
+          onClick={() => setDraft({ lat: store.shopPhotoLat!, lng: store.shopPhotoLng! })}>
+          <Camera className="h-3 w-3" /> Use shop photo GPS
+        </button>
+        <button type="button" className={smallBtn} disabled={!hasInstallFix}
+          onClick={() => setDraft({ lat: store.installPhotoLat!, lng: store.installPhotoLng! })}>
+          <Camera className="h-3 w-3" /> Use install photo GPS
+        </button>
+      </div>
+
+      {error && <p className="text-[10px] font-medium text-red-600">{error}</p>}
+      <p className="text-[10px] text-muted-foreground">
+        Required before Physically onboarded. A pinned store shows on wearealive.in as Coming soon straight away,
+        and in the brand screen picker once Physically onboarded.
+      </p>
     </div>
   );
 }
@@ -803,6 +943,9 @@ function StoresPanel() {
   const [loading,  setLoading]  = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search,   setSearch]   = useState('');
+  // Narrow the list to stores that are on no map yet — the pin is the one
+  // thing an ops visit can fix in a minute, so it deserves its own filter.
+  const [onlyUnpinned, setOnlyUnpinned] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [saving,   setSaving]   = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -933,19 +1076,24 @@ function StoresPanel() {
     }));
   };
 
+  const isUnpinned = (s: StoreReg) => s.lat == null || s.lng == null;
+
   const filtered = stores.filter((s) =>
-    !search ||
-    s.storeName.toLowerCase().includes(search.toLowerCase()) ||
-    (s.ownerName ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.city ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.phone ?? '').includes(search) || (s.whatsapp ?? '').includes(search) ||
-    (s.referralCode ?? '').toLowerCase().includes(search.toLowerCase()),
+    (!onlyUnpinned || isUnpinned(s)) && (
+      !search ||
+      s.storeName.toLowerCase().includes(search.toLowerCase()) ||
+      (s.ownerName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (s.city ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (s.phone ?? '').includes(search) || (s.whatsapp ?? '').includes(search) ||
+      (s.referralCode ?? '').toLowerCase().includes(search.toLowerCase())
+    ),
   );
 
   const live     = stores.filter((s) => s.onboardingStage === 'live').length;
   const pending  = stores.filter((s) => !s.onboardingStage || s.onboardingStage === 'new').length;
   const screened = stores.filter((s) => (s.deviceCount ?? 0) > 0).length;
   const premium  = stores.filter((s) => s.tier === 'premium').length;
+  const unpinned = stores.filter(isUnpinned).length;
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
@@ -961,13 +1109,14 @@ function StoresPanel() {
   return (
     <div className="space-y-4">
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[
           { label: 'Registered',  value: stores.length },
           { label: 'Live',        value: live },
           { label: 'Pending',     value: pending },
           { label: 'With screen', value: screened },
           { label: 'Premium',     value: premium },
+          { label: 'No map pin',  value: unpinned },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center">
             <p className="text-2xl font-bold text-foreground">{s.value}</p>
@@ -979,10 +1128,22 @@ function StoresPanel() {
       <SignupLinksPanel />
       <PremiumLinkCard />
 
-      <input type="search" placeholder="Search by name, owner, city, phone, referral code…" value={search} onChange={(e) => setSearch(e.target.value)} className={inp} />
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="search" placeholder="Search by name, owner, city, phone, referral code…" value={search} onChange={(e) => setSearch(e.target.value)} className={`${inp} flex-1 min-w-[220px]`} />
+        <button
+          type="button"
+          onClick={() => setOnlyUnpinned((v) => !v)}
+          aria-pressed={onlyUnpinned}
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${onlyUnpinned
+            ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300'
+            : 'border-border text-muted-foreground hover:border-amber-300 hover:text-foreground'}`}
+        >
+          <MapPin className="h-3.5 w-3.5" /> Missing map pin ({unpinned})
+        </button>
+      </div>
 
       {!filtered.length ? (
-        <p className="text-sm text-muted-foreground text-center py-10">{search ? 'No stores match.' : 'No store registrations yet.'}</p>
+        <p className="text-sm text-muted-foreground text-center py-10">{search || onlyUnpinned ? 'No stores match.' : 'No store registrations yet.'}</p>
       ) : (
         <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
           {filtered.map((s) => {
@@ -1025,9 +1186,18 @@ function StoresPanel() {
                     </div>
                   )}
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/40 to-transparent" />
-                  <span className={`absolute left-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${STAGE_COLORS[stage] ?? 'bg-gray-100 text-gray-500'}`}>
-                    {STAGE_LABELS[stage] ?? stage}
-                  </span>
+                  <div className="absolute left-3 top-3 flex items-center gap-1.5">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${STAGE_COLORS[stage] ?? 'bg-gray-100 text-gray-500'}`}>
+                      {STAGE_LABELS[stage] ?? stage}
+                    </span>
+                    {/* On no map yet — the pin is what puts a store on wearealive.in
+                        and in the brand picker, so its absence is a card-face state. */}
+                    {isUnpinned(s) && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 shadow-sm dark:bg-amber-500/15 dark:text-amber-300">
+                        <MapPin className="h-2.5 w-2.5" /> No map pin
+                      </span>
+                    )}
+                  </div>
                   <div className="absolute right-3 top-3 flex items-center gap-1.5">
                     {s.tier === 'premium' && (
                       <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300">
@@ -1116,24 +1286,28 @@ function StoresPanel() {
                       {s.agreedAt && <span><span className="font-semibold text-foreground/60">Agreed:</span> {fmtDate(s.agreedAt)}</span>}
                     </div>
 
+                    {/* Map pin — what puts the store on the public map and in the
+                        brand picker. Saved by its own button, never by the global Save. */}
+                    <MapPinEditor store={s} onSaved={(lat, lng) => patchLocal(s.id, { lat, lng })} />
+
                     {/* GPS verification photos — evidence behind the stage gates */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <AdminPhotoCard label="Shop front" kind="shop" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
                         url={s.shopPhotoUrl} lat={s.shopPhotoLat} lng={s.shopPhotoLng}
                         source={s.shopPhotoSource} at={s.shopPhotoAt}
-                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                        storeLat={s.lat ?? null} storeLng={s.lng ?? null} />
                       <AdminPhotoCard label="Installed TV" kind="install" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
                         url={s.installPhotoUrl} lat={s.installPhotoLat} lng={s.installPhotoLng}
                         source={s.installPhotoSource} at={s.installPhotoAt}
-                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                        storeLat={s.lat ?? null} storeLng={s.lng ?? null} />
                       <AdminPhotoCard label="Serial plate" kind="serial" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
                         url={s.serialPhotoUrl} lat={s.serialPhotoLat} lng={s.serialPhotoLng}
                         source={s.serialPhotoSource} at={s.serialPhotoAt}
-                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                        storeLat={s.lat ?? null} storeLng={s.lng ?? null} />
                       <AdminPhotoCard label="Smart plug" kind="plug" storeId={s.id} onUploaded={(p) => patchLocal(s.id, p)}
                         url={s.plugPhotoUrl} lat={s.plugPhotoLat} lng={s.plugPhotoLng}
                         source={s.plugPhotoSource} at={s.plugPhotoAt}
-                        storeLat={s.lat != null ? Number(s.lat) : null} storeLng={s.lng != null ? Number(s.lng) : null} />
+                        storeLat={s.lat ?? null} storeLng={s.lng ?? null} />
                     </div>
 
                     {/* Installation & hardware — what ops records at the site visit.
@@ -1199,6 +1373,10 @@ function StoresPanel() {
                         Partners can also record the TV number with the installed-TV photo from the app. WiFi credentials are visible to admins only.
                       </p>
                     </div>
+
+                    {/* Live consumption from the linked Tuya/Aziot plug — separate from
+                        the ops-typed label fields above, which stay pure metadata. */}
+                    <StorePlugPanel storeId={s.id} />
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
@@ -1660,23 +1838,29 @@ function Ticker({ stats }: { stats: OpsStats | null }) {
 
 // ─── Command Palette ──────────────────────────────────────────────────────────
 
-const PALETTE_GROUPS = [
+// Every item carries its own action — a tab to switch to or an href to open in
+// a new tab — so an entry can't ship as dead chrome (the old external tabMap
+// silently no-opped any label it didn't know about).
+const PALETTE_GROUPS: {
+  label: string;
+  items: { icon: React.ElementType; label: string; hint?: string; tab?: Tab; href?: string }[];
+}[] = [
   {
     label: 'Pages',
     items: [
-      { icon: LayoutDashboard, label: 'Go to Overview',        hint: 'G then O' },
-      { icon: Megaphone,       label: 'Go to Campaigns',       hint: 'G then C' },
-      { icon: Store,           label: 'Go to Store partners', hint: 'G then K' },
-      { icon: IndianRupee,     label: 'Go to Payouts',         hint: 'G then P' },
+      { icon: LayoutDashboard, label: 'Go to Overview',       hint: 'G then O', tab: 'overview'  },
+      { icon: Megaphone,       label: 'Go to Campaigns',      hint: 'G then C', tab: 'campaigns' },
+      { icon: Store,           label: 'Go to Store partners', hint: 'G then K', tab: 'stores'    },
+      { icon: IndianRupee,     label: 'Go to Payouts',        hint: 'G then P', tab: 'payments'  },
     ],
   },
   {
     label: 'Actions',
     items: [
-      { icon: Plus,        label: 'New campaign',              hint: '⌘N' },
-      { icon: Upload,      label: 'Upload 8-second creative',  hint: '⌘U' },
-      { icon: Store,       label: 'Onboard a kirana',          hint: '⌘⇧K' },
-      { icon: IndianRupee, label: 'Release May payouts',       hint: undefined },
+      { icon: Plus,        label: 'New campaign',             hint: '⌘N',  href: '/brand-onboarding' },
+      { icon: Upload,      label: 'Upload 8-second creative', hint: '⌘U',  tab: 'content'            },
+      { icon: Store,       label: 'Onboard a kirana',         hint: '⌘⇧K', href: '/store'            },
+      { icon: IndianRupee, label: 'Release monthly payouts',  tab: 'payments'                        },
     ],
   },
 ];
@@ -1694,13 +1878,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
 
   if (!open) return null;
   const filter = (txt: string) => txt.toLowerCase().includes(q.toLowerCase());
-
-  const tabMap: Record<string, Tab> = {
-    'Go to Overview': 'overview',
-    'Go to Campaigns': 'campaigns',
-    'Go to Store partners': 'stores',
-    'Go to Payouts': 'payments',
-  };
 
   return (
     <div className="cmd__overlay" onClick={onClose}>
@@ -1726,12 +1903,12 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
                   const IconComp = it.icon;
                   return (
                     <button key={k} className="cmd__item" onClick={() => {
-                      if (tabMap[it.label]) onNav(tabMap[it.label]);
+                      if (it.tab) onNav(it.tab);
+                      else if (it.href) window.open(it.href, '_blank');
                       onClose();
                     }}>
                       <span className="cmd__item-icon"><IconComp className="h-3.5 w-3.5" /></span>
                       <span className="cmd__item-label">{it.label}</span>
-                      {it.hint && <span className="cmd__item-hint">{it.hint}</span>}
                     </button>
                   );
                 })}
@@ -1740,8 +1917,6 @@ function CommandPalette({ open, onClose, onNav }: { open: boolean; onClose: () =
           })}
         </div>
         <div className="cmd__foot">
-          <span><kbd>↑↓</kbd> navigate</span>
-          <span><kbd>↵</kbd> select</span>
           <span><kbd>esc</kbd> close</span>
           <span style={{ marginLeft: 'auto' }}>Alive Command · v4.12</span>
         </div>
@@ -1845,28 +2020,76 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
 
 // ─── New Topbar ───────────────────────────────────────────────────────────────
 
-function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onNav }: {
-  section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
-  unread: number; stats: OpsStats | null; onNav: (t: Tab) => void;
+// "Export" downloads the current tab's backing list as CSV. Each entry names
+// the file and fetches the rows; tabs without an entry hide the button — either
+// there's no list behind them, or (Reports / Proof of Play / Footfall) the tab
+// already has its own filter-aware CSV export that a blunt topbar dump would
+// only duplicate.
+
+const csvCell = (v: unknown): string => {
+  if (v == null) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+function rowsToCsv(rows: Record<string, unknown>[]): string {
+  const cols: string[] = [];
+  for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
+  return [cols, ...rows.map((r) => cols.map((c) => r[c]))]
+    .map((line) => line.map(csvCell).join(',')).join('\r\n');
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+type CsvRows = Record<string, unknown>[];
+
+const listExport = (name: string, fetchRows: () => Promise<CsvRows>) => async () => {
+  const rows = await fetchRows();
+  if (!rows.length) throw new Error('Nothing to export yet');
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(new Blob([rowsToCsv(rows)], { type: 'text/csv;charset=utf-8' }), `alive-${name}-${stamp}.csv`);
+};
+
+const fleetExport = listExport('screens', () =>
+  adminGetObject<{ devices?: CsvRows }>('/api/devices').then((j) => j.devices ?? []));
+
+const TAB_EXPORTS: Partial<Record<Tab, () => Promise<void>>> = {
+  overview:   fleetExport,
+  screens:    fleetExport,
+  monitoring: fleetExport,
+  stores:     listExport('kirana-partners', () => adminGetArray<Record<string, unknown>>('/api/stores/save')),
+  campaigns:  listExport('campaigns',       () => adminGetArray<Record<string, unknown>>('/api/campaigns/admin')),
+  content:    listExport('creatives',   () => adminGetObject<{ content?:   CsvRows }>('/api/content').then((j) => j.content ?? [])),
+  programming: listExport('schedules',  () => adminGetObject<{ schedules?: CsvRows }>('/api/schedules').then((j) => j.schedules ?? [])),
+  coupons:    listExport('coupons',     () => adminGetObject<{ coupons?:   CsvRows }>('/api/coupons').then((j) => j.coupons ?? [])),
+  team:       listExport('team',        () => adminGetObject<{ members?:   CsvRows }>('/api/admin/team').then((j) => j.members ?? [])),
+  // The payouts route already produces the bank-transfer CSV — current month.
+  payments: async () => {
+    const month = new Date().toISOString().slice(0, 7);
+    const res = await fetch(`/api/admin/store-payments/bulk-export?month=${month}`, { headers: { 'admin-password': adminPw() } });
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+    downloadBlob(await res.blob(), `alive-payments-${month}.csv`);
+  },
+};
+
+function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread, stats }: {
+  tab: Tab; section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
+  onNav: (t: Tab) => void; unread: number; stats: OpsStats | null;
 }) {
-  const exportSnapshot = () => {
-    if (!stats) return;
-    const rows: [string, number][] = [
-      ['Screens online', stats.screens.online],
-      ['Screens offline', stats.screens.offline],
-      ['Active schedules', stats.schedules.active],
-      ['Store partners', stats.stores.total],
-      ['Campaigns', stats.campaigns.total],
-      ['Campaigns paid', stats.campaigns.paid],
-      ['Content files', stats.content.count],
-    ];
-    const csv = ['Metric,Value', ...rows.map(([k, v]) => `${k},${v}`)].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `alive-snapshot-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [exporting, setExporting] = useState(false);
+  const tabExport = TAB_EXPORTS[tab];
+  const runExport = async () => {
+    if (!tabExport || exporting) return;
+    setExporting(true);
+    try { await tabExport(); }
+    catch (e) { alert(`Export failed: ${(e as Error).message}`); }
+    finally { setExporting(false); }
   };
   return (
     <header className="tb">
@@ -1901,10 +2124,20 @@ function Topbar({ section, liveCount, onOpenCmd, onOpenNotif, unread, stats, onN
       </button>
       <button className="tb__icon-btn" title="Help" onClick={() => onNav('roadmap')}><LifeBuoy className="h-4 w-4" /></button>
       <div className="tb__divider"></div>
-      <button className="btn btn--outline btn--sm" onClick={exportSnapshot} disabled={!stats} title="Download today's network snapshot as CSV">
-        <Download className="h-3 w-3" /> Export
-      </button>
-      <button className="btn btn--primary btn--sm" onClick={() => onNav('campaigns')}>
+      {tabExport && (
+        <button className="btn btn--outline btn--sm" onClick={runExport} disabled={exporting}>
+          {exporting
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <Download className="h-3 w-3" />} Export
+        </button>
+      )}
+      {/* Opens the booking flow, not the Campaigns tab: the tab is a read-only
+          list with no create UI (campaigns are only born through brand-onboarding,
+          booked on behalf of the brand), so navigating there looked like a no-op. */}
+      <button
+        className="btn btn--primary btn--sm"
+        onClick={() => window.open('/brand-onboarding', '_blank')}
+      >
         <Plus className="h-3 w-3" /> New Campaign
       </button>
     </header>
@@ -2446,13 +2679,14 @@ function Dashboard({ email }: { email: string | null }) {
 
       <main className="main">
         <Topbar
+          tab={tab}
           section={sectionName[tab] ?? tab}
           liveCount={liveCount}
           onOpenCmd={() => setCmdOpen(true)}
           onOpenNotif={() => handleNav('alerts')}
+          onNav={handleNav}
           unread={alertCount + offlineAlertCount}
           stats={tickerStats}
-          onNav={handleNav}
         />
         <Ticker stats={tickerStats} />
 

@@ -1,0 +1,80 @@
+name: Smart plug power cron
+
+# Power-consumption polling for store-linked Tuya (Aziot) smart plugs.
+#
+# Same shape as device-health-cron.yml, and for the same reason: Vercel Hobby
+# allows only a once-daily cron, and GitHub's scheduler drifts badly on a
+# best-effort queue (observed 0.4h–11.4h between firings). Each run therefore
+# polls for a full hour at a true 5-minute cadence, so a dropped firing costs
+# at worst a late start rather than an hours-long gap in the readings.
+#
+# Unlike device-health there is no heartbeat-side trigger for plugs, but the
+# power endpoints re-poll a stale plug in-line on every admin/partner page
+# load (refreshPlugIfStale in src/lib/tuya-power.ts), so dashboards stay live
+# even when this workflow is drifting. What this loop uniquely provides is the
+# unattended history — readings recorded while nobody is looking.
+#
+# Requires the repo secret CRON_SECRET matching the Vercel project's
+# CRON_SECRET. The endpoint fails CLOSED (401 on a missing/stale secret) and
+# answers `reason: tuya_not_configured` while the Tuya project env vars are
+# absent — that response is a 200, so the run stays green until the
+# integration is actually meant to be live.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: tuya-power-cron-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      LOOP_MINUTES: 60
+      INTERVAL_SECONDS: 300
+    steps:
+      - name: Poll tuya-power for the hour
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not set - every call would 401 and power polling would stop."
+            exit 1
+          fi
+
+          deadline=$(( $(date +%s) + LOOP_MINUTES * 60 ))
+          calls=0; failures=0; last_status=""
+
+          while :; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              https://wearealive.in/api/cron/tuya-power) || status="000"
+            calls=$(( calls + 1 ))
+            last_status="$status"
+
+            if [ "$status" -ge 400 ] || [ "$status" = "000" ]; then
+              failures=$(( failures + 1 ))
+              echo "$(date -u +%H:%M:%S)  status=$status  FAIL ($failures)"
+            else
+              echo "$(date -u +%H:%M:%S)  status=$status  ok"
+            fi
+
+            now=$(date +%s)
+            if [ $(( now + INTERVAL_SECONDS )) -ge "$deadline" ]; then
+              break
+            fi
+            sleep "$INTERVAL_SECONDS"
+          done
+
+          echo "calls=$calls failures=$failures last_status=$last_status"
+          # Fail only if EVERY call failed — one blip during a deploy is noise,
+          # a wholly dead endpoint (or rotated secret) must be noticed.
+          if [ "$failures" -eq "$calls" ]; then
+            echo "::error::every tuya-power call failed (last status $last_status) - power polling is not running."
+            exit 1
+          fi

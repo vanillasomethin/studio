@@ -192,7 +192,7 @@ Upload → presigned PUT straight to R2 (server proxy only for small KYC/photo u
 ## 6. End-to-end flows
 
 **A store goes live**
-Partner registers (web or Expo app) → agreement + consent captured with a timestamp → GPS shop-front photo gates the stage past `new` → field visit installs the TV → GPS install photo gates the stage past `contacted` → screen claims itself and shows a pairing code → admin confirms → screen linked to store → playlist/schedule assigned → stage set `live`, `liveAt` starts the earning clock.
+Partner registers (web or Expo app) with a map pin (`Store.lat/lng`; a legacy row without one is filled by the first on-site GPS fix, or set by ops in Admin → Stores → Edit → Map pin) → agreement + consent captured with a timestamp → the store is on the public map as "Coming soon" from the moment it has a pin, nothing waits for `live` or for ops → GPS shop-front photo gates the stage past `new` → field visit installs the TV → install record + GPS install photos + map pin gate the stage past `contacted` → screen claims itself and shows a pairing code → admin confirms → screen linked to store → playlist/schedule assigned → stage set `live`, `liveAt` starts the earning clock.
 
 **A brand books a campaign**
 Brand onboarding funnel (screens 1–50, months 1–12, start date, map screen picker) → server computes the amount from volume tier + coupon + GST → Razorpay order → signature-verified payment → campaign `active` → ops assigns slot bookings for (store, date, position) → creative uploaded and transcoded → plan endpoint emits the loop → screens play it → `PlayEvent` rows land → advertiser sees proof-of-play and analytics.

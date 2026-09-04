@@ -7,10 +7,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import { C } from '../../lib/colors';
 import { loadSession, saveSession } from '../../lib/storage';
-import { getStoreMe, uploadVerificationPhoto, type StoreSession } from '../../lib/api';
+import { getStoreMe, getStorePower, uploadVerificationPhoto, type StoreSession, type StorePowerSummary } from '../../lib/api';
 import { registerForPush } from '../../lib/notifications';
 
 type Stage = 'new' | 'contacted' | 'visited' | 'installed' | 'live' | string;
@@ -48,6 +49,36 @@ function gpsFromExif(exif?: Record<string, unknown> | null): { lat: number; lng:
   if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return { lat, lng };
+}
+
+// Shrink the picked photo to what the upload can carry. The server caps the
+// body at 4 MB and Vercel rejects anything over ~4.5 MB before the route even
+// runs, but a 48/64/108 MP phone camera writes 6–15 MB JPEGs — the picker's
+// `quality` alone re-encodes at full resolution and still lands well over the
+// cap, so the upload came back 413 for exactly the phones most partners own.
+// Same treatment the web dashboard gives the file: longest edge ≤ 1920 px,
+// JPEG. GPS is read from the original's EXIF before this runs, so losing the
+// metadata in the re-encode costs nothing.
+const MAX_EDGE  = 1920;
+const MAX_BYTES = 3.5 * 1024 * 1024;
+
+async function shrinkForUpload(asset: ImagePicker.ImagePickerAsset): Promise<{ uri: string; mimeType: string }> {
+  const w = asset.width ?? 0, h = asset.height ?? 0;
+  const longest = Math.max(w, h);
+  const jpegLike = asset.mimeType === 'image/jpeg' || asset.mimeType === 'image/png' || asset.mimeType === 'image/webp';
+  // Small enough as-is (dimensions known, under the edge cap, under the byte
+  // cap when the picker reports a size) and in a format the server accepts.
+  if (longest > 0 && longest <= MAX_EDGE && (asset.fileSize == null || asset.fileSize <= MAX_BYTES) && jpegLike) {
+    return { uri: asset.uri, mimeType: asset.mimeType ?? 'image/jpeg' };
+  }
+  const actions: ImageManipulator.Action[] = longest > MAX_EDGE
+    ? [{ resize: w >= h ? { width: MAX_EDGE } : { height: MAX_EDGE } }]
+    : [];
+  const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+    compress: 0.85,
+    format:   ImageManipulator.SaveFormat.JPEG,
+  });
+  return { uri: out.uri, mimeType: 'image/jpeg' };
 }
 
 function GpsPhotoRow({ kind, store, onUploaded }: {
@@ -91,7 +122,10 @@ function GpsPhotoRow({ kind, store, onUploaded }: {
     }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7, // keeps the upload under the server's 4 MB cap
+      // Full quality here: the picker's own re-encode keeps the sensor
+      // resolution, so it never brought a big photo under the cap. Sizing is
+      // shrinkForUpload's job, and it re-encodes once rather than twice.
+      quality: 1,
       exif: true,
     });
     if (res.canceled || !res.assets[0]) return;
@@ -113,9 +147,10 @@ function GpsPhotoRow({ kind, store, onUploaded }: {
         coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         source = 'device';
       }
+      const small = await shrinkForUpload(asset);
       const out = await uploadVerificationPhoto({
-        storeId: store.id ?? '', token: store.token, kind, fileUri: asset.uri,
-        mimeType: asset.mimeType ?? 'image/jpeg', lat: coords.lat, lng: coords.lng, source,
+        storeId: store.id ?? '', token: store.token, kind, fileUri: small.uri,
+        mimeType: small.mimeType, lat: coords.lat, lng: coords.lng, source,
         tvTag,
       });
       const now = new Date().toISOString();
@@ -175,6 +210,8 @@ export default function Overview() {
   const [store, setStore] = useState<StoreSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  // null until the store has a linked Aziot plug — the card simply doesn't show.
+  const [power, setPower] = useState<StorePowerSummary | null>(null);
 
   useEffect(() => {
     loadSession().then(async (local) => {
@@ -189,6 +226,10 @@ export default function Overview() {
       // Bind this phone to the store's screen-offline alerts (best-effort).
       void registerForPush(session);
       setLoading(false);
+      try {
+        const p = await getStorePower(session?.id, session?.token);
+        if (p.linked) setPower(p);
+      } catch { /* no card on failure */ }
     });
   }, []);
 
@@ -265,6 +306,34 @@ export default function Overview() {
           }
         </Text>
       </View>
+
+      {/* Electricity usage — appears once admin links the Aziot smart plug */}
+      {power && (
+        <View style={s.card}>
+          <View style={s.cardRow}>
+            <Text style={s.cardTitle}>⚡ Electricity usage</Text>
+            <View style={[s.dot, power.online ? s.dotGreen : s.dotYellow]} />
+          </View>
+          <View style={s.powerRow}>
+            <View style={s.powerTile}>
+              <Text style={s.powerVal}>{power.online && power.powerW != null ? Math.round(power.powerW) : '—'}<Text style={s.powerUnit}> W</Text></Text>
+              <Text style={s.powerLbl}>Right now</Text>
+            </View>
+            <View style={s.powerTile}>
+              <Text style={s.powerVal}>{(power.todayKwh ?? 0).toFixed(2)}</Text>
+              <Text style={s.powerLbl}>Units today</Text>
+            </View>
+            <View style={[s.powerTile, s.powerTileGreen]}>
+              <Text style={[s.powerVal, { color: '#15803d' }]}>{(power.monthKwh ?? 0).toFixed(2)}</Text>
+              <Text style={[s.powerLbl, { color: '#15803d99' }]}>Units this month</Text>
+            </View>
+          </View>
+          <Text style={s.cardSub}>
+            Your screen has used {(power.monthKwh ?? 0).toFixed(2)} units (≈ ₹{Math.round((power.estMonthCostPaise ?? 0) / 100)}) this month.
+            Electricity is reimbursed separately from your ₹500 remuneration.
+          </Text>
+        </View>
+      )}
 
       {/* Onboarding timeline */}
       <View style={s.card}>
@@ -438,6 +507,13 @@ const s = StyleSheet.create({
   faqRow: { gap: 3, paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   faqQ: { fontSize: 12, fontWeight: '700', color: C.text },
   faqA: { fontSize: 12, color: C.textSub, lineHeight: 17 },
+  // Electricity usage
+  powerRow: { flexDirection: 'row', gap: 8 },
+  powerTile: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
+  powerTileGreen: { backgroundColor: '#f0fdf4' },
+  powerVal: { fontSize: 16, fontWeight: '800', color: C.text },
+  powerUnit: { fontSize: 10, fontWeight: '600', color: C.textSub },
+  powerLbl: { fontSize: 9, color: C.textSub, marginTop: 2 },
   // GPS verification photos
   photoBox: {
     marginTop: 8, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed',

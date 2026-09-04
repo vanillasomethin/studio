@@ -1,7 +1,7 @@
 // Remotion offer-video rendering. Remotion renders with headless Chrome + ffmpeg —
 // it CANNOT run on Vercel serverless (binary size + time limits), so the actual
 // render happens on AWS Lambda (Remotion Lambda). This app only triggers the render
-// and polls for the result, exactly like the Maxun client only calls a remote scraper.
+// and polls for the result.
 //
 // One-time setup (CLI, done by an operator — not at runtime):
 //   npx remotion lambda functions deploy

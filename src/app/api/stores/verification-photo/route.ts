@@ -35,7 +35,8 @@ export const maxDuration = 30;
 // in the admin panel next to the registered map pin, so the team can verify the
 // photo was really taken at the shop before advancing the onboarding stage —
 // /api/admin/stores/[id] refuses to advance past 'new' without a shop photo and
-// past 'contacted' without an install photo.
+// past 'contacted' without an install photo. The fix also fills the store's map
+// pin when it has none yet (see the UPDATE below), which puts it on the map.
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -100,19 +101,29 @@ export async function POST(req: NextRequest) {
     // learned it (no tag sent, or the hardware columns aren't migrated yet), in
     // which case the response omits the field and clients keep their own value.
     let effectiveTvTag: string | null | undefined;
+    // Map pin. A store's pin comes from, in order: the partner at registration
+    // → an on-site GPS fix that fills an EMPTY pin → ops setting or moving it in
+    // Admin → Stores. Any fix qualifies, EXIF or device: a store onboarded with
+    // its GPS data goes on the map automatically, and the Stores panel flags a
+    // photo-filled pin for ops to confirm by eye. Pairwise and inside the one
+    // statement, so a stored lat can never pair with a photo lng.
     try {
       if (kind === 'shop') {
         await db.$executeRaw`
           UPDATE "Store" SET
             "shopPhotoUrl" = ${url}, "shopPhotoLat" = ${lat}, "shopPhotoLng" = ${lng},
-            "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now}
+            "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now},
+            "lat" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
       } else {
         await db.$executeRaw`
           UPDATE "Store" SET
             "installPhotoUrl" = ${url}, "installPhotoLat" = ${lat}, "installPhotoLng" = ${lng},
-            "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now}
+            "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now},
+            "lat" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
         // TV number is written separately and only when supplied, so an app that

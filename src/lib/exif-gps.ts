@@ -9,19 +9,33 @@
 
 export type GpsFix = { lat: number; lng: number };
 
+// Header bytes read on the first pass. EXIF APP1 normally sits right after
+// SOI, so 256 KB covers almost every photo; the cap below is for the rest.
+const FIRST_SLICE = 256 * 1024;
+// Some camera apps write a large XMP or ICC segment ahead of the Exif APP1;
+// if the header walk runs out of bytes before reaching it (or the scan
+// marker), the read is widened up to this much before giving up.
+const MAX_SLICE   = 4 * 1024 * 1024;
+
 /** Reads GPS coordinates from a JPEG's EXIF, or null if absent/unparseable. */
 export async function extractGpsFromFile(file: File): Promise<GpsFix | null> {
   try {
-    // EXIF APP1 sits in the first bytes of the file; 256 KB is far more than
-    // any real header while keeping memory use trivial.
-    const buf = await file.slice(0, 256 * 1024).arrayBuffer();
-    return extractGpsFromJpeg(new DataView(buf));
+    let len = FIRST_SLICE;
+    for (;;) {
+      const buf = await file.slice(0, len).arrayBuffer();
+      const res = extractGpsFromJpeg(new DataView(buf));
+      // Only re-read when the walk was cut off by the slice, never on a
+      // definitive answer, and never past the file or the cap.
+      if (res !== 'truncated') return res;
+      if (len >= file.size || len >= MAX_SLICE) return null;
+      len = Math.min(len * 4, MAX_SLICE);
+    }
   } catch {
     return null;
   }
 }
 
-function extractGpsFromJpeg(view: DataView): GpsFix | null {
+function extractGpsFromJpeg(view: DataView): GpsFix | null | 'truncated' {
   if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return null; // not a JPEG
 
   // Walk JPEG segments looking for APP1/Exif
@@ -40,12 +54,15 @@ function extractGpsFromJpeg(view: DataView): GpsFix | null {
         view.getUint32(offset + 4) === 0x45786966 &&
         view.getUint16(offset + 8) === 0x0000
       ) {
+        // The whole APP1 must be in the slice, or its offsets point past it.
+        if (offset + 2 + size > view.byteLength) return 'truncated';
         return parseTiffForGps(view, offset + 10, size - 8);
       }
     }
     offset += 2 + size;
   }
-  return null;
+  // Ran off the end of the slice before SOS: the header continues beyond it.
+  return 'truncated';
 }
 
 function parseTiffForGps(view: DataView, tiffStart: number, tiffLen: number): GpsFix | null {

@@ -1411,9 +1411,9 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               {/* 12-month timeline */}
               {/* Screen + electricity estimate — see components/store/screen-power-card.
                   Needs a persisted store id; a draft session that hasn't saved yet has none. */}
-              {storeData.id && <ScreenPowerCard storeId={storeData.id} />}
-              {storeData.id && <SlotOccupancyCard storeId={storeData.id} />}
-              {storeData.id && <SoundAdMuteCard storeId={storeData.id} />}
+              {storeData.id && <ScreenPowerCard storeId={storeData.id} token={storeData.token} />}
+              {storeData.id && <SlotOccupancyCard storeId={storeData.id} token={storeData.token} />}
+              {storeData.id && <SoundAdMuteCard storeId={storeData.id} token={storeData.token} />}
 
               <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 

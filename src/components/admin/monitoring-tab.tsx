@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { Loader2, Wifi, WifiOff, Clock, AlertCircle, RefreshCw, Bell, LayoutGrid, Map } from 'lucide-react';
 import { getDevices, type Device } from '@/lib/backend-api';
+import { adminGetArray } from '@/lib/admin-fetch';
 import PlayerConfigPanel from './player-config-panel';
+import type { StoreLite } from './fleet-map';
 
 const FleetMap = lazy(() => import('./fleet-map'));
 
@@ -28,6 +30,9 @@ type View = 'grid' | 'map';
 
 export default function MonitoringTab() {
   const [devices,    setDevices]    = useState<Device[]>([]);
+  // Onboarded stores, so the map shows a store from the day it is pinned —
+  // not from the day its screen first phones home.
+  const [stores,     setStores]     = useState<StoreLite[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [lastFetch,  setLastFetch]  = useState<Date | null>(null);
@@ -58,6 +63,15 @@ export default function MonitoringTab() {
     return () => clearInterval(iv);
   }, [load]);
 
+  // Once, not on the 30 s poll: the admin store list is the heavy one (it
+  // carries every partner's install record) and a pin changes rarely.
+  // Non-fatal — the screens are the point of this tab, the stores are context.
+  useEffect(() => {
+    adminGetArray<StoreLite>('/api/stores/save')
+      .then(setStores)
+      .catch(() => setStores([]));
+  }, []);
+
   if (error) return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 flex gap-3">
       <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
@@ -71,6 +85,10 @@ export default function MonitoringTab() {
   const online  = devices.filter((d) => d.status === 'ONLINE').length;
   const offline = devices.filter((d) => d.status === 'OFFLINE').length;
   const pending = devices.filter((d) => d.status === 'PENDING').length;
+
+  const screened       = new Set(devices.map((d) => d.storeId));
+  const storesNoScreen = stores.filter((s) =>
+    s.lat != null && s.lng != null && s.onboardingStage !== 'rejected' && !screened.has(s.id)).length;
 
   const withUptime = devices.filter((d) => d.uptimePct != null);
   const avgUptime  = withUptime.length > 0
@@ -144,16 +162,23 @@ export default function MonitoringTab() {
 
       {loading && !devices.length ? (
         <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-      ) : !devices.length ? (
+      ) : !devices.length && !storesNoScreen ? (
         <p className="text-sm text-muted-foreground text-center py-10">No screens registered yet.</p>
       ) : view === 'map' ? (
         <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-          <FleetMap devices={devices} />
+          <FleetMap devices={devices} stores={stores} />
           <p className="text-[10px] text-muted-foreground/50 text-center mt-2">
-            Showing {devices.filter((d) => d.lat != null).length} of {devices.length} screens with known locations.
+            Showing {devices.filter((d) => d.lat != null).length} of {devices.length} screens with known locations
+            · {storesNoScreen} onboarded store{storesNoScreen !== 1 ? 's' : ''} without a screen yet (hollow pins).
             Pin colour: green = online, red = offline, yellow = pending.
           </p>
         </Suspense>
+      ) : !devices.length ? (
+        // Stores are pinned but no screen has claimed yet — the map is the view
+        // that has something to show; the grid would be empty.
+        <p className="text-sm text-muted-foreground text-center py-10">
+          No screens registered yet — {storesNoScreen} onboarded store{storesNoScreen !== 1 ? 's' : ''} waiting for one. Switch to Map to see them.
+        </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {devices.map((d) => {
