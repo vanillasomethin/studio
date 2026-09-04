@@ -354,7 +354,10 @@ PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionNa
 PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
 PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
 PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL; overrides the default sideload-latest GitHub Release location. Env vars above win over the manifest (pin/rollback).
-NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
+EXPO_TOKEN                      # Expo robot access token — lets Admin → Dashboard read the latest
+                                # finished Android build from EAS instead of a pasted link.
+                                # Without it the card falls back to NEXT_PUBLIC_EXPO_PREVIEW_URL.
+NEXT_PUBLIC_EXPO_PREVIEW_URL    # Fallback QR target when EAS can't be read (EAS build link or exp:// URL, optional)
 STORE_SIGNUP_KEY_STANDARD       # secret for the gated Standard-tier signup link /store?tier=<key>
 STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
 STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link
