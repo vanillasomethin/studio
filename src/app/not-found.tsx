@@ -4,19 +4,19 @@ import Link from 'next/link';
 
 export default function NotFound() {
   return (
-    <div style={{ minHeight: '100svh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', textAlign: 'center', fontFamily: '"Manrope", system-ui, sans-serif', background: '#fff', color: '#0a0a0a' }}>
+    <div style={{ minHeight: '100svh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', textAlign: 'center', fontFamily: 'var(--font-manrope), system-ui, sans-serif', background: '#fff', color: '#0a0a0a' }}>
 
       {/* Wordmark */}
-      <div style={{ fontFamily: '"Manrope", sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', marginBottom: 56, display: 'flex', alignItems: 'center', gap: 4, opacity: 0.3 }}>
+      <div style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: '-0.03em', marginBottom: 56, display: 'flex', alignItems: 'center', gap: 4, opacity: 0.3 }}>
         alive<span style={{ width: 7, height: 7, borderRadius: '50%', background: '#dc2626', display: 'inline-block', transform: 'translateY(1px)' }} />
       </div>
 
       {/* Large editorial 404 */}
-      <div style={{ fontFamily: '"Manrope", sans-serif', fontWeight: 800, fontSize: 'clamp(100px,20vw,200px)', lineHeight: 1, letterSpacing: '-0.055em', color: '#f0f0f0', userSelect: 'none', marginBottom: -16 }}>
+      <div style={{ fontFamily: 'var(--font-manrope), sans-serif', fontWeight: 800, fontSize: 'clamp(100px,20vw,200px)', lineHeight: 1, letterSpacing: '-0.055em', color: '#f0f0f0', userSelect: 'none', marginBottom: -16 }}>
         404
       </div>
 
-      <div style={{ fontFamily: '"DM Mono", monospace', fontSize: 11, letterSpacing: '0.28em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600, marginBottom: 20 }}>
+      <div style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 11, letterSpacing: '0.28em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600, marginBottom: 20 }}>
         Page not found
       </div>
 

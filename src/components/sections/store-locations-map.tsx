@@ -181,10 +181,10 @@ export default function StoreLocationsMap() {
         })
           .addTo(map)
           .bindPopup(
-            `<div style="font-family:Manrope,sans-serif;min-width:140px;padding:2px 0;">
+            `<div style="font-family:var(--font-manrope), sans-serif;min-width:140px;padding:2px 0;">
               <p style="font-size:13px;font-weight:700;margin:0 0 2px;">${esc(store.storeName)}</p>
               <p style="font-size:11px;color:#666;margin:0;">${esc([store.locality, store.city].filter(Boolean).join(' · '))}</p>
-              <p style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin:4px 0 0;">${tag}</p>
+              <p style="font-family:var(--font-dm-mono), monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin:4px 0 0;">${tag}</p>
             </div>`,
             { closeButton: false, className: 'alive-popup' }
           );
@@ -240,17 +240,17 @@ export default function StoreLocationsMap() {
       {stores.length > 0 && (
         <div style={{ background: '#fff', borderLeft: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-            <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
+            <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
               {liveCount} live screen{liveCount !== 1 ? 's' : ''}
             </p>
             {progressCount > 0 && (
-              <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b91c1c', fontWeight: 600, marginTop: 3 }}>
+              <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b91c1c', fontWeight: 600, marginTop: 3 }}>
                 {progressCount} coming soon
               </p>
             )}
             <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
               {(['live', 'in_progress'] as StoreStatus[]).map((k) => (
-                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: '"DM Mono",monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
+                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
                   <span style={swatchStyle(k, 10)} />
                   {PIN[k].label}
                 </span>
@@ -272,8 +272,8 @@ export default function StoreLocationsMap() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ marginTop: 4, ...swatchStyle(store.status, 8) }} />
                   <div>
-                    <p style={{ fontFamily: '"Manrope",sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
-                    <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
+                    <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
+                    <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
                       {[store.locality, store.city].filter(Boolean).join(' · ')}
                       {store.status === 'in_progress' && <span style={{ color: '#b91c1c' }}> · coming soon</span>}
                     </p>

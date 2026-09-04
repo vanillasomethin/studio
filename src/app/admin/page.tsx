@@ -2078,9 +2078,9 @@ const TAB_EXPORTS: Partial<Record<Tab, () => Promise<void>>> = {
   },
 };
 
-function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread }: {
+function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread, stats }: {
   tab: Tab; section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
-  onNav: (t: Tab) => void; unread: number;
+  onNav: (t: Tab) => void; unread: number; stats: OpsStats | null;
 }) {
   const [exporting, setExporting] = useState(false);
   const tabExport = TAB_EXPORTS[tab];
@@ -2094,7 +2094,13 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread
   return (
     <header className="tb">
       <div className="tb__crumbs">
-        <span>Network 027</span>
+        {/* This used to read "Network 027" — decorative filler sitting in a
+            breadcrumb, where an operator reasonably reads it as a real network
+            id. It now carries the one number that belongs at the root of this
+            hierarchy: how many stores there are, and how many are live. */}
+        <button className="tb__crumb-root" onClick={() => onNav('stores')} title="Go to Stores">
+          {stats ? `${stats.stores.live} of ${stats.stores.total} stores live` : 'ALIVE network'}
+        </button>
         <ChevronRight className="h-3.5 w-3.5" />
         <strong>{section}</strong>
       </div>
@@ -2680,6 +2686,7 @@ function Dashboard({ email }: { email: string | null }) {
           onOpenNotif={() => handleNav('alerts')}
           onNav={handleNav}
           unread={alertCount + offlineAlertCount}
+          stats={tickerStats}
         />
         <Ticker stats={tickerStats} />
 

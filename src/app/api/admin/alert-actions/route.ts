@@ -7,7 +7,7 @@
 // Alerts themselves are computed at read time from live device/store/campaign data
 // (see AlertsTab.buildAlerts on the client) — they have no row of their own. This
 // route holds the durable, team-visible state layered on top of a computed alert,
-// keyed by its deterministic client-side id. Auth: admin-password header.
+// keyed by its deterministic client-side id. Auth: named admin session.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (!actor) return adminUnauthorized();
 
   const body = await req.json().catch(() => null) as {
-    alertId?: string; action?: string; team?: string | null; assignee?: string | null; closedBy?: string;
+    alertId?: string; action?: string; team?: string | null; assignee?: string | null;
   } | null;
   const alertId = body?.alertId?.trim();
   if (!alertId) return NextResponse.json({ error: 'alertId required' }, { status: 400 });
@@ -57,7 +57,9 @@ export async function POST(req: NextRequest) {
       break;
     }
     case 'close':
-      data = { status: 'closed', closedAt: new Date(), closedBy: body.closedBy?.trim() || null };
+      // closedBy is the signed-in admin, not a client-supplied string — same
+      // reasoning as the comment author.
+      data = { status: 'closed', closedAt: new Date(), closedBy: actor.label };
       break;
     case 'reopen':
       data = { status: 'open', closedAt: null, closedBy: null };
