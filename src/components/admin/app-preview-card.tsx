@@ -28,7 +28,14 @@ type StoreAppBuild = {
   buildNumber: string | null;
   profile: string | null;
   completedAt: string | null;
+  expiresAt: string | null;
   error: string | null;
+};
+
+/** Days until an EAS artifact is deleted. Negative once it is gone. */
+const daysUntil = (iso: string | null) => {
+  if (!iso) return null;
+  return Math.floor((new Date(iso).getTime() - Date.now()) / 86400000);
 };
 
 const timeSince = (iso: string | null) => {
@@ -151,6 +158,16 @@ export default function AppPreviewCard() {
                   {build.profile && build.completedAt && ' · '}
                   {timeSince(build.completedAt) && `built ${timeSince(build.completedAt)}`}
                 </p>
+                {/* EAS deletes build artifacts after a retention window, and the
+                    QR then leads to an S3 error page. Say when, while there is
+                    still time to run a new build. */}
+                {daysUntil(build.expiresAt) !== null && (
+                  <p className={`text-[11px] mt-0.5 ${(daysUntil(build.expiresAt) ?? 0) <= 7 ? 'font-semibold text-amber-600' : 'text-muted-foreground'}`}>
+                    {(daysUntil(build.expiresAt) ?? 0) <= 0
+                      ? 'Artifact expired on EAS — run a new build'
+                      : `Artifact expires in ${daysUntil(build.expiresAt)} day${daysUntil(build.expiresAt) === 1 ? '' : 's'}`}
+                  </p>
+                )}
               </>
             ) : (
               <div className="flex items-start gap-2">
