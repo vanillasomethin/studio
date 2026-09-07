@@ -36,21 +36,21 @@ type StoreTier = 'standard' | 'growth' | 'flagship';
 // amber, standard is ink. Grey means onboarded — signed up, screen on its way.
 // `color` paints the marker core; `text`/`tint` are the darker chip pairing so
 // small caps stay readable on the popup card.
-const TIER: Record<StoreTier, { label: string; color: string; text: string; tint: string }> = {
+export const TIER: Record<StoreTier, { label: string; color: string; text: string; tint: string }> = {
   flagship: { label: 'Flagship', color: RED,       text: '#b91c1c', tint: 'rgba(220,38,38,.09)' },
   growth:   { label: 'Growth',   color: '#f59e0b', text: '#b45309', tint: 'rgba(245,158,11,.14)' },
   standard: { label: 'Standard', color: '#111827', text: '#111827', tint: 'rgba(17,24,39,.06)' },
 };
 const ONBOARDED = '#9ca3af';
 
-function coreColor(status: StoreStatus, tier?: StoreTier): string {
+export function coreColor(status: StoreStatus, tier?: StoreTier): string {
   return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
 }
 
 // The dot's box, in px. Geometry is derived from this everywhere — the SVG,
 // the divIcon's iconSize/iconAnchor/popupAnchor, and the CSS below — so the
 // mark can be resized in one place without floating off its shop.
-const DOT = 18;
+export const DOT = 18;
 
 /** The marker markup: coloured core, white gap, hairline red rim. */
 export function shopPinHtml(core: string, active: boolean): string {
@@ -65,8 +65,18 @@ export function shopPinHtml(core: string, active: boolean): string {
   );
 }
 
+/** The pin's interaction styling (entry, hover, active) — exported beside
+ *  shopPinHtml so every map that renders the mark ships identical behaviour. */
+export const SHOP_PIN_CSS =
+  `.alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
+.alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
+.alive-shop-pin:hover{transform:scale(1.25);}
+.alive-shop-pin.is-active{transform:scale(1.35);}
+.alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
+@keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}`;
+
 /** Legend / list swatch that matches the pin: same core, same hairline rim. */
-function swatchStyle(color: string, size: number): React.CSSProperties {
+export function swatchStyle(color: string, size: number): React.CSSProperties {
   return {
     width: size, height: size, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
     background: color, border: '1.5px solid #ffffff', boxShadow: `0 0 0 1px ${RED}`,
@@ -412,12 +422,7 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
-        .alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
-        .alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
-        .alive-shop-pin:hover{transform:scale(1.25);}
-        .alive-shop-pin.is-active{transform:scale(1.35);}
-        .alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
-        @keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}
+        ${SHOP_PIN_CSS}
         .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}
         .alive-popup .leaflet-popup-content{margin:0;line-height:1.4;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
