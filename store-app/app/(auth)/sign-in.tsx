@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../lib/colors';
 import { storeLogin, requestPasswordReset, verifyPasswordReset } from '../../lib/api';
 import { saveSession } from '../../lib/storage';
+import { API_BASE_URL } from '@shared/constants';
 
 type View_ = 'login' | 'forgot_phone' | 'forgot_otp' | 'forgot_done';
 
@@ -267,6 +268,10 @@ export default function SignIn() {
             </View>
           )}
 
+          <TouchableOpacity style={s.privacyRow} onPress={() => Linking.openURL(`${API_BASE_URL}/privacy`)}>
+            <Text style={s.privacyText}>Privacy policy</Text>
+          </TouchableOpacity>
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -321,6 +326,8 @@ const s = StyleSheet.create({
   link: { color: C.primary, fontWeight: '600', fontSize: 13 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
   footerText: { fontSize: 13, color: C.textSub },
+  privacyRow: { alignItems: 'center', marginTop: 20, padding: 8 },
+  privacyText: { fontSize: 12, color: C.textMuted, textDecorationLine: 'underline' },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
   backText: { fontSize: 13, color: C.textSub },
   errorBox: {
