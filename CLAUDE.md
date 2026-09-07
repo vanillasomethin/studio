@@ -175,6 +175,7 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `Flyer` | Store offer flyers. |
 | `SmartPlug` | Tuya (Aziot) smart plug linked 1:1 to a Store, with latest-poll power snapshot. |
 | `PlugReading` | Per-poll power/energy time series (5-min cadence, 180-day retention). |
+| `BrandEnquiry` | Advertiser lead from `/advertise`. Store slugs are page config, NOT `Store.id`. Money recomputed server-side into paise. `status`: `new \| contacted \| won \| lost`, triaged in Admin → Enquiries. |
 | `AuditLog` | T2 audit trail (reserved). |
 
 ---
@@ -254,7 +255,8 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 - Protected per-route by `requireAdmin()` — a named session, not a header secret
 - The browser holds no admin credential; the session cookie is httpOnly
-- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Adding a tab means five edits in `src/app/admin/page.tsx`: the `Tab` union, `PAGE_META`, `sectionName`, `NAV_DESIGN` and the render line. `PAGE_META`/`sectionName` are `Record<Tab, …>`, so the compiler catches a missed one. (`NAV` near the top of the file is dead — `NAV_DESIGN` is the live sidebar.)
 
 ---
 
