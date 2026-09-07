@@ -26,13 +26,17 @@ export async function POST(req: NextRequest) {
   const actor = await requireAdmin(req);
   if (!actor) return adminUnauthorized();
 
-  const body = await req.json().catch(() => null) as { alertId?: string; author?: string; body?: string } | null;
+  const body = await req.json().catch(() => null) as { alertId?: string; body?: string } | null;
   const alertId = body?.alertId?.trim();
   const text = body?.body?.trim();
   if (!alertId || !text) return NextResponse.json({ error: 'alertId and body required' }, { status: 400 });
 
+  // The author is the signed-in admin, never a name the client sends. This used
+  // to be a free-text field the browser filled from localStorage, which meant a
+  // comment thread recorded whatever someone had typed once — including someone
+  // else's name.
   const comment = await db.alertComment.create({
-    data: { alertId, author: body?.author?.trim() || null, body: text.slice(0, 2000) },
+    data: { alertId, author: actor.label, body: text.slice(0, 2000) },
   });
   return NextResponse.json({
     id: comment.id, author: comment.author, body: comment.body, createdAt: comment.createdAt.toISOString(),

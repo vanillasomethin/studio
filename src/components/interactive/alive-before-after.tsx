@@ -19,7 +19,7 @@ export default function AliveBeforeAfter() {
 
   return (
     <div style={{ maxWidth: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontFamily: '"DM Mono", monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', opacity: 0.35 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', opacity: 0.35 }}>
         <span>Without</span>
         <span>With Alive</span>
       </div>
@@ -66,7 +66,7 @@ export default function AliveBeforeAfter() {
         </div>
       </div>
 
-      <p style={{ marginTop: 12, textAlign: 'center', fontFamily: '"DM Mono", monospace', fontSize: 10, letterSpacing: '0.28em', textTransform: 'uppercase', opacity: 0.28 }}>
+      <p style={{ marginTop: 12, textAlign: 'center', fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.28em', textTransform: 'uppercase', opacity: 0.28 }}>
         Drag to compare
       </p>
     </div>

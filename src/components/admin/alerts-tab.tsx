@@ -75,7 +75,6 @@ const TEAM_CONFIG: Record<AlertTeam, { label: string; badge: string }> = {
   operations: { label: 'Operations', badge: 'bg-cyan-50 text-cyan-700 border border-cyan-200' },
   marketing:  { label: 'Marketing',  badge: 'bg-pink-50 text-pink-700 border border-pink-200' },
 };
-const ACTOR_NAME_KEY = 'alive_admin_actor_name';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -241,14 +240,49 @@ function buildAlerts(
   });
 }
 
+// ─── The team, for assigning to a real person ─────────────────────────────────
+//
+// Assignment used to be a free-text box: you typed a name, and nothing connected
+// it to an actual colleague — which is why an alert could be "assigned" to a
+// person who never had an account, and why nobody could be tagged reliably.
+// /api/admin/team already knows everyone with console access, so the panel
+// offers them directly.
+//
+// One request shared by every alert row: the panel renders per alert, and a
+// fetch inside it would mean one request per alert on screen. The promise is
+// cached at module scope so the Nth panel reuses the first one's work.
+
+type TeamMember = { id: string; email: string | null; name: string | null; role: string; status: string };
+
+let teamPromise: Promise<TeamMember[]> | null = null;
+
+function fetchTeam(): Promise<TeamMember[]> {
+  teamPromise ??= fetch('/api/admin/team')
+    .then((r) => (r.ok ? r.json() : { members: [] }))
+    .then((d: { members?: TeamMember[] }) => d.members ?? [])
+    // A failed lookup must not break assigning — the panel falls back to the
+    // free-text field, which is what it always was.
+    .catch(() => []);
+  return teamPromise;
+}
+
+/** Display name for a member: their name, else the local part of their email. */
+function memberLabel(m: TeamMember): string {
+  return m.name?.trim() || m.email?.split('@')[0] || 'Unknown';
+}
+
+function useAdminTeam(): TeamMember[] {
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  useEffect(() => {
+    let live = true;
+    void fetchTeam().then((m) => { if (live) setTeam(m); });
+    return () => { live = false; };
+  }, []);
+  return team;
+}
+
 // ─── Alert Actions (assign / comment / close) ─────────────────────────────────
 
-function getActorName(): string {
-  try { return localStorage.getItem(ACTOR_NAME_KEY) ?? ''; } catch { return ''; }
-}
-function saveActorName(name: string) {
-  try { localStorage.setItem(ACTOR_NAME_KEY, name); } catch { /* ignore */ }
-}
 
 function AlertActionsPanel({
   alertId, action, onChange,
@@ -258,6 +292,7 @@ function AlertActionsPanel({
   onChange: () => void;
 }) {
   const [open, setOpen] = useState<'assign' | 'comments' | null>(null);
+  const teamMembers = useAdminTeam();
   const [team, setTeam] = useState<AlertTeam | ''>(action?.team ?? '');
   const [assignee, setAssignee] = useState(action?.assignee ?? '');
   const [saving, setSaving] = useState(false);
@@ -265,16 +300,13 @@ function AlertActionsPanel({
   const [comments, setComments] = useState<AlertCommentRow[] | null>(null);
   const [newComment, setNewComment] = useState('');
   const [posting, setPosting] = useState(false);
-  const [actorName, setActorName] = useState(getActorName());
-
-  const pw = () => sessionStorage.getItem('alive_admin_pw') ?? '';
 
   async function postAction(body: Record<string, unknown>) {
     setSaving(true);
     try {
       await fetch('/api/admin/alert-actions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'admin-password': pw() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alertId, ...body }),
       });
       onChange();
@@ -285,9 +317,7 @@ function AlertActionsPanel({
 
   async function loadComments() {
     setComments(null);
-    const res = await fetch(`/api/admin/alerts/comments?alertId=${encodeURIComponent(alertId)}`, {
-      headers: { 'admin-password': pw() },
-    });
+    const res = await fetch(`/api/admin/alerts/comments?alertId=${encodeURIComponent(alertId)}`);
     const data = res.ok ? await res.json() as { comments: AlertCommentRow[] } : { comments: [] };
     setComments(data.comments);
   }
@@ -297,11 +327,10 @@ function AlertActionsPanel({
     if (!body) return;
     setPosting(true);
     try {
-      saveActorName(actorName.trim());
       await fetch('/api/admin/alerts/comments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'admin-password': pw() },
-        body: JSON.stringify({ alertId, author: actorName.trim() || null, body }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alertId, body }),
       });
       setNewComment('');
       await loadComments();
@@ -358,7 +387,7 @@ function AlertActionsPanel({
           </button>
         ) : (
           <button
-            onClick={() => { saveActorName(actorName.trim()); postAction({ action: 'close', closedBy: actorName.trim() || null }); }}
+            onClick={() => postAction({ action: 'close' })}
             disabled={saving}
             className="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700 hover:bg-green-100 transition-colors disabled:opacity-50"
           >
@@ -382,13 +411,50 @@ function AlertActionsPanel({
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground shrink-0">Person</label>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Person</label>
+            {/* Real colleagues, picked rather than typed. Initials instead of a
+                bare <select> of names, per the house rule on identity. */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {teamMembers.map((m) => {
+                const label = memberLabel(m);
+                const on = assignee === label;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setAssignee(on ? '' : label)}
+                    title={m.email ?? label}
+                    className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                      on ? 'border-primary/50 bg-primary/10 text-primary'
+                         : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                    }`}
+                  >
+                    <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white ${
+                      on ? 'bg-primary' : 'bg-muted-foreground/60'
+                    }`}>
+                      {label[0]?.toUpperCase()}
+                    </span>
+                    {label}
+                    {m.status !== 'active' && (
+                      <span className="text-[9px] font-normal opacity-60">({m.status})</span>
+                    )}
+                  </button>
+                );
+              })}
+              {teamMembers.length === 0 && (
+                <span className="text-[11px] text-muted-foreground">
+                  No console accounts yet — add colleagues in Admin → Team.
+                </span>
+              )}
+            </div>
+            {/* Still typable, for someone without a console account (a field tech,
+                a store owner) — the chips are the fast path, not the only one. */}
             <input
               value={assignee}
               onChange={(e) => setAssignee(e.target.value)}
-              placeholder="Who's on this?"
-              className="flex-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
+              placeholder="…or type someone not on the console"
+              className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
             />
           </div>
           <button
@@ -420,12 +486,6 @@ function AlertActionsPanel({
             </div>
           )}
           <div className="flex items-center gap-1.5 pt-1 border-t border-border/60">
-            <input
-              value={actorName}
-              onChange={(e) => setActorName(e.target.value)}
-              placeholder="Your name"
-              className="w-24 shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-[11px]"
-            />
             <input
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
@@ -459,15 +519,15 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
 
   const fetchAlerts = useCallback(async () => {
     setLoading(true);
-    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
-    const h = { 'admin-password': pw };
     try {
+      // No admin-password header: these routes authorize the named session
+      // cookie, which fetch sends on same-origin requests by default.
       const [devR, stR, cmR, daR] = await Promise.all([
-        fetch('/api/devices',         { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
-        fetch('/api/stores/save',     { headers: h }).then((r) => r.ok ? r.json() : []),
-        fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+        fetch('/api/devices').then((r) => r.ok ? r.json() : { devices: [] }),
+        fetch('/api/stores/save').then((r) => r.ok ? r.json() : []),
+        fetch('/api/campaigns/admin').then((r) => r.ok ? r.json() : []),
         // Real DeviceAlert rows — carries the partner's "why is it off?" answer.
-        fetch('/api/admin/alerts',    { headers: h }).then((r) => r.ok ? r.json() : { alerts: [] }),
+        fetch('/api/admin/alerts').then((r) => r.ok ? r.json() : { alerts: [] }),
       ]);
       const devs = (devR.devices ?? []) as DeviceRow[];
       const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as StoreRow[];
@@ -484,9 +544,8 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
   // Team-visible assignment/close/comment state — separate fetch (and separate
   // refresh trigger) from the computed alerts themselves, see /api/admin/alert-actions.
   const fetchActions = useCallback(async () => {
-    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
     try {
-      const res = await fetch('/api/admin/alert-actions', { headers: { 'admin-password': pw } });
+      const res = await fetch('/api/admin/alert-actions');
       const data = res.ok ? await res.json() as { actions: AlertActionState[] } : { actions: [] };
       setActions(new Map(data.actions.map((a) => [a.alertId, a])));
     } catch { /* non-critical */ }

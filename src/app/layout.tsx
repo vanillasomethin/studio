@@ -9,6 +9,7 @@ import { NetworkBanner } from '@/components/errors/network-banner';
 import { SessionExpiredModal } from '@/components/errors/session-expired-modal';
 import { PwaRegister } from '@/components/pwa-register';
 import ChunkErrorRecovery from '@/components/chunk-error-recovery';
+import { fontVariables } from './fonts';
 
 export const metadata: Metadata = {
   title: 'ALIVE — In-store advertising for Indian kirana stores',
@@ -27,16 +28,27 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-      <html lang="en">
+      <html lang="en" className={fontVariables}>
         <head>
+          {/*
+            Marks the document once the webfonts have actually loaded, so the
+            loading screen's wordmark can wait for Poppins instead of painting in
+            a fallback and jumping (see .loader-mark in globals.css).
+
+            Inline and synchronous on purpose: it has to run before first paint,
+            or the class arrives too late to prevent the flash it exists to stop.
+            The 1.2s timeout is the safety net — a font that fails to load must
+            reveal the mark rather than hide it forever.
+          */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html:
+                "(function(){var r=function(){document.documentElement.classList.add('fonts-ready')};" +
+                "setTimeout(r,1200);try{document.fonts?document.fonts.ready.then(r):r()}catch(e){r()}})()",
+            }}
+          />
           {/* ELU Analytics */}
           <script async src="https://elu.dev/v1/elu_pk_live_K1L6QWGkeB5UyhEp3HiP6sc70C.js" />
-          <link rel="preconnect" href="https://fonts.googleapis.com" />
-          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-          <link
-            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Manrope:wght@200..800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap"
-            rel="stylesheet"
-          />
           {/* PWA / home-screen meta */}
           <meta name="mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -49,7 +61,7 @@ export default function RootLayout({
         </head>
         <body
           className={cn('min-h-screen bg-background font-sans antialiased')}
-          style={{ fontFamily: '"Manrope", system-ui, sans-serif' }}
+          style={{ fontFamily: 'var(--font-manrope), system-ui, sans-serif' }}
         >
           <ChunkErrorRecovery />
           <PwaRegister />

@@ -287,6 +287,21 @@ When a generic control and a graphical one both work, use the graphical one.
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
+- Type: Poppins (wordmark, brand), Manrope (body, headlines), DM Mono (editorial
+  labels). **One source per family** — all three are declared once in
+  `src/app/fonts.ts`, self-hosted by `next/font`, and reached only through
+  `--font-poppins` / `--font-manrope` / `--font-dm-mono`. Never add a Google
+  Fonts `<link>` or a literal `font-family: 'Poppins'`: a second source means a
+  second download and a face that swaps at a different moment. Components that
+  render their own `<html>` (`error.tsx`) must put `fontVariables` on it, since
+  they inherit nothing from the root layout. The admin console keeps its own type
+  — Inter Tight / Inter / JetBrains Mono — declared in `src/app/admin/fonts.ts`
+  and applied by the admin layout, deliberately a separate module: next/font
+  preloads every face a module declares on every route importing it, so putting
+  them in `app/fonts.ts` made the marketing site preload the console's fonts.
+  `admin.css` hangs `--font-display` / `--font-body` / `--font-mono` off
+  `.admin-fonts`, not `:root`, because a custom property containing `var()`
+  resolves on the element it is declared on.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.
@@ -362,7 +377,10 @@ PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionNa
 PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
 PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
 PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL; overrides the default sideload-latest GitHub Release location. Env vars above win over the manifest (pin/rollback).
-NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
+EXPO_TOKEN                      # Expo robot access token — lets Admin → Dashboard read the latest
+                                # finished Android build from EAS instead of a pasted link.
+                                # Without it the card falls back to NEXT_PUBLIC_EXPO_PREVIEW_URL.
+NEXT_PUBLIC_EXPO_PREVIEW_URL    # Fallback QR target when EAS can't be read (EAS build link or exp:// URL, optional)
 STORE_SIGNUP_KEY_STANDARD       # secret for the gated Standard-tier signup link /store?tier=<key>
 STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
 STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link

@@ -15,7 +15,7 @@ type Props = {
 };
 
 const MONO: React.CSSProperties = {
-  fontFamily: '"DM Mono", ui-monospace, monospace',
+  fontFamily: 'var(--font-dm-mono), ui-monospace, monospace',
   fontSize: 10,
   letterSpacing: '0.18em',
   textTransform: 'uppercase' as const,
