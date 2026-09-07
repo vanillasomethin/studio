@@ -123,6 +123,49 @@ export function storeRegistrationMsg(store: {
   ].filter(Boolean).join('\n');
 }
 
+export function brandEnquiryMsg(e: {
+  reference: string;
+  brandName: string;
+  contactPerson: string;
+  phone: string;
+  whatsapp?: string | null;
+  category?: string | null;
+  budgetBand?: string | null;
+  storeNames: string[];
+  slotsPerStore: number;
+  months: number;
+  estMonthlyRupees: number;
+  estTotalRupees: number;
+  creativeStatus?: string | null;
+  notes?: string | null;
+}) {
+  const inr = (n: number) => `\u20b9${n.toLocaleString('en-IN')}`;
+  const stores = e.storeNames.length
+    ? e.storeNames.join(', ')
+    : 'none picked \u2014 suggest stores for their category';
+  return [
+    `\ud83d\udce3 *New Advertiser Enquiry*`,
+    `Ref: ${e.reference}`,
+    ``,
+    `Brand: ${e.brandName}`,
+    `Contact: ${e.contactPerson}`,
+    `Phone: ${e.phone}`,
+    e.whatsapp && e.whatsapp !== e.phone ? `WhatsApp: ${e.whatsapp}` : null,
+    e.category   ? `Category: ${e.category}` : null,
+    e.budgetBand ? `Budget: ${e.budgetBand}` : null,
+    ``,
+    `Wants: ${e.slotsPerStore} slot(s) \u00d7 ${e.months} month(s)`,
+    `Stores: ${stores}`,
+    `Estimate: ${inr(e.estMonthlyRupees)}/mo \u00b7 ${inr(e.estTotalRupees)} total (ex GST)`,
+    e.creativeStatus ? `Creative: ${e.creativeStatus}` : null,
+    e.notes ? `Notes: ${e.notes}` : null,
+    ``,
+    `They accepted the advertising terms. Call them back with availability and a written quote.`,
+    // Only null is dropped: the empty strings above are deliberate blank
+    // lines, and filter(Boolean) would silently eat them.
+  ].filter(line => line !== null).join('\n');
+}
+
 export function payoutClaimMsg(store: {
   storeName: string; ownerName: string; phone: string; month: string;
 }) {
