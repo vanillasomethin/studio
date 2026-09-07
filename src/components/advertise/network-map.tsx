@@ -59,10 +59,35 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leafletRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
+  // Surveyed pins from Store.lat/lng, keyed by curated store id. Empty until they
+  // arrive, and empty forever if the fetch fails — the built-in coordinates in
+  // advertise-network.ts are the fallback, so the map is never blank and never
+  // waits on this.
+  const [pins, setPins] = useState<Record<string, { lat: number; lng: number }>>({});
 
   // The click handler has to see the latest onToggle without rebuilding markers.
   const toggleRef = useRef(onToggle);
   toggleRef.current = onToggle;
+
+  useEffect(() => {
+    let live = true;
+    fetch('/api/advertise/network')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { pins?: Record<string, { lat: number; lng: number }> } | null) => {
+        if (live && d?.pins) setPins(d.pins);
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  /** The surveyed pin if ops has one for this shop, else the built-in fallback. */
+  const positionOf = (store: NetworkStore): [number, number] => {
+    const pin = pins[store.id];
+    return pin ? [pin.lat, pin.lng] : [store.lat, store.lng];
+  };
+  // Read inside the Leaflet init effect, which must not re-run when pins arrive.
+  const positionRef = useRef(positionOf);
+  positionRef.current = positionOf;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -78,7 +103,9 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const map = (L as any).map(containerRef.current, {
-        center: [12.8797, 74.8465], // TODO: recentre once the real store pins land
+        // Only the first frame — fitBounds below, and again when the surveyed
+        // pins land, decides what the map actually shows.
+        center: [12.8797, 74.8465],
         zoom: 13,
         zoomControl: false,
         attributionControl: true,
@@ -95,7 +122,7 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       NETWORK_STORES.forEach(store => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const marker = (L as any)
-          .marker([store.lat, store.lng], {
+          .marker(positionRef.current(store), {
             title: `${store.name} — ${TIER_META[store.tier].label}`,
             keyboard: true,
             riseOnHover: true,
@@ -139,6 +166,21 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       setReady(false);
     };
   }, []);
+
+  // Move every marker onto its surveyed position once the pins arrive, then
+  // refit so the map frames where the shops actually are.
+  useEffect(() => {
+    const map = mapRef.current;
+    const L = leafletRef.current;
+    if (!ready || !map || !L || Object.keys(pins).length === 0) return;
+    NETWORK_STORES.forEach(store => {
+      const pin = pins[store.id];
+      if (pin) markersRef.current.get(store.id)?.setLatLng([pin.lat, pin.lng]);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const group = (L as any).featureGroup(Array.from(markersRef.current.values()));
+    map.fitBounds(group.getBounds().pad(0.15));
+  }, [pins, ready]);
 
   // Repaint the pins whenever the estimator selection changes.
   useEffect(() => {

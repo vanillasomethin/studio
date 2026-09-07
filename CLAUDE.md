@@ -216,7 +216,7 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 | `/store-dashboard` | Store partner dashboard (overview / earnings / flyers / voicebill tabs) |
 | `/store-agreement` | VS Collective LLP store partner contract |
 | `/brand-onboarding` | Brand campaign onboarding + Razorpay |
-| `/advertise` | Advertiser landing page — network map, slot-rate estimator, advertiser agreement + enquiry form. Brand config in `src/lib/brand.ts`; rates reuse `SLOT_TIER_RATE_RUPEES`. Never surfaces store payouts. |
+| `/advertise` | Advertiser landing page — network map, slot-rate estimator, advertiser agreement + enquiry form. Brand config in `src/lib/brand.ts`; rates reuse `SLOT_TIER_RATE_RUPEES`. Map pins come from `Store.lat/lng` via `/api/advertise/network`, matched to the curated list by name — the coordinates in `advertise-network.ts` are only the fallback, so fix a wrong pin in Admin → Stores, never in that file. Never surfaces store payouts. |
 | `/admin` | Admin panel (stores / flyers / campaigns / screens / content / playlists / schedules / reports / monitoring / payments / site-media / roadmap) |
 | `/bill/[billRef]` | Public receipt — customer can claim bill |
 | `/customer-dashboard` | Customer purchase history + local offers |
