@@ -1595,7 +1595,9 @@ function NewCampaignModal({
   const [modalForm,  setModalForm]  = useState<ModalFormData>({
     screens: 3, months: 1, startDate: todayPlusDays(7), agreed: false,
   });
-  const [loading,    setLoading]    = useState(false);
+  // Which CTA is in flight — keeps the idle button's label honest while the
+  // other one works (mirrors the onboarding payment step).
+  const [loading,    setLoading]    = useState<false | 'razorpay' | 'confirm'>(false);
   const [error,      setError]      = useState<string | null>(null);
   const [succeeded,  setSucceeded]  = useState(false);
 
@@ -1622,7 +1624,7 @@ function NewCampaignModal({
   ];
 
   const handlePay = async () => {
-    setLoading(true); setError(null);
+    setLoading('razorpay'); setError(null);
     try {
       await loadRazorpay();
       const res  = await fetch('/api/razorpay/create-order', {
@@ -1701,7 +1703,7 @@ function NewCampaignModal({
   };
 
   const handlePayLater = async () => {
-    setLoading(true); setError(null);
+    setLoading('confirm'); setError(null);
     try {
       await fetch('/api/campaigns/save', {
         method:  'POST',
@@ -2045,33 +2047,36 @@ function NewCampaignModal({
                   </div>
                 )}
 
-                {/* Pay now */}
-                <button
-                  type="button"
-                  onClick={handlePay}
-                  disabled={loading}
-                  className="w-full rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
-                >
-                  {loading
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>
-                  }
-                </button>
-
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
-                  <div className="flex-1 h-px bg-border" />
-                  <span>or confirm and pay later</span>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
-
                 {/* Pay later */}
                 <button
                   type="button"
                   onClick={handlePayLater}
-                  disabled={loading}
+                  disabled={!!loading}
+                  className="w-full rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading === 'confirm'
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <CheckCircle2 className="h-4 w-4" />}
+                  Confirm &amp; pay later
+                </button>
+
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+                  <div className="flex-1 h-px bg-border" />
+                  <span>or pay now</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                {/* Pay now */}
+                <button
+                  type="button"
+                  onClick={handlePay}
+                  disabled={!!loading}
                   className="w-full rounded-xl border border-border bg-card px-6 py-3 text-sm font-bold text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
                 >
-                  <CheckCircle2 className="h-4 w-4" /> Confirm &amp; pay later
+                  {loading === 'razorpay'
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>
+                  }
                 </button>
 
                 <div className="flex gap-3">
