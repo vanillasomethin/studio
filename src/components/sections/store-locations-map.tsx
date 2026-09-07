@@ -127,6 +127,15 @@ function shopCardHtml(store: StorePin): string {
   );
 }
 
+// Haversine metres between two points — sizes each area ring from its members.
+function metersBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = Math.PI / 180, R = 6371000;
+  const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 export default function StoreLocationsMap() {
   const mapRef        = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,6 +147,9 @@ export default function StoreLocationsMap() {
   const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
+  // Area rings — one thin red boundary per locality cluster, rebuilt with the markers.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const zonesRef = useRef<any>(null);
 
   // Fetch store locations
   useEffect(() => {
@@ -200,6 +212,7 @@ export default function StoreLocationsMap() {
       // Markers belonged to the destroyed map — reset so a remount (Strict
       // Mode's second pass, HMR) recreates them on the new instance.
       markersRef.current.clear();
+      zonesRef.current = null;
       setMapReady(false);
     };
   }, []);
@@ -251,6 +264,44 @@ export default function StoreLocationsMap() {
 
         markersRef.current.set(store.id, marker);
       });
+
+      // ── Area-wise coverage borders ────────────────────────────────────────
+      // Group shops by locality (city, then the shop itself, as fallbacks) and
+      // ring each cluster with a thin dashed red boundary — the areas ALIVE
+      // covers, visible the moment the map opens. Rebuilt wholesale with the
+      // markers; rings live in the overlay pane, so dots stay clickable above
+      // them, and a sticky tooltip names the area on hover.
+      if (zonesRef.current) { zonesRef.current.remove(); zonesRef.current = null; }
+      const groups = new Map<string, StorePin[]>();
+      stores.forEach((s) => {
+        // `||` not `??`: a failed autofill leaves locality as '' — nullish
+        // coalescing would lump every such store into one city-wide ring.
+        const key = (s.locality || s.city || s.id).trim().toLowerCase();
+        const list = groups.get(key);
+        if (list) list.push(s); else groups.set(key, [s]);
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const zones = (L as any).layerGroup();
+      groups.forEach((members) => {
+        const lat = members.reduce((sum, m) => sum + m.lat, 0) / members.length;
+        const lng = members.reduce((sum, m) => sum + m.lng, 0) / members.length;
+        const spread = members.reduce((r, m) => Math.max(r, metersBetween(lat, lng, m.lat, m.lng)), 0);
+        // ~200m exclusivity plus breathing room for a lone shop; clamped so one
+        // bad geocode can't paint a ring across half the city.
+        const radius = Math.min(Math.max(spread + 180, 260), 2500);
+        const name = (members[0].locality || members[0].city || members[0].storeName).trim();
+        (L as any).circle([lat, lng], {
+          radius, color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
+          fillColor: RED, fillOpacity: 0.04,
+        })
+          .bindTooltip(
+            `${esc(name)} · ${members.length} store${members.length > 1 ? 's' : ''}`,
+            { sticky: true, direction: 'top', className: 'alive-zone-tip' },
+          )
+          .addTo(zones);
+      });
+      zones.addTo(map);
+      zonesRef.current = zones;
 
       if (stores.length > 1) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -344,6 +395,8 @@ export default function StoreLocationsMap() {
         .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}
         .alive-popup .leaflet-popup-content{margin:0;line-height:1.4;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
+        .alive-zone-tip{font-family:var(--font-dm-mono),monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#b91c1c;background:#fff;border:1px solid rgba(220,38,38,.35);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.10);padding:3px 8px;}
+        .alive-zone-tip::before{display:none;}
         .alive-shop-card{width:236px;background:#fff;font-family:var(--font-manrope),sans-serif;}
         .alive-shop-card .ph{position:relative;height:106px;background:#f5f5f5;}
         .alive-shop-card .ph-img{display:block;width:100%;height:100%;object-fit:cover;}
