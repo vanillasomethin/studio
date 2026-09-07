@@ -2,28 +2,29 @@
 
 import { Check, Star, ArrowRight } from 'lucide-react';
 
+// Store tiers — must match the checkout rates in lib/slot-pricing.ts
+// (Standard ₹1,000 / Growth ₹2,000 / Flagship ₹3,000 per screen per month).
 const plans = [
   {
-    name: 'Starter',
-    price: '₹799',
-    desc: 'Perfect for testing the waters in a single high-traffic location.',
+    name: 'Standard',
+    price: '₹1,000',
+    desc: 'Local kirana screens with a loyal daily footfall.',
     features: [
-      '~144 plays per day',
-      '~4,320 monthly views',
+      '~144 plays per day per screen',
+      '~4,320 monthly views per screen',
       'Targeted local reach',
-      'Basic performance analytics',
+      'Campaign performance reporting',
     ],
     popular: false,
     cta: 'Get Started',
   },
   {
     name: 'Growth',
-    price: '₹2,249',
-    desc: 'Expand your reach across multiple key stores to capture a larger audience.',
+    price: '₹2,000',
+    desc: 'Busy neighbourhood anchor stores with heavier walk-ins.',
     features: [
-      '~432 plays per day',
-      '~12,960 monthly views',
-      'Multi-store campaign management',
+      'Everything in Standard',
+      'High-footfall locations',
       'Detailed analytics & insights',
       'Priority support',
     ],
@@ -31,17 +32,17 @@ const plans = [
     cta: 'Get Started',
   },
   {
-    name: 'Enterprise',
-    price: 'Custom',
-    desc: 'Maximum impact with wide-scale deployment and tailored solutions.',
+    name: 'Flagship',
+    price: '₹3,000',
+    desc: 'Premium high-visibility stores at prime locations.',
     features: [
-      'Volume-based pricing',
+      'Everything in Growth',
+      'Prime, high-visibility placements',
       'Dedicated account manager',
-      'API access & integrations',
-      'Custom creative services',
+      'Custom creative support',
     ],
     popular: false,
-    cta: 'Contact Sales',
+    cta: 'Get Started',
   },
 ];
 
@@ -54,7 +55,8 @@ export default function Pricing() {
             <span className="text-primary">Find</span> a Plan That Works for You
           </h2>
           <p className="text-lg text-muted-foreground">
-            Affordable, scalable plans designed to put your brand in the spotlight.
+            Every store is tiered by footfall and visibility. Pick the exact stores
+            you want at booking — mix tiers freely in one campaign.
           </p>
         </div>
 
@@ -125,7 +127,7 @@ export default function Pricing() {
                 </span>
                 {plan.price !== 'Custom' && (
                   <span className={`text-sm ml-1 ${plan.popular ? 'text-white/80' : 'text-muted-foreground'}`}>
-                    /mo
+                    /screen/mo
                   </span>
                 )}
               </div>

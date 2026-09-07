@@ -1,7 +1,10 @@
-// GET /api/brand/screens?date=YYYY-MM-DD — onboarded screens for the onboarding
-// map picker; `live` says whether a screen is playing today. Stores that are
-// physically onboarded but not yet live are included so a brand can see where
-// the network is growing — the picker shows them as "Coming soon", not bookable.
+// GET /api/brand/screens?date=YYYY-MM-DD — store screens for the onboarding
+// map picker; `live` says whether a screen is playing today. Visibility follows
+// the public network map (/api/stores/locations): every pinned store except a
+// rejected applicant, from the moment it registers — so a brand sees the same
+// network here that the homepage map showed them, and can see exactly which
+// stores its ad can be placed at. Non-live stores render as "Coming soon", not
+// bookable.
 // Unauthenticated by design, like /api/brand/slot-availability: the booking flow is
 // public, so this answers pre-auth. It exposes only what a buyer needs to pick a
 // screen — name, locality, coordinates, and a coarse availability status for the
@@ -30,10 +33,9 @@ export type ScreenPin = {
   // null = store isn't slot-managed (schedule mode) or is closed that day; ops
   // can still schedule it, so the picker treats null as selectable.
   slotStatus: 'available' | 'limited' | 'sold_out' | null;
-  // standard | growth | flagship — the network tier of the location, so a buyer
-  // can browse by calibre of store. It is a LABEL here and nothing more:
-  // onboarding still quotes one flat per-screen rate, so no per-slot price is
-  // exposed alongside it (two different prices on one page reads as a bug).
+  // Pricing tier — sets what a screen at this store costs per month (see
+  // lib/brand-pricing.ts). Public by design: the picker and the tier
+  // directory both show the rate.
   tier: SlotTier;
 };
 
@@ -47,10 +49,9 @@ export async function GET(req: NextRequest) {
     const rows = await db.store.findMany({
       where: {
         lat: { not: null }, lng: { not: null },
-        OR: [
-          { liveAt: { not: null } },
-          { onboardingStage: { in: ['physically_onboarded', 'digitally_onboarded', 'live'] } },
-        ],
+        // Same rule as the public network map: a pin puts a store on the map at
+        // any stage; only a rejected applicant is kept off.
+        onboardingStage: { not: 'rejected' },
       },
       select: {
         id: true, storeName: true, locality: true, city: true,

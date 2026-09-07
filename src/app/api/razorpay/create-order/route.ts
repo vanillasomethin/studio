@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { asTier, campaignTotal } from '@/lib/brand-pricing';
+import { asTier, campaignTotal, tierCounts } from '@/lib/brand-pricing';
 import { resolveCoupon } from '@/lib/coupons';
 import type { SlotTier } from '@/lib/slot-pricing';
 
@@ -132,6 +132,13 @@ export async function POST(req: NextRequest) {
     // of the same name cannot override it.
     safeNotes.alive_screens = String(screens);
     safeNotes.alive_months  = String(months);
+    // The tier mix the amount was computed from (no-pick screens counted as
+    // Standard). verify-payment re-vets saved picks against this, so ids can't
+    // be swapped for a richer basket after ordering — and when the id notes
+    // below don't fit (oversized selection), this binding still travels with
+    // the order.
+    const mix = tierCounts(screens, tiers);
+    safeNotes.alive_tiers = `standard:${mix.standard},growth:${mix.growth},flagship:${mix.flagship}`;
     // The stores that were PRICED. verify-payment records these on the campaign,
     // so what was paid for is what gets booked — not what the browser submits
     // afterwards. Without this a buyer could pay for 20 Standard stores and then

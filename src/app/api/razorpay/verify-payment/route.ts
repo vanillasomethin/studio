@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { db } from '@/lib/db';
 import { sanitizeStoreIds } from '@/lib/store-ids';
+import { tierCounts, isSlotTier } from '@/lib/brand-pricing';
 
 type Body = {
   razorpay_order_id:   string;
@@ -81,6 +82,25 @@ export async function POST(req: NextRequest) {
         ? clamp(order.notes.alive_months, 1, 12, 1)
         : clamp(campaign.months, 1, 12, 1);
 
+      // Store picks must match the tier mix that was PRICED. create-order
+      // stamped the mix it charged for into the order notes; if the ids being
+      // saved now resolve to a different mix (standard ids swapped for
+      // flagship after ordering, or a tier changed mid-payment), the picks are
+      // dropped rather than honoured — ops routes those campaigns by hand and
+      // the paid mix on the Razorpay order stays the truth. Orders from before
+      // this binding carry no alive_tiers note and keep the old behaviour.
+      const paidMix = typeof order.notes?.alive_tiers === 'string' ? order.notes.alive_tiers : null;
+      const vetPicks = async (ids: string[]): Promise<string[]> => {
+        if (ids.length === 0 || !paidMix) return ids;
+        const stores = await db.store.findMany({
+          where:  { id: { in: ids } },
+          select: { slotPricingTier: true },
+        });
+        const tiers = stores.map((s) => (isSlotTier(s.slotPricingTier) ? s.slotPricingTier : 'standard'));
+        const mix = tierCounts(paidScreens, tiers);
+        return `standard:${mix.standard},growth:${mix.growth},flagship:${mix.flagship}` === paidMix ? ids : [];
+      };
+
       // Case-insensitive so the campaign still links to its brand when the
       // address was typed with different capitalisation at signup.
       const brand = await db.brand.findFirst({
@@ -137,10 +157,13 @@ export async function POST(req: NextRequest) {
       // Bring an existing campaign to `active`. Shared by the pay-later branch
       // and by the loser of a create race, which are the same situation once the
       // row exists: the payment is settled and the row must reflect it.
-      const activateExisting = async (row: { id: string; status: string }) => {
+      const activateExisting = async (row: { id: string; status: string; preferredStoreIds: string[] }) => {
         // Keep the row internally consistent: the charge was recomputed at
         // current rates, so the stored per-screen rate must follow it.
         const ppw = Math.floor(Number(campaign.pricePerScreen));
+        // Pay-later rows carry picks saved by the (unauthenticated) booking
+        // call — re-vet them against the mix this order actually priced.
+        const keptPicks = await vetPicks(row.preferredStoreIds ?? []);
         // Only the transition into `active` is a redemption. A retried or
         // replayed verify for an already-active campaign must not count again.
         const wasAlreadyActive = row.status === 'active';
@@ -152,6 +175,7 @@ export async function POST(req: NextRequest) {
             totalAmount: chargedRupees,
             screens: paidScreens,
             months:  paidMonths,
+            ...(keptPicks.length !== (row.preferredStoreIds?.length ?? 0) ? { preferredStoreIds: keptPicks } : {}),
             ...(paidCoupon ? { couponCode: paidCoupon } : {}),
             ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
           },
@@ -182,7 +206,9 @@ export async function POST(req: NextRequest) {
               pricePerScreen: campaign.pricePerScreen,
               totalAmount:    chargedRupees,
               couponCode:     paidCoupon,
-              preferredStoreIds: paidStoreIds,
+              // Order-note ids when present, body fallback otherwise — either
+              // way re-vetted against the mix that was actually priced.
+              preferredStoreIds: await vetPicks(paidStoreIds),
               paymentId:      razorpay_payment_id,
               orderId:        razorpay_order_id,
               status:         'active',

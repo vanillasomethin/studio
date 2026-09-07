@@ -7,6 +7,11 @@
 
 import { SLOT_TIER_RATE_RUPEES, isSlotTier, type SlotTier } from './slot-pricing';
 
+// Re-exported so pricing consumers (create-order, verify-payment) can take the
+// rate table and the tier guard from one module.
+export { SLOT_TIER_RATE_RUPEES, isSlotTier };
+export type { SlotTier };
+
 export const GST_RATE = 0.18;
 
 // ─── Store-tier pricing (current model) ──────────────────────────────────────
@@ -30,6 +35,20 @@ export function storeMonthlyPrice(tier: SlotTier): number {
  *  must never invent a premium store the brand is then charged for. */
 export function asTier(v: string | null | undefined): SlotTier {
   return isSlotTier(v) ? v : 'standard';
+}
+
+/**
+ * Screens per tier for a booking, unpicked screens counted as Standard. This
+ * is the mix create-order stamps into the Razorpay order notes (alive_tiers)
+ * and verify-payment re-vets saved picks against — the canonical string form
+ * is `standard:N,growth:N,flagship:N`.
+ */
+export function tierCounts(screens: number, tiers: SlotTier[] = []): Record<SlotTier, number> {
+  const s = Math.max(1, Math.floor(screens || 1));
+  const counts: Record<SlotTier, number> = { standard: 0, growth: 0, flagship: 0 };
+  for (const t of tiers.slice(0, s)) counts[t] += 1;
+  counts.standard += s - tiers.slice(0, s).length;
+  return counts;
 }
 
 const clampScreens = (n: number) => Math.min(50, Math.max(1, Math.floor(n || 1)));
