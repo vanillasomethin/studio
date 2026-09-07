@@ -309,6 +309,10 @@ model Store {
 
   tier              String    @default("standard") // standard | premium — set via gated premium signup link
   monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium — flat-rate stores only (slot-mode stores compute dynamically, see slot-pricing-db.ts)
+  // Shop category slug (kirana | supermarket | …) — allowlist in
+  // src/lib/store-categories.ts. Admin-set (Admin → Stores → Edit); null = not
+  // categorised yet, which is every store registered before the field existed.
+  category          String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
