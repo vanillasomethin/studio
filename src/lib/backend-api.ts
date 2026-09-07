@@ -478,14 +478,14 @@ export type SlotStore = {
   id: string; storeName: string; city: string | null;
   loopSlotCount: number | null; openDays: number;
   hoursStart: string; hoursEnd: string;
-  fillerCampaignId: string | null;
+  fillerCreativeId: string | null;
   slotPricingTier: string; // 'standard' | 'growth' | 'flagship' — see lib/slot-pricing.ts
   sold: Record<string, number | null> | null; // date → sold count; null = closed that day
 };
 
 export type SlotAvailability = {
   dates: string[];
-  defaultFillerCampaignId: string | null;
+  defaultFillerCreativeId: string | null;
   stores: SlotStore[];
 };
 
@@ -529,9 +529,9 @@ export type SlotSettingsResult = {
 
 export const updateSlotSettings = (body: {
   storeId?: string; loopSlotCount?: number | null; openDays?: number;
-  hoursStart?: string; hoursEnd?: string; fillerCampaignId?: string | null;
+  hoursStart?: string; hoursEnd?: string; fillerCreativeId?: string | null;
   slotPricingTier?: string;
-  defaultFillerCampaignId?: string | null;
+  defaultFillerCreativeId?: string | null;
   campaignId?: string; slotContentId?: string | null; slotPlaylistId?: string | null;
 }) => apiFetch<SlotSettingsResult>('/api/slots/settings', { method: 'PATCH', body: JSON.stringify(body) });
 
