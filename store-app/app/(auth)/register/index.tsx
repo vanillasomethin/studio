@@ -1,71 +1,24 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image, Linking,
+  StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../../lib/colors';
 import { validateForm, FORM_INIT, passwordScore, type FormData, type FieldErrors } from '../../../lib/validation';
-import { buildStaticMapTiles } from '../../../lib/static-tile-map';
-
-const MAP_ZOOM = 16;
-const MAP_HEIGHT = 140;
 
 export default function RegisterStep1() {
   const router = useRouter();
   const [form, setForm] = useState<FormData>(FORM_INIT);
   const [touched, setTouched] = useState(false);
-  const [gpsLoading, setGpsLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
-  const [mapWidth, setMapWidth] = useState(0);
-
-  const mapTiles = useMemo(() => {
-    if (!form.lat || !form.lng || mapWidth === 0) return [];
-    return buildStaticMapTiles(parseFloat(form.lat), parseFloat(form.lng), MAP_ZOOM, mapWidth, MAP_HEIGHT);
-  }, [form.lat, form.lng, mapWidth]);
 
   const set = (k: keyof FormData, v: string) => setForm((p) => ({ ...p, [k]: v }));
   const errors = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
   const fe = (k: keyof FormData): string | undefined => (touched ? errors[k] : undefined);
-
-  const grabLocation = async () => {
-    setGpsLoading(true);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        // The pin is required — a denied permission is unblocked from Settings or by
-        // registering on the web, where the pin can be dragged instead.
-        Alert.alert(
-          'Location needed',
-          'Allow location access to pin your shop, or register on the web at wearealive.in/store where you can drag the pin.',
-          [
-            { text: 'Open settings', onPress: () => Linking.openSettings() },
-            { text: 'Cancel', style: 'cancel' },
-          ],
-        );
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const { latitude, longitude } = loc.coords;
-      set('lat', String(latitude));
-      set('lng', String(longitude));
-      // Reverse geocode
-      const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
-      if (geo) {
-        if (geo.subregion || geo.district) set('locality', geo.subregion ?? geo.district ?? '');
-        if (geo.city || geo.region) set('city', geo.city ?? geo.region ?? '');
-        if (geo.postalCode) set('pincode', geo.postalCode.replace(/\D/g, '').slice(0, 6));
-      }
-    } catch {
-      Alert.alert('Error', 'Could not get your location. Turn on location services and try again.');
-    } finally {
-      setGpsLoading(false);
-    }
-  };
 
   const handleContinue = () => {
     if (hasErrors) { setTouched(true); return; }
@@ -146,47 +99,6 @@ export default function RegisterStep1() {
             )}
           </Field>
 
-          {/* Location */}
-          <Text style={s.label}>Shop location</Text>
-          <TouchableOpacity style={[s.gpsBtn, fe('lat') && s.inputErr]} onPress={grabLocation} disabled={gpsLoading}>
-            {gpsLoading
-              ? <ActivityIndicator size="small" color={C.primary} />
-              : <Ionicons name={form.lat ? 'checkmark-circle' : 'locate'} size={16} color={C.primary} />
-            }
-            <Text style={s.gpsBtnText}>
-              {form.lat ? `Pinned · ${parseFloat(form.lat).toFixed(4)}, ${parseFloat(form.lng).toFixed(4)}` : 'Use my current location'}
-            </Text>
-          </TouchableOpacity>
-          {fe('lat') && (
-            <View style={s.errorRow}>
-              <Ionicons name="alert-circle" size={12} color={C.error} />
-              <Text style={s.errorText}>{fe('lat')}</Text>
-            </View>
-          )}
-          {form.lat && form.lng ? (
-            <View style={s.mapPreview}>
-              <View
-                style={s.mapTiles}
-                onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}
-              >
-                {mapTiles.map((tile, i) => (
-                  <Image
-                    key={i}
-                    source={{ uri: tile.uri }}
-                    style={[s.mapTile, { left: tile.left, top: tile.top }]}
-                  />
-                ))}
-                <View pointerEvents="none" style={s.mapPin}>
-                  <Ionicons name="location" size={28} color={C.primary} />
-                </View>
-              </View>
-              <View style={s.mapPinBadge}>
-                <Ionicons name="location" size={12} color={C.primary} />
-                <Text style={s.mapPinText}>Your shop pin</Text>
-              </View>
-            </View>
-          ) : null}
-
           {/* Address row */}
           <View style={s.row}>
             <View style={{ flex: 1 }}>
@@ -218,6 +130,14 @@ export default function RegisterStep1() {
               multiline numberOfLines={3} textAlignVertical="top"
               value={form.address} onChangeText={(v) => set('address', v)} />
           </Field>
+
+          {/* No map pin at registration: the store's location comes from the GPS
+              shop-front photo uploaded during onboarding (its EXIF fix becomes
+              the store's map location). Said here so nobody hunts for a map step. */}
+          <View style={s.noteRow}>
+            <Ionicons name="location-outline" size={14} color={C.textMuted} />
+            <Text style={s.noteText}>No map needed — your shop’s location is captured from the GPS photo you upload after registering.</Text>
+          </View>
 
           <Field label="GSTIN (optional)" error={fe('gstin')}>
             <TextInput style={[s.input, s.mono, fe('gstin') && s.inputErr]}
@@ -308,18 +228,12 @@ const s = StyleSheet.create({
   textarea: { minHeight: 80, paddingTop: 12 },
   mono: { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
   row: { flexDirection: 'row' },
-  gpsBtn: {
+  noteRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.primaryLight, borderWidth: 1, borderColor: C.primaryBorder,
-    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, marginTop: 6,
+    backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, marginTop: 14,
   },
-  gpsBtnText: { fontSize: 13, color: C.primary, fontWeight: '600', flex: 1 },
-  mapPreview: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: C.border, marginTop: 8 },
-  mapTiles: { width: '100%', height: 140, overflow: 'hidden', backgroundColor: '#e9e7e2' },
-  mapTile: { position: 'absolute', width: 256, height: 256 },
-  mapPin: { position: 'absolute', left: '50%', top: '50%', marginLeft: -14, marginTop: -28 },
-  mapPinBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 8, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border },
-  mapPinText: { fontSize: 11, color: C.textSub, fontWeight: '500' },
+  noteText: { fontSize: 12, color: C.textSub, fontWeight: '500', flex: 1 },
   btn: {
     backgroundColor: C.primary, borderRadius: 12, paddingVertical: 15,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

@@ -108,9 +108,10 @@ const MISSING_STEP: Record<string, number> = {
   'Smart plug ID': 5,
   'Photo of the installed TV': 6, 'Photo of the serial plate': 6,
   'Photo of the smart plug': 6, 'Photo of the shop front': 6,
-  // The install photo ops shoots in step 6 fills an empty pin (admin photo
-  // route), so re-shooting it is the fix. A legacy row can also be pinned
-  // from Admin → Stores → Edit → Map pin.
+  // A shop/install photo with a fix fills an empty pin (admin photo route;
+  // a partner's EXIF shop photo sets it outright), so re-shooting in step 6
+  // is the fix. A legacy row can also be pinned from Admin → Stores → Edit →
+  // Map pin.
   'Map pin (shop location)': 6,
 };
 

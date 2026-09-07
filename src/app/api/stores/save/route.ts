@@ -267,16 +267,17 @@ export async function POST(req: NextRequest) {
     const lat          = body.lat ? parseFloat(body.lat) : null;
     const lng          = body.lng ? parseFloat(body.lng) : null;
 
-    // The map pin is what puts the store on the website maps, so a supplied one
-    // must be a real point: both halves, finite, in range, not the (0,0) that a
-    // failed geolocation read collapses to. An absent pin is still accepted —
-    // older app builds send none — and the physically_onboarded gate in
-    // /api/admin/stores/[id] is the backstop.
+    // Registration no longer asks for a map pin — the store's location comes
+    // from the GPS shop photo during onboarding (verification-photo route).
+    // Coordinates are still accepted for old drafts / app builds that send
+    // them, but a supplied pair must be a real point: both halves, finite, in
+    // range, not the (0,0) that a failed geolocation read collapses to. The
+    // physically_onboarded gate in /api/admin/stores/[id] is the backstop.
     if (lat !== null || lng !== null) {
       const valid = lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)
         && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
       if (!valid) {
-        const envelope = await respond({ error: 'Shop location is invalid. Pin your shop on the map and try again.' }, { route, request: { hasAddress: true, lat: body.lat ?? null, lng: body.lng ?? null }, outcome: 'invalid_request', policyFlags: ['invalid_coordinates'], errorCategory: 'validation', startedAtMs });
+        const envelope = await respond({ error: 'Shop location coordinates are invalid.' }, { route, request: { hasAddress: true, lat: body.lat ?? null, lng: body.lng ?? null }, outcome: 'invalid_request', policyFlags: ['invalid_coordinates'], errorCategory: 'validation', startedAtMs });
         return NextResponse.json(envelope, { status: 400 });
       }
     }
