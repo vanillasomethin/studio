@@ -37,3 +37,33 @@ export const BASEMAP: Basemap = CARTO_API_KEY
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19,
     };
+
+// ─── Two basemaps, because the maps do two different jobs ─────────────────────
+//
+// BASEMAP above is the PRESENTATION style: CARTO Voyager, muted and uncluttered,
+// which is what a "here is the network" map wants — the pins are the content and
+// the basemap should stay out of their way.
+//
+// That same restraint is wrong for DROPPING A PIN. CARTO's raster style omits
+// most building names and small landmarks, and a partner placing their shop has
+// nothing to aim at, so pins landed in the wrong place. OSM's standard style
+// renders building names, shop names and minor landmarks at high zoom, which is
+// exactly what someone needs to say "that one, next to the temple".
+//
+// Hence two exports rather than one. The rule from CLAUDE.md is unchanged and
+// still the point: never paste a tile URL into a component — import the basemap
+// whose JOB matches the map you are building.
+//
+//   BASEMAP        → marketing network map, admin fleet/monitoring overview,
+//                    the brand onboarding network map. Looking, not placing.
+//   PINNING_BASEMAP → store registration, admin "move this store's pin".
+//                    Placing a point on a real building.
+
+export const PINNING_BASEMAP: Basemap = {
+  provider: 'osm',
+  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: '© OpenStreetMap contributors',
+  // 19 is OSM's limit; it is also where building and shop labels appear, which
+  // is the entire reason this map uses OSM.
+  maxZoom: 19,
+};

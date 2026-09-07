@@ -60,7 +60,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 | Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
 | Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
 | Payments | Razorpay (brand campaigns) |
-| Maps | Plain Leaflet (no react-leaflet — React 19 only). Tiles always come from `BASEMAP` in `src/lib/map-tiles.ts`: CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OpenStreetMap otherwise. Never paste a tile URL — CARTO tiles without a key render "API key required". |
+| Maps | Plain Leaflet (no react-leaflet — React 19 only). Never paste a tile URL; import from `src/lib/map-tiles.ts`, picking by the map's JOB. `BASEMAP` (CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OSM otherwise) for LOOKING — marketing network map, admin fleet/monitoring, brand onboarding. `PINNING_BASEMAP` (always OSM standard) for PLACING a pin — store registration, admin move-pin — because CARTO's raster style omits the building and landmark names a partner aims at, and pins landed in the wrong place without them. CARTO tiles without a key render "API key required". |
 | Geocoding | OpenStreetMap Nominatim |
 | AI | Genkit + Google AI (Gemini 2.5 Flash) |
 | React | 18.3.1 — NOT 19 |
