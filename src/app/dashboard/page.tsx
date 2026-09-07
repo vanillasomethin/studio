@@ -23,6 +23,11 @@ import { SLOT_WINDOWS, type WindowId } from '@/lib/slot-windows';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
 import { asTier, campaignBaseForCount, campaignBaseForStores, storeMonthlyPrice } from '@/lib/brand-pricing';
+import {
+  BRAND_AGREEMENT_EXECUTION_NOTE, BRAND_AGREEMENT_TITLE, BRAND_AGREEMENT_VERSION,
+  acceptBrandAgreement, brandAgreementClauses,
+  type BrandAgreementAcceptance,
+} from '@/lib/brand-agreement';
 
 type Campaign = {
   id: string; name?: string; brandName?: string; contactName?: string | null;
@@ -1580,7 +1585,8 @@ type ModalFormData = {
   screens: number;
   months: number;
   startDate: string;
-  agreed: boolean;
+  /** Which clause text was accepted and when — posted with the booking. */
+  acceptedAgreement: BrandAgreementAcceptance | null;
 };
 
 type ModalStep = 1 | 2 | 3;
@@ -1619,7 +1625,7 @@ function NewCampaignModal({
 }) {
   const [modalStep,  setModalStep]  = useState<ModalStep>(1);
   const [modalForm,  setModalForm]  = useState<ModalFormData>({
-    screens: 3, months: 1, startDate: todayPlusDays(7), agreed: false,
+    screens: 3, months: 1, startDate: todayPlusDays(7), acceptedAgreement: null,
   });
   // Which CTA is in flight — keeps the idle button's label honest while the
   // other one works (mirrors the onboarding payment step).
@@ -1636,18 +1642,16 @@ function NewCampaignModal({
 
   const effectiveDate = format(new Date(), 'd MMMM yyyy');
 
-  const modalClauses = [
-    { n: '1', title: 'What we provide', items: ['We display your advertisements on digital screens inside kirana stores and retail outlets.', 'You get a dedicated Account Manager who handles scheduling, creative formatting, and campaign reporting.'] },
-    { n: '2', title: 'Your campaign', items: [`This campaign runs for ${modalForm.months} ${modalForm.months === 1 ? 'month' : 'months'} across ${modalForm.screens} ${modalForm.screens === 1 ? 'screen' : 'screens'}.`, `The monthly fee is ${fmt(pricePerScreen * modalForm.screens)} plus applicable GST.`, 'Campaign dates are confirmed after payment and creative submission.'] },
-    { n: '3', title: 'Payment', items: ['Payment is collected upfront via Razorpay before your campaign is activated.', 'A GST invoice will be sent to your registered email within 2 business days.', 'Fees for completed campaign months are non-refundable.'] },
-    { n: '4', title: 'Your content', items: ['You are solely responsible for ensuring your ad content is accurate, lawful, and compliant.', 'We may reject content that violates any law or conflicts with our policies.', 'Specifications: MP4 or JPEG/PNG, 1920 × 1080 px, max 100 MB.'] },
-    { n: '5', title: 'Intellectual property', items: ['You retain full ownership of your ad content and brand assets.', 'You grant us a non-exclusive licence to display your content for the campaign duration.'] },
-    { n: '6', title: 'Limitation of liability', items: ['Our total liability is limited to the fees you paid for the affected campaign period.', 'We are not liable for screen downtime caused by third-party store closures or force majeure.'] },
-    { n: '7', title: 'Ending this agreement', items: ['Either party may end this agreement with 30 days written notice.', 'On termination, outstanding fees become immediately due.'] },
-    { n: '8', title: 'Privacy', items: ['We collect your business details to manage your campaign and issue invoices.', 'Payment processing is handled by Razorpay, subject to their privacy policy.'] },
-    { n: '9', title: 'Governing law', items: ['These Terms are governed by the laws of India.', 'Disputes will be referred to arbitration in Mangaluru, Karnataka.'] },
-    { n: '10', title: 'Changes', items: ['We may update these Terms from time to time. We will notify you of material changes by email.'] },
-  ];
+  // The same contract the /brand-onboarding wizard shows. This modal used to
+  // keep its own hand-maintained copy, which had drifted materially shorter —
+  // no minimum play guarantee, no peak-window frequency clause, no 2%-a-month
+  // late interest, no arbitration detail. Which terms a brand got depended on
+  // which button they clicked. Never inline clause text here again.
+  const modalClauses = brandAgreementClauses({
+    screens: modalForm.screens,
+    months:  modalForm.months,
+    monthlyFee: fmt(pricePerScreen * modalForm.screens),
+  });
 
   const handlePay = async () => {
     setLoading('razorpay'); setError(null);
@@ -1690,6 +1694,8 @@ function NewCampaignModal({
                 startDate:      modalForm.startDate,
                 pricePerScreen,
                 totalAmount:    total,
+                agreementVersion:    modalForm.acceptedAgreement?.version,
+                agreementAcceptedAt: modalForm.acceptedAgreement?.at,
               },
             }),
           });
@@ -1748,6 +1754,9 @@ function NewCampaignModal({
           pricePerScreen,
           totalAmount:    total,
           status:         'pending_payment',
+          // Evidence of agreement — the route refuses a booking without it.
+          agreementVersion:    modalForm.acceptedAgreement?.version,
+          agreementAcceptedAt: modalForm.acceptedAgreement?.at,
         }),
       });
       // A rejected save used to land on "Booking confirmed" anyway, so a booking
@@ -1932,8 +1941,8 @@ function NewCampaignModal({
               <div className="space-y-5">
                 <div className="rounded-xl border border-border bg-card overflow-hidden">
                   <div className="border-b border-border px-5 py-3.5">
-                    <p className="text-sm font-bold text-foreground">Alive Advertising — Terms of Service</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
+                    <p className="text-sm font-bold text-foreground">{BRAND_AGREEMENT_TITLE}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Version {BRAND_AGREEMENT_VERSION} · Effective date: {effectiveDate}</p>
                   </div>
                   <div className="max-h-72 overflow-y-auto px-5 py-4 space-y-4 text-sm text-muted-foreground leading-relaxed">
                     <p>
@@ -1979,8 +1988,7 @@ function NewCampaignModal({
                     <div className="pt-3 border-t border-border space-y-2 text-xs">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Digital Acceptance</p>
                       <p className="text-muted-foreground/70 leading-relaxed">
-                        This agreement is executed electronically under the Information Technology Act, 2000.
-                        Electronic acceptance via the ALIVE platform constitutes valid execution without physical signatures.
+                        {BRAND_AGREEMENT_EXECUTION_NOTE}
                       </p>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-0.5">
@@ -1992,7 +2000,12 @@ function NewCampaignModal({
                         <div className="space-y-0.5 border-l border-border pl-3">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party B</p>
                           <p className="font-semibold text-foreground">{prefill.brandName || '—'}</p>
-                          <p className="text-muted-foreground">Date of acceptance: {effectiveDate}</p>
+                          <p className="text-muted-foreground">
+                            Date of acceptance:{' '}
+                            {modalForm.acceptedAgreement
+                              ? format(new Date(modalForm.acceptedAgreement.at), 'd MMMM yyyy, h:mm a')
+                              : 'on acceptance below'}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -2003,8 +2016,12 @@ function NewCampaignModal({
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={modalForm.agreed}
-                    onChange={(e) => setModalForm((f) => ({ ...f, agreed: e.target.checked }))}
+                    checked={!!modalForm.acceptedAgreement}
+                    // Stamped at the tick — this is the moment of agreement,
+                    // and it is what the booking records as evidence.
+                    onChange={(e) => setModalForm((f) => ({
+                      ...f, acceptedAgreement: e.target.checked ? acceptBrandAgreement() : null,
+                    }))}
                     className="mt-0.5 h-4 w-4 rounded border-border accent-primary shrink-0"
                   />
                   <span className="text-sm text-muted-foreground leading-relaxed select-none">
@@ -2025,7 +2042,7 @@ function NewCampaignModal({
                   <button
                     type="button"
                     onClick={() => setModalStep(3)}
-                    disabled={!modalForm.agreed}
+                    disabled={!modalForm.acceptedAgreement}
                     className="flex-1 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
                   >
                     Accept &amp; continue <ArrowRight className="h-4 w-4" />

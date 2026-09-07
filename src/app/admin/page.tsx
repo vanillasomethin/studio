@@ -12,6 +12,7 @@ import {
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
   Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus, QrCode, Camera, ShieldCheck, Users,
+  AlertCircle,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { signIn, signOut as authSignOut } from 'next-auth/react';
@@ -84,6 +85,7 @@ type Campaign = {
   status: 'upcoming' | 'active' | 'completed' | 'trial'; createdAt: string;
   trialOfferedAt: string | null; trialUsedAt: string | null;
   preferredStores?: { id: string; storeName: string; locality: string | null }[];
+  agreementVersion: string | null; agreementAcceptedAt: string | null;
 };
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
@@ -1500,7 +1502,7 @@ function CampaignsPanel() {
         <div className="rounded-xl border border-border overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
-              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Date', 'Trial', ''].map((h) => (
+              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Terms', 'Date', 'Trial', ''].map((h) => (
                 <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
               ))}</tr>
             </thead>
@@ -1529,6 +1531,26 @@ function CampaignsPanel() {
                         {isPaid ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
                         {isPaid ? 'Paid' : isTrial ? 'Trial' : 'Pay later'}
                       </Badge>
+                    </td>
+                    {/* Loud only when it is missing: a booking we cannot show was
+                        agreed to is the exception worth spotting, and every row
+                        predating acceptance recording is one. */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {c.agreementVersion ? (
+                        <span
+                          className="text-[10px] text-muted-foreground/70"
+                          title={`Agreement version ${c.agreementVersion}${c.agreementAcceptedAt ? ` · accepted ${fmtDate(c.agreementAcceptedAt)}` : ''}`}
+                        >
+                          v{c.agreementVersion}
+                          {c.agreementAcceptedAt && (
+                            <span className="block text-muted-foreground/40">{fmtDate(c.agreementAcceptedAt)}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <Badge variant="warning" className="text-[10px] py-0.5 px-2 font-bold whitespace-nowrap">
+                          <AlertCircle className="h-2.5 w-2.5" /> Not captured
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
