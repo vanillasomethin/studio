@@ -15,9 +15,9 @@ type StorePin = {
 };
 
 // Live screens are the network; in-progress ones are stores that have signed up
-// and are being installed. Every pin is a shop — a red storefront badge — and
-// fill carries the difference: solid red is playing today, outlined red is on
-// its way.
+// and are being installed. Every store is the same solid red round mark — the
+// stage is carried by the sidebar copy and the popup, not by the dot, so the
+// map reads as one network rather than two tiers.
 const PIN = {
   live:        { label: 'Live' },
   in_progress: { label: 'Coming soon' },
@@ -25,39 +25,29 @@ const PIN = {
 
 const RED = '#dc2626';
 
-// Lucide "store" glyph (ISC), drawn inside a rounded badge with a pointer tail
-// so the tail tip sits on the shop's coordinates. 30×36; the badge is 28×28.
-const STORE_GLYPH =
-  '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>' +
-  '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>' +
-  '<path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>' +
-  '<path d="M2 7h20"/>' +
-  '<path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>';
+// The dot's box, in px. Geometry is derived from this everywhere — the SVG,
+// the divIcon's iconSize/iconAnchor/popupAnchor, and the CSS below — so the
+// mark can be resized in one place without floating off its shop.
+const DOT = 18;
 
-/** The marker markup: a red shop badge, solid for a live screen and outlined
- *  for one on its way. Status is in the fill, not only the colour, so the two
- *  still read apart for anyone who can't tell red from grey. */
-export function shopPinHtml(status: StoreStatus, active: boolean): string {
-  const solid = status === 'live';
-  const badgeFill   = solid ? RED : '#ffffff';
-  const badgeStroke = solid ? '#ffffff' : RED;
-  const glyphStroke = solid ? '#ffffff' : RED;
+/** The marker markup: one solid round mark on the shop's coordinates. The white
+ *  ring is what separates it from the map tiles, not a status cue. */
+export function shopPinHtml(active: boolean): string {
+  const c = DOT / 2;
   return (
     `<div class="alive-shop-pin${active ? ' is-active' : ''}">` +
-      '<svg width="30" height="36" viewBox="0 0 30 36" aria-hidden="true">' +
-        `<path d="M8 1h14a7 7 0 0 1 7 7v14a7 7 0 0 1-7 7h-3.6L15 35l-3.4-6H8a7 7 0 0 1-7-7V8a7 7 0 0 1 7-7z" fill="${badgeFill}" stroke="${badgeStroke}" stroke-width="2" stroke-linejoin="round"/>` +
-        `<g transform="translate(5.65 5.65) scale(0.78)" fill="none" stroke="${glyphStroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${STORE_GLYPH}</g>` +
+      `<svg width="${DOT}" height="${DOT}" viewBox="0 0 ${DOT} ${DOT}" aria-hidden="true">` +
+        `<circle cx="${c}" cy="${c}" r="${c - 3}" fill="${RED}" stroke="#ffffff" stroke-width="2.5"/>` +
       '</svg>' +
     '</div>'
   );
 }
 
-/** Legend / list swatch that matches the pin: a small red square, solid or outlined. */
-function swatchStyle(status: StoreStatus, size: number): React.CSSProperties {
-  const solid = status === 'live';
+/** List swatch that matches the pin: the same solid round mark, small. */
+function swatchStyle(size: number): React.CSSProperties {
   return {
-    width: size, height: size, borderRadius: Math.round(size * 0.3), flexShrink: 0,
-    background: solid ? RED : '#ffffff', border: `1.5px solid ${RED}`,
+    width: size, height: size, borderRadius: '50%', flexShrink: 0,
+    background: RED,
   };
 }
 
@@ -154,29 +144,27 @@ export default function StoreLocationsMap() {
       const map = mapInstanceRef.current;
       if (!map) return; // unmounted while the import was in flight
 
-      // A shop badge with a pointer tail; the tail tip is the anchor, so the
-      // badge floats just above the shop's coordinates.
-      const makeIcon = (status: StoreStatus, active: boolean) =>
+      // A round mark centred on the shop's coordinates — so the anchor is the
+      // middle of the dot, not a tail tip, and the popup clears its top edge.
+      const makeIcon = (active: boolean) =>
         (L as any).divIcon({
           className:   '',
-          html:        shopPinHtml(status, active),
-          iconSize:    [30, 36],
-          iconAnchor:  [15, 35],
-          popupAnchor: [0, -30],
+          html:        shopPinHtml(active),
+          iconSize:    [DOT, DOT],
+          iconAnchor:  [DOT / 2, DOT / 2],
+          popupAnchor: [0, -(DOT / 2 + 4)],
         });
-
-      const iconFor = (s: StorePin, active: boolean) => makeIcon(s.status, active);
 
       stores.forEach(store => {
         if (markersRef.current.has(store.id)) return;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tag = store.status === 'live'
-          ? `<span style="color:#dc2626;">■ Live</span>`
-          : `<span style="color:#b91c1c;">□ Coming soon</span>`;
+          ? `<span style="color:${RED};">● Live</span>`
+          : `<span style="color:#b91c1c;">● Coming soon</span>`;
 
         const marker = (L as any).marker([store.lat, store.lng], {
-          icon: iconFor(store, false),
+          icon: makeIcon(false),
           title: `${store.storeName} — ${PIN[store.status].label}`,
         })
           .addTo(map)
@@ -192,10 +180,8 @@ export default function StoreLocationsMap() {
         marker.on('click', () => {
           setSelected(store.id);
           markersRef.current.forEach((m, id) => {
-            const s = stores.find((x) => x.id === id);
-            if (!s) return;
             const isActive = id === store.id;
-            m.setIcon(iconFor(s, isActive));
+            m.setIcon(makeIcon(isActive));
             // The chosen shop sits on top of its neighbours while it is enlarged.
             m.setZIndexOffset(isActive ? 1000 : 0);
           });
@@ -248,14 +234,6 @@ export default function StoreLocationsMap() {
                 {progressCount} coming soon
               </p>
             )}
-            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-              {(['live', 'in_progress'] as StoreStatus[]).map((k) => (
-                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
-                  <span style={swatchStyle(k, 10)} />
-                  {PIN[k].label}
-                </span>
-              ))}
-            </div>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {stores.map(store => (
@@ -264,13 +242,12 @@ export default function StoreLocationsMap() {
                 onClick={() => flyTo(store)}
                 style={{
                   width: '100%', textAlign: 'left', padding: '12px 16px',
-                  borderBottom: '1px solid var(--rule)', background: selected === store.id ? '#fef2f2' : 'transparent',
+                  borderBottom: '1px solid var(--rule)', background: selected === store.id ? '#f5f5f5' : 'transparent',
                   cursor: 'pointer', transition: 'background .15s', display: 'block',
-                  borderLeft: `2.5px solid ${selected === store.id ? '#dc2626' : 'transparent'}`,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ marginTop: 4, ...swatchStyle(store.status, 8) }} />
+                  <div style={{ marginTop: 4, ...swatchStyle(8) }} />
                   <div>
                     <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
                     <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
@@ -286,12 +263,12 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
-        .alive-shop-pin{width:30px;height:36px;display:block;transform-origin:50% 100%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
-        .alive-shop-pin svg{display:block;filter:drop-shadow(0 3px 5px rgba(0,0,0,.28));transition:filter .18s ease;}
-        .alive-shop-pin:hover{transform:translateY(-2px) scale(1.08);}
-        .alive-shop-pin.is-active{transform:scale(1.18);}
-        .alive-shop-pin.is-active svg{filter:drop-shadow(0 5px 9px rgba(220,38,38,.45));}
-        @keyframes alive-pin-in{from{opacity:0;transform:translateY(-10px) scale(.5);}to{opacity:1;transform:none;}}
+        .alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
+        .alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
+        .alive-shop-pin:hover{transform:scale(1.25);}
+        .alive-shop-pin.is-active{transform:scale(1.35);}
+        .alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
+        @keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}
         .alive-popup .leaflet-popup-content-wrapper{border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);padding:0;}
         .alive-popup .leaflet-popup-content{margin:10px 14px;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
