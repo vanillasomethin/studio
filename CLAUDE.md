@@ -119,6 +119,12 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
   A pinned store is on the public map at once (any stage but `rejected`), in the brand picker (non-bookable
   "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
   stage. Nothing waits for `live` — don't build a "live only" filter on any map.
+- Somewhere ALIVE is only *considering* is a `ProspectLocation`, never a Store —
+  Admin → Prospects, click the map to drop one. A Store with a pin is public
+  immediately, so a prospect modelled as a Store would advertise a shop that has
+  agreed to nothing. Nothing in that table is read by any public route; it
+  carries a status (scouting → contacted → negotiating → rejected/converted) and
+  links to the Store id once it converts.
 - Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"
   (`SECRET_WORD` in `src/lib/admin-audit.ts`) — name pin-related meta keys
   `locationSource` / `coords`, never anything with "pin" in it.
@@ -255,7 +261,7 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 - Protected per-route by `requireAdmin()` — a named session, not a header secret
 - The browser holds no admin credential; the session cookie is httpOnly
-- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | House content | Prospects | Platform Map
 - Adding a tab means five edits in `src/app/admin/page.tsx`: the `Tab` union, `PAGE_META`, `sectionName`, `NAV_DESIGN` and the render line. `PAGE_META`/`sectionName` are `Record<Tab, …>`, so the compiler catches a missed one. (`NAV` near the top of the file is dead — `NAV_DESIGN` is the live sidebar.)
 
 ---

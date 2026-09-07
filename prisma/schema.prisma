@@ -166,6 +166,39 @@ model AdminInvite {
   @@index([expiresAt])
 }
 
+/// A location ALIVE is CONSIDERING — a shop worth approaching, a junction worth
+/// covering — recorded so it can be reviewed and studied before anyone signs.
+///
+/// Deliberately not a Store. A Store with a pin is on the public map the moment
+/// it is pinned (see the map-pin note in CLAUDE.md), which is right for a real
+/// partner and wrong for a prospect: putting scouting notes on the marketing
+/// site would advertise shops that have not agreed to anything. Nothing here is
+/// ever served to a public route.
+model ProspectLocation {
+  id        String   @id @default(cuid())
+  /// What ops calls it — a shop name, or a description of the spot.
+  label     String
+  lat       Float
+  lng       Float
+  locality  String?
+  city      String?
+  /// Free-text observations: footfall, who owns it, what was said.
+  notes     String?
+  /// scouting | contacted | negotiating | rejected | converted
+  status    String   @default("scouting")
+  /// Set when a prospect becomes a real partner, so the history is not lost and
+  /// the same spot is not scouted twice. Plain id, not a relation — deleting the
+  /// store should not delete the note that it started here.
+  storeId   String?
+  /// Who added it, for the same "who did what" reason the audit log exists.
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
 // ─── Store partners ──────────────────────────────────────────────────────────
 
 model Store {
