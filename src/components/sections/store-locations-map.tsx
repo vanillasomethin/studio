@@ -12,12 +12,14 @@ type StorePin = {
   lat: number;
   lng: number;
   status: StoreStatus;
+  tier?: StoreTier;               // absent on a stale API during deploy → standard
 };
 
 // Live screens are the network; in-progress ones are stores that have signed up
-// and are being installed. Every store is the same solid red round mark — the
-// stage is carried by the sidebar copy and the popup, not by the dot, so the
-// map reads as one network rather than two tiers.
+// and are being installed. Every store is one round mark wearing the site's
+// hairline red rim; the CORE carries the state — grey until the screen is
+// live, then the store's slot-pricing tier colour, so the network's mix reads
+// at a glance.
 const PIN = {
   live:        { label: 'Live' },
   in_progress: { label: 'Coming soon' },
@@ -25,29 +27,44 @@ const PIN = {
 
 const RED = '#dc2626';
 
+type StoreTier = 'standard' | 'growth' | 'flagship';
+
+// Tier colours stay in the brand family: flagship is the red, growth warms to
+// amber, standard is ink. Grey means onboarded — signed up, screen on its way.
+const TIER: Record<StoreTier, { label: string; color: string }> = {
+  flagship: { label: 'Flagship', color: RED },
+  growth:   { label: 'Growth',   color: '#f59e0b' },
+  standard: { label: 'Standard', color: '#111827' },
+};
+const ONBOARDED = '#9ca3af';
+
+function coreColor(status: StoreStatus, tier?: StoreTier): string {
+  return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
+}
+
 // The dot's box, in px. Geometry is derived from this everywhere — the SVG,
 // the divIcon's iconSize/iconAnchor/popupAnchor, and the CSS below — so the
 // mark can be resized in one place without floating off its shop.
 const DOT = 18;
 
-/** The marker markup: one solid round mark on the shop's coordinates. The white
- *  ring is what separates it from the map tiles, not a status cue. */
-export function shopPinHtml(active: boolean): string {
+/** The marker markup: coloured core, white gap, hairline red rim. */
+export function shopPinHtml(core: string, active: boolean): string {
   const c = DOT / 2;
   return (
     `<div class="alive-shop-pin${active ? ' is-active' : ''}">` +
       `<svg width="${DOT}" height="${DOT}" viewBox="0 0 ${DOT} ${DOT}" aria-hidden="true">` +
-        `<circle cx="${c}" cy="${c}" r="${c - 3}" fill="${RED}" stroke="#ffffff" stroke-width="2.5"/>` +
+        `<circle cx="${c}" cy="${c}" r="${c - 1.4}" fill="#ffffff" stroke="${RED}" stroke-width="1.4"/>` +
+        `<circle cx="${c}" cy="${c}" r="${c - 4.4}" fill="${core}"/>` +
       '</svg>' +
     '</div>'
   );
 }
 
-/** List swatch that matches the pin: the same solid round mark, small. */
-function swatchStyle(size: number): React.CSSProperties {
+/** Legend / list swatch that matches the pin: same core, same hairline rim. */
+function swatchStyle(color: string, size: number): React.CSSProperties {
   return {
-    width: size, height: size, borderRadius: '50%', flexShrink: 0,
-    background: RED,
+    width: size, height: size, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
+    background: color, border: '1.5px solid #ffffff', boxShadow: `0 0 0 1px ${RED}`,
   };
 }
 
@@ -146,10 +163,10 @@ export default function StoreLocationsMap() {
 
       // A round mark centred on the shop's coordinates — so the anchor is the
       // middle of the dot, not a tail tip, and the popup clears its top edge.
-      const makeIcon = (active: boolean) =>
+      const iconFor = (s: StorePin, active: boolean) =>
         (L as any).divIcon({
           className:   '',
-          html:        shopPinHtml(active),
+          html:        shopPinHtml(coreColor(s.status, s.tier), active),
           iconSize:    [DOT, DOT],
           iconAnchor:  [DOT / 2, DOT / 2],
           popupAnchor: [0, -(DOT / 2 + 4)],
@@ -158,14 +175,14 @@ export default function StoreLocationsMap() {
       stores.forEach(store => {
         if (markersRef.current.has(store.id)) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const tierInfo = TIER[store.tier ?? 'standard'];
         const tag = store.status === 'live'
-          ? `<span style="color:${RED};">● Live</span>`
-          : `<span style="color:#b91c1c;">● Coming soon</span>`;
+          ? `<span style="color:${tierInfo.color};">● Live · ${tierInfo.label}</span>`
+          : `<span style="color:#6b7280;">● Coming soon</span>`;
 
         const marker = (L as any).marker([store.lat, store.lng], {
-          icon: makeIcon(false),
-          title: `${store.storeName} — ${PIN[store.status].label}`,
+          icon: iconFor(store, false),
+          title: `${store.storeName} — ${store.status === 'live' ? `${tierInfo.label} · Live` : PIN[store.status].label}`,
         })
           .addTo(map)
           .bindPopup(
@@ -180,8 +197,10 @@ export default function StoreLocationsMap() {
         marker.on('click', () => {
           setSelected(store.id);
           markersRef.current.forEach((m, id) => {
+            const s = stores.find((x) => x.id === id);
+            if (!s) return;
             const isActive = id === store.id;
-            m.setIcon(makeIcon(isActive));
+            m.setIcon(iconFor(s, isActive));
             // The chosen shop sits on top of its neighbours while it is enlarged.
             m.setZIndexOffset(isActive ? 1000 : 0);
           });
@@ -230,10 +249,18 @@ export default function StoreLocationsMap() {
               {liveCount} live screen{liveCount !== 1 ? 's' : ''}
             </p>
             {progressCount > 0 && (
-              <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b91c1c', fontWeight: 600, marginTop: 3 }}>
+              <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#6b7280', fontWeight: 600, marginTop: 3 }}>
                 {progressCount} coming soon
               </p>
             )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+              {[...(Object.keys(TIER) as StoreTier[]).map((t) => [TIER[t].label, TIER[t].color] as const), ['Onboarded', ONBOARDED] as const].map(([label, color]) => (
+                <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
+                  <span style={swatchStyle(color, 10)} />
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {stores.map(store => (
@@ -247,12 +274,14 @@ export default function StoreLocationsMap() {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ marginTop: 4, ...swatchStyle(8) }} />
+                  <div style={{ marginTop: 4, ...swatchStyle(coreColor(store.status, store.tier), 8) }} />
                   <div>
                     <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
                     <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
                       {[store.locality, store.city].filter(Boolean).join(' · ')}
-                      {store.status === 'in_progress' && <span style={{ color: '#b91c1c' }}> · coming soon</span>}
+                      {store.status === 'live'
+                        ? <span style={{ color: TIER[store.tier ?? 'standard'].color }}> · {TIER[store.tier ?? 'standard'].label.toLowerCase()}</span>
+                        : <span style={{ color: '#6b7280' }}> · coming soon</span>}
                     </p>
                   </div>
                 </div>

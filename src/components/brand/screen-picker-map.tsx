@@ -48,22 +48,26 @@ const STATUS_LABEL: Record<string, string> = {
   none:      'Available',
 };
 
+// The site-wide marker signature, on the legend swatches too: a white sliver,
+// then a hairline red rim.
+const RING = { boxShadow: '0 0 0 1px #fff, 0 0 0 2px #dc2626' } as const;
+
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// 36px hit target (touch minimum) around a smaller visual dot. A non-live pin
-// is hollow (white, amber ring) — same language as the public Network map.
+// 36px hit target (touch minimum) around a smaller visual dot. Every pin wears
+// the site's hairline red rim; a non-live pin stays hollow with an amber ring.
 function markerHtml(pin: ScreenPin, selected: boolean) {
   const dot = STATUS_DOT[pin.slotStatus ?? 'none'];
   const inner = selected
-    ? `<div style="width:26px;height:26px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center">
+    ? `<div style="width:26px;height:26px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 0 0 1.5px #dc2626, 0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
       </div>`
     : pin.live
-    ? `<div style="width:16px;height:16px;border-radius:50%;background:${dot};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`
-    : `<div style="width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid #f59e0b;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`;
+    ? `<div style="width:16px;height:16px;border-radius:50%;background:${dot};border:2.5px solid #fff;box-shadow:0 0 0 1.5px #dc2626, 0 1px 4px rgba(0,0,0,.4)"></div>`
+    : `<div style="width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid #f59e0b;box-shadow:0 0 0 1px #fff, 0 0 0 2.5px #dc2626, 0 1px 4px rgba(0,0,0,.4)"></div>`;
   return `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">${inner}</div>`;
 }
 
@@ -212,11 +216,11 @@ export default function ScreenPickerMap({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-green-500 inline-block" /> Slots open</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500 inline-block" /> Few left</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-400 inline-block" /> Sold out</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-white border-2 border-amber-500 inline-block" /> Coming soon</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full inline-block" style={{ background: '#dc2626' }} /> Selected</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-green-500 inline-block" style={RING} /> Slots open</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500 inline-block" style={RING} /> Few left</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-400 inline-block" style={RING} /> Sold out</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-white border-2 border-amber-500 inline-block" style={RING} /> Coming soon</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full inline-block" style={{ background: '#dc2626', ...RING }} /> Selected</span>
       </div>
 
       {selected.length > 0 && (

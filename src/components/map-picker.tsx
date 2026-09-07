@@ -12,8 +12,8 @@ async function loadLeaflet() {
 // A round mark, drawn in the DOM rather than Leaflet's default teardrop PNG:
 // the sprite is fetched from a CDN webpack rewrites away, and self-hosting it
 // left three placeholder files in public/leaflet/ that rendered as a broken
-// image. A divIcon has no asset to lose, and matches the dots on the public
-// network map. 36px box for a touch-sized drag target around a 16px dot.
+// image. A divIcon has no asset to lose, and matches the ringed dots on the
+// public network map. 36px box for a touch-sized drag target around a 16px dot.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function pinIcon(L: any) {
   return L.divIcon({
@@ -21,7 +21,7 @@ function pinIcon(L: any) {
     html:
       '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">' +
         '<div style="width:16px;height:16px;border-radius:50%;background:#dc2626;' +
-        'border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>' +
+        'border:3px solid #fff;box-shadow:0 0 0 1.5px #dc2626, 0 1px 4px rgba(0,0,0,.4)"></div>' +
       '</div>',
     iconSize:   [36, 36],
     iconAnchor: [18, 18],
