@@ -59,6 +59,23 @@ export function storeMatchKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/**
+ * A pin Leaflet can actually plot. Lives here, not in a route, because the
+ * public map endpoint and the admin health panel BOTH decide "is this store
+ * pinned?" — and if the two ever disagreed, the panel would cheerfully report a
+ * pin the page is not using.
+ */
+export function isPlottablePin(lat: number | null | undefined, lng: number | null | undefined): boolean {
+  return (
+    lat != null && lng != null &&
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 && Math.abs(lng) <= 180 &&
+    // 0,0 is in the Atlantic, and it is what an unset pin looks like after a bad
+    // import — never a Mangaluru kirana store.
+    !(lat === 0 && lng === 0)
+  );
+}
+
 // The lat/lng below are FALLBACKS, not surveyed shop locations — each is dropped
 // on roughly the right neighbourhood so the map is never empty.
 //

@@ -13,21 +13,9 @@
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { NETWORK_STORES, storeMatchKey } from '@/lib/advertise-network';
+import { NETWORK_STORES, isPlottablePin, storeMatchKey } from '@/lib/advertise-network';
 
 export type NetworkPin = { lat: number; lng: number };
-
-/** A pin Leaflet can actually plot. One bad row would take the whole map down. */
-function isPlottable(lat: number | null, lng: number | null): boolean {
-  return (
-    lat != null && lng != null &&
-    Number.isFinite(lat) && Number.isFinite(lng) &&
-    Math.abs(lat) <= 90 && Math.abs(lng) <= 180 &&
-    // 0,0 is in the Atlantic, and it is what an unset pin looks like after a bad
-    // import — never a Mangaluru kirana store.
-    !(lat === 0 && lng === 0)
-  );
-}
 
 export async function GET() {
   const pins: Record<string, NetworkPin> = {};
@@ -42,7 +30,7 @@ export async function GET() {
 
     const byKey = new Map<string, NetworkPin>();
     for (const row of rows) {
-      if (!isPlottable(row.lat, row.lng)) continue;
+      if (!isPlottablePin(row.lat, row.lng)) continue;
       const key = storeMatchKey(row.storeName);
       // First match wins. Two shops normalising to one key is an ops data
       // problem; picking a different one on each request would be worse.
