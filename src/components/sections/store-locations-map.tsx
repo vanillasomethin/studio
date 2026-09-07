@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
 
 type StoreStatus = 'live' | 'in_progress';
 
@@ -11,12 +12,17 @@ type StorePin = {
   lat: number;
   lng: number;
   status: StoreStatus;
+  tier?: StoreTier;               // absent on a stale API during deploy → standard
+  pincode?: string | null;
+  photo?: string | null;          // storefront shot; card falls back to a glyph header
+  since?: string;                 // createdAt ISO → "Since Mar 2026"
 };
 
 // Live screens are the network; in-progress ones are stores that have signed up
-// and are being installed. Every pin is a shop — a red storefront badge — and
-// fill carries the difference: solid red is playing today, outlined red is on
-// its way.
+// and are being installed. Every store is one round mark wearing the site's
+// hairline red rim; the CORE carries the state — grey until the screen is
+// live, then the store's slot-pricing tier colour, so the network's mix reads
+// at a glance.
 const PIN = {
   live:        { label: 'Live' },
   in_progress: { label: 'Coming soon' },
@@ -24,39 +30,46 @@ const PIN = {
 
 const RED = '#dc2626';
 
-// Lucide "store" glyph (ISC), drawn inside a rounded badge with a pointer tail
-// so the tail tip sits on the shop's coordinates. 30×36; the badge is 28×28.
-const STORE_GLYPH =
-  '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>' +
-  '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>' +
-  '<path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>' +
-  '<path d="M2 7h20"/>' +
-  '<path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>';
+type StoreTier = 'standard' | 'growth' | 'flagship';
 
-/** The marker markup: a red shop badge, solid for a live screen and outlined
- *  for one on its way. Status is in the fill, not only the colour, so the two
- *  still read apart for anyone who can't tell red from grey. */
-export function shopPinHtml(status: StoreStatus, active: boolean): string {
-  const solid = status === 'live';
-  const badgeFill   = solid ? RED : '#ffffff';
-  const badgeStroke = solid ? '#ffffff' : RED;
-  const glyphStroke = solid ? '#ffffff' : RED;
+// Tier colours stay in the brand family: flagship is the red, growth warms to
+// amber, standard is ink. Grey means onboarded — signed up, screen on its way.
+// `color` paints the marker core; `text`/`tint` are the darker chip pairing so
+// small caps stay readable on the popup card.
+const TIER: Record<StoreTier, { label: string; color: string; text: string; tint: string }> = {
+  flagship: { label: 'Flagship', color: RED,       text: '#b91c1c', tint: 'rgba(220,38,38,.09)' },
+  growth:   { label: 'Growth',   color: '#f59e0b', text: '#b45309', tint: 'rgba(245,158,11,.14)' },
+  standard: { label: 'Standard', color: '#111827', text: '#111827', tint: 'rgba(17,24,39,.06)' },
+};
+const ONBOARDED = '#9ca3af';
+
+function coreColor(status: StoreStatus, tier?: StoreTier): string {
+  return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
+}
+
+// The dot's box, in px. Geometry is derived from this everywhere — the SVG,
+// the divIcon's iconSize/iconAnchor/popupAnchor, and the CSS below — so the
+// mark can be resized in one place without floating off its shop.
+const DOT = 18;
+
+/** The marker markup: coloured core, white gap, hairline red rim. */
+export function shopPinHtml(core: string, active: boolean): string {
+  const c = DOT / 2;
   return (
     `<div class="alive-shop-pin${active ? ' is-active' : ''}">` +
-      '<svg width="30" height="36" viewBox="0 0 30 36" aria-hidden="true">' +
-        `<path d="M8 1h14a7 7 0 0 1 7 7v14a7 7 0 0 1-7 7h-3.6L15 35l-3.4-6H8a7 7 0 0 1-7-7V8a7 7 0 0 1 7-7z" fill="${badgeFill}" stroke="${badgeStroke}" stroke-width="2" stroke-linejoin="round"/>` +
-        `<g transform="translate(5.65 5.65) scale(0.78)" fill="none" stroke="${glyphStroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${STORE_GLYPH}</g>` +
+      `<svg width="${DOT}" height="${DOT}" viewBox="0 0 ${DOT} ${DOT}" aria-hidden="true">` +
+        `<circle cx="${c}" cy="${c}" r="${c - 1.4}" fill="#ffffff" stroke="${RED}" stroke-width="1.4"/>` +
+        `<circle cx="${c}" cy="${c}" r="${c - 4.4}" fill="${core}"/>` +
       '</svg>' +
     '</div>'
   );
 }
 
-/** Legend / list swatch that matches the pin: a small red square, solid or outlined. */
-function swatchStyle(status: StoreStatus, size: number): React.CSSProperties {
-  const solid = status === 'live';
+/** Legend / list swatch that matches the pin: same core, same hairline rim. */
+function swatchStyle(color: string, size: number): React.CSSProperties {
   return {
-    width: size, height: size, borderRadius: Math.round(size * 0.3), flexShrink: 0,
-    background: solid ? RED : '#ffffff', border: `1.5px solid ${RED}`,
+    width: size, height: size, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
+    background: color, border: '1.5px solid #ffffff', boxShadow: `0 0 0 1px ${RED}`,
   };
 }
 
@@ -65,6 +78,62 @@ function swatchStyle(status: StoreStatus, size: number): React.CSSProperties {
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Lucide "store" glyph (ISC) — the card's header stand-in for shops without a
+// storefront photo yet.
+const STORE_GLYPH =
+  '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>' +
+  '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>' +
+  '<path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>' +
+  '<path d="M2 7h20"/>' +
+  '<path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>';
+
+/** The click-through card: photo (or glyph) header with a floating status
+ *  pill, then name, address line, tier chip, partner-since, and a directions
+ *  CTA. Every partner-entered string passes through esc(). */
+function shopCardHtml(store: StorePin): string {
+  const live = store.status === 'live';
+  const t = TIER[store.tier ?? 'standard'];
+  const dot = live ? t.color : ONBOARDED;
+  const statusText  = live ? t.text : '#4b5563';
+  const statusTint  = live ? t.tint : 'rgba(107,114,128,.10)';
+  const loc = [store.locality, store.city, store.pincode].filter(Boolean).join(' · ');
+  const since = store.since
+    ? new Date(store.since).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+    : null;
+  const header = store.photo
+    ? `<img class="ph-img" src="${esc(store.photo)}" alt="" loading="lazy"/>`
+    : `<div class="ph-empty" style="background:${statusTint};">` +
+        `<svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="${dot}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".6" aria-hidden="true">${STORE_GLYPH}</svg>` +
+      '</div>';
+  return (
+    '<div class="alive-shop-card">' +
+      `<div class="ph">${header}` +
+        `<span class="st" style="color:${statusText};"><i style="background:${dot};"></i>${live ? 'Live' : 'Coming soon'}</span>` +
+      '</div>' +
+      '<div class="bd">' +
+        `<p class="nm">${esc(store.storeName)}</p>` +
+        (loc ? `<p class="loc">${esc(loc)}</p>` : '') +
+        '<div class="row">' +
+          `<span class="chip" style="color:${t.text};background:${t.tint};">${t.label} partner</span>` +
+          (since ? `<span class="since">Since ${since}</span>` : '') +
+        '</div>' +
+        `<a class="dir" href="https://www.google.com/maps/dir/?api=1&destination=${store.lat},${store.lng}" target="_blank" rel="noopener noreferrer">Get directions` +
+          '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>' +
+        '</a>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+// Haversine metres between two points — sizes each area ring from its members.
+function metersBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = Math.PI / 180, R = 6371000;
+  const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 export default function StoreLocationsMap() {
@@ -78,6 +147,9 @@ export default function StoreLocationsMap() {
   const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
+  // Area rings — one thin red boundary per locality cluster, rebuilt with the markers.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const zonesRef = useRef<any>(null);
 
   // Fetch store locations
   useEffect(() => {
@@ -118,14 +190,12 @@ export default function StoreLocationsMap() {
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd', maxZoom: 20,
-      }).addTo(map);
+      (L as any).tileLayer(BASEMAP.url, { maxZoom: BASEMAP.maxZoom }).addTo(map);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (L as any).control.zoom({ position: 'bottomright' }).addTo(map);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).control.attribution({ position: 'bottomleft', prefix: '© OpenStreetMap · CartoDB' }).addTo(map);
+      (L as any).control.attribution({ position: 'bottomleft', prefix: BASEMAP.attribution }).addTo(map);
 
       mapInstanceRef.current = map;
       setMapReady(true);
@@ -142,6 +212,7 @@ export default function StoreLocationsMap() {
       // Markers belonged to the destroyed map — reset so a remount (Strict
       // Mode's second pass, HMR) recreates them on the new instance.
       markersRef.current.clear();
+      zonesRef.current = null;
       setMapReady(false);
     };
   }, []);
@@ -155,40 +226,29 @@ export default function StoreLocationsMap() {
       const map = mapInstanceRef.current;
       if (!map) return; // unmounted while the import was in flight
 
-      // A shop badge with a pointer tail; the tail tip is the anchor, so the
-      // badge floats just above the shop's coordinates.
-      const makeIcon = (status: StoreStatus, active: boolean) =>
+      // A round mark centred on the shop's coordinates — so the anchor is the
+      // middle of the dot, not a tail tip, and the popup clears its top edge.
+      const iconFor = (s: StorePin, active: boolean) =>
         (L as any).divIcon({
           className:   '',
-          html:        shopPinHtml(status, active),
-          iconSize:    [30, 36],
-          iconAnchor:  [15, 35],
-          popupAnchor: [0, -30],
+          html:        shopPinHtml(coreColor(s.status, s.tier), active),
+          iconSize:    [DOT, DOT],
+          iconAnchor:  [DOT / 2, DOT / 2],
+          popupAnchor: [0, -(DOT / 2 + 4)],
         });
-
-      const iconFor = (s: StorePin, active: boolean) => makeIcon(s.status, active);
 
       stores.forEach(store => {
         if (markersRef.current.has(store.id)) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tag = store.status === 'live'
-          ? `<span style="color:#dc2626;">■ Live</span>`
-          : `<span style="color:#b91c1c;">□ Coming soon</span>`;
-
+        const tierInfo = TIER[store.tier ?? 'standard'];
         const marker = (L as any).marker([store.lat, store.lng], {
           icon: iconFor(store, false),
-          title: `${store.storeName} — ${PIN[store.status].label}`,
+          title: `${store.storeName} — ${store.status === 'live' ? `${tierInfo.label} · Live` : PIN[store.status].label}`,
         })
           .addTo(map)
-          .bindPopup(
-            `<div style="font-family:Manrope,sans-serif;min-width:140px;padding:2px 0;">
-              <p style="font-size:13px;font-weight:700;margin:0 0 2px;">${esc(store.storeName)}</p>
-              <p style="font-size:11px;color:#666;margin:0;">${esc([store.locality, store.city].filter(Boolean).join(' · '))}</p>
-              <p style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin:4px 0 0;">${tag}</p>
-            </div>`,
-            { closeButton: false, className: 'alive-popup' }
-          );
+          .bindPopup(shopCardHtml(store), {
+            closeButton: false, className: 'alive-popup', minWidth: 236, maxWidth: 236,
+          });
 
         marker.on('click', () => {
           setSelected(store.id);
@@ -204,6 +264,44 @@ export default function StoreLocationsMap() {
 
         markersRef.current.set(store.id, marker);
       });
+
+      // ── Area-wise coverage borders ────────────────────────────────────────
+      // Group shops by locality (city, then the shop itself, as fallbacks) and
+      // ring each cluster with a thin dashed red boundary — the areas ALIVE
+      // covers, visible the moment the map opens. Rebuilt wholesale with the
+      // markers; rings live in the overlay pane, so dots stay clickable above
+      // them, and a sticky tooltip names the area on hover.
+      if (zonesRef.current) { zonesRef.current.remove(); zonesRef.current = null; }
+      const groups = new Map<string, StorePin[]>();
+      stores.forEach((s) => {
+        // `||` not `??`: a failed autofill leaves locality as '' — nullish
+        // coalescing would lump every such store into one city-wide ring.
+        const key = (s.locality || s.city || s.id).trim().toLowerCase();
+        const list = groups.get(key);
+        if (list) list.push(s); else groups.set(key, [s]);
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const zones = (L as any).layerGroup();
+      groups.forEach((members) => {
+        const lat = members.reduce((sum, m) => sum + m.lat, 0) / members.length;
+        const lng = members.reduce((sum, m) => sum + m.lng, 0) / members.length;
+        const spread = members.reduce((r, m) => Math.max(r, metersBetween(lat, lng, m.lat, m.lng)), 0);
+        // ~200m exclusivity plus breathing room for a lone shop; clamped so one
+        // bad geocode can't paint a ring across half the city.
+        const radius = Math.min(Math.max(spread + 180, 260), 2500);
+        const name = (members[0].locality || members[0].city || members[0].storeName).trim();
+        (L as any).circle([lat, lng], {
+          radius, color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
+          fillColor: RED, fillOpacity: 0.04,
+        })
+          .bindTooltip(
+            `${esc(name)} · ${members.length} store${members.length > 1 ? 's' : ''}`,
+            { sticky: true, direction: 'top', className: 'alive-zone-tip' },
+          )
+          .addTo(zones);
+      });
+      zones.addTo(map);
+      zonesRef.current = zones;
 
       if (stores.length > 1) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -241,19 +339,19 @@ export default function StoreLocationsMap() {
       {stores.length > 0 && (
         <div style={{ background: '#fff', borderLeft: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-            <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
+            <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
               {liveCount} live screen{liveCount !== 1 ? 's' : ''}
             </p>
             {progressCount > 0 && (
-              <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#b91c1c', fontWeight: 600, marginTop: 3 }}>
+              <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#6b7280', fontWeight: 600, marginTop: 3 }}>
                 {progressCount} coming soon
               </p>
             )}
-            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-              {(['live', 'in_progress'] as StoreStatus[]).map((k) => (
-                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: '"DM Mono",monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
-                  <span style={swatchStyle(k, 10)} />
-                  {PIN[k].label}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+              {[...(Object.keys(TIER) as StoreTier[]).map((t) => [TIER[t].label, TIER[t].color] as const), ['Onboarded', ONBOARDED] as const].map(([label, color]) => (
+                <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
+                  <span style={swatchStyle(color, 10)} />
+                  {label}
                 </span>
               ))}
             </div>
@@ -265,18 +363,19 @@ export default function StoreLocationsMap() {
                 onClick={() => flyTo(store)}
                 style={{
                   width: '100%', textAlign: 'left', padding: '12px 16px',
-                  borderBottom: '1px solid var(--rule)', background: selected === store.id ? '#fef2f2' : 'transparent',
+                  borderBottom: '1px solid var(--rule)', background: selected === store.id ? '#f5f5f5' : 'transparent',
                   cursor: 'pointer', transition: 'background .15s', display: 'block',
-                  borderLeft: `2.5px solid ${selected === store.id ? '#dc2626' : 'transparent'}`,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ marginTop: 4, ...swatchStyle(store.status, 8) }} />
+                  <div style={{ marginTop: 4, ...swatchStyle(coreColor(store.status, store.tier), 8) }} />
                   <div>
-                    <p style={{ fontFamily: '"Manrope",sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
-                    <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
+                    <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
+                    <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
                       {[store.locality, store.city].filter(Boolean).join(' · ')}
-                      {store.status === 'in_progress' && <span style={{ color: '#b91c1c' }}> · coming soon</span>}
+                      {store.status === 'live'
+                        ? <span style={{ color: TIER[store.tier ?? 'standard'].text }}> · {TIER[store.tier ?? 'standard'].label.toLowerCase()}</span>
+                        : <span style={{ color: '#6b7280' }}> · coming soon</span>}
                     </p>
                   </div>
                 </div>
@@ -287,15 +386,31 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
-        .alive-shop-pin{width:30px;height:36px;display:block;transform-origin:50% 100%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
-        .alive-shop-pin svg{display:block;filter:drop-shadow(0 3px 5px rgba(0,0,0,.28));transition:filter .18s ease;}
-        .alive-shop-pin:hover{transform:translateY(-2px) scale(1.08);}
-        .alive-shop-pin.is-active{transform:scale(1.18);}
-        .alive-shop-pin.is-active svg{filter:drop-shadow(0 5px 9px rgba(220,38,38,.45));}
-        @keyframes alive-pin-in{from{opacity:0;transform:translateY(-10px) scale(.5);}to{opacity:1;transform:none;}}
-        .alive-popup .leaflet-popup-content-wrapper{border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);padding:0;}
-        .alive-popup .leaflet-popup-content{margin:10px 14px;}
+        .alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
+        .alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
+        .alive-shop-pin:hover{transform:scale(1.25);}
+        .alive-shop-pin.is-active{transform:scale(1.35);}
+        .alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
+        @keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}
+        .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}
+        .alive-popup .leaflet-popup-content{margin:0;line-height:1.4;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
+        .alive-zone-tip{font-family:var(--font-dm-mono),monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#b91c1c;background:#fff;border:1px solid rgba(220,38,38,.35);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.10);padding:3px 8px;}
+        .alive-zone-tip::before{display:none;}
+        .alive-shop-card{width:236px;background:#fff;font-family:var(--font-manrope),sans-serif;}
+        .alive-shop-card .ph{position:relative;height:106px;background:#f5f5f5;}
+        .alive-shop-card .ph-img{display:block;width:100%;height:100%;object-fit:cover;}
+        .alive-shop-card .ph-empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+        .alive-shop-card .st{position:absolute;left:10px;bottom:10px;display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.94);box-shadow:0 1px 4px rgba(0,0,0,.18);font-family:var(--font-dm-mono),monospace;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;}
+        .alive-shop-card .st i{width:7px;height:7px;border-radius:50%;display:inline-block;}
+        .alive-shop-card .bd{padding:12px 14px 13px;}
+        .alive-shop-card .nm{margin:0;font-size:14.5px;font-weight:800;letter-spacing:-.01em;line-height:1.25;color:#0a0a0a;}
+        .alive-shop-card .loc{margin:3px 0 0;font-family:var(--font-dm-mono),monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#888;}
+        .alive-shop-card .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;}
+        .alive-shop-card .chip{display:inline-flex;padding:3px 9px;border-radius:999px;font-family:var(--font-dm-mono),monospace;font-size:8.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+        .alive-shop-card .since{font-family:var(--font-dm-mono),monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#9ca3af;}
+        .alive-shop-card .dir{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 0;border-radius:9px;background:#dc2626;color:#fff;font-size:11.5px;font-weight:700;text-decoration:none;transition:background .15s;}
+        .alive-shop-card .dir:hover{background:#b91c1c;}
         .leaflet-control-zoom{border:1px solid #e5e5e5 !important;border-radius:8px !important;overflow:hidden;box-shadow:none !important;}
         .leaflet-control-zoom a{width:30px !important;height:30px !important;line-height:30px !important;font-size:16px !important;color:#333 !important;}
         .leaflet-control-attribution{font-size:10px !important;background:rgba(255,255,255,.7) !important;}

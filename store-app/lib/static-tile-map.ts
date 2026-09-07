@@ -1,7 +1,20 @@
-// Composites a small raster tile mosaic from CartoDB Voyager — the same
-// tile provider already used by the web app's Leaflet map-picker (no API
-// key required). Used for the registration screen's location preview;
-// the old `staticmap.openstreetmap.de` demo endpoint this replaced is dead.
+// Composites a small raster tile mosaic for the registration screen's
+// location preview; the old `staticmap.openstreetmap.de` demo endpoint this
+// replaced is dead.
+//
+// CARTO's Voyager tiles — the same provider the web app's Leaflet maps use —
+// now require a (free) API key: without one every tile comes back as an image
+// reading "API key required". Set EXPO_PUBLIC_CARTO_API_KEY (from
+// https://carto.com/basemaps/apikey) to keep the Voyager look; with no key we
+// fall back to OpenStreetMap's standard tiles so the preview never shows an
+// error. Mirrors NEXT_PUBLIC_CARTO_API_KEY / src/lib/map-tiles.ts on the web.
+const CARTO_API_KEY = (process.env.EXPO_PUBLIC_CARTO_API_KEY ?? '').trim();
+
+function tileUri(zoom: number, x: number, y: number): string {
+  return CARTO_API_KEY
+    ? `https://basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${x}/${y}.png?key=${encodeURIComponent(CARTO_API_KEY)}`
+    : `https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`;
+}
 
 const TILE_SIZE = 256;
 
@@ -48,9 +61,8 @@ export function buildStaticMapTiles(
     for (let tx = 0; tx < tilesX; tx++) {
       const x = tileX0 + tx;
       const y = tileY0 + ty;
-      const sub = 'abcd'[(x + y) % 4];
       tiles.push({
-        uri: `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${x}/${y}.png`,
+        uri: tileUri(zoom, x, y),
         left: tx * TILE_SIZE - offsetX,
         top: ty * TILE_SIZE - offsetY,
       });

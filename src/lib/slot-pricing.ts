@@ -24,6 +24,18 @@ export function isSlotTier(v: string | null | undefined): v is SlotTier {
   return v === 'standard' || v === 'growth' || v === 'flagship';
 }
 
+/** Display names. Canonical home is here rather than store-signup-links.ts so a
+ *  client bundle can import a label without pulling in that module's
+ *  env-reading key resolver. */
+export const SLOT_TIER_LABEL: Record<SlotTier, string> = {
+  standard: 'Standard',
+  growth:   'Growth',
+  flagship: 'Flagship',
+};
+
+/** Most valuable first — the order tiers are presented to a buyer. */
+export const SLOT_TIERS_BY_VALUE: SlotTier[] = ['flagship', 'growth', 'standard'];
+
 export const SLOT_TIER_RATE_RUPEES: Record<SlotTier, number> = {
   standard: 1000,
   growth: 2000,

@@ -60,7 +60,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 | Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
 | Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
 | Payments | Razorpay (brand campaigns) |
-| Maps | Plain Leaflet + CartoDB Voyager tiles (no react-leaflet — React 19 only) |
+| Maps | Plain Leaflet (no react-leaflet — React 19 only). Tiles always come from `BASEMAP` in `src/lib/map-tiles.ts`: CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OpenStreetMap otherwise. Never paste a tile URL — CARTO tiles without a key render "API key required". |
 | Geocoding | OpenStreetMap Nominatim |
 | AI | Genkit + Google AI (Gemini 2.5 Flash) |
 | React | 18.3.1 — NOT 19 |
@@ -175,6 +175,7 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `Flyer` | Store offer flyers. |
 | `SmartPlug` | Tuya (Aziot) smart plug linked 1:1 to a Store, with latest-poll power snapshot. |
 | `PlugReading` | Per-poll power/energy time series (5-min cadence, 180-day retention). |
+| `BrandEnquiry` | Advertiser lead from `/advertise`. Store slugs are page config, NOT `Store.id`. Money recomputed server-side into paise. `status`: `new \| contacted \| won \| lost`, triaged in Admin → Enquiries. |
 | `AuditLog` | T2 audit trail (reserved). |
 
 ---
@@ -215,6 +216,7 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 | `/store-dashboard` | Store partner dashboard (overview / earnings / flyers / voicebill tabs) |
 | `/store-agreement` | VS Collective LLP store partner contract |
 | `/brand-onboarding` | Brand campaign onboarding + Razorpay |
+| `/advertise` | Advertiser landing page — network map, slot-rate estimator, advertiser agreement + enquiry form. Brand config in `src/lib/brand.ts`; rates reuse `SLOT_TIER_RATE_RUPEES`. Map pins come from `Store.lat/lng` via `/api/advertise/network`, matched to the curated list by name — the coordinates in `advertise-network.ts` are only the fallback, so fix a wrong pin in Admin → Stores, never in that file. Never surfaces store payouts. |
 | `/admin` | Admin panel (stores / flyers / campaigns / screens / content / playlists / schedules / reports / monitoring / payments / site-media / roadmap) |
 | `/bill/[billRef]` | Public receipt — customer can claim bill |
 | `/customer-dashboard` | Customer purchase history + local offers |
@@ -253,7 +255,8 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 - Protected per-route by `requireAdmin()` — a named session, not a header secret
 - The browser holds no admin credential; the session cookie is httpOnly
-- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Adding a tab means five edits in `src/app/admin/page.tsx`: the `Tab` union, `PAGE_META`, `sectionName`, `NAV_DESIGN` and the render line. `PAGE_META`/`sectionName` are `Record<Tab, …>`, so the compiler catches a missed one. (`NAV` near the top of the file is dead — `NAV_DESIGN` is the live sidebar.)
 
 ---
 
@@ -286,6 +289,21 @@ When a generic control and a graphical one both work, use the graphical one.
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
+- Type: Poppins (wordmark, brand), Manrope (body, headlines), DM Mono (editorial
+  labels). **One source per family** — all three are declared once in
+  `src/app/fonts.ts`, self-hosted by `next/font`, and reached only through
+  `--font-poppins` / `--font-manrope` / `--font-dm-mono`. Never add a Google
+  Fonts `<link>` or a literal `font-family: 'Poppins'`: a second source means a
+  second download and a face that swaps at a different moment. Components that
+  render their own `<html>` (`error.tsx`) must put `fontVariables` on it, since
+  they inherit nothing from the root layout. The admin console keeps its own type
+  — Inter Tight / Inter / JetBrains Mono — declared in `src/app/admin/fonts.ts`
+  and applied by the admin layout, deliberately a separate module: next/font
+  preloads every face a module declares on every route importing it, so putting
+  them in `app/fonts.ts` made the marketing site preload the console's fonts.
+  `admin.css` hangs `--font-display` / `--font-body` / `--font-mono` off
+  `.admin-fonts`, not `:root`, because a custom property containing `var()`
+  resolves on the element it is declared on.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.
@@ -361,7 +379,10 @@ PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionNa
 PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
 PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
 PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL; overrides the default sideload-latest GitHub Release location. Env vars above win over the manifest (pin/rollback).
-NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
+EXPO_TOKEN                      # Expo robot access token — lets Admin → Dashboard read the latest
+                                # finished Android build from EAS instead of a pasted link.
+                                # Without it the card falls back to NEXT_PUBLIC_EXPO_PREVIEW_URL.
+NEXT_PUBLIC_EXPO_PREVIEW_URL    # Fallback QR target when EAS can't be read (EAS build link or exp:// URL, optional)
 STORE_SIGNUP_KEY_STANDARD       # secret for the gated Standard-tier signup link /store?tier=<key>
 STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
 STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link
@@ -370,6 +391,7 @@ PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (d
 TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
 TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
 TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
+NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https://carto.com/basemaps/apikey. Unset → every map falls back to OpenStreetMap tiles. Mirror it as EXPO_PUBLIC_CARTO_API_KEY for store-app.
 # Electricity tariff is NOT an env var: measured (smart plug) and estimated
 # (proof-of-play) costs both price kWh from PlayerConfig.electricityPaisePerKwh.
 ```

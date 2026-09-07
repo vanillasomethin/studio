@@ -116,6 +116,24 @@ export async function POST(req: NextRequest) {
         ? order.notes.alive_coupon
         : null;
 
+      // The stores come from the ORDER too, for the same reason as screens,
+      // months and the coupon: create-order read their tiers from the database
+      // and priced them, so those ids are what the buyer actually paid for.
+      // Taking them off the request body would let a buyer pay a Standard
+      // basket and then submit a Flagship one. Falls back to the body only when
+      // the order carries no id note (an oversized selection — see create-order),
+      // where the amount is already fixed by the order and the ids are the
+      // routing hint they always were.
+      // Reassembled from the numbered chunks create-order wrote (a 50-id list
+      // exceeds Razorpay's 512-char note value, so it is split).
+      const orderedIdNote = ['alive_store_ids', 'alive_store_ids2', 'alive_store_ids3']
+        .map((k) => order.notes?.[k])
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .join(',');
+      const paidStoreIds = orderedIdNote
+        ? sanitizeStoreIds(orderedIdNote.split(','))
+        : sanitizeStoreIds(campaign.preferredStoreIds);
+
       // Count one redemption against the cap, atomically. The cap is checked at
       // create-order but incremented only here, so buyers who pass the check
       // concurrently would all redeem; the cap is therefore re-asserted inside
@@ -188,7 +206,9 @@ export async function POST(req: NextRequest) {
               pricePerScreen: campaign.pricePerScreen,
               totalAmount:    chargedRupees,
               couponCode:     paidCoupon,
-              preferredStoreIds: await vetPicks(sanitizeStoreIds(campaign.preferredStoreIds)),
+              // Order-note ids when present, body fallback otherwise — either
+              // way re-vetted against the mix that was actually priced.
+              preferredStoreIds: await vetPicks(paidStoreIds),
               paymentId:      razorpay_payment_id,
               orderId:        razorpay_order_id,
               status:         'active',

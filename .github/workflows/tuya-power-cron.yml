@@ -31,6 +31,11 @@ concurrency:
 
 jobs:
   ping:
+    # Upstream only, for the same reason as device-health-cron.yml: a fork that
+    # enables Actions fires this schedule against production without a
+    # CRON_SECRET, and every red run mails the fork owner. Skipping beats
+    # failing.
+    if: github.repository == 'vanillasomethin/studio'
     runs-on: ubuntu-latest
     timeout-minutes: 70
     env:

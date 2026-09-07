@@ -123,6 +123,49 @@ export function storeRegistrationMsg(store: {
   ].filter(Boolean).join('\n');
 }
 
+export function brandEnquiryMsg(e: {
+  reference: string;
+  brandName: string;
+  contactPerson: string;
+  phone: string;
+  whatsapp?: string | null;
+  category?: string | null;
+  budgetBand?: string | null;
+  storeNames: string[];
+  slotsPerStore: number;
+  months: number;
+  estMonthlyRupees: number;
+  estTotalRupees: number;
+  creativeStatus?: string | null;
+  notes?: string | null;
+}) {
+  const inr = (n: number) => `\u20b9${n.toLocaleString('en-IN')}`;
+  const stores = e.storeNames.length
+    ? e.storeNames.join(', ')
+    : 'none picked \u2014 suggest stores for their category';
+  return [
+    `\ud83d\udce3 *New Advertiser Enquiry*`,
+    `Ref: ${e.reference}`,
+    ``,
+    `Brand: ${e.brandName}`,
+    `Contact: ${e.contactPerson}`,
+    `Phone: ${e.phone}`,
+    e.whatsapp && e.whatsapp !== e.phone ? `WhatsApp: ${e.whatsapp}` : null,
+    e.category   ? `Category: ${e.category}` : null,
+    e.budgetBand ? `Budget: ${e.budgetBand}` : null,
+    ``,
+    `Wants: ${e.slotsPerStore} slot(s) \u00d7 ${e.months} month(s)`,
+    `Stores: ${stores}`,
+    `Estimate: ${inr(e.estMonthlyRupees)}/mo \u00b7 ${inr(e.estTotalRupees)} total (ex GST)`,
+    e.creativeStatus ? `Creative: ${e.creativeStatus}` : null,
+    e.notes ? `Notes: ${e.notes}` : null,
+    ``,
+    `They accepted the advertising terms. Call them back with availability and a written quote.`,
+    // Only null is dropped: the empty strings above are deliberate blank
+    // lines, and filter(Boolean) would silently eat them.
+  ].filter(line => line !== null).join('\n');
+}
+
 export function payoutClaimMsg(store: {
   storeName: string; ownerName: string; phone: string; month: string;
 }) {
@@ -152,6 +195,53 @@ export function deviceOfflineAdminMsg(d: {
     `Store: ${d.storeName ?? 'Unassigned'}`,
     `Screen: ${d.deviceName}`,
     `Last seen: ${sinceText(d.lastSeen)}`,
+    ``,
+    `https://wearealive.in/admin`,
+  ].join('\n');
+}
+
+/** "7h" / "3 days" — how long a screen has been down, for the digest lines. */
+function downFor(since: Date): string {
+  const mins = Math.max(1, Math.round((Date.now() - since.getTime()) / 60000));
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h`;
+  return `${Math.round(hrs / 24)} days`;
+}
+
+/**
+ * The recurring "these are STILL down" reminder.
+ *
+ * deviceOfflineAdminMsg above is sent once, at the offline edge, and never
+ * repeats — so a single missed or undelivered message is enough for a screen to
+ * stay dark indefinitely with nobody told again. This is the nag that follows.
+ *
+ * Deliberately blunt and ordered worst-first: the point of a repeat message is
+ * that the previous one did not produce a fix, so it has to lead with how long
+ * this has been going on rather than restate the same neutral notice.
+ */
+export function screensStillOfflineMsg(screens: {
+  deviceName: string; storeName: string | null; since: Date;
+}[]) {
+  const one  = screens.length === 1;
+  const head = one
+    ? `1 screen is STILL offline`
+    : `${screens.length} screens are STILL offline`;
+  const tail = one
+    ? `It has not come back on its own. Ads are not playing on it.`
+    : `These have not come back on their own. Ads are not playing on them.`;
+  const lines = screens.slice(0, 10).map(
+    (s) => `• ${s.storeName ?? 'Unassigned'} — ${s.deviceName} — down ${downFor(s.since)}`,
+  );
+  const more = screens.length > 10 ? [`…and ${screens.length - 10} more`] : [];
+
+  return [
+    `🔴 *${head}*`,
+    ``,
+    ...lines,
+    ...more,
+    ``,
+    tail,
     ``,
     `https://wearealive.in/admin`,
   ].join('\n');

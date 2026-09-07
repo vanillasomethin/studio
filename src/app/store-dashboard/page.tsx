@@ -20,6 +20,7 @@ import KycTab from '@/components/store/kyc-tab';
 import ScreenPowerCard from '@/components/store/screen-power-card';
 import SoundAdMuteCard from '@/components/store/sound-ad-mute-card';
 import SlotOccupancyCard from '@/components/store/slot-occupancy-card';
+import PayoutStatementCard from '@/components/store/payout-statement-card';
 import ScreenAlertBanner from '@/components/store/screen-alert-banner';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
@@ -1181,6 +1182,25 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
   const monthlyRupees = Math.round((storeData.monthlyCompensationPaise ?? 50000) / 100);
 
+  // Lifetime earnings — the sum of what was actually PAID, not a guess. The
+  // earnings tab used to print a literal '₹0' here, which read to a partner
+  // who had been paid for months as "ALIVE has paid me nothing".
+  const [totalPaidPaise, setTotalPaidPaise] = useState<number | null>(null);
+  useEffect(() => {
+    if (!storeData.id) return;
+    let live = true;
+    fetch(`/api/stores/payments?storeId=${storeData.id}`, {
+      headers: storeData.token ? { 'x-store-token': storeData.token } : undefined,
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<{ status: string; amountPaise: number }[]>) : null))
+      .then((rows) => {
+        if (!live || !Array.isArray(rows)) return;
+        setTotalPaidPaise(rows.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amountPaise, 0));
+      })
+      .catch(() => { /* the tile falls back to '—' */ });
+    return () => { live = false; };
+  }, [storeData.id, storeData.token]);
+
   const saveEmail = (email: string) => {
     setStoreData((prev) => ({ ...prev, email }));
   };
@@ -1397,7 +1417,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               {/* Single-line stats */}
               <div className="rounded-2xl border border-border bg-card px-5 py-3 flex items-center divide-x divide-border">
                 {[
-                  { label: 'Total earned', value: '₹0',   accent: false },
+                  { label: 'Total earned', value: totalPaidPaise == null ? '—' : `₹${Math.round(totalPaidPaise / 100).toLocaleString('en-IN')}`, accent: false },
                   { label: 'This month',   value: `₹${monthlyRupees.toLocaleString('en-IN')}`, accent: true  },
                   { label: 'Per referral', value: '₹500', accent: false },
                 ].map((s) => (
@@ -1407,6 +1427,11 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                   </div>
                 ))}
               </div>
+
+              {/* This month's statement: the rupee figure and its three terms.
+                  Same computation the admin pays from, so the partner and ops
+                  can never be looking at different numbers. */}
+              {storeData.id && <PayoutStatementCard storeId={storeData.id} token={storeData.token} />}
 
               {/* 12-month timeline */}
               {/* Screen + electricity estimate — see components/store/screen-power-card.

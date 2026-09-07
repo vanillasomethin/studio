@@ -34,7 +34,8 @@ export type ScreenPin = {
   // can still schedule it, so the picker treats null as selectable.
   slotStatus: 'available' | 'limited' | 'sold_out' | null;
   // Pricing tier — sets what a screen at this store costs per month (see
-  // lib/brand-pricing.ts). Public by design: the picker shows the rate.
+  // lib/brand-pricing.ts). Public by design: the picker and the tier
+  // directory both show the rate.
   tier: SlotTier;
 };
 
@@ -88,6 +89,8 @@ export async function GET(req: NextRequest) {
         lat: s.lat!, lng: s.lng!,
         live: s.liveAt != null || s.onboardingStage === 'live',
         slotStatus,
+        // Anything unrecognised reads as standard — the same fallback
+        // tierForSignupKey applies, so a bad value can't invent a premium store.
         tier: isSlotTier(s.slotPricingTier) ? s.slotPricingTier : 'standard',
       };
     });

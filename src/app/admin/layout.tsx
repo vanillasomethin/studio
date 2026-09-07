@@ -1,16 +1,12 @@
 import type { ReactNode } from 'react';
+import { adminFontVariables } from './fonts';
 
+// The console's three faces are scoped to this subtree rather than the root
+// layout, so the marketing site never downloads them. `admin-fonts` is where
+// admin.css hangs --font-display / --font-body / --font-mono: those refer to the
+// next/font variables, and a custom property is resolved on the element it is
+// declared on, so declaring them on :root — where the next/font variables do not
+// exist — would leave them invalid.
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  return (
-    <>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap"
-        rel="stylesheet"
-      />
-      {children}
-    </>
-  );
+  return <div className={`admin-fonts ${adminFontVariables}`}>{children}</div>;
 }

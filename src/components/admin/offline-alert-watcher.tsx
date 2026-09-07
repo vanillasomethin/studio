@@ -14,7 +14,6 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
 const POLL_MS = 45_000;
-const SS_PW   = 'alive_admin_pw';
 
 type AlertRow = {
   id: string;
@@ -90,10 +89,10 @@ export default function OfflineAlertWatcher({
     let cancelled = false;
 
     const poll = async () => {
-      const pw = sessionStorage.getItem(SS_PW) ?? '';
-      if (!pw) return;
       try {
-        const res = await fetch('/api/admin/alerts', { headers: { 'admin-password': pw } });
+        // Same-origin: the admin session cookie authorizes this, so a 401 just
+        // means nobody is signed in and the poll is a silent no-op.
+        const res = await fetch('/api/admin/alerts');
         if (!res.ok || cancelled) return;
         const { alerts, unread } = await res.json() as { alerts: AlertRow[]; unread: number };
 

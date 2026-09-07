@@ -22,7 +22,7 @@ import {
 import { SLOT_WINDOWS, type WindowId } from '@/lib/slot-windows';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
-import { monthlySubtotal, tierRate, type SlotTier } from '@/lib/brand-pricing';
+import { asTier, campaignBaseForCount, campaignBaseForStores, storeMonthlyPrice } from '@/lib/brand-pricing';
 
 type Campaign = {
   id: string; name?: string; brandName?: string; contactName?: string | null;
@@ -31,6 +31,8 @@ type Campaign = {
   startDate: string; pricePerScreen: number; totalAmount: number;
   paymentId?: string | null; orderId?: string | null; status: string; createdAt: string;
   creativeUrls?: string[];
+  /** Stores this campaign booked — the basis its charge is computed from. */
+  preferredStoreIds?: string[];
 };
 
 type Analytics = {
@@ -1416,10 +1418,12 @@ const PENDING_KEY = 'alive_pending_campaign';
 type PendingForm = {
   brandName: string; contactName: string; email: string; phone: string;
   gstin: string; screens: number; months: number; startDate: string;
-  // Map picks from onboarding — tier-priced. Optional: drafts saved before
-  // tier pricing carry neither, and price as all-Standard.
+  /** Stores booked; the basis create-order re-derives the charge from. */
   preferredStoreIds?: string[];
-  preferredStoreTiers?: Record<string, SlotTier>;
+  /** Their tiers, captured at selection. Present because the onboarding step
+   *  persists its whole form here — so this card can price the booking the same
+   *  way the server will, instead of guessing from the screen count. */
+  preferredStoreTiers?: Record<string, string>;
 };
 
 // Pricing comes from the shared lib — no local price tables (see brand-pricing.ts).
@@ -1444,12 +1448,17 @@ function PendingPaymentCard({
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  // Tier-priced from the onboarding picks; display-only — the server reprices
-  // the picked ids from the DB when the order is created.
-  const pendingTiers   = (pending.preferredStoreIds ?? []).map((id) => pending.preferredStoreTiers?.[id] ?? 'standard');
-  const monthly        = monthlySubtotal(pending.screens, pendingTiers);
-  const total          = monthly * pending.months;
-  const pricePerScreen = Math.round(monthly / Math.max(1, pending.screens)); // blended, for display + the campaign row
+  // Price the booking exactly as create-order will: from the tiers of the stores
+  // that were picked. Deriving it from the screen count alone would understate
+  // every Growth/Flagship booking — a 3-Flagship campaign would read ₹3,000 and
+  // then be charged ₹9,000. Legacy entries saved before tiers were captured fall
+  // back to the Standard count rate, which is what they were quoted anyway.
+  const pickedTiers    = (pending.preferredStoreIds ?? [])
+    .map((id) => asTier(pending.preferredStoreTiers?.[id]));
+  const total          = pickedTiers.length > 0
+    ? campaignBaseForStores(pickedTiers, pending.months)
+    : campaignBaseForCount(pending.screens, pending.months);
+  const pricePerScreen = Math.round(total / Math.max(1, pending.screens) / Math.max(1, pending.months));
   const fmtLocal       = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
   const handlePay = async () => {
@@ -1458,10 +1467,16 @@ function PendingPaymentCard({
       await loadRazorpay();
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // Server recomputes the charge from screens/months + the picked
-        // stores' tiers (no GST on this pay-later flow, preserving existing
-        // behaviour).
-        body: JSON.stringify({ screens: pending.screens, months: pending.months, preferredStoreIds: pending.preferredStoreIds ?? [], applyGst: false, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName } }),
+        // Server recomputes the charge from screens/months (no GST on this
+        // pay-later flow, preserving existing behaviour).
+        // The booked stores set the price — without them create-order falls back
+        // to the Standard count rate and a Flagship campaign settles at a third
+        // of what it agreed to.
+        body: JSON.stringify({
+          screens: pending.screens, months: pending.months,
+          storeIds: pending.preferredStoreIds?.length ? pending.preferredStoreIds : undefined,
+          applyGst: false, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName },
+        }),
       });
       const body = await res.json() as { id?: string; amount?: number; error?: string };
       if (!res.ok) throw new Error(body.error ?? 'Could not create order');
@@ -1570,14 +1585,13 @@ type ModalFormData = {
 
 type ModalStep = 1 | 2 | 3;
 
-// Dashboard rebookings are count-mode (no map picker here), so every screen
-// is priced at the Standard tier rate; tier-priced picks go through the full
-// onboarding flow.
+// Quantity shortcuts. Billing follows the stores a brand picks; this flow picks
+// none, so every option is quoted at the Standard rate with no volume band.
 const SCREEN_TIERS_MODAL = [
-  { screens: 1,  pricePerScreen: tierRate('standard') },
-  { screens: 3,  pricePerScreen: tierRate('standard'), popular: true },
-  { screens: 10, pricePerScreen: tierRate('standard') },
-  { screens: 20, pricePerScreen: tierRate('standard') },
+  { screens: 1  },
+  { screens: 3,  popular: true },
+  { screens: 10 },
+  { screens: 20 },
 ] as const;
 
 const DURATION_OPTS = [
@@ -1607,12 +1621,14 @@ function NewCampaignModal({
   const [modalForm,  setModalForm]  = useState<ModalFormData>({
     screens: 3, months: 1, startDate: todayPlusDays(7), agreed: false,
   });
-  const [loading,    setLoading]    = useState(false);
+  // Which CTA is in flight — keeps the idle button's label honest while the
+  // other one works (mirrors the onboarding payment step).
+  const [loading,    setLoading]    = useState<false | 'razorpay' | 'confirm'>(false);
   const [error,      setError]      = useState<string | null>(null);
   const [succeeded,  setSucceeded]  = useState(false);
 
-  const pricePerScreen = tierRate('standard');
-  const subtotal       = pricePerScreen * modalForm.screens * modalForm.months;
+  const pricePerScreen = storeMonthlyPrice('standard');
+  const subtotal       = campaignBaseForCount(modalForm.screens, modalForm.months);
   const gstAmount      = Math.round(subtotal * 0.18);
   const total          = subtotal + gstAmount;
 
@@ -1634,7 +1650,7 @@ function NewCampaignModal({
   ];
 
   const handlePay = async () => {
-    setLoading(true); setError(null);
+    setLoading('razorpay'); setError(null);
     try {
       await loadRazorpay();
       const res  = await fetch('/api/razorpay/create-order', {
@@ -1713,9 +1729,11 @@ function NewCampaignModal({
   };
 
   const handlePayLater = async () => {
-    setLoading(true); setError(null);
+    setLoading('confirm'); setError(null);
     try {
-      await fetch('/api/campaigns/save', {
+      // No paymentId / orderId — nothing has been paid yet, and Razorpay ids are
+      // verify-payment's to write.
+      const res = await fetch('/api/campaigns/save', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1729,11 +1747,16 @@ function NewCampaignModal({
           startDate:      modalForm.startDate,
           pricePerScreen,
           totalAmount:    total,
-          paymentId:      '',
-          orderId:        '',
           status:         'pending_payment',
         }),
       });
+      // A rejected save used to land on "Booking confirmed" anyway, so a booking
+      // the server never stored looked filed to the brand. Only success succeeds.
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { data?: { error?: string } } | null;
+        setError(body?.data?.error ?? 'Could not save your booking. Please try again.');
+        return;
+      }
       setSucceeded(true);
     } catch (e) {
       setError((e as Error).message ?? 'Something went wrong.');
@@ -1822,8 +1845,8 @@ function NewCampaignModal({
                           {active && <Check className="absolute right-2 top-2 h-3.5 w-3.5 text-primary" />}
                           <p className="text-xl font-black text-foreground">{t.screens}</p>
                           <p className="text-[10px] text-muted-foreground">{t.screens === 1 ? 'screen' : 'screens'}</p>
-                          <p className="text-xs font-bold text-foreground mt-1">{fmt(t.pricePerScreen)}</p>
-                          <p className="text-[10px] text-muted-foreground">per screen/mo · Standard stores</p>
+                          <p className="text-xs font-bold text-foreground mt-1">{fmt(storeMonthlyPrice('standard'))}</p>
+                          <p className="text-[10px] text-muted-foreground">per screen/mo · Standard</p>
                         </button>
                       );
                     })}
@@ -2056,33 +2079,36 @@ function NewCampaignModal({
                   </div>
                 )}
 
-                {/* Pay now */}
-                <button
-                  type="button"
-                  onClick={handlePay}
-                  disabled={loading}
-                  className="w-full rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
-                >
-                  {loading
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>
-                  }
-                </button>
-
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
-                  <div className="flex-1 h-px bg-border" />
-                  <span>or confirm and pay later</span>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
-
                 {/* Pay later */}
                 <button
                   type="button"
                   onClick={handlePayLater}
-                  disabled={loading}
+                  disabled={!!loading}
+                  className="w-full rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading === 'confirm'
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <CheckCircle2 className="h-4 w-4" />}
+                  Confirm &amp; pay later
+                </button>
+
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+                  <div className="flex-1 h-px bg-border" />
+                  <span>or pay now</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                {/* Pay now */}
+                <button
+                  type="button"
+                  onClick={handlePay}
+                  disabled={!!loading}
                   className="w-full rounded-xl border border-border bg-card px-6 py-3 text-sm font-bold text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
                 >
-                  <CheckCircle2 className="h-4 w-4" /> Confirm &amp; pay later
+                  {loading === 'razorpay'
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>
+                  }
                 </button>
 
                 <div className="flex gap-3">

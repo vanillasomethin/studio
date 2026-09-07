@@ -345,6 +345,31 @@ model StorePayment {
   paidBy      String? // admin user id or name
   payRef      String? // UPI reference or transaction ID
   note        String?
+
+  // ── Frozen payout breakdown ─────────────────────────────────────────────────
+  // Written when the month is computed/settled (see src/lib/store-payout-db.ts).
+  // All nullable: rows predating this feature carry only amountPaise.
+  //
+  // These exist because every source the payout reads is destructible —
+  // PlugReading self-prunes at 180 days, deleting a Device cascades away its
+  // PlayEvents, deleting a Campaign cascades away its SlotBookings — so a
+  // recomputation months later would silently disagree with what was paid. A
+  // settled row must be able to answer "why this number" on its own.
+  basePaise        Int?
+  incentivePaise   Int?
+  electricityPaise Int?
+  kwh              Float?
+  kwhSource        String? // metered | estimated
+  paisePerKwh      Int? // tariff snapshot — the fleet figure is mutable
+  brandsPlayed     Int? // distinct campaigns booked in the month
+  filledSlotDays   Int? // Σ over live days of that day's distinct-campaign count
+  avgFilledSlots   Float?
+  liveDays         Int?
+  daysInMonth      Int?
+  tierAtPayout     String?
+  payoutMode       String? // slot | flat
+  computedAt       DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -671,6 +696,11 @@ model DeviceAlert {
   adminReadAt       DateTime? // admin dismissed/saw it in the panel
   partnerNotifiedAt DateTime? // partner push/WhatsApp actually attempted
   partnerReadAt     DateTime?
+  // Last time this outage was included in a "still offline" digest to the admin.
+  // Doubles as the digest's own cadence marker: the most recent value across the
+  // table is when the last digest went out, so no separate singleton row is
+  // needed. See sendStillOfflineDigest in src/lib/device-alerts.ts.
+  adminDigestAt     DateTime?
 
   createdAt DateTime @default(now())
 
@@ -1484,4 +1514,62 @@ model QrScan {
   // The dashboard groups by destination over a date window; this covers both.
   @@index([destinationId, scannedAt])
   @@index([scannedAt])
+}
+
+// ─── Brand enquiries from /advertise ─────────────────────────────────────────
+//
+// A lead from the advertiser landing page: the brand picked stores, saw a price
+// and accepted the advertising terms. It is deliberately NOT a Brand/User row —
+// nobody has an account yet, and creating one from an unauthenticated form would
+// hand anyone the ability to squat an email address.
+//
+// Money is stored in paise, recomputed on the server from the tier rate card.
+// The figure the browser posted is display-only and never written, the same rule
+// campaigns/save and verify-payment already follow.
+
+model BrandEnquiry {
+  id String @id @default(cuid())
+  // Short human-readable handle ("ENQ-7K3M9QPD") — sales reads it down a phone
+  // line, so it is not the cuid. Unique so it can be quoted back as an id.
+  reference String @unique
+
+  brandName     String
+  contactPerson String
+  phone         String
+  whatsapp      String?
+
+  category   String?
+  budgetBand String?
+
+  // Slugs from src/lib/advertise-network.ts (e.g. "nilgiris-mg-road") — page
+  // config, NOT Store.id. Named so nobody joins them against Store by mistake.
+  // Filtered against the known list before write, so an arbitrary string from a
+  // hostile body can never land here.
+  storeSlugs    String[]
+  slotsPerStore Int
+  months        Int
+
+  creativeStatus String? // ready | not-ready | need-help
+  notes          String?
+
+  // What was accepted, and when. A bare "accepted: true" is not evidence — the
+  // version pins the exact clause text (src/lib/advertise-agreement.ts).
+  agreementVersion    String
+  agreementAcceptedAt DateTime
+
+  // Server-recomputed estimate at the time of enquiry. A quote is still issued
+  // by hand; this is what the brand was shown, kept so a later dispute is
+  // answerable.
+  estMonthlyPaise Int
+  estTotalPaise   Int
+
+  status String @default("new") // new | contacted | won | lost
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Sales works the newest unworked leads first; both indexes serve that list.
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([phone])
 }
