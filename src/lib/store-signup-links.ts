@@ -19,11 +19,8 @@ export const TIER_KEY_ENV: Record<SlotTier, string> = {
   flagship: 'STORE_SIGNUP_KEY_FLAGSHIP',
 };
 
-export const TIER_LABEL: Record<SlotTier, string> = {
-  standard: 'Standard',
-  growth:   'Growth',
-  flagship: 'Flagship',
-};
+/** Re-exported from slot-pricing (the pure module) so there is one label map. */
+export { SLOT_TIER_LABEL as TIER_LABEL } from './slot-pricing';
 
 /**
  * Resolves a signup key to its tier. Server-only — reads env.

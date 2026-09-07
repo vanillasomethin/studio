@@ -27,8 +27,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // suppressHydrationWarning: the fonts-ready script in <head> mutates this
+  // element's classList before React hydrates (cached fonts resolve instantly),
+  // so the client attribute legitimately differs from the server HTML.
+  // Suppression is one level deep — children still validate.
   return (
-      <html lang="en" className={fontVariables}>
+      <html lang="en" className={fontVariables} suppressHydrationWarning>
         <head>
           {/*
             Marks the document once the webfonts have actually loaded, so the

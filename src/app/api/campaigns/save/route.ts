@@ -12,6 +12,7 @@
 //   • choose their own price — a ₹0 booking is normalised to a trial
 //   • attach a booking to somebody else's Brand account — brandId is linked only
 //     when a signed-in session proves the email belongs to the caller (below)
+//   • claim a Razorpay order or payment id — this route does not accept them
 //   • flood the table — per-IP and per-email limits
 //
 // Residual risk, deliberately NOT fixed here because it needs a product
@@ -53,8 +54,15 @@ export async function POST(req: NextRequest) {
       startDate:      string;
       pricePerScreen: number;
       totalAmount:    number;
-      paymentId?:     string;
-      orderId?:       string;
+      // No paymentId / orderId: Razorpay ids are verify-payment's to write, after
+      // the signature check. Accepting them here broke twice over. The pay-later
+      // and trial paths post '' — not null — which `?? null` passed straight
+      // through, and the unique index on Campaign.orderId (nullable precisely so
+      // order-less campaigns stay valid) treats an empty string as a real value:
+      // the first such booking took the one slot Postgres allows and every one
+      // after it died on P2002. It also let an anonymous caller squat a real
+      // pending order id, which the buyer's verify-payment would then find and
+      // activate — the squatter's brand on a campaign somebody else paid for.
       status?:        string;
       preferredStoreIds?: unknown; // store ids picked on the onboarding map
     };
@@ -192,8 +200,6 @@ export async function POST(req: NextRequest) {
         startDate:      new Date(body.startDate),
         pricePerScreen: body.pricePerScreen,
         totalAmount:    isTrial ? 0 : body.totalAmount,
-        paymentId:      body.paymentId  ?? null,
-        orderId:        body.orderId    ?? null,
         status,
         preferredStoreIds,
       },
@@ -217,7 +223,11 @@ export async function POST(req: NextRequest) {
     const envelope = await respond({ success: true, id: campaign.id }, { route, request: { email: body.email, brandName: body.brandName, rateLimitDegraded: ipLimit.degraded || emailLimit.degraded }, outcome: 'success', startedAtMs });
     return NextResponse.json(envelope);
   } catch (e) {
-    const envelope = await respond({ error: (e as Error).message ?? 'Failed to save campaign' }, { route, request: { operation: 'create_campaign' }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
+    // The internal message goes to telemetry, never to the caller. Returning it
+    // verbatim is how "Unique constraint failed on the fields: (`orderId`)"
+    // reached a brand mid-checkout: schema detail handed to a stranger, and
+    // nothing the brand could act on.
+    const envelope = await respond({ error: 'Could not save your booking. Please try again, or email hello@wearealive.in.' }, { route, request: { operation: 'create_campaign', message: (e as Error).message, code: (e as { code?: string }).code ?? null }, outcome: 'server_error', policyFlags: ['exception'], errorCategory: 'runtime', startedAtMs });
     return NextResponse.json(envelope, { status: 500 });
   }
 }

@@ -36,6 +36,11 @@ export async function GET() {
       paymentId:      c.paymentId,
       orderId:        c.orderId ?? null,
       status:         c.status,
+      // The stores this campaign booked. The dashboard's pay-later flow must
+      // send these to create-order or the charge falls back to the count path
+      // at the Standard rate — a campaign of Flagship stores would settle at a
+      // third of its price.
+      preferredStoreIds: c.preferredStoreIds,
       creativeUrls:   c.creativeUrls,
       createdAt:      c.createdAt.toISOString(),
     }));
