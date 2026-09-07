@@ -345,6 +345,31 @@ model StorePayment {
   paidBy      String? // admin user id or name
   payRef      String? // UPI reference or transaction ID
   note        String?
+
+  // ── Frozen payout breakdown ─────────────────────────────────────────────────
+  // Written when the month is computed/settled (see src/lib/store-payout-db.ts).
+  // All nullable: rows predating this feature carry only amountPaise.
+  //
+  // These exist because every source the payout reads is destructible —
+  // PlugReading self-prunes at 180 days, deleting a Device cascades away its
+  // PlayEvents, deleting a Campaign cascades away its SlotBookings — so a
+  // recomputation months later would silently disagree with what was paid. A
+  // settled row must be able to answer "why this number" on its own.
+  basePaise        Int?
+  incentivePaise   Int?
+  electricityPaise Int?
+  kwh              Float?
+  kwhSource        String? // metered | estimated
+  paisePerKwh      Int? // tariff snapshot — the fleet figure is mutable
+  brandsPlayed     Int? // distinct campaigns booked in the month
+  filledSlotDays   Int? // Σ over live days of that day's distinct-campaign count
+  avgFilledSlots   Float?
+  liveDays         Int?
+  daysInMonth      Int?
+  tierAtPayout     String?
+  payoutMode       String? // slot | flat
+  computedAt       DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

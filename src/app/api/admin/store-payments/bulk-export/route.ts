@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { computeStorePayoutBatch } from '@/lib/store-payout-db';
+import { monthWindow } from '@/lib/store-payout';
 
 function fmtMonth(m: string) {
   const [y, mo] = m.split('-');
@@ -42,16 +44,19 @@ export async function GET(req: NextRequest) {
   try {
     // Only stores that actually went live earn a payout. agreedAt means the partner
     // signed, not that a screen is running — paying on it pays for nothing.
-    const [y, mo] = month.split('-').map(Number);
-    const monthEnd = new Date(y, mo, 1);
+    // new Date(y, mo, 1) is SERVER-local — UTC on Vercel — so a store that went
+    // live at 2026-10-01 03:00 IST read as 2026-09-30 21:30 and got paid for
+    // September. monthWindow gives the true IST month edge.
+    const { end: monthEnd } = monthWindow(month);
 
     const stores = await db.store.findMany({
-      where: { liveAt: { lte: monthEnd } },
+      where: { liveAt: { not: null, lt: monthEnd } },
       select: {
         id: true, storeName: true, ownerName: true, whatsapp: true,
         upiId: true, bankAccountNo: true, bankIfsc: true, bankAccountName: true, payoutMethod: true,
         monthlyCompensationPaise: true,
         liveAt: true,
+        loopSlotCount: true, slotPricingTier: true, tier: true, screenWatts: true,
       },
     });
 
@@ -76,6 +81,16 @@ export async function GET(req: NextRequest) {
     const monthLabel = fmtMonth(month);
     const narration  = `ALIVE Partner ${monthLabel}`;
 
+    // The bank file must carry the same figure the tab shows and the ledger
+    // records — base + slot incentive + electricity. Using the flat
+    // monthlyCompensationPaise here underpaid every slot-tier partner in exactly
+    // the way the premium bug it replaced did.
+    const payouts = await computeStorePayoutBatch(month, pending.map((s) => ({
+      id: s.id, liveAt: s.liveAt, loopSlotCount: s.loopSlotCount,
+      slotPricingTier: s.slotPricingTier, tier: s.tier,
+      monthlyCompensationPaise: s.monthlyCompensationPaise, screenWatts: s.screenWatts,
+    })));
+
     // ── Build CSV rows ────────────────────────────────────────────────────────
     // Generic format compatible with most Indian bank bulk upload portals.
     // Columns: Sr No, Beneficiary Name, Account Number / UPI, IFSC, Amount, Mode, Narration
@@ -88,9 +103,7 @@ export async function GET(req: NextRequest) {
       const account = store.upiId ?? store.bankAccountNo ?? '';
       const ifsc    = store.bankIfsc ?? '';
       const mode    = store.upiId ? 'UPI' : 'NEFT';
-      // Honour the store's own tier — ₹500 standard, ₹1000 premium. Hardcoding
-      // 500 here underpaid every premium partner, silently, every month.
-      const amount  = (store.monthlyCompensationPaise / 100).toFixed(2);
+      const amount  = ((payouts.get(store.id)?.totalPaise ?? store.monthlyCompensationPaise) / 100).toFixed(2);
       const phone   = store.whatsapp ?? '';
       rows.push([i + 1, name, account, ifsc, amount, mode, narration, phone].map(csvCell).join(','));
     });
