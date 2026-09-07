@@ -314,8 +314,9 @@ export default function Estimator({
         </div>
 
         <p className="mt-5 text-xs" style={{ color: 'var(--brand-ink-muted)' }}>
-          {/* TODO: confirm whether the published rate card is inclusive or exclusive of GST. */}
-          Prices exclude GST. Your selection is carried into the enquiry form below.
+          {/* Ex-GST is the platform's rule, not a guess: brand pricing adds 18%
+              GST on top everywhere (see CLAUDE.md · Brand Onboarding). */}
+          Prices exclude 18% GST. Your selection is carried into the enquiry form below.
         </p>
 
         <a
