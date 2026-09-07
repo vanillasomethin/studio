@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     // The SERVER decides the amount for anything not yet settled. The old
     // `?? 50000` fallback silently underpaid every tier and premium store — a
-    // flat ₹500 for a Flagship partner owed ₹1,650 plus incentive plus
+    // flat ₹500 for a Flagship partner owed ₹1,500 plus incentive plus
     // electricity — and it trusted whatever the browser sent. Same rule as
     // razorpay/verify-payment: a client total is display-only unless deliberate.
     const breakdown = settled ? null : await computeStorePayout(body.storeId, body.month);

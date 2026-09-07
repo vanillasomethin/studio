@@ -210,7 +210,7 @@ function AgreementContent() {
   const today     = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const isPrefilled = params.get('name');
   // Gated signup links carry the partner's remuneration: ?monthly=1000 for the
-  // premium link, ?monthly=650|1150|1650 plus ?tier= for the slot pricing tiers.
+  // premium link, ?monthly=500|1000|1500 plus ?tier= for the slot pricing tiers.
   const monthly = Number(params.get('monthly')) || 500;
   const tier    = params.get('tier');
 
