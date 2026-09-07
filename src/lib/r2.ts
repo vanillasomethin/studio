@@ -1,6 +1,6 @@
 // Cloudflare R2 helper — server-side upload (avoids browser CORS restrictions on R2).
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 function r2Client(): S3Client {
@@ -56,6 +56,23 @@ export async function getPrivateObject(objectKey: string): Promise<{ body: Uint8
     return { body, contentType: res.ContentType ?? 'application/octet-stream' };
   } catch {
     return null; // missing object or transient failure — caller answers 404
+  }
+}
+
+/**
+ * Size-check an object in the private bucket without fetching its bytes.
+ * Returns null when the object (or the bucket config) is missing — callers
+ * treat that as "upload not verified", never as success.
+ */
+export async function headPrivateObject(objectKey: string): Promise<{ contentLength: number } | null> {
+  const bucket = PRIVATE_BUCKET();
+  if (!bucket) return null;
+  try {
+    const res = await r2Client().send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+    if (res.ContentLength == null) return null;
+    return { contentLength: res.ContentLength };
+  } catch {
+    return null;
   }
 }
 

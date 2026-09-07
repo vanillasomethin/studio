@@ -1165,6 +1165,63 @@ model HourlyPop {
   @@index([hour])
 }
 
+// ─── Proof-of-play archive (Admin → Proof of Play → Monthly archive) ─────────
+//
+// PlayEvent detail for each completed IST calendar period is exported to CSVs
+// in the private R2 bucket by src/lib/pop-export.ts, then optionally pruned
+// from Postgres after a 45-day lag (payout freeze + 30-day uptime window both
+// still read recent PlayEvents — see the lib header). exportedThrough is the
+// watermark: everything before it is verifiably archived, so periods tile with
+// no gap and no overlap.
+
+enum PopExportFrequency {
+  MONTHLY
+  BIMONTHLY
+}
+
+enum PopExportStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model PopExportConfig {
+  id                Int                @id @default(1)
+  enabled           Boolean            @default(false)
+  frequency         PopExportFrequency @default(MONTHLY)
+  // The admin-optional prune: rows delete only AFTER their period is archived
+  // AND the 45-day lag has passed. Off = archive-only, nothing is ever deleted.
+  deleteAfterExport Boolean            @default(false)
+  // Month-boundary UTC instant; strictly-before-this is in R2.
+  exportedThrough   DateTime?
+  lastRunAt         DateTime?
+  updatedAt         DateTime           @updatedAt
+}
+
+model PopExport {
+  id          String          @id @default(cuid())
+  periodLabel String // '2026-08' (monthly) or '2026-07_2026-08' (bi-monthly)
+  periodStart DateTime // inclusive, IST month edge in UTC
+  periodEnd   DateTime // exclusive, IST month edge in UTC
+  status      PopExportStatus @default(RUNNING)
+  playCount   Int             @default(0)
+  adCount     Int             @default(0) // distinct creatives in the period
+  screenCount Int             @default(0) // distinct devices in the period
+  totalBytes  Int             @default(0) // across all three CSVs
+  playsKey    String? // R2 private-bucket keys, set once verified
+  byAdKey     String?
+  byScreenKey String?
+  // Rows removed by the deferred prune; null while the period's PlayEvents are
+  // still in Postgres (prune off, or lag not yet passed).
+  deletedRows Int?
+  error       String?
+  startedAt   DateTime        @default(now())
+  finishedAt  DateTime?
+
+  @@index([periodStart])
+  @@index([status])
+}
+
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────
 
 // DEAD — do not build on this. Named admin accounts live on `User` (role
