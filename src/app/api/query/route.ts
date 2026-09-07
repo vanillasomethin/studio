@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { QUERY_SCHEMA, runQueryDsl } from '@/lib/query-router';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 // Exposes campaign/bill/store aggregates — admin only.
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   return NextResponse.json({ schema: QUERY_SCHEMA });
 }
 
+// POST is a read despite the verb: runQueryDsl only ever issues findMany, so
+// this is analytics traffic and is deliberately not written to the audit trail.
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const query = await req.json();
     const result = await runQueryDsl(query);

@@ -3,11 +3,11 @@
 export const API_BASE_URL = 'https://wearealive.in';
 
 export const SUPPORT_WHATSAPP = '+919741324448';
-export const SUPPORT_PHONE    = '+917411324448';
+export const SUPPORT_PHONE    = '+919606072227';
 
 export const COMPANY = {
   name:    'VS Collective LLP (ALIVE)',
-  address: '#13, First Floor, Highland Manor, Falnir, Mangalore 575002',
+  address: '217, Milestone 25, Balmatta, Mangalore',
   gstin:   '29AAXFV2589C1ZE',
   llp:     'IN-KA43598411418020V',
 } as const;

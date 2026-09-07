@@ -17,6 +17,7 @@ export type Device = {
   storeId?:         string | null;
   linkedAt?:        string | null;
   linkedStoreName?: string | null;
+  storePhotoUrl?:   string | null;
   status:           'ONLINE' | 'OFFLINE' | 'PENDING';
   lastSeen?:        string | null;
   lastPlayAt?:      string | null;
@@ -161,6 +162,15 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     },
     credentials: 'same-origin',
   });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    // The admin session is gone (expired cookie, or a sign-in that never got
+    // one). Showing a raw {"error":"Unauthorized"} in the middle of a panel
+    // leaves no way forward, so drop the stale flag and go back to the gate —
+    // same behaviour as lib/admin-fetch.ts.
+    sessionStorage.removeItem('alive_admin');
+    sessionStorage.removeItem('alive_admin_pw');
+    window.location.reload();
+  }
   if (!res.ok) {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });
@@ -236,6 +246,78 @@ export const getPlayerConfig = () =>
 export const updatePlayerConfig = (body: Partial<Omit<PlayerConfig, 'updatedAt'>>) =>
   apiFetch<{ config: PlayerConfig }>('/api/admin/player-config', { method: 'PATCH', body: JSON.stringify(body) })
     .then((r) => r.config);
+
+// ─── Proof-of-play archive (monthly export → R2, optional pruning) ───────────
+
+export type PopExportConfig = {
+  enabled:           boolean;
+  frequency:         'MONTHLY' | 'BIMONTHLY';
+  deleteAfterExport: boolean;
+  exportedThrough:   string | null;
+  lastRunAt:         string | null;
+  updatedAt:         string;
+};
+
+export type PopExportRow = {
+  id:          string;
+  periodLabel: string;
+  periodStart: string;
+  periodEnd:   string;
+  status:      'RUNNING' | 'COMPLETED' | 'FAILED';
+  playCount:   number;
+  adCount:     number;
+  screenCount: number;
+  totalBytes:  number;
+  playsKey:    string | null;
+  byAdKey:     string | null;
+  byScreenKey: string | null;
+  deletedRows: number | null;
+  error:       string | null;
+  startedAt:   string;
+  finishedAt:  string | null;
+};
+
+export type PopExportStatus = {
+  config:  PopExportConfig;
+  exports: PopExportRow[];
+  next:    { periodLabel: string; periodEnd: string; due: boolean } | null;
+};
+
+export type PopSweepResult = {
+  skipped?: 'disabled' | 'up-to-date' | 'already-running';
+  export?:  { periodLabel: string; status: 'COMPLETED' | 'FAILED'; playCount: number; error: string | null };
+  pruned:   { periodLabel: string; deletedRows: number }[];
+};
+
+export const getPopExportStatus = () =>
+  apiFetch<PopExportStatus>('/api/admin/pop-export');
+
+export const updatePopExportConfig = (body: Partial<Pick<PopExportConfig, 'enabled' | 'frequency' | 'deleteAfterExport'>>) =>
+  apiFetch<{ config: PopExportConfig }>('/api/admin/pop-export', { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.config);
+
+export const runPopExportNow = () =>
+  apiFetch<PopSweepResult>('/api/admin/pop-export/run', { method: 'POST' });
+
+// Same fetch → blob dance as downloadPlaysCsv: the file lives behind the admin
+// session, so a plain <a href> would download an unauthenticated 401 body.
+export async function downloadPopExportFile(id: string, file: 'plays' | 'byAd' | 'byScreen'): Promise<void> {
+  const res = await fetch(`/api/admin/pop-export/download?id=${encodeURIComponent(id)}&file=${file}`, {
+    headers: adminHeaders(), credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(msg || `HTTP ${res.status}`);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="([^"]+)"/);
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = match?.[1] ?? `alive-pop-${file}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export const searchStores = (params?: { q?: string; city?: string }) => {
   const qs = params && Object.keys(params).filter(k => params[k as keyof typeof params]).length
@@ -427,6 +509,29 @@ export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | '
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });
 
+// ─── Store photo (storefront shot used to identify a store in the admin) ──────
+
+/** Uploads the bytes to R2 through the admin proxy, then records the URL on the store. */
+export async function uploadStorePhoto(storeId: string, file: File): Promise<string> {
+  const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const form = new FormData();
+  form.append('file', file);
+  form.append('key', `stores/${storeId}/storefront-${Date.now()}.${ext}`);
+
+  // Not apiFetch: FormData must set its own multipart Content-Type boundary.
+  const res = await fetch('/api/admin/r2-upload', { method: 'POST', headers: adminHeaders(), body: form });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+  const { publicUrl } = await res.json() as { publicUrl: string };
+
+  await setStorePhoto(storeId, publicUrl);
+  return publicUrl;
+}
+
+export const setStorePhoto = (storeId: string, photoUrl: string | null) =>
+  apiFetch<{ photoUrl: string | null }>('/api/admin/store-photo', {
+    method: 'PATCH', body: JSON.stringify({ storeId, photoUrl }),
+  });
+
 // ─── Force sync ───────────────────────────────────────────────────────────────
 
 export const forceSyncDevice = (id: string) =>
@@ -446,6 +551,7 @@ export type SlotStore = {
   loopSlotCount: number | null; openDays: number;
   hoursStart: string; hoursEnd: string;
   fillerCampaignId: string | null;
+  slotPricingTier: string; // 'standard' | 'growth' | 'flagship' — see lib/slot-pricing.ts
   sold: Record<string, number | null> | null; // date → sold count; null = closed that day
 };
 
@@ -458,10 +564,18 @@ export type SlotAvailability = {
 export type SlotBookingRow = {
   id: string; slotPosition: number;
   campaignId: string; campaignName: string; hasCreative: boolean;
+  creativeCount: number;   // >1 = slot playlist rotating this many creatives
+  // Multi-slot placement (an ad longer than 10s): every row of one placement
+  // shares spanId; spanSlots is the window size and isSpanHead marks its lowest
+  // position. Plain 10s bookings: spanId null, spanSlots 1, isSpanHead true.
+  spanId: string | null;
+  spanSlots: number;
+  isSpanHead: boolean;
 };
 
 export type SlotLoopEntry = {
   slotPosition: number; campaignId: string; contentId: string; isFiller: boolean;
+  spanSlots: number;    // >1 = one play covering this many consecutive positions
 };
 
 export const getSlotAvailability = (from: string, to: string) =>
@@ -488,9 +602,44 @@ export type SlotSettingsResult = {
 export const updateSlotSettings = (body: {
   storeId?: string; loopSlotCount?: number | null; openDays?: number;
   hoursStart?: string; hoursEnd?: string; fillerCampaignId?: string | null;
+  slotPricingTier?: string;
   defaultFillerCampaignId?: string | null;
-  campaignId?: string; slotContentId?: string | null;
+  campaignId?: string; slotContentId?: string | null; slotPlaylistId?: string | null;
 }) => apiFetch<SlotSettingsResult>('/api/slots/settings', { method: 'PATCH', body: JSON.stringify(body) });
+
+// ─── Bulk slot booking ────────────────────────────────────────────────────────
+// One request instead of hundreds of per-position clicks. Policy: book what fits,
+// report the gaps; existing bookings by the same campaign count toward the target,
+// so re-running is idempotent and nothing is ever overwritten.
+
+// All counters are PLAYS: one play of a 30s ad = one unit but 3 slot rows.
+// For 10s ads (span 1, the common case) plays and slots are the same number.
+export type BulkAssignResult = {
+  booked: number;            // plays actually created
+  planned: number;           // plays the planner wanted to create
+  requested: number;         // plays the admin asked for across all open store-days
+  alreadySatisfied: number;  // covered by pre-existing bookings of the same campaign
+  raced: number;             // planned plays lost to a concurrent booking (rare)
+  missed: number;            // requested minus satisfied — the gap total
+  slotSpan?: number;         // assign mode: consecutive slots one play occupies
+  rowsBooked?: number;       // underlying slot rows created (booked × span, minus races)
+  gaps: { storeId: string; storeName: string; date: string; missed: number; reason: 'full' | 'partial' }[];
+  gapsTruncated: boolean;    // true = gaps capped at 500 rows; `missed` stays exact
+  skippedStores: { storeId: string; storeName: string; reason: 'not-found' | 'not-slot-mode' }[];
+  closedSkipped: number;     // store-days skipped because the store is closed
+};
+
+export const bulkAssignSlots = (body: {
+  campaignId: string; storeIds: string[]; from: string; to: string;
+  daysOfWeek?: number; slotsPerDay: number;
+}) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
+
+export const copySlotDay = (body: {
+  sourceStoreId: string; sourceDate: string; storeIds?: string[];
+  from: string; to: string; daysOfWeek?: number;
+}) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', {
+  method: 'POST', body: JSON.stringify({ mode: 'copy-day', ...body }),
+});
 
 // ─── Overlays (on-screen layouts) ─────────────────────────────────────────────
 

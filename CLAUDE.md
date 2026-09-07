@@ -8,8 +8,8 @@
 - **Shoppers** — see deals/offers at their local kirana store
 
 **Company:** VS Collective LLP · GST 29AAXFV2589C1ZE · LLP IN-KA43598411418020V  
-**Contact:** hello@wearealive.in · +91 74113 24448  
-**Address:** #13 First Floor Highland Manor, Falnir, Mangalore 575002
+**Contact:** hello@wearealive.in · +91 96060 72227  
+**Address:** 217, Milestone 25, Balmatta, Mangalore
 
 ---
 
@@ -60,7 +60,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 | Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
 | Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
 | Payments | Razorpay (brand campaigns) |
-| Maps | Plain Leaflet + CartoDB Voyager tiles (no react-leaflet — React 19 only) |
+| Maps | Plain Leaflet (no react-leaflet — React 19 only). Tiles always come from `BASEMAP` in `src/lib/map-tiles.ts`: CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OpenStreetMap otherwise. Never paste a tile URL — CARTO tiles without a key render "API key required". |
 | Geocoding | OpenStreetMap Nominatim |
 | AI | Genkit + Google AI (Gemini 2.5 Flash) |
 | React | 18.3.1 — NOT 19 |
@@ -72,7 +72,20 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 **Auth — the biggest trap:**
 - Store partners (web): next-auth Credentials — the dashboard login calls `signIn('phone-password')`, which sets a session cookie. `localStorage` key `alive_store_session` is a *cache* of the store payload for instant render, and the fallback when no cookie exists yet (fresh registration, admin open-as-partner).
 - Store-partner API routes: authenticate with `resolveStoreId()` from `src/lib/store-partner-auth.ts`. A bare `storeId` param is NOT a credential (ids are publicly enumerable) — an explicit `storeId` is honored only with a matching signed `x-store-token` header (HMAC, `AUTH_SECRET`; minted by login/registration//api/stores/me, or `/api/admin/store-token` for impersonation) or when it matches the next-auth session owner's store. No `storeId` → next-auth session fallback (web). Don't hand-roll `auth()` checks in these routes.
-- Admin routes: `admin-password` header checked against `ADMIN_PASSWORD` env var
+- Admin console: **named accounts with 2FA**. A person signs in at `/admin` with
+  their own `@wearealive.in` email + password + TOTP, via the next-auth
+  `admin-mfa` provider — there is no shared password any more, and
+  `/api/admin/auth` is a 410 stub kept only so a stale tab gets a clear answer.
+  Every admin route starts with `const actor = await requireAdmin(req); if
+  (!actor) return adminUnauthorized();` (`src/lib/admin-guard.ts`) — never a
+  hand-rolled `admin-password` header check, and never a
+  `!process.env.ADMIN_PASSWORD || …` guard, which with the secret retired is an
+  open endpoint. Audit mutations with `logAdminAction({ actor, req, action,
+  target, meta })` (`src/lib/admin-audit.ts`); `action` is a dotted verb like
+  `slot_booking.assign`. Sessions are rows (`AdminSession`) so they are
+  revocable — a signed JWT alone is not. Staff are provisioned from Admin → Team,
+  which mails a single-use `/admin/setup?token=…` link (`src/lib/admin-invite.ts`);
+  invites never carry a password.
 - Brands/admin: next-auth session via `auth()`
 
 **R2 uploads — two paths, pick by size:**
@@ -96,6 +109,25 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 - No react-leaflet — use `async function loadLeaflet()` dynamic import pattern
 - Always `// eslint-disable-next-line @next/next/no-img-element` before `<img>` tags
 
+**Store map pin:**
+- `Store.lat/lng`: the shop photo's own EXIF GPS is the store's location — uploading a
+  shop photo with an `exif`-sourced fix (via `/api/stores/verification-photo` or
+  `/api/admin/stores/[id]/photo`) SETS the pin outright. Registration asks for NO map
+  pin (web + store-app; `/api/stores/save` still validates coordinates if an old
+  draft/build sends them), so a store is off the maps until an onboarding photo carries
+  a fix. Nobody is ever asked to set or confirm a pin to match the photo — the admin
+  Map pin block shows provenance only. Device-sourced fixes and install photos only
+  fill an EMPTY pin (so a re-upload away from the shop can't move the store); ops can
+  still move the pin in Admin → Stores → Edit →
+  Map pin (`PATCH /api/admin/stores/[id]` with `{ lat, lng }`; no clearing path). A pin
+  is required to cross into `physically_onboarded` (409 lists `Map pin (shop location)`).
+  A pinned store is on the public map at once (any stage but `rejected`), in the brand picker (non-bookable
+  "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
+  stage. Nothing waits for `live` — don't build a "live only" filter on any map.
+- Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"
+  (`SECRET_WORD` in `src/lib/admin-audit.ts`) — name pin-related meta keys
+  `locationSource` / `coords`, never anything with "pin" in it.
+
 ---
 
 ## Key File Paths
@@ -113,6 +145,9 @@ src/app/api/devices/route.ts              — fleet list
 src/app/api/cron/device-health/route.ts   — offline detection + alerts
 src/app/api/playlists/[id]/route.ts       — PATCH (update items) + DELETE
 src/app/api/admin/r2-upload/route.ts      — server-side R2 proxy upload
+src/app/api/cron/tuya-power/route.ts      — smart-plug power poll (Aziot/Tuya)
+src/lib/tuya.ts                           — Tuya Cloud OpenAPI client (signing, devices)
+src/lib/tuya-power.ts                     — plug poll recording + power summaries
 src/lib/db.ts                             — Prisma singleton
 src/lib/r2.ts                             — Cloudflare R2 helpers
 src/lib/notify.ts                         — notifyAdminWA(), notifyStoreWA()
@@ -143,7 +178,37 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `Bill` + `BillItem` | VoiceBill POS billing. `billRef` = "ALIVE-XXXXXX". |
 | `Customer` | Bill customer. Token-based auth (randomUUID → localStorage `alive_customer`). |
 | `Flyer` | Store offer flyers. |
+| `SmartPlug` | Tuya (Aziot) smart plug linked 1:1 to a Store, with latest-poll power snapshot. |
+| `PlugReading` | Per-poll power/energy time series (5-min cadence, 180-day retention). |
+| `BrandEnquiry` | Advertiser lead from `/advertise`. Store slugs are page config, NOT `Store.id`. Money recomputed server-side into paise. `status`: `new \| contacted \| won \| lost`, triaged in Admin → Enquiries. |
 | `AuditLog` | T2 audit trail (reserved). |
+
+---
+
+## Two playback modes — don't build a playlist per store
+
+A screen gets its content one of two ways. Which one applies is decided by
+`Store.loopSlotCount`:
+
+- **Slot mode (`loopSlotCount` set, default 30) — the primary model.** The loop is
+  generated per store per day from `SlotBooking` rows by `buildSlotLoop()`
+  (`src/lib/slots.ts`), called from `/api/device/plan`. A booking points at a
+  `Campaign`, and the campaign carries its own creative (`Campaign.slotContentId`)
+  or, for multi-creative campaigns, a playlist (`Campaign.slotPlaylistId`) whose
+  media items rotate deterministically — the campaign's k-th play of the day shows
+  item (dayIndex+k) mod N. Either way the creative rides on the campaign, so there
+  is never a reason to hand-build a playlist per store. Unsold positions fill
+  themselves: first as bonus replays of sold campaigns (round-robin), then from
+  the house filler campaign. Bulk booking: `POST /api/slots/bookings/bulk`
+  (assign / copy-day; books what fits, reports gaps, never overwrites a sale).
+- **Playlist/schedule mode (`loopSlotCount` null).** The older path — `Playlist` →
+  `Schedule` → devices. Use it for screens that aren't selling slots.
+
+A slot loop that has anything playable always wins; schedules are only consulted
+when the store isn't in slot mode, or when its loop for the day resolves to
+nothing (closed day, no usable creatives and no filler) — serving an empty plan
+once blanked a real screen for a full day. Admin UI for all of this lives under
+one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 
 ---
 
@@ -156,6 +221,7 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `/store-dashboard` | Store partner dashboard (overview / earnings / flyers / voicebill tabs) |
 | `/store-agreement` | VS Collective LLP store partner contract |
 | `/brand-onboarding` | Brand campaign onboarding + Razorpay |
+| `/advertise` | Advertiser landing page — network map, slot-rate estimator, advertiser agreement + enquiry form. Brand config in `src/lib/brand.ts`; rates reuse `SLOT_TIER_RATE_RUPEES`. Map pins come from `Store.lat/lng` via `/api/advertise/network`, matched to the curated list by name — the coordinates in `advertise-network.ts` are only the fallback, so fix a wrong pin in Admin → Stores, never in that file. Never surfaces store payouts. |
 | `/admin` | Admin panel (stores / flyers / campaigns / screens / content / playlists / schedules / reports / monitoring / payments / site-media / roadmap) |
 | `/bill/[billRef]` | Public receipt — customer can claim bill |
 | `/customer-dashboard` | Customer purchase history + local offers |
@@ -183,7 +249,7 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 
 ## Store Registration Flow
 
-1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map, locality/pincode/city autofill via Nominatim, referral code
+1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), locality/pincode/city/address typed by hand (no map step — the store's location comes from the GPS shop photo during onboarding), referral code
 2. **Step 2** — Agreement preview, party block prefilled, "I agree" checkbox, submit → generates referral code + saves `agreedAt`
 
 Form data persisted to `sessionStorage('alive_store_draft')` so navigating to agreement page and back doesn't lose data.
@@ -192,13 +258,33 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 ## Admin Dashboard
 
-- Protected by `admin-password` header vs `ADMIN_PASSWORD` env var
-- `sessionStorage.getItem('alive_admin_pw')` in browser for API calls
-- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Protected per-route by `requireAdmin()` — a named session, not a header secret
+- The browser holds no admin credential; the session cookie is httpOnly
+- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Adding a tab means five edits in `src/app/admin/page.tsx`: the `Tab` union, `PAGE_META`, `sectionName`, `NAV_DESIGN` and the render line. `PAGE_META`/`sectionName` are `Record<Tab, …>`, so the compiler catches a missed one. (`NAV` near the top of the file is dead — `NAV_DESIGN` is the live sidebar.)
 
 ---
 
 ## Design Conventions
+
+### Make state visible — the overriding UI rule
+
+Every screen must answer "what's going on?" at a glance, without reading. This
+outranks brevity and outranks matching whatever pattern is already on the page.
+When a generic control and a graphical one both work, use the graphical one.
+
+- **Show status as colour and shape, not words in a cell.** Slot occupancy is a
+  grid of coloured pills, not a count. Online/offline is a strong visual state on
+  the card, not a grey label someone has to hunt for.
+- **Don't hide identity behind IDs.** Pick things by photo, name, and thumbnail —
+  a bare `<select>` of campaign names or store IDs is not acceptable for anything
+  an operator uses daily. Show the creative, show the store.
+- **Progressive disclosure.** Card faces carry identity + status only. Detail
+  belongs behind a click, not crammed onto the surface.
+- **Any list an operator scans needs sort and filter.** Screens, stores,
+  campaigns, content.
+- **Interactive things must look interactive** — real hover states, obvious
+  affordances. A button that does nothing is a bug; wire it or delete it.
 
 **Never:**
 - Neon colours, glowing buttons, rainbow palettes
@@ -208,6 +294,25 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 - Looping or attention-seeking animations
 
 **ALIVE visual language:**
+- Type: Poppins (wordmark, brand), Manrope (body, headlines), DM Mono (editorial
+  labels). **One source per family** — all three are declared once in
+  `src/app/fonts.ts`, self-hosted by `next/font`, and reached only through
+  `--font-poppins` / `--font-manrope` / `--font-dm-mono`. Never add a Google
+  Fonts `<link>` or a literal `font-family: 'Poppins'`: a second source means a
+  second download and a face that swaps at a different moment. Components that
+  render their own `<html>` (`error.tsx`) must put `fontVariables` on it, since
+  they inherit nothing from the root layout. The admin console keeps its own type
+  — Inter Tight / Inter / JetBrains Mono — declared in `src/app/admin/fonts.ts`
+  and applied by the admin layout, deliberately a separate module: next/font
+  preloads every face a module declares on every route importing it, so putting
+  them in `app/fonts.ts` made the marketing site preload the console's fonts.
+  `admin.css` hangs `--font-display` / `--font-body` / `--font-mono` off
+  `.admin-fonts`, not `:root`, because a custom property containing `var()`
+  resolves on the element it is declared on.
+- Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
+  with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
+  — never hand-roll the markup, and never restyle its font, weight, or colour.
+  PWA icons are generated from it with `npm run icons:pwa`.
 - Primary red: `#ef4444` / `#b91c1c` — CTAs and key labels only
 - Backgrounds: `bg-white` or `bg-gray-50` / `bg-background`
 - Cards: white + `border border-border` — no shadow stacks
@@ -257,10 +362,17 @@ R2_BUCKET
 R2_PRIVATE_BUCKET               # KYC/identity docs — a SEPARATE bucket with NO public access. Public access on R2 is per-bucket, so Aadhaar/PAN must not share R2_BUCKET. Served only via /api/stores/kyc/doc.
 R2_PUBLIC_BASE
 AUTH_SECRET
-ADMIN_PASSWORD
+ADMIN_PASSWORD                  # RETIRED. Only admin-guard's legacy fallback still reads it;
+                                # leave it unset in new environments — named accounts are the way in.
+ADMIN_BASE_URL                  # origin used in admin invite links (default https://wearealive.in)
+ZOHO_SMTP_USER                  # Zoho mailbox for admin invites (app-specific password, not the account one)
+ZOHO_SMTP_PASSWORD
+ZOHO_SMTP_HOST                  # default smtp.zoho.in — use smtp.zoho.com for a .com account
+ZOHO_SMTP_PORT                  # default 465 (SSL)
+ADMIN_MAIL_FROM                 # default "ALIVE <hello@wearealive.in>"
 TWILIO_ACCOUNT_SID              # WhatsApp alerts (optional — no-op if absent)
 TWILIO_AUTH_TOKEN
-ADMIN_WHATSAPP                  # default +917411324448
+ADMIN_WHATSAPP                  # default +919606072227
 RESEND_API_KEY                  # email alerts (optional)
 MSG91_AUTH_KEY                  # MSG91 account auth key (WhatsApp OTP; falls back to Twilio WhatsApp if absent)
 MSG91_WHATSAPP_NUMBER           # MSG91 integrated (sender) WhatsApp business number
@@ -272,11 +384,21 @@ PLAYER_LATEST_VERSION_NAME      # ALIVE Player OTA — latest released versionNa
 PLAYER_APK_URL                  # ALIVE Player OTA — signed APK download URL (optional)
 PLAYER_APK_SHA256               # ALIVE Player OTA — APK checksum for verification (optional)
 PLAYER_OTA_MANIFEST_URL         # ALIVE Player OTA — latest.json manifest URL; overrides the default sideload-latest GitHub Release location. Env vars above win over the manifest (pin/rollback).
-NEXT_PUBLIC_EXPO_PREVIEW_URL    # Admin Dashboard → "Store app" QR target (EAS build link or exp:// URL, optional)
+EXPO_TOKEN                      # Expo robot access token — lets Admin → Dashboard read the latest
+                                # finished Android build from EAS instead of a pasted link.
+                                # Without it the card falls back to NEXT_PUBLIC_EXPO_PREVIEW_URL.
+NEXT_PUBLIC_EXPO_PREVIEW_URL    # Fallback QR target when EAS can't be read (EAS build link or exp:// URL, optional)
+STORE_SIGNUP_KEY_STANDARD       # secret for the gated Standard-tier signup link /store?tier=<key>
+STORE_SIGNUP_KEY_GROWTH         # secret for the gated Growth-tier signup link
+STORE_SIGNUP_KEY_FLAGSHIP       # secret for the gated Flagship-tier signup link
 PREMIUM_SIGNUP_KEY              # secret for the gated premium store signup link /store?premium=<key> (optional)
 PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (default 100000 = ₹1000)
-EWELINK_APP_ID                  # eWeLink OAuth app (dev.ewelink.cc) — Sonoff smart plug power control (optional)
-EWELINK_APP_SECRET              # eWeLink OAuth app secret; whitelist <site>/api/ewelink/callback in the app settings
+TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
+TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
+TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
+NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https://carto.com/basemaps/apikey. Unset → every map falls back to OpenStreetMap tiles.
+# Electricity tariff is NOT an env var: measured (smart plug) and estimated
+# (proof-of-play) costs both price kWh from PlayerConfig.electricityPaisePerKwh.
 ```
 
 ---

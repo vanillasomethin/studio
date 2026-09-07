@@ -35,8 +35,7 @@ until the Lambda below is set up.
 ## Why rendering is off-Vercel
 
 Remotion renders with headless Chrome + ffmpeg — too heavy for Vercel serverless.
-The render runs on **AWS Lambda** (same "remote worker" pattern as the Maxun
-scraper). The app only triggers + polls.
+The render runs on **AWS Lambda** as a remote worker. The app only triggers + polls.
 
 ## Preview locally (no AWS needed)
 

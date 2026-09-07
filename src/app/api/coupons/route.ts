@@ -1,24 +1,22 @@
 // GET  /api/coupons — list all coupons (admin)
 // POST /api/coupons — create a coupon (admin)
-// Auth: admin-password header vs ADMIN_PASSWORD env.
+// Auth: requireAdmin — admin/ops session, or the legacy admin-password header.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const coupons = await db.coupon.findMany({ orderBy: { createdAt: 'desc' } });
   return NextResponse.json({ coupons });
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   try {
     const body = await req.json() as {
@@ -50,6 +48,15 @@ export async function POST(req: NextRequest) {
         note:           body.note?.trim() || null,
       },
     });
+
+    // A new discount code is a standing claim on revenue — record who minted it.
+    await logAdminAction({
+      actor, req,
+      action: 'coupon.create',
+      target: coupon.id,
+      meta:   { code, type, value, maxRedemptions: coupon.maxRedemptions },
+    });
+
     return NextResponse.json({ coupon });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {

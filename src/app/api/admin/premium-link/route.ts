@@ -7,14 +7,10 @@
 // Auth: admin-password header
 
 import { NextRequest, NextResponse } from 'next/server';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const key = process.env.PREMIUM_SIGNUP_KEY ?? null;
   // Same default as /api/stores/premium-validate -- keep these in sync.

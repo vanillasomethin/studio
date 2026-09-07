@@ -17,6 +17,10 @@ import VoiceBillTab from '@/components/store/voice-bill-tab';
 import OffersTab from '@/components/store/offers-tab';
 import FlyerTab from '@/components/store/flyer-tab';
 import KycTab from '@/components/store/kyc-tab';
+import ScreenPowerCard from '@/components/store/screen-power-card';
+import SoundAdMuteCard from '@/components/store/sound-ad-mute-card';
+import SlotOccupancyCard from '@/components/store/slot-occupancy-card';
+import PayoutStatementCard from '@/components/store/payout-statement-card';
 import ScreenAlertBanner from '@/components/store/screen-alert-banner';
 import { PwaInstallBanner } from '@/components/pwa-register';
 
@@ -477,11 +481,16 @@ function GpsPhotoUpload({ kind, store, onUploaded }: {
         method: 'POST', body: fd,
         headers: store.token ? { 'x-store-token': store.token } : undefined,
       });
-      const body = await res.json().catch(() => null) as { url?: string; error?: string } | null;
+      const body = await res.json().catch(() => null) as { url?: string; error?: string; tvTag?: string | null } | null;
       if (!res.ok || !body?.url) { setError(body?.error ?? 'Upload failed. Please try again.'); return; }
+      // Cache the tag the server actually STORED, not the one just typed: ops
+      // owns the TV number once they have recorded it, so a partner's second
+      // attempt is refused server-side. Echoing the typed value here used to
+      // leave the dashboard showing a number the database never had.
       onUploaded(kind === 'shop'
         ? { shopPhotoUrl: body.url, shopPhotoLat: coords.lat, shopPhotoLng: coords.lng, shopPhotoAt: new Date().toISOString() }
-        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(), tvTag: tvTag.trim() || undefined });
+        : { installPhotoUrl: body.url, installPhotoLat: coords.lat, installPhotoLng: coords.lng, installPhotoAt: new Date().toISOString(),
+            tvTag: body.tvTag !== undefined ? (body.tvTag ?? undefined) : (tvTag.trim() || undefined) });
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
     } finally {
@@ -557,7 +566,12 @@ function GpsPhotoChip({ url, lat, lng, at }: { url: string; lat?: number | null;
     <div className="mt-2 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1.5">
       <a href={url} target="_blank" rel="noreferrer" className="shrink-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="Verification photo" className="h-9 w-9 rounded object-cover" />
+        {/* Square thumb: object-cover crops horizontally for a landscape photo, so
+            object-top alone would leave the burnt-in GPS banner visible. The
+            top-anchored zoom clips the bottom third regardless of aspect. */}
+        <span className="block h-9 w-9 shrink-0 overflow-hidden rounded">
+          <img src={url} alt="Verification photo" className="h-full w-full origin-top scale-150 object-cover object-top" />
+        </span>
       </a>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-bold text-green-700 flex items-center gap-1">
@@ -1168,6 +1182,25 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
   const displayName = storeData.ownerName?.split(' ')[0] ?? 'Partner';
   const monthlyRupees = Math.round((storeData.monthlyCompensationPaise ?? 50000) / 100);
 
+  // Lifetime earnings — the sum of what was actually PAID, not a guess. The
+  // earnings tab used to print a literal '₹0' here, which read to a partner
+  // who had been paid for months as "ALIVE has paid me nothing".
+  const [totalPaidPaise, setTotalPaidPaise] = useState<number | null>(null);
+  useEffect(() => {
+    if (!storeData.id) return;
+    let live = true;
+    fetch(`/api/stores/payments?storeId=${storeData.id}`, {
+      headers: storeData.token ? { 'x-store-token': storeData.token } : undefined,
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<{ status: string; amountPaise: number }[]>) : null))
+      .then((rows) => {
+        if (!live || !Array.isArray(rows)) return;
+        setTotalPaidPaise(rows.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amountPaise, 0));
+      })
+      .catch(() => { /* the tile falls back to '—' */ });
+    return () => { live = false; };
+  }, [storeData.id, storeData.token]);
+
   const saveEmail = (email: string) => {
     setStoreData((prev) => ({ ...prev, email }));
   };
@@ -1345,7 +1378,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Quick actions</h2>
                 {[
                   { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
-                  { icon: Phone,         label: 'Call us',           desc: '+91 74113 24448',   href: 'tel:+919741324448', color: 'text-blue-500' },
+                  { icon: Phone,         label: 'Call us',           desc: '+91 96060 72227',   href: 'tel:+919606072227', color: 'text-blue-500' },
                 ].map((a) => (
                   <a key={a.label} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
                     className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/30 hover:bg-muted/30 transition-all group"
@@ -1384,7 +1417,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               {/* Single-line stats */}
               <div className="rounded-2xl border border-border bg-card px-5 py-3 flex items-center divide-x divide-border">
                 {[
-                  { label: 'Total earned', value: '₹0',   accent: false },
+                  { label: 'Total earned', value: totalPaidPaise == null ? '—' : `₹${Math.round(totalPaidPaise / 100).toLocaleString('en-IN')}`, accent: false },
                   { label: 'This month',   value: `₹${monthlyRupees.toLocaleString('en-IN')}`, accent: true  },
                   { label: 'Per referral', value: '₹500', accent: false },
                 ].map((s) => (
@@ -1395,7 +1428,18 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 ))}
               </div>
 
+              {/* This month's statement: the rupee figure and its three terms.
+                  Same computation the admin pays from, so the partner and ops
+                  can never be looking at different numbers. */}
+              {storeData.id && <PayoutStatementCard storeId={storeData.id} token={storeData.token} />}
+
               {/* 12-month timeline */}
+              {/* Screen + electricity estimate — see components/store/screen-power-card.
+                  Needs a persisted store id; a draft session that hasn't saved yet has none. */}
+              {storeData.id && <ScreenPowerCard storeId={storeData.id} token={storeData.token} />}
+              {storeData.id && <SlotOccupancyCard storeId={storeData.id} token={storeData.token} />}
+              {storeData.id && <SoundAdMuteCard storeId={storeData.id} token={storeData.token} />}
+
               <PaymentTimeline store={storeData} onClaim={(mk, ap) => { setClaimMonthKey(mk); setClaimAmountPaise(ap); setClaimOpen(true); }} />
 
             </motion.div>

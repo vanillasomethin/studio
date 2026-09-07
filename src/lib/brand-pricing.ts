@@ -5,14 +5,74 @@
 //
 // All amounts here are in RUPEES (the Razorpay order route converts to paise).
 
+import { SLOT_TIER_RATE_RUPEES, isSlotTier, type SlotTier } from './slot-pricing';
+
+// Re-exported so pricing consumers (create-order, verify-payment) can take the
+// rate table and the tier guard from one module.
+export { SLOT_TIER_RATE_RUPEES, isSlotTier };
+export type { SlotTier };
+
 export const GST_RATE = 0.18;
 
-// Per-screen monthly pricing, tiered by volume. Two columns per tier:
-//   list   — anchor price shown struck through (benchmarked against comparable
-//            Indian captive-audience screens, Aug 2026 pricing research)
-//   online — what self-serve bookings are actually charged
-// Both flow through this module only — the onboarding and dashboard UIs import
-// from here, no local price tables. Coupons stack on top of the online price.
+// ─── Store-tier pricing (current model) ──────────────────────────────────────
+//
+// A brand is billed by WHICH stores it picked, at each store's network tier:
+// Standard ₹1,000 / Growth ₹2,000 / Flagship ₹3,000 per store per month. Those
+// rates are SLOT_TIER_RATE_RUPEES in slot-pricing.ts — deliberately the same
+// table the partner payout is derived from, so there is one rate card and the
+// buy side and the pay side can never drift apart.
+//
+// A booking that picks no stores (the plain 1/3/10/20 screen cards) is quoted at
+// the Standard rate and ops assigns Standard stores. There is no volume
+// discount in this model — see the deprecation note on PRICE_TIERS below.
+
+/** What a brand pays for ONE store for ONE month, at that store's tier. */
+export function storeMonthlyPrice(tier: SlotTier): number {
+  return SLOT_TIER_RATE_RUPEES[tier];
+}
+
+/** Coerce a raw DB/API string to a tier. Unknown → standard: a bad column value
+ *  must never invent a premium store the brand is then charged for. */
+export function asTier(v: string | null | undefined): SlotTier {
+  return isSlotTier(v) ? v : 'standard';
+}
+
+/**
+ * Screens per tier for a booking, unpicked screens counted as Standard. This
+ * is the mix create-order stamps into the Razorpay order notes (alive_tiers)
+ * and verify-payment re-vets saved picks against — the canonical string form
+ * is `standard:N,growth:N,flagship:N`.
+ */
+export function tierCounts(screens: number, tiers: SlotTier[] = []): Record<SlotTier, number> {
+  const s = Math.max(1, Math.floor(screens || 1));
+  const counts: Record<SlotTier, number> = { standard: 0, growth: 0, flagship: 0 };
+  for (const t of tiers.slice(0, s)) counts[t] += 1;
+  counts.standard += s - tiers.slice(0, s).length;
+  return counts;
+}
+
+const clampScreens = (n: number) => Math.min(50, Math.max(1, Math.floor(n || 1)));
+const clampMonths  = (n: number) => Math.min(12, Math.max(1, Math.floor(n || 1)));
+
+/** Base rupees for a campaign that picked specific stores. */
+export function campaignBaseForStores(tiers: SlotTier[], months: number): number {
+  const m = clampMonths(months);
+  return tiers.reduce((sum, t) => sum + storeMonthlyPrice(t), 0) * m;
+}
+
+/** Base rupees for a plain screen count — quoted at the Standard rate. */
+export function campaignBaseForCount(screens: number, months: number): number {
+  return storeMonthlyPrice('standard') * clampScreens(screens) * clampMonths(months);
+}
+
+// ─── Legacy volume band (DEPRECATED) ─────────────────────────────────────────
+//
+// @deprecated Superseded by the store-tier rates above. Billing now follows the
+// stores a brand selects, so a per-screen volume band no longer describes any
+// price this platform charges. Kept only so nothing that still imports it fails
+// to build — do NOT use these for a new displayed or charged number, and note
+// that the `list` anchor is now BELOW the charged rate at 20 screens (₹999 vs
+// ₹1,000), which is why the struck-through anchor was removed from the UI.
 export const PRICE_TIERS = [
   { minScreens: 20, list: 999,  online: 699 },
   { minScreens: 10, list: 1099, online: 799 },
@@ -20,25 +80,25 @@ export const PRICE_TIERS = [
   { minScreens: 1,  list: 1299, online: 999 },
 ] as const;
 
-/** Charged (online) per-screen monthly price for a given screen count. */
+/** @deprecated Volume band — see the note on PRICE_TIERS. Use storeMonthlyPrice. */
 export function getScreenPrice(screens: number): number {
   const s = Math.max(1, Math.floor(screens || 1));
   for (const t of PRICE_TIERS) if (s >= t.minScreens) return t.online;
   return PRICE_TIERS[PRICE_TIERS.length - 1].online;
 }
 
-/** Anchor (list) per-screen monthly price for a given screen count. */
+/** @deprecated Anchor for the retired volume band — see the note on PRICE_TIERS. */
 export function getListPrice(screens: number): number {
   const s = Math.max(1, Math.floor(screens || 1));
   for (const t of PRICE_TIERS) if (s >= t.minScreens) return t.list;
   return PRICE_TIERS[PRICE_TIERS.length - 1].list;
 }
 
-/** Base campaign cost before discounts/GST, in rupees. */
+/** Base campaign cost before discounts/GST, in rupees. Delegates to the
+ *  count path so the retired volume band has exactly one place it could leak
+ *  from — and no longer does. */
 export function campaignBase(screens: number, months: number): number {
-  const s = Math.max(1, Math.floor(screens || 1));
-  const m = Math.max(1, Math.floor(months  || 1));
-  return getScreenPrice(s) * s * m;
+  return campaignBaseForCount(screens, months);
 }
 
 export function gstOn(net: number): number {
@@ -52,10 +112,15 @@ export function gstOn(net: number): number {
 export function campaignTotal(opts: {
   screens: number;
   months: number;
+  /** The picked stores' tiers. When non-empty this — not `screens` — sets the
+   *  price, because the bill follows the stores the brand actually chose. */
+  tiers?: SlotTier[];
   discount?: number;   // rupees off, already validated server-side
   applyGst: boolean;
 }): number {
-  const base = campaignBase(opts.screens, opts.months);
+  const base = opts.tiers && opts.tiers.length > 0
+    ? campaignBaseForStores(opts.tiers, opts.months)
+    : campaignBaseForCount(opts.screens, opts.months);
   const net  = Math.max(0, base - Math.max(0, Math.floor(opts.discount ?? 0)));
   return opts.applyGst ? net + gstOn(net) : net;
 }

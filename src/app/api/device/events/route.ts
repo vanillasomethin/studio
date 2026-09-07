@@ -230,6 +230,11 @@ export async function POST(req: NextRequest) {
     const MAX_DURATION_MS = 6 * 60 * 60 * 1000;   // 6 h — far above any real item
     const MAX_FUTURE_MS   = 60 * 60 * 1000;       // 1 h of forward clock skew
     const MAX_AGE_MS      = 30 * 24 * 60 * 60 * 1000; // 30 d of offline backlog
+    // durationMs is billed independently of the interval it claims to span, so an
+    // absolute cap alone still lets an 8-second play invoice six hours of watch
+    // time. Bound it by the event's own window; the tolerance covers rounding and
+    // sub-second NTP nudges without leaving room for a meaningful overclaim.
+    const MAX_DURATION_SKEW_MS = 5 * 1000;
     const plausible = (ev: PlayEventInput): boolean => {
       const s = new Date(ev.startedAt).getTime();
       const e = new Date(ev.endedAt).getTime();
@@ -238,7 +243,8 @@ export async function POST(req: NextRequest) {
       if (s < nowMs - MAX_AGE_MS) return false;
       if (e < s) return false;
       const d = Number(ev.durationMs);
-      return Number.isFinite(d) && d >= 0 && d <= MAX_DURATION_MS;
+      if (!Number.isFinite(d) || d < 0 || d > MAX_DURATION_MS) return false;
+      return d <= (e - s) + MAX_DURATION_SKEW_MS;
     };
 
     // Campaign attribution decides who gets invoiced, so it cannot be taken on
@@ -267,16 +273,24 @@ export async function POST(req: NextRequest) {
       if (store?.fillerCampaignId) attributable.add(store.fillerCampaignId);
     }
 
-    // Fetch the last event for this device to chain hashes
+    // Seed the chain from the last row in INSERTION order, which is the only
+    // order this writer can know. Seeding by startedAt broke the chain whenever a
+    // device drained an offline backlog: a late-arriving earlier play would chain
+    // onto a row that the verifier — walking startedAt ascending — placed after
+    // it, so both rows read as tampered. The verifier now walks this same
+    // ordering, so the chain records the order the server accepted evidence.
+    // (id is a deterministic tiebreak; sequential upserts differ by microseconds
+    // in practice, so it only matters if two rows land in the same instant.)
     const lastEvent = await db.playEvent.findFirst({
       where:   { deviceId: device.id },
-      orderBy: { startedAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select:  { rowHash: true },
     });
 
     let chainHash: string | null = lastEvent?.rowHash ?? null;
     let accepted = 0;
     let duplicates = 0;
+    let rejected = 0;
 
     // Re-sent batches are NORMAL, not exceptional: the player keeps proof-of-play in a
     // local queue and only deletes a row after it sees a 200, so any 200 lost to a
@@ -304,10 +318,20 @@ export async function POST(req: NextRequest) {
         : [],
     );
 
+    // alreadyStored answers "was this id accepted in an EARLIER request"; it is
+    // built once and cannot see a repeat inside the batch being processed now.
+    // Without this second set, a batch carrying the same id twice no-ops the
+    // PlayEvent upsert but re-runs the HourlyPop increment on every repeat —
+    // inflating the playCount and totalMs that advertisers are billed from — and
+    // advances chainHash to a rowHash that was never stored, so every later event
+    // in the batch chains onto a link the verifier cannot reproduce.
+    const seenInBatch = new Set<string>();
+
     for (const ev of batch) {
       if (!ev.id || !ev.mediaId || !ev.startedAt || !ev.endedAt) continue;
-      if (alreadyStored.has(ev.id)) { duplicates++; continue; }
-      if (!plausible(ev)) continue;
+      if (alreadyStored.has(ev.id) || seenInBatch.has(ev.id)) { duplicates++; continue; }
+      if (!plausible(ev)) { rejected++; continue; }
+      seenInBatch.add(ev.id);
       // Drop an attribution this device is not entitled to make; keep the play.
       const attributedCampaignId =
         ev.campaignId && attributable.has(ev.campaignId) ? ev.campaignId : null;
@@ -391,9 +415,22 @@ export async function POST(req: NextRequest) {
     // `duplicates` is reported so a re-sent backlog is visible rather than silent — a
     // device stuck re-sending the same events (a queue that never drains) otherwise
     // looks identical to a healthy one, since both return 200.
+    // `rejected` is reported for the same reason as `duplicates`: an event dropped
+    // for implausible timing is billable evidence discarded, and a device whose
+    // clock has drifted far enough to fail every check would otherwise look
+    // identical to a healthy one — both return 200 with accepted: 0.
     const envelope = await respond(
-      { accepted, ...(duplicates ? { duplicates } : {}) },
-      { route, request: { correlationId, eventsCount: batch.length }, outcome: 'success', policyFlags: duplicates ? ['had_duplicates'] : [], startedAtMs },
+      { accepted, ...(duplicates ? { duplicates } : {}), ...(rejected ? { rejected } : {}) },
+      {
+        route,
+        request: { correlationId, eventsCount: batch.length },
+        outcome: 'success',
+        policyFlags: [
+          ...(duplicates ? ['had_duplicates'] : []),
+          ...(rejected ? ['had_implausible'] : []),
+        ],
+        startedAtMs,
+      },
     );
     return NextResponse.json(envelope);
   } catch (e) {

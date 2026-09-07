@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
 import { resolveStoreId } from '@/lib/store-partner-auth';
+import { requireAdmin } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 import { db } from '@/lib/db';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -34,13 +36,16 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as Omit<Flyer, 'id' | 'createdAt'>;
 
-    // Two callers: the admin panel (admin-password header) uploading on a store's
-    // behalf, and the store partner app (storeId — no session, same as every other
-    // store-partner route, see resolveStoreId).
-    const pw = req.headers.get('admin-password') ?? '';
-    const isAdmin = !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-    const storeId = isAdmin ? null : await resolveStoreId(body.storeId);
-    if (!isAdmin && !storeId) {
+    // Two callers: an admin uploading on a store's behalf (requireAdmin — named
+    // session or the legacy admin-password header), and the store partner app
+    // (storeId — no session, same as every other store-partner route, see
+    // resolveStoreId). A store partner's own session is not an admin actor, so
+    // it falls through to resolveStoreId exactly as before.
+    const actor   = await requireAdmin(req);
+    const storeId = actor ? null : await resolveStoreId(body.storeId);
+    // Neither credential — kept as a literal 401 rather than adminUnauthorized()
+    // because this covers the store-partner path too. Same body, same status.
+    if (!actor && !storeId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -60,6 +65,24 @@ export async function POST(req: NextRequest) {
     // Prepend ID to the index list (index holds no images — stays small)
     const index = (await kv.get<string[]>(INDEX_KEY)) ?? [];
     await kv.set(INDEX_KEY, [flyer.id, ...index]);
+
+    // An admin publishing an offer under a store's name is content going out to
+    // shoppers on that store's behalf, so record who did it. The store-partner
+    // path has no admin actor to attribute and is left unlogged here. The image
+    // itself (base64, large) is deliberately not in meta.
+    if (actor) {
+      await logAdminAction({
+        actor, req,
+        action: 'flyer.create',
+        target: flyer.id,
+        meta: {
+          storeId:    flyer.storeId ?? null,
+          storeName:  flyer.storeName,
+          title:      flyer.title,
+          validUntil: flyer.validUntil,
+        },
+      });
+    }
 
     return NextResponse.json({ success: true, id: flyer.id });
   } catch (e) {

@@ -1,0 +1,17 @@
+-- "Still offline" admin digest.
+--
+-- The offline alert fires ONCE, at the moment a screen crosses the offline edge
+-- (openOfflineAlerts skips any device that already holds an OPEN row), and
+-- nothing repeats it while the outage continues. A screen that drops overnight
+-- therefore rests on a single WhatsApp message — if that one is missed, dropped
+-- by Twilio, or buried in a digest, the screen can sit dark for days with no
+-- further word. This column backs the recurring reminder that closes that hole.
+--
+-- Additive and nullable, so existing rows need no backfill: a NULL simply means
+-- "never yet included in a digest", which is the correct starting state for
+-- every outage recorded before this shipped.
+--
+-- It is also the digest's cadence marker. The most recent adminDigestAt across
+-- the whole table is when the last digest was sent, so the interval needs no
+-- separate singleton row or external scheduler state.
+ALTER TABLE "DeviceAlert" ADD COLUMN "adminDigestAt" TIMESTAMP(3);

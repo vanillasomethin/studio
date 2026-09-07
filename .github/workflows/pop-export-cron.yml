@@ -1,0 +1,54 @@
+name: Proof-of-play archive cron
+
+# Daily sweep for /api/cron/pop-export. vercel.json already holds the two cron
+# entries Vercel's Hobby plan allows (device-health, tuya-power), so this
+# schedule lives here, same as device-health's real cadence does.
+#
+# Unlike device-health this does NOT loop: the endpoint is idempotent catch-up
+# against a monthly (or bi-monthly) deadline, so GitHub's scheduling drift —
+# observed hours on this repo — costs at most a day of latency, never data.
+# 22:15 UTC = 03:45 IST, the quietest hour for the fleet and the DB.
+#
+# Requires the repo secret CRON_SECRET (same value as Vercel's CRON_SECRET).
+# The endpoint fails closed: missing/stale secret means 401 on every call and
+# the archive silently stops — which is why a failed call fails the run.
+
+on:
+  schedule:
+    - cron: '15 22 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: pop-export-cron
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    # Upstream only — a fork with Actions enabled would fire against production
+    # without a secret and mail its owner a red run every day (see the same
+    # guard in device-health-cron.yml).
+    if: github.repository == 'vanillasomethin/studio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run the archive sweep
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not set - the proof-of-play archive cannot run."
+            exit 1
+          fi
+
+          status=$(curl -s -o /tmp/pop-export-body -w "%{http_code}" --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://wearealive.in/api/cron/pop-export) || status="000"
+
+          echo "status=$status"
+          cat /tmp/pop-export-body || true
+
+          if [ "$status" -ge 400 ] || [ "$status" = "000" ]; then
+            echo "::error::pop-export sweep failed (status $status) - the archive did not run."
+            exit 1
+          fi

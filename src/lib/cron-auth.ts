@@ -1,10 +1,9 @@
 // Cron / internal-agent authentication — FAIL CLOSED.
 //
 // These routes are not read-only: the health sweep flips device status, opens
-// alerts and sends WhatsApp messages to partners; the eWeLink poll drives
-// physical relays; the signal collectors call paid third-party APIs. An
-// anonymous caller able to trigger them can spam partners, churn data and burn
-// spend.
+// alerts and sends WhatsApp messages to partners; the signal collectors call
+// paid third-party APIs. An anonymous caller able to trigger them can spam
+// partners, churn data and burn spend.
 //
 // The previous guard was `if (process.env.CRON_SECRET && auth !== ...)`, which
 // only enforced anything when the secret happened to be set — so a missing

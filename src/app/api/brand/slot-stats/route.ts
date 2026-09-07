@@ -66,24 +66,34 @@ export async function GET(req: NextRequest) {
     });
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
-    // Guaranteed: today's booked slots per store × that store's loop repeats/day.
+    // Guaranteed: today's booked PLAYS per store × that store's loop repeats/day.
+    // Plays, not rows — a multi-slot placement (30s = 3 rows, one spanId) is one
+    // play per loop pass; counting rows told brands 3× what a screen can deliver.
     const today = istToday();
-    const bookings = await db.slotBooking.groupBy({
-      by:     ['storeId'],
+    const bookingRows = await db.slotBooking.findMany({
       where:  { campaignId, date: new Date(`${today}T00:00:00Z`) },
-      _count: { id: true },
+      select: { storeId: true, spanId: true },
     });
     let guaranteedPerDay = 0;
-    if (bookings.length) {
+    if (bookingRows.length) {
+      const playsByStore = new Map<string, number>();
+      const seenSpans = new Set<string>();
+      for (const r of bookingRows) {
+        if (r.spanId) {
+          if (seenSpans.has(r.spanId)) continue;
+          seenSpans.add(r.spanId);
+        }
+        playsByStore.set(r.storeId, (playsByStore.get(r.storeId) ?? 0) + 1);
+      }
       const stores = await db.store.findMany({
-        where:  { id: { in: bookings.map((b) => b.storeId) } },
+        where:  { id: { in: [...playsByStore.keys()] } },
         select: { id: true, loopSlotCount: true, hoursStart: true, hoursEnd: true },
       });
       const storeMap = new Map(stores.map((s) => [s.id, s]));
-      for (const b of bookings) {
-        const s = storeMap.get(b.storeId);
+      for (const [storeId, plays] of playsByStore) {
+        const s = storeMap.get(storeId);
         if (!s?.loopSlotCount) continue;
-        guaranteedPerDay += b._count.id * loopRepeatsPerDay({
+        guaranteedPerDay += plays * loopRepeatsPerDay({
           loopSlotCount: s.loopSlotCount, hoursStart: s.hoursStart, hoursEnd: s.hoursEnd,
         });
       }

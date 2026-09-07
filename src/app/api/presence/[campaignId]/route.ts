@@ -6,11 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
-
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ campaignId: string }> }) {
   const { campaignId } = await params;
@@ -21,10 +17,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ camp
   });
   if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
-  if (!checkAdmin(req)) {
+  // Admin (named operator or legacy shared password) OR the campaign's owning
+  // brand. The brand-owner fallback is unchanged — requireAdmin replaces only the
+  // hand-rolled admin-password comparison, it does not widen who may read this.
+  if (!(await requireAdmin(req))) {
     const session = await auth();
     const owns = session?.user?.email && (session.user.email === campaign.email);
-    if (!owns) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!owns) return adminUnauthorized();
   }
 
   const { searchParams } = new URL(req.url);

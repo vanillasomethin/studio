@@ -6,11 +6,14 @@
 //   { campaignId, slotContentId } — assign a campaign's 10s slot creative.
 // Auth: admin-password header. Store config changes push plan_updated to its devices.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { parseHHmm } from '@/lib/slots';
+import { istToday, parseHHmm, slotSpanForDuration, uniformSlotSpan, type SlotCreativeMeta } from '@/lib/slots';
 import { applySlotMoves, planSlotCompaction, resolveFillerCampaign, type SlotMove } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
+import { isSlotTier } from '@/lib/slot-pricing';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 /**
  * Writes the reassignment note. This is also what the brand dashboard reads back to
@@ -44,9 +47,41 @@ async function recordMoves(
   }).catch(() => { /* the note is valuable, but never worth failing the resize over */ });
 }
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
+/**
+ * Filler is a single-slot mechanism — it fills scattered single empties, so every
+ * creative of a filler campaign must be a one-slot (10s) creative. Returns a
+ * user-facing error, or null when the campaign is acceptable as filler.
+ */
+async function fillerCampaignError(campaignId: string): Promise<string | null> {
+  const campaign = await db.campaign.findUnique({
+    where: { id: campaignId },
+    select: {
+      slotContent: { select: { id: true, durationMs: true, type: true } },
+      slotPlaylist: { select: { items: {
+        where: { contentId: { not: null } },
+        select: { content: { select: { id: true, durationMs: true, type: true } } },
+      } } },
+    },
+  });
+  if (!campaign) return 'Campaign not found';
+  const fromPlaylist: SlotCreativeMeta[] = (campaign.slotPlaylist?.items ?? [])
+    .map((i) => i.content)
+    .filter((c): c is NonNullable<typeof c> => c != null)
+    .map((c) => ({ contentId: c.id, durationMs: c.durationMs, type: c.type }));
+  const metas = fromPlaylist.length > 0 ? fromPlaylist
+    : campaign.slotContent
+      ? [{ contentId: campaign.slotContent.id, durationMs: campaign.slotContent.durationMs, type: campaign.slotContent.type }]
+      : [];
+  if (metas.length === 0) return 'That campaign has no slot creative attached yet';
+  const unknown = metas.filter((c) => c.type === 'VIDEO' && (!c.durationMs || c.durationMs <= 0));
+  if (unknown.length > 0) {
+    return 'A filler video has no known duration — re-upload it so its length can be read';
+  }
+  const long = metas.filter((c) => slotSpanForDuration(c.durationMs) !== 1);
+  if (long.length > 0) {
+    return `Filler campaigns must use 10-second creatives — ${long.length} of its ${metas.length} creative(s) run longer`;
+  }
+  return null;
 }
 
 type Body = {
@@ -56,31 +91,132 @@ type Body = {
   hoursStart?: string;
   hoursEnd?: string;
   fillerCampaignId?: string | null;
+  slotPricingTier?: string;
   defaultFillerCampaignId?: string | null;
   campaignId?: string;
   slotContentId?: string | null;
+  slotPlaylistId?: string | null;
 };
 
 export async function PATCH(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as Body;
 
     if (body.campaignId !== undefined) {
+      // A slot playlist only counts through its direct media items (slot mode is a
+      // flat 10s loop — nested items are skipped), so an all-nested playlist would
+      // silently leave the campaign unplayable. Reject it at attach time instead.
+      if (body.slotPlaylistId) {
+        const pl = await db.playlist.findUnique({
+          where:  { id: body.slotPlaylistId },
+          select: { id: true, items: { where: { contentId: { not: null } }, select: { id: true }, take: 1 } },
+        });
+        if (!pl) return NextResponse.json({ error: 'Playlist not found' }, { status: 400 });
+        if (pl.items.length === 0) {
+          return NextResponse.json({ error: 'That playlist has no direct media items — slot rotation skips nested playlists, so it could never play. Add images/videos to it first.' }, { status: 400 });
+        }
+      }
+      // Span validation on the PROPOSED creative set (body merged over current):
+      // every creative must land in the same 10s-multiple length class, and video
+      // durations must be known. Booking derives how many consecutive slots the
+      // campaign needs from exactly this — a mixed or unknown set has no answer.
+      {
+        const current = await db.campaign.findUnique({
+          where:  { id: body.campaignId },
+          select: { slotContentId: true, slotPlaylistId: true },
+        });
+        if (!current) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+        const nextContentId  = body.slotContentId  !== undefined ? body.slotContentId  : current.slotContentId;
+        const nextPlaylistId = body.slotPlaylistId !== undefined ? body.slotPlaylistId : current.slotPlaylistId;
+        let metas: SlotCreativeMeta[] = [];
+        if (nextPlaylistId) {
+          const items = await db.playlistItem.findMany({
+            where:  { playlistId: nextPlaylistId, contentId: { not: null } },
+            select: { content: { select: { id: true, durationMs: true, type: true } } },
+          });
+          metas = items
+            .map((i) => i.content)
+            .filter((c): c is NonNullable<typeof c> => c != null)
+            .map((c) => ({ contentId: c.id, durationMs: c.durationMs, type: c.type }));
+        } else if (nextContentId) {
+          const c = await db.content.findUnique({
+            where: { id: nextContentId }, select: { id: true, durationMs: true, type: true },
+          });
+          if (c) metas = [{ contentId: c.id, durationMs: c.durationMs, type: c.type }];
+        }
+        const spanned = uniformSlotSpan(metas);
+        if ('error' in spanned) return NextResponse.json({ error: spanned.error }, { status: 400 });
+        // Filler campaigns are validated 10s-only when ASSIGNED as filler — but a
+        // later creative swap on the campaign itself must not sneak a longer
+        // creative under an existing filler pointer.
+        if (spanned.span > 1) {
+          const [fillerStores, cfg] = await Promise.all([
+            db.store.count({ where: { fillerCampaignId: body.campaignId } }),
+            db.playerConfig.findUnique({ where: { id: 1 }, select: { fillerCampaignId: true } }),
+          ]);
+          if (fillerStores > 0 || cfg?.fillerCampaignId === body.campaignId) {
+            return NextResponse.json({
+              error: `This campaign is a filler (house-ads) campaign — filler creatives must stay 10 seconds, but this set is ${spanned.span * 10}s. Detach it as filler first.`,
+            }, { status: 400 });
+          }
+        }
+      }
       const campaign = await db.campaign.update({
         where:  { id: body.campaignId },
-        data:   { slotContentId: body.slotContentId ?? null },
-        select: { id: true, slotContentId: true },
+        data:   {
+          ...(body.slotContentId  !== undefined ? { slotContentId:  body.slotContentId }  : {}),
+          ...(body.slotPlaylistId !== undefined ? { slotPlaylistId: body.slotPlaylistId } : {}),
+        },
+        select: { id: true, slotContentId: true, slotPlaylistId: true },
+      });
+      // Swapping a campaign's slot creative changes what the screen actually shows
+      // for that brand, without touching any booking.
+      await logAdminAction({
+        actor, req,
+        action: 'slot_settings.set_creative',
+        target: campaign.id,
+        meta:   { slotContentId: campaign.slotContentId, slotPlaylistId: campaign.slotPlaylistId },
+      });
+      // Screens showing this campaign today are playing the OLD creative until
+      // their next poll — nudge them now so a creative swap is visible in minutes,
+      // not hours. after(), not a floating chain: the instance can suspend at
+      // response flush, and the next scheduled plan poll is 72 h out.
+      after(async () => {
+        try {
+          const rows = await db.slotBooking.findMany({
+            where:    { campaignId: campaign.id, date: new Date(`${istToday()}T00:00:00Z`) },
+            select:   { storeId: true },
+            distinct: ['storeId'],
+          });
+          const devices = await db.device.findMany({
+            where:  { storeId: { in: rows.map((r) => r.storeId) } },
+            select: { id: true },
+          });
+          await pushPlanUpdated(devices.map((d) => d.id));
+        } catch { /* best-effort — the poll is the fallback */ }
       });
       return NextResponse.json({ campaign });
     }
 
     if (body.defaultFillerCampaignId !== undefined) {
+      if (body.defaultFillerCampaignId) {
+        const err = await fillerCampaignError(body.defaultFillerCampaignId);
+        if (err) return NextResponse.json({ error: err }, { status: 400 });
+      }
       const config = await db.playerConfig.upsert({
         where:  { id: 1 },
         update: { fillerCampaignId: body.defaultFillerCampaignId },
         create: { id: 1, fillerCampaignId: body.defaultFillerCampaignId },
         select: { fillerCampaignId: true },
+      });
+      // Fleet-wide: this is what fills every unsold position on every slot-mode store.
+      await logAdminAction({
+        actor, req,
+        action: 'slot_settings.set_default_filler',
+        target: null,
+        meta:   { defaultFillerCampaignId: config.fillerCampaignId },
       });
       return NextResponse.json({ config });
     }
@@ -119,6 +255,13 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: `${f} must be HH:mm` }, { status: 400 });
       }
     }
+    if (body.slotPricingTier !== undefined && !isSlotTier(body.slotPricingTier)) {
+      return NextResponse.json({ error: "slotPricingTier must be 'standard', 'growth' or 'flagship'" }, { status: 400 });
+    }
+    if (body.fillerCampaignId) {
+      const err = await fillerCampaignError(body.fillerCampaignId);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
 
     // Re-home the stranded bookings BEFORE narrowing the loop, so there is no window
     // where a device could fetch a plan that drops slots the brands have paid for.
@@ -132,15 +275,33 @@ export async function PATCH(req: NextRequest) {
         ...(body.hoursStart       !== undefined ? { hoursStart:       body.hoursStart }       : {}),
         ...(body.hoursEnd         !== undefined ? { hoursEnd:         body.hoursEnd }         : {}),
         ...(body.fillerCampaignId !== undefined ? { fillerCampaignId: body.fillerCampaignId } : {}),
+        ...(body.slotPricingTier  !== undefined ? { slotPricingTier:  body.slotPricingTier }  : {}),
       },
       select: {
         id: true, storeName: true, loopSlotCount: true, openDays: true,
-        hoursStart: true, hoursEnd: true, fillerCampaignId: true,
+        hoursStart: true, hoursEnd: true, fillerCampaignId: true, slotPricingTier: true,
       },
     });
 
     // Audit note, after the resize is committed. The brand dashboard reads it back.
     void recordMoves(store, moves);
+
+    // Separate from recordMoves above: that row is the brand-facing "your slot moved"
+    // note, this one is the admin trail — who changed the store's slot config at all,
+    // including turning slot mode off entirely (loopSlotCount: null).
+    await logAdminAction({
+      actor, req,
+      action: 'slot_settings.update',
+      target: store.id,
+      meta: {
+        loopSlotCount:    store.loopSlotCount,
+        openDays:         store.openDays,
+        hoursStart:       store.hoursStart,
+        hoursEnd:         store.hoursEnd,
+        fillerCampaignId: store.fillerCampaignId,
+        reassigned:       moves.length,
+      },
+    });
 
     // A slot-mode store without a playable filler (per-store or global default with a
     // 10s creative) has an empty loop on zero-booking days; the device then falls back

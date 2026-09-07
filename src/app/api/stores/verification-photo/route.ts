@@ -37,11 +37,19 @@ export const maxDuration = 30;
 //                               present, else the device's geolocation at upload
 //   source  string   required — 'exif' | 'device' (which of the two provided them)
 //
+// Response: { ok, url, lat, lng, source, tvTag? }. `tvTag` is the tag now stored
+// on the row — NOT necessarily the one just submitted, since an ops-recorded tag
+// wins. Clients must cache this value rather than what the partner typed;
+// /api/stores/me does not return tvTag, so nothing else reconciles that cache.
+//
 // The coordinates are stored alongside the image URL on the Store row and shown
 // in the admin panel next to the registered map pin, so the team can verify the
 // photo was really taken at the shop before advancing the onboarding stage —
 // /api/admin/stores/[id] refuses to advance past 'new' without a shop photo and
-// past 'contacted' without an install photo.
+// past 'contacted' without an install photo. A shop photo whose fix came from
+// the photo itself (EXIF) also BECOMES the store's map pin (see the UPDATE
+// below) — the photo is the default location, so nobody is asked to re-pin the
+// store by hand to match it. Device-sourced fixes only fill an empty pin.
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -114,29 +122,58 @@ export async function POST(req: NextRequest) {
     // tolerance: on a DB where the migration hasn't run yet this fails cleanly
     // without touching the row (the just-uploaded object is removed below).
     const now = new Date();
+    // The tvTag actually on the row after the write. `undefined` = we never
+    // learned it (no tag sent, or the hardware columns aren't migrated yet), in
+    // which case the response omits the field and clients keep their own value.
+    let effectiveTvTag: string | null | undefined;
+    // Map pin. The shop photo IS the store's location: a fix read from the
+    // photo's own EXIF overwrites whatever pin the partner hand-dropped at
+    // registration — the photo is the default location, and nobody should be
+    // asked to set or confirm a pin to match it. A device-sourced fix (EXIF
+    // missing, phone position used instead) is NOT from the photo, so it only
+    // fills an EMPTY pin — otherwise a partner re-uploading from home would
+    // silently walk the store off the map. Ops can still move the pin later in
+    // Admin → Stores. Pairwise and inside the one statement, so a stored lat
+    // can never pair with a photo lng.
+    const exifShopFix = kind === 'shop' && source === 'exif';
     try {
       if (kind === 'shop') {
         await db.$executeRaw`
           UPDATE "Store" SET
             "shopPhotoUrl" = ${storedValue}, "shopPhotoLat" = ${lat}, "shopPhotoLng" = ${lng},
-            "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now}
+            "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now},
+            "lat" = CASE WHEN ${exifShopFix} OR "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN ${exifShopFix} OR "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
       } else {
         await db.$executeRaw`
           UPDATE "Store" SET
             "installPhotoUrl" = ${storedValue}, "installPhotoLat" = ${lat}, "installPhotoLng" = ${lng},
-            "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now}
+            "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now},
+            "lat" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
         // TV number is written separately and only when supplied, so an app that
-        // doesn't send it can never blank a tag ops already recorded. Tolerated
-        // if the hardware columns aren't migrated yet — the photo still counts.
+        // doesn't send it can never blank a tag ops already recorded. It also
+        // only fills a NULL tag: once set, the tag is ops-owned and the install
+        // wizard at /admin/pair is the authority — a partner re-uploading their
+        // install photo must not silently overwrite the verified value. COALESCE
+        // does that inside the single statement, so concurrent uploads can't
+        // race, and RETURNING hands back the tag that is now actually on the row
+        // — which is what the response reports, so a partner whose correction was
+        // refused isn't left with a cache that disagrees with the DB forever.
+        // Tolerated if the hardware columns aren't migrated yet — the photo
+        // still counts.
         if (tvTag) {
           try {
-            await db.$executeRaw`
-              UPDATE "Store" SET "tvTag" = ${tvTag}, "updatedAt" = ${now} WHERE "id" = ${storeId}
+            const tagRows = await db.$queryRaw<{ tvTag: string | null }[]>`
+              UPDATE "Store" SET "tvTag" = COALESCE("tvTag", ${tvTag}), "updatedAt" = ${now}
+              WHERE "id" = ${storeId}
+              RETURNING "tvTag"
             `;
+            effectiveTvTag = tagRows[0]?.tvTag ?? null;
           } catch (e) {
             console.error('verification-photo: tvTag not stored:', (e as Error).message.slice(0, 120));
           }
@@ -156,7 +193,12 @@ export async function POST(req: NextRequest) {
       await remove(old.key).catch(() => { /* best-effort */ });
     }
 
-    return NextResponse.json({ ok: true, url, lat, lng, source });
+    return NextResponse.json({
+      ok: true, url, lat, lng, source,
+      // Effective (stored) tag — may differ from the one just submitted when ops
+      // already recorded one. Present only when it is known; see above.
+      ...(effectiveTvTag !== undefined ? { tvTag: effectiveTvTag } : {}),
+    });
   } catch (e) {
     // Never surface raw DB/R2 error text to partners (env-var names, SQL
     // column errors); log it server-side instead.

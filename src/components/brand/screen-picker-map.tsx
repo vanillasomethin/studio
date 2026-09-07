@@ -1,8 +1,14 @@
 'use client';
 
-// Onboarding map picker: live store screens on a Leaflet map, click to select.
-// Selection is a routing hint for ops (Campaign.preferredStoreIds), not a hard
-// slot reservation — copy in the parent explains that. Leaflet is dynamically
+// Onboarding map picker: store screens on a Leaflet map, click to select —
+// live ones are bookable, the rest are "Coming soon" so a brand can see where
+// the network is heading. The pins ARE the homepage network map's marks
+// (shopPinHtml: tier-coloured core, white gap, hairline red rim; grey core
+// until live) so a brand lands here from that map and reads the same network —
+// this file only adds the picker states on top: a check disc when a store is
+// picked, a dimmed mark when it is sold out. Selection is a routing hint for
+// ops (Campaign.preferredStoreIds), not a hard slot reservation — copy in
+// the parent explains that. Leaflet is dynamically
 // imported (no react-leaflet — React 19 only) and its CSS ships globally.
 //
 // Lifecycle rules learned the hard way:
@@ -16,9 +22,11 @@
 //   vanishes can't re-init. We overlay a notice instead.
 
 import { useEffect, useRef, useState } from 'react';
-import { MapPin, X } from 'lucide-react';
+import { BASEMAP } from '@/lib/map-tiles';
+import { coreColor, SHOP_PIN_CSS, shopPinHtml, swatchStyle, TIER } from '@/components/sections/store-locations-map';
+import type { SlotTier } from '@/lib/slot-pricing';
+import { X } from 'lucide-react';
 
-const TILE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const MANGALURU: [number, number] = [12.8698, 74.8431];
 
 type ScreenPin = {
@@ -28,14 +36,9 @@ type ScreenPin = {
   city: string | null;
   lat: number;
   lng: number;
+  live: boolean;                  // playing today; false = onboarded, screen not up yet
   slotStatus: 'available' | 'limited' | 'sold_out' | null;
-};
-
-const STATUS_DOT: Record<string, string> = {
-  available: '#22c55e',
-  limited:   '#eab308',
-  sold_out:  '#9ca3af',
-  none:      '#22c55e', // schedule-mode stores are selectable
+  tier?: SlotTier;                // absent on a stale API during deploy → standard
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -50,19 +53,39 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// 36px hit target (touch minimum) around a smaller visual dot.
+// The homepage mark, centred in a 36px box (touch minimum) so the visual can
+// stay small without shrinking the hit target. Picker states ride on top:
+// picked = is-active scale + a red check disc, sold out = dimmed. Slot
+// availability stays in the tooltip and the tier directory below — the core's
+// colour is the store's tier, exactly like the homepage.
 function markerHtml(pin: ScreenPin, selected: boolean) {
-  const dot = STATUS_DOT[pin.slotStatus ?? 'none'];
-  const inner = selected
-    ? `<div style="width:26px;height:26px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  const dim  = !selected && pin.live && pin.slotStatus === 'sold_out';
+  const mark = shopPinHtml(coreColor(pin.live ? 'live' : 'in_progress', pin.tier), selected);
+  const check = selected
+    ? `<div style="position:absolute;top:-6px;right:-6px;width:14px;height:14px;border-radius:50%;background:#dc2626;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;pointer-events:none">
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
       </div>`
-    : `<div style="width:16px;height:16px;border-radius:50%;background:${dot};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`;
-  return `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">${inner}</div>`;
+    : '';
+  return (
+    `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center${dim ? ';opacity:.55' : ''}">` +
+      `<div style="position:relative">${mark}${check}</div>` +
+    `</div>`
+  );
+}
+
+function statusLabel(pin: ScreenPin) {
+  return pin.live ? STATUS_LABEL[pin.slotStatus ?? 'none'] : 'Coming soon';
+}
+
+function tierLabel(pin: ScreenPin) {
+  return TIER[pin.tier ?? 'standard'].label;
 }
 
 function tooltipHtml(pin: ScreenPin) {
-  return `<strong>${esc(pin.storeName)}</strong><br/>${esc(pin.locality ?? pin.city ?? '')} · ${STATUS_LABEL[pin.slotStatus ?? 'none']}`;
+  const status = pin.live
+    ? `${tierLabel(pin)} · ${statusLabel(pin)}`
+    : 'Coming soon — not bookable yet';
+  return `<strong>${esc(pin.storeName)}</strong><br/>${esc(pin.locality ?? pin.city ?? '')} · ${status}`;
 }
 
 export default function ScreenPickerMap({
@@ -121,7 +144,7 @@ export default function ScreenPickerMap({
           // pinch-zoom still works for positioning.
           dragging: !L.Browser.mobile,
         }).setView(pins.length ? center : MANGALURU, 13);
-        L.tileLayer(TILE, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(mapRef.current);
+        L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(mapRef.current);
       }
 
       // Rebuild markers from the current pins.
@@ -134,11 +157,15 @@ export default function ScreenPickerMap({
           html: markerHtml(pin, isSel), className: '',
           iconSize: [36, 36], iconAnchor: [18, 18],
         });
-        const marker = L.marker([pin.lat, pin.lng], { icon }).addTo(mapRef.current);
+        const marker = L.marker([pin.lat, pin.lng], {
+          icon,
+          title: `${pin.storeName} — ${pin.live ? `${tierLabel(pin)} · ${statusLabel(pin)}` : statusLabel(pin)}`,
+        }).addTo(mapRef.current);
         marker.bindTooltip(tooltipHtml(pin), { direction: 'top', offset: [0, -14] });
         marker.on('click', () => {
           const current = pinsRef.current.get(pin.id);
-          if (current?.slotStatus === 'sold_out') return;
+          // Coming-soon stores can't be booked yet; sold-out ones are full.
+          if (!current?.live || current.slotStatus === 'sold_out') return;
           onToggleRef.current(pin.id, current?.storeName ?? pin.storeName);
         });
         markersRef.current.set(pin.id, marker);
@@ -187,7 +214,7 @@ export default function ScreenPickerMap({
         />
         {loading && (
           <div className="absolute inset-0 z-[500] flex items-center justify-center rounded-xl bg-muted/40 text-xs text-muted-foreground">
-            Loading live screens…
+            Loading screens…
           </div>
         )}
         {error && !loading && (
@@ -197,11 +224,20 @@ export default function ScreenPickerMap({
         )}
       </div>
 
+      {/* Same legend semantics as the homepage: the core is the tier. Sold-out
+          and picked are the picker's own states, drawn the way the pins draw
+          them — dimmed, and check-disc. */}
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-green-500 inline-block" /> Slots open</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500 inline-block" /> Few left</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-400 inline-block" /> Sold out</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary inline-block" /> Selected</span>
+        {(['flagship', 'growth', 'standard'] as SlotTier[]).map((t) => (
+          <span key={t} className="flex items-center gap-1.5">
+            <span style={swatchStyle(TIER[t].color, 10)} /> {TIER[t].label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5"><span style={swatchStyle(coreColor('in_progress'), 10)} /> Coming soon</span>
+        <span className="flex items-center gap-1.5"><span style={{ ...swatchStyle(TIER.standard.color, 10), opacity: 0.55 }} /> Sold out</span>
+        <span className="flex items-center gap-1.5">
+          <span className="flex h-3 w-3 items-center justify-center rounded-full border border-white bg-[#dc2626] text-[7px] font-black leading-none text-white shadow-sm">✓</span> Selected
+        </span>
       </div>
 
       {selected.length > 0 && (
@@ -214,9 +250,9 @@ export default function ScreenPickerMap({
                 key={id}
                 type="button"
                 onClick={() => onToggle(id, pin.storeName)}
-                className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/60 transition-colors"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-foreground hover:border-foreground/30 transition-colors"
               >
-                <MapPin className="h-3 w-3 text-primary" />
+                <span style={swatchStyle(coreColor('live', pin.tier), 8)} />
                 {pin.storeName}
                 <X className="h-3 w-3 text-muted-foreground" />
               </button>
@@ -224,6 +260,10 @@ export default function ScreenPickerMap({
           })}
         </div>
       )}
+
+      {/* The homepage map owns this CSS string, so the mark behaves identically
+          on both pages (entry pop, hover and active scaling). */}
+      <style>{SHOP_PIN_CSS}</style>
     </div>
   );
 }

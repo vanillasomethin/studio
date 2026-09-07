@@ -1,5 +1,8 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { BASEMAP } from '@/lib/map-tiles';
+
+type StoreStatus = 'live' | 'in_progress';
 
 type StorePin = {
   id: string;
@@ -8,8 +11,162 @@ type StorePin = {
   city: string | null;
   lat: number;
   lng: number;
+  status: StoreStatus;
+  tier?: StoreTier;               // absent on a stale API during deploy → standard
+  pincode?: string | null;
+  photo?: string | null;          // storefront shot; card falls back to a glyph header
+  since?: string;                 // createdAt ISO → "Since Mar 2026"
 };
 
+// Live screens are the network; in-progress ones are stores that have signed up
+// and are being installed. Every store is one round mark wearing the site's
+// hairline red rim; the CORE carries the state — grey until the screen is
+// live, then the store's slot-pricing tier colour, so the network's mix reads
+// at a glance.
+const PIN = {
+  live:        { label: 'Live' },
+  in_progress: { label: 'Coming soon' },
+} as const;
+
+const RED = '#dc2626';
+
+type StoreTier = 'standard' | 'growth' | 'flagship';
+
+// Tier colours stay in the brand family: flagship is the red, growth warms to
+// amber, standard is ink. Grey means onboarded — signed up, screen on its way.
+// `color` paints the marker core; `text`/`tint` are the darker chip pairing so
+// small caps stay readable on the popup card.
+export const TIER: Record<StoreTier, { label: string; color: string; text: string; tint: string }> = {
+  flagship: { label: 'Flagship', color: RED,       text: '#b91c1c', tint: 'rgba(220,38,38,.09)' },
+  growth:   { label: 'Growth',   color: '#f59e0b', text: '#b45309', tint: 'rgba(245,158,11,.14)' },
+  standard: { label: 'Standard', color: '#111827', text: '#111827', tint: 'rgba(17,24,39,.06)' },
+};
+const ONBOARDED = '#9ca3af';
+
+export function coreColor(status: StoreStatus, tier?: StoreTier): string {
+  return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
+}
+
+// The dot's box, in px. Geometry is derived from this everywhere — the SVG,
+// the divIcon's iconSize/iconAnchor/popupAnchor, and the CSS below — so the
+// mark can be resized in one place without floating off its shop.
+export const DOT = 18;
+
+/** The marker markup: coloured core, white gap, hairline red rim. */
+export function shopPinHtml(core: string, active: boolean): string {
+  const c = DOT / 2;
+  return (
+    `<div class="alive-shop-pin${active ? ' is-active' : ''}">` +
+      `<svg width="${DOT}" height="${DOT}" viewBox="0 0 ${DOT} ${DOT}" aria-hidden="true">` +
+        `<circle cx="${c}" cy="${c}" r="${c - 1.4}" fill="#ffffff" stroke="${RED}" stroke-width="1.4"/>` +
+        `<circle cx="${c}" cy="${c}" r="${c - 4.4}" fill="${core}"/>` +
+      '</svg>' +
+    '</div>'
+  );
+}
+
+/** The pin's interaction styling (entry, hover, active) — exported beside
+ *  shopPinHtml so every map that renders the mark ships identical behaviour. */
+export const SHOP_PIN_CSS =
+  `.alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
+.alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
+.alive-shop-pin:hover{transform:scale(1.25);}
+.alive-shop-pin.is-active{transform:scale(1.35);}
+.alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
+@keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}`;
+
+/** Legend / list swatch that matches the pin: same core, same hairline rim. */
+export function swatchStyle(color: string, size: number): React.CSSProperties {
+  return {
+    width: size, height: size, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
+    background: color, border: '1.5px solid #ffffff', boxShadow: `0 0 0 1px ${RED}`,
+  };
+}
+
+// Store names/localities are partner-entered (registration is public) — escape
+// before they touch popup markup.
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Lucide "store" glyph (ISC) — the card's header stand-in for shops without a
+// storefront photo yet.
+const STORE_GLYPH =
+  '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>' +
+  '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>' +
+  '<path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>' +
+  '<path d="M2 7h20"/>' +
+  '<path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>';
+
+/** The click-through card: photo (or glyph) header with a floating status
+ *  pill, then name, address line, tier chip, partner-since, and a directions
+ *  CTA. Every partner-entered string passes through esc(). */
+function shopCardHtml(store: StorePin): string {
+  const live = store.status === 'live';
+  const t = TIER[store.tier ?? 'standard'];
+  const dot = live ? t.color : ONBOARDED;
+  const statusText  = live ? t.text : '#4b5563';
+  const statusTint  = live ? t.tint : 'rgba(107,114,128,.10)';
+  const loc = [store.locality, store.city, store.pincode].filter(Boolean).join(' · ');
+  const since = store.since
+    ? new Date(store.since).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+    : null;
+  const header = store.photo
+    ? `<img class="ph-img" src="${esc(store.photo)}" alt="" loading="lazy"/>`
+    : `<div class="ph-empty" style="background:${statusTint};">` +
+        `<svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="${dot}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".6" aria-hidden="true">${STORE_GLYPH}</svg>` +
+      '</div>';
+  return (
+    '<div class="alive-shop-card">' +
+      `<div class="ph">${header}` +
+        `<span class="st" style="color:${statusText};"><i style="background:${dot};"></i>${live ? 'Live' : 'Coming soon'}</span>` +
+      '</div>' +
+      '<div class="bd">' +
+        `<p class="nm">${esc(store.storeName)}</p>` +
+        (loc ? `<p class="loc">${esc(loc)}</p>` : '') +
+        '<div class="row">' +
+          `<span class="chip" style="color:${t.text};background:${t.tint};">${t.label} partner</span>` +
+          (since ? `<span class="since">Since ${since}</span>` : '') +
+        '</div>' +
+        `<a class="dir" href="https://www.google.com/maps/dir/?api=1&destination=${store.lat},${store.lng}" target="_blank" rel="noopener noreferrer">Get directions` +
+          '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>' +
+        '</a>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+// A pincode area from /geo/pincode-areas-mangaluru.json — official data.gov.in
+// boundaries, vendored and simplified (see the file's attribution key).
+type AreaFeature = {
+  properties: { Pincode?: string; Office_Name?: string };
+  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] };
+};
+
+// Ray-cast a point against the outer ring(s) of a polygon/multipolygon. Holes
+// are ignored — for "does this shop sit inside this pincode area" that's plenty.
+function areaContains(geom: AreaFeature['geometry'], lat: number, lng: number): boolean {
+  const rings: number[][][] =
+    geom.type === 'Polygon'
+      ? [(geom.coordinates as number[][][])[0]]
+      : (geom.coordinates as number[][][][]).map((poly) => poly[0]);
+  return rings.some((ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  });
+}
+
+// "Kodiyalbail S.O" → "Kodiyalbail" — office-type suffixes are postal jargon,
+// not area names.
+function areaName(f: AreaFeature): string {
+  const office = (f.properties.Office_Name ?? '').replace(/\s+[HSB]\.O\.?$/i, '').trim();
+  return office || f.properties.Pincode || 'Area';
+}
 
 export default function StoreLocationsMap() {
   const mapRef        = useRef<HTMLDivElement>(null);
@@ -22,13 +179,26 @@ export default function StoreLocationsMap() {
   const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
-  const boundariesLoaded = useRef(false);
+  // Area rings — one thin red boundary per locality cluster, rebuilt with the markers.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const zonesRef = useRef<any>(null);
 
   // Fetch store locations
   useEffect(() => {
     fetch('/api/stores/locations')
       .then(r => r.json())
       .then(d => setStores((d.stores ?? []).filter((s: StorePin) => s.lat && s.lng)))
+      .catch(() => {});
+  }, []);
+
+  // Pincode area polygons — a static, CDN-cached file; which of them get drawn
+  // is decided by where the stores are.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [areas, setAreas] = useState<any>(null);
+  useEffect(() => {
+    fetch('/geo/pincode-areas-mangaluru.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setAreas)
       .catch(() => {});
   }, []);
 
@@ -63,20 +233,15 @@ export default function StoreLocationsMap() {
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd', maxZoom: 20,
-      }).addTo(map);
+      (L as any).tileLayer(BASEMAP.url, { maxZoom: BASEMAP.maxZoom }).addTo(map);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (L as any).control.zoom({ position: 'bottomright' }).addTo(map);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).control.attribution({ position: 'bottomleft', prefix: '© OpenStreetMap · CartoDB' }).addTo(map);
+      (L as any).control.attribution({ position: 'bottomleft', prefix: BASEMAP.attribution }).addTo(map);
 
       mapInstanceRef.current = map;
       setMapReady(true);
-
-      // Load GeoJSON ward boundaries
-      loadWards(L, map);
     }
 
     init();
@@ -87,92 +252,92 @@ export default function StoreLocationsMap() {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-      // Markers/wards belonged to the destroyed map — reset so a remount
-      // (Strict Mode's second pass, HMR) recreates them on the new instance.
+      // Markers belonged to the destroyed map — reset so a remount (Strict
+      // Mode's second pass, HMR) recreates them on the new instance.
       markersRef.current.clear();
-      boundariesLoaded.current = false;
+      zonesRef.current = null;
       setMapReady(false);
     };
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function loadWards(L: any, map: any) {
-    if (boundariesLoaded.current) return;
-    boundariesLoaded.current = true;
-    try {
-      const res = await fetch('/mangaluru-wards.geojson');
-      const geojson = await res.json();
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).geoJSON(geojson, {
-        style: {
-          color: '#dc2626',
-          weight: 1.5,
-          opacity: 0.5,
-          fillColor: '#dc2626',
-          fillOpacity: 0.04,
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onEachFeature: (feature: any, layer: any) => {
-          const name = feature.properties?.ward_name ?? '';
-          const no   = feature.properties?.ward_no ?? '';
-          if (name) {
-            layer.bindTooltip(
-              `<span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;color:#dc2626;">${name} · Ward ${no}</span>`,
-              { permanent: false, direction: 'center', opacity: 1 }
-            );
-            layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.14, opacity: 0.75 }));
-            layer.on('mouseout',  () => layer.setStyle({ fillOpacity: 0.04, opacity: 0.5  }));
-          }
-        },
-      }).addTo(map);
-    } catch {
-      // decorative — fail silently
-    }
-  }
-
   // Add store markers when data loads
   useEffect(() => {
-    if (!mapInstanceRef.current || stores.length === 0) return;
+    if (!mapReady || !mapInstanceRef.current || stores.length === 0) return;
 
     async function addMarkers() {
       const L = (await import('leaflet')).default;
       const map = mapInstanceRef.current;
       if (!map) return; // unmounted while the import was in flight
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const makeIcon = (active: boolean) => (L as any).divIcon({
-        className: '',
-        html: `<div style="width:${active ? 18 : 14}px;height:${active ? 18 : 14}px;border-radius:50%;background:#dc2626;border:${active ? 3 : 2.5}px solid #fff;box-shadow:0 2px ${active ? 14 : 8}px rgba(220,38,38,${active ? '.6' : '.4'});cursor:pointer;transition:all .2s;"></div>`,
-        iconSize:   [active ? 18 : 14, active ? 18 : 14],
-        iconAnchor: [active ? 9  : 7,  active ? 9  : 7],
-        popupAnchor: [0, -12],
-      });
-
-      const pinIcon   = makeIcon(false);
-      const activePin = makeIcon(true);
+      // A round mark centred on the shop's coordinates — so the anchor is the
+      // middle of the dot, not a tail tip, and the popup clears its top edge.
+      const iconFor = (s: StorePin, active: boolean) =>
+        (L as any).divIcon({
+          className:   '',
+          html:        shopPinHtml(coreColor(s.status, s.tier), active),
+          iconSize:    [DOT, DOT],
+          iconAnchor:  [DOT / 2, DOT / 2],
+          popupAnchor: [0, -(DOT / 2 + 4)],
+        });
 
       stores.forEach(store => {
         if (markersRef.current.has(store.id)) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const marker = (L as any).marker([store.lat, store.lng], { icon: pinIcon })
+        const tierInfo = TIER[store.tier ?? 'standard'];
+        const marker = (L as any).marker([store.lat, store.lng], {
+          icon: iconFor(store, false),
+          title: `${store.storeName} — ${store.status === 'live' ? `${tierInfo.label} · Live` : PIN[store.status].label}`,
+        })
           .addTo(map)
-          .bindPopup(
-            `<div style="font-family:Manrope,sans-serif;min-width:140px;padding:2px 0;">
-              <p style="font-size:13px;font-weight:700;margin:0 0 2px;">${store.storeName}</p>
-              <p style="font-size:11px;color:#666;margin:0;">${[store.locality, store.city].filter(Boolean).join(' · ')}</p>
-            </div>`,
-            { closeButton: false, className: 'alive-popup' }
-          );
+          .bindPopup(shopCardHtml(store), {
+            closeButton: false, className: 'alive-popup', minWidth: 236, maxWidth: 236,
+          });
 
         marker.on('click', () => {
           setSelected(store.id);
-          markersRef.current.forEach((m, id) => m.setIcon(id === store.id ? activePin : pinIcon));
+          markersRef.current.forEach((m, id) => {
+            const s = stores.find((x) => x.id === id);
+            if (!s) return;
+            const isActive = id === store.id;
+            m.setIcon(iconFor(s, isActive));
+            // The chosen shop sits on top of its neighbours while it is enlarged.
+            m.setZIndexOffset(isActive ? 1000 : 0);
+          });
         });
 
         markersRef.current.set(store.id, marker);
       });
+
+      // ── Area-wise coverage borders (real pincode boundaries) ─────────────
+      // The areas ALIVE covers, outlined thin: official pincode polygons from
+      // the vendored file, not shapes derived from store positions. A pincode
+      // qualifies when a shop claims it OR geometrically sits inside it, so a
+      // blank or mistyped pincode in a registration can't hide a covered area.
+      // Rings live in the vector pane under the dots — markers stay clickable —
+      // and hovering names the area, not the stores.
+      if (zonesRef.current) { zonesRef.current.remove(); zonesRef.current = null; }
+      if (areas?.features?.length) {
+        const claimed = new Set(
+          stores.map((s) => (s.pincode ?? '').trim()).filter((p) => /^\d{6}$/.test(p)),
+        );
+        const zones = (L as any).geoJSON(areas, {
+          filter: (f: AreaFeature) =>
+            (!!f.properties.Pincode && claimed.has(f.properties.Pincode)) ||
+            stores.some((s) => areaContains(f.geometry, s.lat, s.lng)),
+          style: {
+            color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
+            fillColor: RED, fillOpacity: 0.04,
+          },
+          onEachFeature: (f: AreaFeature, layer: { bindTooltip(content: string, options?: object): void }) => {
+            layer.bindTooltip(
+              `${esc(areaName(f))} · ${esc(f.properties.Pincode ?? '')}`,
+              { sticky: true, direction: 'top', className: 'alive-zone-tip' },
+            );
+          },
+        });
+        zones.addTo(map);
+        zonesRef.current = zones;
+      }
 
       if (stores.length > 1) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -182,7 +347,10 @@ export default function StoreLocationsMap() {
     }
 
     addMarkers();
-  }, [stores, mapReady]);
+  }, [stores, mapReady, areas]);
+
+  const liveCount     = stores.filter((s) => s.status === 'live').length;
+  const progressCount = stores.length - liveCount;
 
   const flyTo = (store: StorePin) => {
     if (!mapInstanceRef.current) return;
@@ -207,9 +375,22 @@ export default function StoreLocationsMap() {
       {stores.length > 0 && (
         <div style={{ background: '#fff', borderLeft: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
-            <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
-              {stores.length} live screen{stores.length !== 1 ? 's' : ''}
+            <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
+              {liveCount} live screen{liveCount !== 1 ? 's' : ''}
             </p>
+            {progressCount > 0 && (
+              <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#6b7280', fontWeight: 600, marginTop: 3 }}>
+                {progressCount} coming soon
+              </p>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+              {[...(Object.keys(TIER) as StoreTier[]).map((t) => [TIER[t].label, TIER[t].color] as const), ['Onboarded', ONBOARDED] as const].map(([label, color]) => (
+                <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-dm-mono), monospace', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: '#888' }}>
+                  <span style={swatchStyle(color, 10)} />
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {stores.map(store => (
@@ -218,17 +399,19 @@ export default function StoreLocationsMap() {
                 onClick={() => flyTo(store)}
                 style={{
                   width: '100%', textAlign: 'left', padding: '12px 16px',
-                  borderBottom: '1px solid var(--rule)', background: selected === store.id ? '#fef2f2' : 'transparent',
+                  borderBottom: '1px solid var(--rule)', background: selected === store.id ? '#f5f5f5' : 'transparent',
                   cursor: 'pointer', transition: 'background .15s', display: 'block',
-                  borderLeft: `2.5px solid ${selected === store.id ? '#dc2626' : 'transparent'}`,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ marginTop: 4, width: 7, height: 7, borderRadius: '50%', background: '#dc2626', flexShrink: 0 }} />
+                  <div style={{ marginTop: 4, ...swatchStyle(coreColor(store.status, store.tier), 8) }} />
                   <div>
-                    <p style={{ fontFamily: '"Manrope",sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
-                    <p style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
+                    <p style={{ fontFamily: 'var(--font-manrope), sans-serif', fontSize: 13, fontWeight: 600, color: '#0a0a0a', lineHeight: 1.3, margin: 0 }}>{store.storeName}</p>
+                    <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, color: '#888', marginTop: 2, letterSpacing: '0.05em' }}>
                       {[store.locality, store.city].filter(Boolean).join(' · ')}
+                      {store.status === 'live'
+                        ? <span style={{ color: TIER[store.tier ?? 'standard'].text }}> · {TIER[store.tier ?? 'standard'].label.toLowerCase()}</span>
+                        : <span style={{ color: '#6b7280' }}> · coming soon</span>}
                     </p>
                   </div>
                 </div>
@@ -239,9 +422,26 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
-        .alive-popup .leaflet-popup-content-wrapper{border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);padding:0;}
-        .alive-popup .leaflet-popup-content{margin:10px 14px;}
+        ${SHOP_PIN_CSS}
+        .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}
+        .alive-popup .leaflet-popup-content{margin:0;line-height:1.4;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
+        .alive-zone-tip{font-family:var(--font-dm-mono),monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#b91c1c;background:#fff;border:1px solid rgba(220,38,38,.35);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.10);padding:3px 8px;}
+        .alive-zone-tip::before{display:none;}
+        .alive-shop-card{width:236px;background:#fff;font-family:var(--font-manrope),sans-serif;}
+        .alive-shop-card .ph{position:relative;height:106px;background:#f5f5f5;}
+        .alive-shop-card .ph-img{display:block;width:100%;height:100%;object-fit:cover;}
+        .alive-shop-card .ph-empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+        .alive-shop-card .st{position:absolute;left:10px;bottom:10px;display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.94);box-shadow:0 1px 4px rgba(0,0,0,.18);font-family:var(--font-dm-mono),monospace;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;}
+        .alive-shop-card .st i{width:7px;height:7px;border-radius:50%;display:inline-block;}
+        .alive-shop-card .bd{padding:12px 14px 13px;}
+        .alive-shop-card .nm{margin:0;font-size:14.5px;font-weight:800;letter-spacing:-.01em;line-height:1.25;color:#0a0a0a;}
+        .alive-shop-card .loc{margin:3px 0 0;font-family:var(--font-dm-mono),monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#888;}
+        .alive-shop-card .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;}
+        .alive-shop-card .chip{display:inline-flex;padding:3px 9px;border-radius:999px;font-family:var(--font-dm-mono),monospace;font-size:8.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+        .alive-shop-card .since{font-family:var(--font-dm-mono),monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#9ca3af;}
+        .alive-shop-card .dir{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 0;border-radius:9px;background:#dc2626;color:#fff;font-size:11.5px;font-weight:700;text-decoration:none;transition:background .15s;}
+        .alive-shop-card .dir:hover{background:#b91c1c;}
         .leaflet-control-zoom{border:1px solid #e5e5e5 !important;border-radius:8px !important;overflow:hidden;box-shadow:none !important;}
         .leaflet-control-zoom a{width:30px !important;height:30px !important;line-height:30px !important;font-size:16px !important;color:#333 !important;}
         .leaflet-control-attribution{font-size:10px !important;background:rgba(255,255,255,.7) !important;}

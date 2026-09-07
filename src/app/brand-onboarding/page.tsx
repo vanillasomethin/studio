@@ -6,7 +6,11 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths } from 'date-fns';
 import { useSession } from 'next-auth/react';
-import { getScreenPrice, getListPrice } from '@/lib/brand-pricing';
+import {
+  asTier, campaignBaseForCount, campaignBaseForStores, storeMonthlyPrice,
+} from '@/lib/brand-pricing';
+import { SLOT_TIERS_BY_VALUE, SLOT_TIER_LABEL, type SlotTier } from '@/lib/slot-pricing';
+import { useBrandScreens } from '@/components/brand/use-brand-screens';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -35,6 +39,10 @@ type OnboardingFormData = {
   // client-side so later steps can echo the picks; never sent to the API.
   preferredStoreIds: string[];
   preferredStoreNames: Record<string, string>;
+  // Each picked store's network tier, captured at selection time. The BILL is
+  // computed from these (server-side, re-read from the DB — see create-order),
+  // so later steps must not depend on a refetch succeeding to quote a price.
+  preferredStoreTiers: Record<string, string>;
 };
 
 type RazorpayResponse = {
@@ -47,14 +55,19 @@ type RazorpayResponse = {
 
 // Leaflet touches window — client-only.
 const ScreenPickerMap = dynamic(() => import('@/components/brand/screen-picker-map'), { ssr: false });
+const StoreTierDirectory = dynamic(() => import('@/components/brand/store-tier-directory'), { ssr: false });
 
-// Marketing tiers — prices come from the shared pricing lib (list = struck-through
-// anchor, online = charged), so the display can never drift from the charge.
+// QUANTITY shortcuts, not price tiers. Billing now follows the stores a brand
+// picks, so there is no per-screen volume band left to discount — a count-only
+// booking is quoted at the Standard rate, exactly what create-order charges.
+// The struck-through list anchor is gone with the band: at 20 screens the old
+// anchor (₹999) had fallen below the charge (₹1,000) and rendered as a negative
+// discount.
 const SCREEN_TIERS = [
-  { screens: 1,  pricePerScreen: getScreenPrice(1),  listPerScreen: getListPrice(1),  playsPerDay: 144,  monthlyViews: 4320  },
-  { screens: 3,  pricePerScreen: getScreenPrice(3),  listPerScreen: getListPrice(3),  playsPerDay: 432,  monthlyViews: 12960, popular: true },
-  { screens: 10, pricePerScreen: getScreenPrice(10), listPerScreen: getListPrice(10), playsPerDay: 1440, monthlyViews: 43200 },
-  { screens: 20, pricePerScreen: getScreenPrice(20), listPerScreen: getListPrice(20), playsPerDay: 2880, monthlyViews: 86400 },
+  { screens: 1,  playsPerDay: 144,  monthlyViews: 4320  },
+  { screens: 3,  playsPerDay: 432,  monthlyViews: 12960, popular: true },
+  { screens: 10, playsPerDay: 1440, monthlyViews: 43200 },
+  { screens: 20, playsPerDay: 2880, monthlyViews: 86400 },
 ] as const;
 
 const DURATION_OPTIONS = [
@@ -70,6 +83,23 @@ const STEPS = ['Details', 'Campaign', 'Agreement', 'Payment'];
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+/** The tiers of the stores currently picked, in selection order. */
+function pickedTiersOf(d: Pick<OnboardingFormData, 'preferredStoreIds' | 'preferredStoreTiers'>): SlotTier[] {
+  return d.preferredStoreIds.map((id) => asTier(d.preferredStoreTiers[id]));
+}
+
+/** Picked stores rolled up per tier, most valuable first — the shape the quote
+ *  is explained in ("2 × Standard ₹1,000 · 1 × Flagship ₹3,000"). */
+function tierBreakdown(tiers: SlotTier[]): { tier: SlotTier; count: number; each: number; subtotal: number }[] {
+  return SLOT_TIERS_BY_VALUE
+    .map((tier) => {
+      const count = tiers.filter((t) => t === tier).length;
+      const each  = storeMonthlyPrice(tier);
+      return { tier, count, each, subtotal: each * count };
+    })
+    .filter((r) => r.count > 0);
+}
 
 // Self-serve ceiling — matches the server bound in create-order / campaigns-save.
 // Bigger campaigns go through sales so ops can confirm screen inventory first.
@@ -449,16 +479,31 @@ function StepCampaign({
   onBack: () => void;
   isTrial?: boolean;
 }) {
-  const pricePerScreen = getScreenPrice(data.screens);
-  const listPerScreen  = getListPrice(data.screens);
-  const total          = pricePerScreen * data.screens * data.months;
-  const valid          = data.screens > 0 && data.months > 0 && data.startDate;
   const mapDriven      = data.preferredStoreIds.length > 0;
+  // The bill follows the stores picked, at each store's tier. With no picks the
+  // quote is the Standard rate × count — the same basis create-order charges on.
+  const pickedTiers    = pickedTiersOf(data);
+  const monthlySubtotal = mapDriven
+    ? campaignBaseForStores(pickedTiers, 1)
+    : campaignBaseForCount(data.screens, 1);
+  const total          = mapDriven
+    ? campaignBaseForStores(pickedTiers, data.months)
+    : campaignBaseForCount(data.screens, data.months);
+  const valid          = data.screens > 0 && data.months > 0 && data.startDate;
   const [capHit, setCapHit] = useState(false);
+
+  // Tier lookup for whatever is on the map/directory right now, so a pick can
+  // record its own tier. Shares one fetch with both child components.
+  const { pins } = useBrandScreens(data.startDate);
+  const tierById = new Map(pins.map((p) => [p.id, p.tier as string]));
 
   // Manual count controls clear any map selection — one source of truth for count.
   const setCount = (n: number) => {
-    if (mapDriven) { onChange('preferredStoreIds', []); onChange('preferredStoreNames', {}); }
+    if (mapDriven) {
+      onChange('preferredStoreIds', []);
+      onChange('preferredStoreNames', {});
+      onChange('preferredStoreTiers', {});
+    }
     setCapHit(false);
     onChange('screens', Math.min(MAX_SCREENS, Math.max(1, n)));
   };
@@ -475,6 +520,9 @@ function StepCampaign({
     const names = { ...data.preferredStoreNames };
     if (isSelected) delete names[id]; else names[id] = storeName;
     onChange('preferredStoreNames', names);
+    const tiers = { ...data.preferredStoreTiers };
+    if (isSelected) delete tiers[id]; else tiers[id] = tierById.get(id) ?? 'standard';
+    onChange('preferredStoreTiers', tiers);
     if (next.length > 0) onChange('screens', next.length);
   };
 
@@ -493,6 +541,14 @@ function StepCampaign({
       <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-3">
         <motion.div variants={fadeUp}>
           <ScreenPickerMap
+            selected={data.preferredStoreIds}
+            onToggle={toggleStore}
+            startDate={data.startDate}
+          />
+        </motion.div>
+        {/* Same selection, browsed by name and tier instead of by pin. */}
+        <motion.div variants={fadeUp}>
+          <StoreTierDirectory
             selected={data.preferredStoreIds}
             onToggle={toggleStore}
             startDate={data.startDate}
@@ -549,11 +605,10 @@ function StepCampaign({
                     <p className="text-xs text-muted-foreground mt-0.5">{t.screens === 1 ? 'screen' : 'screens'}</p>
                   </div>
                   <div className="border-t border-border pt-3 space-y-1">
-                    <p className="text-[10px] text-muted-foreground/50 line-through leading-none">{fmt(t.listPerScreen)}/screen</p>
-                    <p className="text-base font-black text-foreground leading-none">{fmt(t.pricePerScreen)}</p>
-                    <p className="text-[10px] text-muted-foreground leading-none">per screen / month · online price</p>
-                    <p className="text-[11px] font-bold text-green-700 leading-none">
-                      Save ₹{t.listPerScreen - t.pricePerScreen}/screen/mo
+                    <p className="text-base font-black text-foreground leading-none">{fmt(storeMonthlyPrice('standard'))}</p>
+                    <p className="text-[10px] text-muted-foreground leading-none">per screen / month · Standard stores</p>
+                    <p className="text-[11px] font-bold text-foreground leading-none">
+                      {fmt(storeMonthlyPrice('standard') * t.screens)}/month
                     </p>
                   </div>
                   <div className="space-y-1 pt-1">
@@ -583,8 +638,7 @@ function StepCampaign({
           <div>
             <p className="text-sm font-semibold text-foreground">Custom count</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              <span className="line-through text-muted-foreground/50">{fmt(listPerScreen)}</span>{' '}
-              {fmt(pricePerScreen)} per screen · {fmt(pricePerScreen * data.screens)}/month
+              {fmt(storeMonthlyPrice('standard'))} per screen · {fmt(campaignBaseForCount(data.screens, 1))}/month
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -669,14 +723,30 @@ function StepCampaign({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Campaign total</p>
-                <p className="text-sm text-muted-foreground">
-                  {fmt(pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
-                </p>
-                <p className="text-xs text-green-600 font-semibold">
-                  {isTrial
-                    ? <>Campaign value {fmt(total)} — free on trial</>
-                    : <>Saving {fmt((listPerScreen - pricePerScreen) * data.screens * data.months)} vs standard rate</>}
-                </p>
+                {/* Show the arithmetic. When stores were picked the bill is the
+                    sum of their tier rates, so the buyer sees exactly which
+                    stores put which rupees on the invoice. */}
+                {mapDriven ? (
+                  <div className="space-y-0.5">
+                    {tierBreakdown(pickedTiers).map((r) => (
+                      <p key={r.tier} className="text-sm text-muted-foreground">
+                        {r.count} × {SLOT_TIER_LABEL[r.tier]} {fmt(r.each)} = {fmt(r.subtotal)}/month
+                      </p>
+                    ))}
+                    <p className="text-sm text-muted-foreground">
+                      {fmt(monthlySubtotal)}/month × {data.months} {data.months === 1 ? 'month' : 'months'}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {fmt(storeMonthlyPrice('standard'))} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
+                  </p>
+                )}
+                {isTrial && (
+                  <p className="text-xs text-green-600 font-semibold">
+                    Campaign value {fmt(total)} — free on trial
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <motion.p
@@ -733,8 +803,12 @@ function StepAgreement({
   onBack: () => void;
   isTrial?: boolean;
 }) {
-  const pricePerScreen = getScreenPrice(data.screens);
-  const monthlyFee     = fmt(pricePerScreen * data.screens);
+  const pickedTiers    = pickedTiersOf(data);
+  // The agreement quotes the same monthly figure the buyer will be charged —
+  // the sum of the picked stores' tier rates, or the Standard rate by count.
+  const monthlyFee     = fmt(pickedTiers.length > 0
+    ? campaignBaseForStores(pickedTiers, 1)
+    : campaignBaseForCount(data.screens, 1));
   const effectiveDate  = format(new Date(), 'd MMMM yyyy');
 
   const clauses = [
@@ -756,6 +830,8 @@ function StepAgreement({
         isTrial
           ? 'Campaign dates are confirmed after creative submission.'
           : 'Campaign dates are confirmed after payment and creative submission.',
+        'Minimum play guarantee: once your screens are booked, we guarantee the "Guaranteed plays/day" figure shown on your dashboard. If we fall short of that guarantee in a billing month, we will add the missed plays to your rotation the following month at no extra cost (make-good); if there is no following month, we will issue a pro-rated bill credit for the shortfall instead. We will never apply both remedies for the same shortfall.',
+        'Peak-window frequency: during peak viewing windows (9–11am, 12:30–2:30pm, 5:30–7:30pm, 7:30–9:30pm), screens with a Peak Boost add-on active play more often than screens without it. Your ad still plays every rotation cycle even without Peak Boost — only its frequency during those specific windows is reduced relative to boosted campaigns. Outside peak windows, all screens rotate equally regardless of Peak Boost.',
       ],
     },
     {
@@ -855,10 +931,10 @@ function StepAgreement({
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
                 <p className="text-muted-foreground">LLP IN-KA43598411418020V</p>
-                <p className="text-muted-foreground">#13, First Floor, Highland Manor</p>
-                <p className="text-muted-foreground">Falnir, Mangaluru 575002, Karnataka</p>
+                <p className="text-muted-foreground">217, Milestone 25, Balmatta</p>
+                <p className="text-muted-foreground">Mangalore, Karnataka</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
-                <p className="text-muted-foreground">hello@wearealive.in · +91 74113 24448</p>
+                <p className="text-muted-foreground">hello@wearealive.in · +91 96060 72227</p>
                 <p className="text-muted-foreground">Operating as: ALIVE advertising platform</p>
               </div>
               <div className="space-y-1 sm:border-l sm:border-border sm:pl-4">
@@ -899,7 +975,7 @@ function StepAgreement({
               <div className="space-y-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Party A — Service Provider</p>
                 <p className="font-semibold text-foreground">VS Collective LLP</p>
-                <p className="text-muted-foreground">#13, First Floor, Highland Manor, Falnir, Mangaluru 575002</p>
+                <p className="text-muted-foreground">217, Milestone 25, Balmatta, Mangalore</p>
                 <p className="text-muted-foreground">GSTIN: 29AAXFV2589C1ZE</p>
                 <p className="text-muted-foreground">Authorised by: ALIVE Platform (automated)</p>
                 <p className="text-muted-foreground">Date: {effectiveDate}</p>
@@ -957,16 +1033,23 @@ function StepPayment({
   onBack: () => void;
   isTrial?: boolean;
 }) {
-  const [loading,   setLoading]   = useState(false);
+  // Which CTA is in flight — keeps the idle button's label honest while the
+  // other one works (a bare boolean made "Pay later" flip Razorpay's label).
+  const [loading,   setLoading]   = useState<false | 'razorpay' | 'confirm'>(false);
   const [error,     setError]     = useState<string | null>(null);
   const [promoInput, setPromoInput] = useState('');
   const [showPromo, setShowPromo] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; type: 'FLAT' | 'PERCENT'; value: number } | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
 
-  const pricePerScreen = getScreenPrice(data.screens);
-  const listPerScreen  = getListPrice(data.screens);
-  const baseSubtotal   = pricePerScreen * data.screens * data.months;
+  const pickedTiers    = pickedTiersOf(data);
+  const mapDriven      = pickedTiers.length > 0;
+  const baseSubtotal   = mapDriven
+    ? campaignBaseForStores(pickedTiers, data.months)
+    : campaignBaseForCount(data.screens, data.months);
+  // Averaged only so the legacy per-screen column on Campaign keeps a sensible
+  // value; the CHARGE is baseSubtotal, and the server recomputes it regardless.
+  const pricePerScreen = Math.round(baseSubtotal / Math.max(1, data.screens) / Math.max(1, data.months));
   // Discount derived live from the coupon rule so it stays correct if the buyer
   // changes screens/months after applying (esp. PERCENT coupons).
   const promoCode      = appliedCoupon?.code ?? '';
@@ -1008,7 +1091,7 @@ function StepPayment({
   const endDate   = startDate ? addMonths(startDate, data.months) : null;
 
   const handlePay = async () => {
-    setLoading(true);
+    setLoading('razorpay');
     setError(null);
     try {
       await loadRazorpayScript();
@@ -1017,8 +1100,11 @@ function StepPayment({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           // Server recomputes the charge from these — `total` is display-only.
+          // The ids are what set the price: create-order re-reads each store's
+          // tier from the database, so no rate travels through the browser.
           screens:    data.screens,
           months:     data.months,
+          storeIds:   data.preferredStoreIds.length > 0 ? data.preferredStoreIds : undefined,
           couponCode: promoCode || undefined,
           applyGst:   true,
           receipt:    `alive_${Date.now()}`,
@@ -1102,19 +1188,23 @@ function StepPayment({
             <span className="text-muted-foreground">Duration</span>
             <span className="font-semibold text-foreground">{data.months} month{data.months > 1 ? 's' : ''}</span>
           </motion.div>
-          {/* Price per screen — discount theater is meaningless on a ₹0 trial */}
-          <motion.div variants={fadeUp} className="flex items-center justify-between">
-            <span className="text-muted-foreground">Price / screen / month</span>
-            <span className="flex items-center gap-2 font-semibold text-foreground">
-              {!isTrial && <span className="text-xs text-muted-foreground/50 line-through">{fmt(listPerScreen)}</span>}
-              {fmt(pricePerScreen)}
-              <span className="text-[10px] text-muted-foreground font-normal">excl. GST</span>
-            </span>
-          </motion.div>
-          {!isTrial && (
-            <motion.div variants={fadeUp} className="flex items-center justify-between text-green-700 text-xs font-semibold">
-              <span>Online booking discount</span>
-              <span>−₹{listPerScreen - pricePerScreen}/screen/mo</span>
+          {/* What is actually being bought, per tier — the invoice's own basis */}
+          {mapDriven ? (
+            tierBreakdown(pickedTiers).map((r) => (
+              <motion.div key={r.tier} variants={fadeUp} className="flex items-center justify-between">
+                <span className="text-muted-foreground">
+                  {r.count} × {SLOT_TIER_LABEL[r.tier]} @ {fmt(r.each)}/mo
+                </span>
+                <span className="font-semibold text-foreground">{fmt(r.subtotal)}/month</span>
+              </motion.div>
+            ))
+          ) : (
+            <motion.div variants={fadeUp} className="flex items-center justify-between">
+              <span className="text-muted-foreground">Standard stores / month</span>
+              <span className="flex items-center gap-2 font-semibold text-foreground">
+                {fmt(storeMonthlyPrice('standard'))}
+                <span className="text-[10px] text-muted-foreground font-normal">excl. GST</span>
+              </span>
             </motion.div>
           )}
           {/* Map-picked screens echo */}
@@ -1235,11 +1325,11 @@ function StepPayment({
           <button
             type="button"
             onClick={async () => {
-              setLoading(true); setError(null);
+              setLoading('confirm'); setError(null);
               const err = await onConfirm(0, 0);
               if (err) { setError(err); setLoading(false); }
             }}
-            disabled={loading}
+            disabled={!!loading}
             className="relative w-full overflow-hidden rounded-xl bg-green-700 px-6 py-4 font-bold text-white transition-all hover:bg-green-800 disabled:opacity-60 active:scale-[0.99]"
           >
             <span className="relative flex items-center justify-center gap-2 text-sm">
@@ -1249,48 +1339,51 @@ function StepPayment({
           </button>
         ) : (
           <>
-            {/* PRIMARY — pay now via Razorpay */}
+            {/* PRIMARY — confirm booking, pay later */}
             <button
               type="button"
-              onClick={handlePay}
-              disabled={loading}
+              disabled={!!loading}
+              onClick={async () => {
+                setLoading('confirm'); setError(null);
+                const err = await onConfirm(pricePerScreen, total);
+                if (err) { setError(err); setLoading(false); }
+              }}
               className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-              <span className="relative flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm">
-                  {loading
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
-                </span>
-                {!loading && (
-                  <span className="flex items-center gap-2 border-l border-primary-foreground/20 pl-3">
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-primary-foreground/60">powered by</span>
-                    <RazorpayMark />
-                  </span>
-                )}
+              <span className="relative flex items-center justify-center gap-2 text-sm">
+                {loading === 'confirm'
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="h-4 w-4" />}
+                Confirm Booking — Pay later
               </span>
             </button>
 
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
               <div className="flex-1 h-px bg-border" />
-              <span>or confirm and pay later</span>
+              <span>or pay now</span>
               <div className="flex-1 h-px bg-border" />
             </div>
 
-            {/* SECONDARY — confirm booking, pay later */}
+            {/* SECONDARY — pay now via Razorpay */}
             <button
               type="button"
-              disabled={loading}
-              onClick={async () => {
-                setLoading(true); setError(null);
-                const err = await onConfirm(pricePerScreen, total);
-                if (err) { setError(err); setLoading(false); }
-              }}
+              onClick={handlePay}
+              disabled={!!loading}
               className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground disabled:opacity-60 active:scale-[0.99]"
             >
-              <span className="relative flex items-center justify-center gap-2.5 text-sm">
-                <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
+              <span className="relative flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  {loading === 'razorpay'
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
+                </span>
+                {loading !== 'razorpay' && (
+                  <span className="flex items-center gap-2 border-l border-border pl-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">powered by</span>
+                    <RazorpayMark />
+                  </span>
+                )}
               </span>
             </button>
           </>
@@ -1527,7 +1620,7 @@ function StepDone({ data, paymentId, chargedTotal, isTrial }: {
 const INITIAL: OnboardingFormData = {
   brandName: '', contactName: '', email: '', phone: '', gstin: '',
   screens: 3, months: 1, startDate: format(new Date(Date.now() + 7 * 86400000), 'yyyy-MM-dd'), agreementSigned: false,
-  preferredStoreIds: [], preferredStoreNames: {},
+  preferredStoreIds: [], preferredStoreNames: {}, preferredStoreTiers: {},
 };
 
 const PENDING_KEY = 'alive_pending_campaign';
@@ -1579,8 +1672,11 @@ function BrandOnboardingInner() {
 
   // Returns null on success, or a user-facing error message on failure —
   // the payment step shows it instead of silently advancing to "confirmed".
+  // Only ever books an UNPAID campaign — a trial, or "pay later". A paid one is
+  // written by verify-payment, which is also the only place Razorpay ids come
+  // from, so there are none to pass here.
   const saveCampaign = async (
-    pid: string, oid: string, effectivePricePerScreen: number,
+    effectivePricePerScreen: number,
     status: 'upcoming' | 'pending_payment' | 'trial', totalAmount: number,
   ): Promise<string | null> => {
     try {
@@ -1598,8 +1694,6 @@ function BrandOnboardingInner() {
           startDate:      form.startDate,
           pricePerScreen: effectivePricePerScreen,
           totalAmount,
-          paymentId:      pid,
-          orderId:        oid,
           status,
           preferredStoreIds: form.preferredStoreIds,
         }),
@@ -1614,7 +1708,7 @@ function BrandOnboardingInner() {
   };
 
   const handleConfirmBooking = async (effectivePricePerScreen: number, totalRupees: number): Promise<string | null> => {
-    const err = await saveCampaign('', '', effectivePricePerScreen, isTrial ? 'trial' : 'pending_payment', totalRupees);
+    const err = await saveCampaign(effectivePricePerScreen, isTrial ? 'trial' : 'pending_payment', totalRupees);
     if (err) return err;
     setPaymentId('');
     setChargedTotal(totalRupees);

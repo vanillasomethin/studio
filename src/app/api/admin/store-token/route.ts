@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { mintStoreToken } from '@/lib/store-partner-auth';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 // Admin-only: mints a signed store API token for "Open as partner"
 // impersonation — store-partner routes no longer trust a bare storeId.
 export async function GET(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  if (!process.env.ADMIN_PASSWORD || pw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const storeId = req.nextUrl.searchParams.get('storeId');
   if (!storeId) return NextResponse.json({ error: 'storeId required' }, { status: 400 });

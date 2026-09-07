@@ -3,14 +3,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { id } = await params;
   const body = await req.json() as Partial<{
@@ -31,13 +29,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     },
   });
 
+  // Price and identity edits feed the shelf screens and the VoiceBill catalogue,
+  // so record which fields moved rather than the whole body.
+  await logAdminAction({
+    actor, req,
+    action: 'product.update',
+    target: id,
+    meta: {
+      fields:   Object.keys(body),
+      mrp:      body.mrp,
+      isActive: body.isActive,
+    },
+  });
+
   return NextResponse.json({ product });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { id } = await params;
   await db.product.update({ where: { id }, data: { isActive: false } });
+
+  await logAdminAction({ actor, req, action: 'product.delete', target: id, meta: { soft: true } });
+
   return NextResponse.json({ ok: true });
 }

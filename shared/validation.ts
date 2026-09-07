@@ -34,6 +34,10 @@ export function validateForm(form: FormData): FieldErrors {
   if (!form.address.trim())        e.address  = 'Shop address is required';
   if (!form.city.trim())           e.city     = 'City is required';
   if (form.pincode.length !== 6)   e.pincode  = 'Enter a valid 6-digit pincode';
+  // No lat/lng rule: registration doesn't ask for a map pin any more. The
+  // store's location comes from the GPS shop photo uploaded during onboarding
+  // (EXIF fix → Store.lat/lng via /api/stores/verification-photo). The fields
+  // stay in FormData so old drafts and the session cache keep their shape.
   if (form.gstin && !GSTIN_RE.test(form.gstin.toUpperCase())) {
     e.gstin = 'Invalid GSTIN — must be 15 characters (e.g. 29AAXFV2589C1ZE)';
   }

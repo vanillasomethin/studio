@@ -1,7 +1,7 @@
 // Notification helper — WhatsApp via Twilio (graceful no-op if env vars missing)
 // Also supports simple email via Resend if RESEND_API_KEY is set.
 
-const ADMIN_WA = process.env.ADMIN_WHATSAPP ?? '+917411324448'; // VS Collective LLP
+const ADMIN_WA = process.env.ADMIN_WHATSAPP ?? '+919606072227'; // VS Collective LLP
 
 async function sendTwilioWhatsApp(to: string, body: string): Promise<void> {
   const sid   = process.env.TWILIO_ACCOUNT_SID;
@@ -40,6 +40,64 @@ export async function notifyAdminEmail(subject: string, html: string): Promise<v
   try { await sendResendEmail('hello@wearealive.in', subject, html); } catch { /* non-fatal */ }
 }
 
+/**
+ * Send one transactional email to an arbitrary address, REPORTING whether it
+ * actually went out.
+ *
+ * Deliberately different from notifyAdminEmail above, which is fire-and-forget
+ * because a dropped alert is survivable. An invite is not: if the mail silently
+ * fails, the admin believes a colleague was invited and that colleague never
+ * hears anything, so the account sits password-less and nobody knows why.
+ * Returns false when RESEND_API_KEY is unset or Resend rejects, so the caller
+ * can surface it instead of pretending success.
+ */
+export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  // Two transports, tried in order, because the one that is configured varies by
+  // environment: Resend is the production sender, but a Google Workspace SMTP
+  // account is what ALIVE actually has to hand. Either is sufficient; neither is
+  // required for the app to run.
+  const from = process.env.EMAIL_FROM ?? 'ALIVE <hello@wearealive.in>';
+
+  const key = process.env.RESEND_API_KEY;
+  if (key) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: [to], subject, html }),
+      });
+      if (res.ok) return true;
+      // Fall through to SMTP rather than returning — a Resend outage or a
+      // rejected domain should not strand an invite when SMTP is also set up.
+    } catch { /* fall through to SMTP */ }
+  }
+
+  // SMTP (Gmail / Google Workspace). Uses the same EMAIL_SERVER_* variables the
+  // Auth.js Email provider already reads, so there is one place to configure mail.
+  //
+  // Gmail requires an APP PASSWORD, not the account password, and only when 2-Step
+  // Verification is on — a normal password fails with 535. Port 465 is implicit
+  // TLS (`secure: true`); 587 is STARTTLS (`secure: false`).
+  const host = process.env.EMAIL_SERVER_HOST;
+  const user = process.env.EMAIL_SERVER_USER;
+  const pass = process.env.EMAIL_SERVER_PASSWORD;
+  if (!host || !user || !pass) return false;
+
+  try {
+    // Dynamic import: nodemailer is a Node-only dependency and a static import
+    // would pull it into every bundle that happens to touch this module.
+    const nodemailer = (await import('nodemailer')).default;
+    const port = Number(process.env.EMAIL_SERVER_PORT ?? 465);
+    const transport = nodemailer.createTransport({
+      host, port, secure: port === 465, auth: { user, pass },
+    });
+    await transport.sendMail({ from, to, subject, html });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function notifyStoreWA(phone: string, message: string): Promise<void> {
   // phone: 10-digit or +91XXXXXXXXXX
   const e164 = phone.startsWith('+') ? phone : `+91${phone.replace(/\D/g, '').slice(-10)}`;
@@ -63,6 +121,49 @@ export function storeRegistrationMsg(store: {
     ``,
     `Go to admin: https://wearealive.in/admin`,
   ].filter(Boolean).join('\n');
+}
+
+export function brandEnquiryMsg(e: {
+  reference: string;
+  brandName: string;
+  contactPerson: string;
+  phone: string;
+  whatsapp?: string | null;
+  category?: string | null;
+  budgetBand?: string | null;
+  storeNames: string[];
+  slotsPerStore: number;
+  months: number;
+  estMonthlyRupees: number;
+  estTotalRupees: number;
+  creativeStatus?: string | null;
+  notes?: string | null;
+}) {
+  const inr = (n: number) => `\u20b9${n.toLocaleString('en-IN')}`;
+  const stores = e.storeNames.length
+    ? e.storeNames.join(', ')
+    : 'none picked \u2014 suggest stores for their category';
+  return [
+    `\ud83d\udce3 *New Advertiser Enquiry*`,
+    `Ref: ${e.reference}`,
+    ``,
+    `Brand: ${e.brandName}`,
+    `Contact: ${e.contactPerson}`,
+    `Phone: ${e.phone}`,
+    e.whatsapp && e.whatsapp !== e.phone ? `WhatsApp: ${e.whatsapp}` : null,
+    e.category   ? `Category: ${e.category}` : null,
+    e.budgetBand ? `Budget: ${e.budgetBand}` : null,
+    ``,
+    `Wants: ${e.slotsPerStore} slot(s) \u00d7 ${e.months} month(s)`,
+    `Stores: ${stores}`,
+    `Estimate: ${inr(e.estMonthlyRupees)}/mo \u00b7 ${inr(e.estTotalRupees)} total (ex GST)`,
+    e.creativeStatus ? `Creative: ${e.creativeStatus}` : null,
+    e.notes ? `Notes: ${e.notes}` : null,
+    ``,
+    `They accepted the advertising terms. Call them back with availability and a written quote.`,
+    // Only null is dropped: the empty strings above are deliberate blank
+    // lines, and filter(Boolean) would silently eat them.
+  ].filter(line => line !== null).join('\n');
 }
 
 export function payoutClaimMsg(store: {
@@ -99,6 +200,53 @@ export function deviceOfflineAdminMsg(d: {
   ].join('\n');
 }
 
+/** "7h" / "3 days" — how long a screen has been down, for the digest lines. */
+function downFor(since: Date): string {
+  const mins = Math.max(1, Math.round((Date.now() - since.getTime()) / 60000));
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h`;
+  return `${Math.round(hrs / 24)} days`;
+}
+
+/**
+ * The recurring "these are STILL down" reminder.
+ *
+ * deviceOfflineAdminMsg above is sent once, at the offline edge, and never
+ * repeats — so a single missed or undelivered message is enough for a screen to
+ * stay dark indefinitely with nobody told again. This is the nag that follows.
+ *
+ * Deliberately blunt and ordered worst-first: the point of a repeat message is
+ * that the previous one did not produce a fix, so it has to lead with how long
+ * this has been going on rather than restate the same neutral notice.
+ */
+export function screensStillOfflineMsg(screens: {
+  deviceName: string; storeName: string | null; since: Date;
+}[]) {
+  const one  = screens.length === 1;
+  const head = one
+    ? `1 screen is STILL offline`
+    : `${screens.length} screens are STILL offline`;
+  const tail = one
+    ? `It has not come back on its own. Ads are not playing on it.`
+    : `These have not come back on their own. Ads are not playing on them.`;
+  const lines = screens.slice(0, 10).map(
+    (s) => `• ${s.storeName ?? 'Unassigned'} — ${s.deviceName} — down ${downFor(s.since)}`,
+  );
+  const more = screens.length > 10 ? [`…and ${screens.length - 10} more`] : [];
+
+  return [
+    `🔴 *${head}*`,
+    ``,
+    ...lines,
+    ...more,
+    ``,
+    tail,
+    ``,
+    `https://wearealive.in/admin`,
+  ].join('\n');
+}
+
 // Partner-facing: no admin link, no jargon, and it always ends in the ONE
 // action a shopkeeper can actually take.
 export function deviceOfflinePartnerMsg(d: { storeName: string; since: Date | null }) {
@@ -109,6 +257,13 @@ export function deviceOfflinePartnerMsg(d: { storeName: string; since: Date | nu
     ``,
     `Please check that the screen is switched on and your Wi-Fi is working.`,
     `Ads don't run while it's off — it goes back to normal on its own once it reconnects.`,
+    ``,
+    // "or just reply" matters: the dashboard link only works where a partner
+    // session exists (their usual browser). App-only partners land on a login
+    // form — for them, a plain WhatsApp reply reaches us just as well.
+    `Do you know why it stopped? Power cut, Wi-Fi down, TV switched off?`,
+    `Tell us on your dashboard — or just reply to this message:`,
+    `https://wearealive.in/store-dashboard`,
     ``,
     `Need help? WhatsApp us on +91 74113 24448.`,
   ].join('\n');

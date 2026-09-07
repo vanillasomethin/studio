@@ -5,14 +5,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { makeGroupId, makeProductId } from '@/lib/product-id';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const p        = req.nextUrl.searchParams;
   const q        = p.get('q')?.trim() ?? '';
@@ -54,7 +51,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const body = await req.json() as {
     productName: string; brand: string; category: string;
@@ -87,6 +85,19 @@ export async function POST(req: NextRequest) {
       unitType:    body.unitType,
       mrp:         body.mrp ?? null,
       barcodeEan:  body.barcodeEan?.trim() || null,
+    },
+  });
+
+  await logAdminAction({
+    actor, req,
+    action: 'product.create',
+    target: product.id,
+    meta:   {
+      productName: product.productName,
+      brand:       product.brand,
+      category:    product.category,
+      sizeVariant: product.sizeVariant,
+      mrp:         product.mrp,
     },
   });
 

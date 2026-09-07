@@ -2,23 +2,29 @@
 
 import { useState, type ComponentType } from 'react';
 import dynamic from 'next/dynamic';
-import { CalendarClock, ListVideo, Calendar, type LucideProps } from 'lucide-react';
+import { CalendarClock, ListVideo, Calendar, Grid3x3, Image, type LucideProps } from 'lucide-react';
 import type { Schedule } from '@/lib/backend-api';
 
+const SlotsTab         = dynamic(() => import('./slots-tab'),         { ssr: false });
+const ContentTab       = dynamic(() => import('./content-tab'),       { ssr: false });
 const PlaylistsTab     = dynamic(() => import('./playlists-tab'),     { ssr: false });
 const SchedulesTab     = dynamic(() => import('./schedules-tab'),     { ssr: false });
 const ScheduleCalendar = dynamic(() => import('./schedule-calendar'), { ssr: false });
 
-type ProgramTab = 'playlists' | 'schedules' | 'calendar';
+type ProgramTab = 'slots' | 'creatives' | 'playlists' | 'schedules' | 'calendar';
 
+// Slots lead: a slot-mode store's loop is generated from its bookings, so most
+// stores never need a playlist at all. Playlists/schedules are the other mode.
 const TABS: { id: ProgramTab; label: string; Icon: ComponentType<LucideProps> }[] = [
+  { id: 'slots',     label: 'Slots',      Icon: Grid3x3      },
+  { id: 'creatives', label: 'Creatives',  Icon: Image        },
   { id: 'playlists', label: 'Playlists',  Icon: ListVideo    },
   { id: 'schedules', label: 'Schedules',  Icon: CalendarClock },
   { id: 'calendar',  label: 'Calendar',   Icon: Calendar     },
 ];
 
 export default function ProgrammingTab() {
-  const [view, setView] = useState<ProgramTab>('playlists');
+  const [view, setView] = useState<ProgramTab>('slots');
 
   return (
     <div className="space-y-4">
@@ -39,6 +45,8 @@ export default function ProgrammingTab() {
         ))}
       </div>
 
+      {view === 'slots'     && <SlotsTab />}
+      {view === 'creatives' && <ContentTab />}
       {view === 'playlists' && <PlaylistsTab />}
       {view === 'schedules' && <SchedulesTab />}
       {view === 'calendar'  && <ScheduleCalendar schedules={[] as Schedule[]} />}

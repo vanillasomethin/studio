@@ -6,19 +6,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 type ImportRow = { key: string; mrp: number };
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const body = await req.json() as { rows?: ImportRow[] };
   const rows = (body.rows ?? []).filter((r) => r.key?.trim() && Number.isFinite(r.mrp) && r.mrp > 0);
@@ -43,6 +41,15 @@ export async function POST(req: NextRequest) {
     });
     updated++;
   }
+
+  // Bulk price edit across the catalogue — no single target id, so the counts
+  // are the record. Wrong MRPs are what shoppers see on screen, so who ran the
+  // import matters as much as the numbers.
+  await logAdminAction({
+    actor, req,
+    action: 'product.import_mrp',
+    meta:   { total: rows.length, updated, notFoundCount: notFound.length },
+  });
 
   return NextResponse.json({ updated, notFound, total: rows.length });
 }

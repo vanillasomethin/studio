@@ -5,17 +5,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushPlanUpdated, resolveScheduleDeviceIds } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     const {
@@ -107,6 +105,16 @@ export async function PATCH(
       before ? resolveScheduleDeviceIds(before) : Promise.resolve([]),
     ]).then((sets) => pushPlanUpdated(Array.from(new Set(sets.flat())))).catch(() => {});
 
+    // Retargeting an existing schedule can move content onto new screens just as
+    // effectively as creating one, so it is logged with the same weight. `data`
+    // holds only the fields the caller actually changed.
+    await logAdminAction({
+      actor, req,
+      action: 'schedule.update',
+      target: id,
+      meta:   { changed: Object.keys(data), ...data },
+    });
+
     return NextResponse.json({ schedule: norm });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -117,7 +125,8 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     // Read targeting before deleting so we know which devices to notify
@@ -134,6 +143,15 @@ export async function DELETE(
         cityFilter: (schedule as { cityFilter?: string | null }).cityFilter,
       }).then((ids) => pushPlanUpdated(ids)).catch(() => {});
     }
+    // Deleting a schedule silently blanks screens — an availability attack as
+    // much as a content one. Capture what was removed, since the row is gone.
+    await logAdminAction({
+      actor, req,
+      action: 'schedule.delete',
+      target: id,
+      meta:   { deviceIds: schedule?.deviceIds, groupName: schedule?.groupName },
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

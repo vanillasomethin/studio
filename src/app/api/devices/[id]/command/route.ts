@@ -6,19 +6,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushCommand, type DeviceCommandType } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  // Fail CLOSED: a missing ADMIN_PASSWORD must authorize nobody (see admin-auth.ts).
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 // plan_updated is pushed automatically by schedule/playlist mutations (see fcm.ts
 // callers) — this endpoint is for the two commands an admin triggers explicitly.
 const ALLOWED_TYPES: DeviceCommandType[] = ['reboot', 'health_ping'];
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   let type: DeviceCommandType;
@@ -36,8 +33,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!device) return NextResponse.json({ error: 'Device not found' }, { status: 404 });
 
   await pushCommand([id], type);
-  await db.auditLog.create({
-    data: { action: 'device_command', target: id, meta: { type } },
+  // Was a bare auditLog.create with no actorId — a reboot nobody could be held to.
+  // Routed through logAdminAction so the row carries who/ip/agent like every other
+  // admin mutation, and so a DB hiccup on the log can't 500 a command that already shipped.
+  await logAdminAction({
+    actor, req,
+    action: 'device.command',
+    target: id,
+    meta:   { type },
   });
 
   return NextResponse.json({ ok: true });

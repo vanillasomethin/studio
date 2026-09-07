@@ -6,17 +6,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { lookupByBarcode } from '@/lib/openfoodfacts';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { id } = await params;
   const product = await db.product.findUnique({ where: { id } });
@@ -27,5 +25,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const result = await lookupByBarcode(product.barcodeEan);
+
+  // Nothing is saved here — but this is an admin-triggered outbound call that
+  // sends a catalogue barcode to a third party, so it is worth attributing.
+  await logAdminAction({
+    actor, req,
+    action: 'product_barcode.lookup',
+    target: id,
+    meta:   { barcodeEan: product.barcodeEan },
+  });
+
   return NextResponse.json(result);
 }

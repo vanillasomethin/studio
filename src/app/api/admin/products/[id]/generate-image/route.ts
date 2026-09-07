@@ -7,17 +7,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { putObject, publicUrl } from '@/lib/r2';
 import { generateProductImage } from '@/ai/flows/generate-product-image';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { id } = await params;
   const product = await db.product.findUnique({ where: { id } });
@@ -43,6 +41,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const updated = await db.product.update({
       where: { id },
       data:  { imageUrl: url, imageIsAi: true, updatedAt: new Date() },
+    });
+
+    // An AI image overwrites what shoppers see on the shelf screen for this
+    // product, so record who replaced it and with which asset.
+    await logAdminAction({
+      actor, req,
+      action: 'product_image.generate',
+      target: id,
+      meta:   { productName: product.productName, brand: product.brand, imageUrl: url },
     });
 
     return NextResponse.json({ product: updated });

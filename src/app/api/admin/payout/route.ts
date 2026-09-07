@@ -1,22 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function checkAdmin(req: NextRequest) {
-  // Fail CLOSED: a missing ADMIN_PASSWORD must authorize nobody (see admin-auth.ts).
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
+import { computeStorePayout, freezeColumns } from '@/lib/store-payout-db';
 
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
-  const { storeId, month, mode = 'upi', amount = 50000 } = await req.json() as {
+  const body = await req.json() as {
     storeId: string; month: string; mode?: string; amount?: number;
+    payRef?: string; note?: string;
   };
+  const { storeId, month, mode = 'upi' } = body;
 
   if (!storeId || !month) {
     return NextResponse.json({ error: 'storeId and month are required' }, { status: 400 });
   }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    return NextResponse.json({ error: 'month must be YYYY-MM' }, { status: 400 });
+  }
+
+  const existing = await db.storePayment.findUnique({
+    where: { storeId_month: { storeId, month } },
+  });
+  // A settled month keeps the figure that was actually paid — re-running a
+  // payout must not silently reprice it against today's bookings and tariff.
+  const settled = existing?.status === 'paid' && existing.computedAt != null;
+
+  // What this shop is actually owed: tier base + ad incentive + electricity.
+  // The old `amount = 50000` default transferred a flat ₹500 to every partner
+  // — wrong for every slot-tier and premium store, and blind to electricity.
+  const breakdown = settled ? null : await computeStorePayout(storeId, month);
+  if (!settled && !breakdown) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+  const computedPaise = breakdown?.totalPaise ?? existing?.amountPaise ?? 0;
+  const override = typeof body.amount === 'number' && body.amount !== computedPaise ? body.amount : null;
+  const amount = override ?? computedPaise;
 
   // Fetch store details via raw query (schema drift safe)
   const rows = await db.$queryRaw<Array<{
@@ -96,17 +115,57 @@ export async function POST(req: NextRequest) {
       : `No UPI/bank details. Ask store to update their payout details.`;
   }
 
-  // Upsert StorePayment record
-  await db.$executeRaw`
-    INSERT INTO "StorePayment" ("id", "storeId", "month", "amountPaise", "status", "paidAt", "payRef", "note", "createdAt", "updatedAt")
-    VALUES (gen_random_uuid()::text, ${storeId}, ${month}, ${amount}, ${status}, ${status === 'paid' ? now : null}, ${payRef}, ${message}, ${now}, ${now})
-    ON CONFLICT ("storeId", "month") DO UPDATE SET
-      "status" = EXCLUDED."status",
-      "paidAt" = EXCLUDED."paidAt",
-      "payRef" = EXCLUDED."payRef",
-      "note"   = EXCLUDED."note",
-      "updatedAt" = NOW()
-  `;
+  // The admin's own UTR and note win over the generated message — they were
+  // typed into the confirm dialog and then silently dropped, because the old
+  // handler never destructured them off the body.
+  const finalPayRef = body.payRef?.trim() || payRef;
+  const finalNote   = body.note?.trim() || message;
+
+  // Prisma upsert rather than raw SQL: the frozen breakdown is fifteen columns
+  // and the old ON CONFLICT omitted "amountPaise" entirely, so re-running a
+  // payout at a corrected amount kept the stale figure.
+  await db.storePayment.upsert({
+    where:  { storeId_month: { storeId, month } },
+    create: {
+      storeId, month, amountPaise: amount, status,
+      paidAt: status === 'paid' ? now : null,
+      payRef: finalPayRef, note: finalNote,
+      ...(breakdown ? freezeColumns(breakdown) : {}),
+    },
+    update: {
+      amountPaise: amount, status,
+      paidAt: status === 'paid' ? now : undefined,
+      payRef: finalPayRef, note: finalNote,
+      // Empty for a settled row — its frozen breakdown stays as written.
+      ...(breakdown ? freezeColumns(breakdown) : {}),
+      updatedAt: now,
+    },
+  });
+
+  // Money leaving the platform — logged only once the StorePayment row is
+  // committed, so a Razorpay failure (which returns 502 above) never shows up in
+  // the feed as a completed payout. Payment destinations (UPI id, bank account)
+  // stay out of meta; the storeId is enough to look them up.
+  await logAdminAction({
+    actor, req,
+    action: 'payout.create',
+    target: storeId,
+    meta: {
+      month, mode, amountPaise: amount, status, payRef: finalPayRef,
+      automated: !!(xKeyId && xKeySecret),
+      // The derivation, so the trail explains the figure without a join. Plain
+      // names — admin-audit blanks any meta name whose words include
+      // key/hash/sig/pin, which would silently redact these.
+      basePaise: breakdown?.basePaise ?? null,
+      incentivePaise: breakdown?.incentivePaise ?? null,
+      electricityPaise: breakdown?.electricityPaise ?? null,
+      kwhSource: breakdown?.kwhSource ?? null,
+      brandsPlayed: breakdown?.brandsPlayed ?? null,
+      override: override != null,
+      computedPaise,
+      alreadySettled: settled,
+    },
+  });
 
   // Build UPI deep link for manual payment (always return this as fallback)
   const upiLink = store.upiId

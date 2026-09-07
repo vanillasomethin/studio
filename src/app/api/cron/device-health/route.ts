@@ -23,7 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { notifyAdminWA } from '@/lib/notify';
-import { sweepOfflineDevices } from '@/lib/device-alerts';
+import { sweepOfflineDevices, resolveStaleOfflineAlerts } from '@/lib/device-alerts';
 import { recordError, hashStack, getOrCreateCorrelationId } from '@/lib/telemetry';
 import { isCronAuthorized } from '@/lib/cron-auth';
 
@@ -51,8 +51,12 @@ export async function GET(req: NextRequest) {
     // every 5 min, observed firing 0.4h to 11.4h apart — that it is the backstop
     // rather than the primary trigger. force: it runs on a cold instance and must
     // never be skipped by the opportunistic throttle.
-    const { markedOffline, opened: openedAlerts, notified: partnersNotified } =
+    const { markedOffline, opened: openedAlerts, notified: partnersNotified, digested } =
       await sweepOfflineDevices(now, { force: true });
+
+    // Retire alerts for screens that are never coming back, so the active list
+    // and the admin popup stay about outages someone can actually act on.
+    const staleClosed = await resolveStaleOfflineAlerts(now);
 
     // 2. Recalculate rolling 30-day uptime for all non-PENDING devices
     const devices = await db.device.findMany({
@@ -163,7 +167,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true, markedOffline, updatedUptime: devices.length, createdTickets,
-      openedAlerts, partnersNotified,
+      openedAlerts, partnersNotified, staleClosed, digested,
     });
   } catch (e) {
     const error = e as Error;

@@ -8,11 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { signedUploadUrl, publicUrl } from '@/lib/r2';
 import { randomUUID } from 'crypto';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 const BASE_CONTENT_SELECT = {
   id: true, name: true, type: true, objectKey: true,
@@ -21,7 +18,7 @@ const BASE_CONTENT_SELECT = {
 };
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const folder = req.nextUrl.searchParams.get('folder');
     const tag    = req.nextUrl.searchParams.get('tag');
@@ -78,7 +75,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { name, type, sizeBytes, md5, durationMs, mimeType, width, height } = await req.json() as {
       name: string;
@@ -115,6 +113,16 @@ export async function POST(req: NextRequest) {
       data: { name, type: dbType, objectKey, md5, sizeBytes, durationMs: durationMs ?? null, ...dims },
     });
 
+    // This hands back a presigned R2 PUT URL — the point where new media enters
+    // the platform. Logged with the object key so an unrecognised asset on a
+    // screen can be traced back to who introduced it.
+    await logAdminAction({
+      actor, req,
+      action: 'content.create',
+      target: content.id,
+      meta:   { name, type, sizeBytes, objectKey },
+    });
+
     return NextResponse.json({ id: content.id, uploadUrl, objectKey });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -122,7 +130,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const { id, tags, folder } = await req.json() as { id: string; tags?: string[]; folder?: string | null };
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
@@ -134,6 +143,7 @@ export async function PATCH(req: NextRequest) {
           ...(folder !== undefined ? { folder } : {}),
         },
       });
+      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder } });
       return NextResponse.json({ id: updated.id, tags: (updated as { tags?: string[] }).tags ?? [], folder: (updated as { folder?: string | null }).folder ?? null });
     } catch {
       // Fallback: update via raw SQL if ORM fails on missing column
@@ -143,6 +153,7 @@ export async function PATCH(req: NextRequest) {
       if (folder !== undefined) {
         await db.$executeRaw`UPDATE "Content" SET folder = ${folder} WHERE id = ${id}`;
       }
+      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder, viaRawSql: true } });
       return NextResponse.json({ id, tags: tags ?? [], folder: folder ?? null });
     }
   } catch (e) {

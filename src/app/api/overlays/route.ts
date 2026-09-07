@@ -4,11 +4,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 function normalize(o: Record<string, unknown>) {
   const obj = o as { startAt?: Date | null; endAt?: Date | null; createdAt: Date; updatedAt: Date; feedFetchedAt?: Date | null };
@@ -23,7 +20,7 @@ function normalize(o: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const overlays = await db.overlay.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }] });
     return NextResponse.json({ overlays: overlays.map(normalize) });
@@ -33,7 +30,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as {
       name:        string;
@@ -86,6 +84,23 @@ export async function POST(req: NextRequest) {
         dailyEnd:    body.dailyEnd ?? null,
         requireWifi: body.requireWifi ?? false,
         priority:    body.priority ?? 0,
+      },
+    });
+
+    // New copy on screens without a playlist edit — logged with its targeting so
+    // an unexpected ticker can be traced to who introduced it and where.
+    await logAdminAction({
+      actor, req,
+      action: 'overlay.create',
+      target: overlay.id,
+      meta: {
+        name:      overlay.name,
+        type:      overlay.type,
+        enabled:   overlay.enabled,
+        position:  overlay.position,
+        priority:  overlay.priority,
+        deviceIds: overlay.deviceIds,
+        groupName: overlay.groupName,
       },
     });
 

@@ -36,6 +36,26 @@ model User {
   name          String?
   image         String?
   role          UserRole  @default(STORE_PARTNER)
+  // TOTP second factor, for ADMIN/OPS accounts. `mfaSecret` is the base32 seed;
+  // it is set at enrolment but only *trusted* once `mfaEnabledAt` is stamped by
+  // a successful first code, so an abandoned enrolment can never leave an
+  // account believing it is protected. Both nullable: existing users are
+  // unenrolled, which is why the migration is purely additive.
+  mfaSecret     String?
+  mfaEnabledAt  DateTime?
+  // Highest TOTP counter step already consumed by this account. A code stays
+  // valid for ~90s across the ±1 drift window, so without this a phished or
+  // shoulder-surfed code can be replayed. Claimed atomically (updateMany with a
+  // `lt` guard) so two concurrent logins can't both spend the same step.
+  mfaLastStep   Int?
+  // Single-use recovery codes, bcrypt-hashed — each one is a complete second
+  // factor, so they are stored exactly as a password would be. A consumed code
+  // is removed from the array rather than marked, which makes "already used"
+  // and "never existed" the same state and leaves nothing to replay. Without
+  // these a lost authenticator is only recoverable by editing this table by
+  // hand, which is why 2FA would otherwise be too risky to switch on.
+  mfaBackupCodes   String[]  @default([])
+  mfaBackupCodesAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -43,6 +63,7 @@ model User {
   sessions Session[]
   store    Store?
   brand    Brand?
+  adminSessions AdminSession[]
 
   @@index([phone])
   @@index([role])
@@ -82,6 +103,67 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ─── Admin team: tracked sessions + invites ──────────────────────────────────
+
+/// One row per admin sign-in, so the console can answer "who is logged in right
+/// now?" and "log that person out".
+///
+/// This table exists because the Session model above is EMPTY: Auth.js only
+/// supports `strategy: 'jwt'` with the Credentials providers this app uses, so
+/// no adapter session rows are ever written. A JWT is stateless — it stays valid
+/// until it expires no matter what the database says — which means without this
+/// table a signed-in admin cannot be logged out at all.
+///
+/// The bridge back to the stateless token is `sid`: the id of this row is minted
+/// at sign-in and embedded in the JWT, and requireAdmin() looks the row up on
+/// every admin request. A revoked or missing row denies the request, which is
+/// what makes revocation real rather than cosmetic.
+model AdminSession {
+  id         String    @id @default(cuid())
+  userId     String
+  createdAt  DateTime  @default(now())
+  /// Touched at most once a minute (see touchAdminSession) — a write on every
+  /// request would make the audit table the busiest thing in the console.
+  lastSeenAt DateTime  @default(now())
+  /// Set = session is dead. Kept rather than deleted so the login history still
+  /// shows the session existed and when it was ended.
+  revokedAt  DateTime?
+  /// User id of whoever revoked it; null when the person signed themselves out.
+  revokedBy  String?
+  ip         String?
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastSeenAt])
+  @@index([revokedAt])
+}
+
+/// A single-use invitation for a new admin/ops account.
+///
+/// The account is created with NO password. The invitee follows an emailed link
+/// and sets their own, so a credential never travels through chat and nobody —
+/// including whoever created the account — ever knows it.
+///
+/// `tokenHash` stores a SHA-256 of the token, never the token itself. The raw
+/// value exists only in the email. A database leak therefore yields no usable
+/// invite links, exactly as a password column stores no passwords.
+model AdminInvite {
+  id         String    @id @default(cuid())
+  email      String
+  role       UserRole
+  tokenHash  String    @unique
+  invitedBy  String?
+  expiresAt  DateTime
+  /// Set on use. Combined with expiresAt this makes an invite strictly one-shot.
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
 }
 
 // ─── Store partners ──────────────────────────────────────────────────────────
@@ -140,6 +222,22 @@ model Store {
   installPhotoLng    Float?
   installPhotoSource String?
   installPhotoAt     DateTime?
+  // Two more evidence photos, captured by OPS (not the partner) from the install
+  // wizard at /admin/pair: the TV's serial/rating plate, and the smart plug in
+  // its socket. Same five-column shape as above on purpose — the shop/install
+  // pair is read by the partner app, the store dashboard and /api/stores/me, so
+  // folding all four kinds into a StorePhoto table would have been a breaking
+  // change to three consumers for no gain at this count.
+  serialPhotoUrl     String?
+  serialPhotoLat     Float?
+  serialPhotoLng     Float?
+  serialPhotoSource  String?
+  serialPhotoAt      DateTime?
+  plugPhotoUrl       String?
+  plugPhotoLat       Float?
+  plugPhotoLng       Float?
+  plugPhotoSource    String?
+  plugPhotoAt        DateTime?
 
   // ── Installation & hardware (ops-recorded at the site visit) ────────────────
   // Deliberately on Store, not Device: the decommission flow DELETES the Device
@@ -148,16 +246,30 @@ model Store {
   // and the site's wiring/network outlive that, and "1 screen per store" (see
   // CLAUDE.md business rules) makes the store the unambiguous owner.
   //
-  // wifiPassword is ADMIN-ONLY: it is returned by the admin-password-gated store
-  // list and never by the partner-facing routes (/api/stores/me), because a
-  // storeId alone is enough to read those.
+  // wifiPassword and wifiUsername are ADMIN-ONLY: they are returned by the
+  // admin-password-gated store list and never by the partner-facing routes
+  // (/api/stores/me), because a storeId alone is enough to read those.
   tvBrand       String? // manufacturer / company, e.g. "Foxsky", "Kodak"
+  tvModel       String? // manufacturer model number — decides the SoC lineage (SOP §4.1) and thus Device.playsOriginal
   tvSizeInches  Int? // panel size in inches, e.g. 43
   tvTag         String? // ALIVE asset tag / TV number physically marked on the unit
+  // Manufacturer serial from the back-panel plate. Distinct from tvTag: tvTag is
+  // OUR number written on the unit and is partner-visible, tvSerial is the
+  // maker's immutable id and is ops-owned. @unique so the same physical panel
+  // cannot be recorded at two stores — a real mistake when a TV is moved and the
+  // old store's record is not cleared. Safe on a nullable column: Postgres treats
+  // NULLs as distinct, so every store without a serial yet coexists happily.
+  tvSerial      String?   @unique
   tvInstalledAt DateTime? // when the screen was physically installed
-  espSwitchName String? // label on the ESP/Sonoff smart switch at the site (see SmartPlug for the live eWeLink name)
+  espSwitchName String? // label on the smart switch at the site, recorded by ops during install
+  // ID printed on the smart plug's own label, typed by ops at the site during
+  // the install (see the /admin/pair wizard). Plain install metadata that records
+  // the physical hardware at the shop — no live integration behind it.
+  espPlugId     String?
   wifiSsid      String?
+  wifiUsername  String? // only for PPPoE / ISP-login networks; null on ordinary WPA-PSK
   wifiPassword  String?
+  wifiAuthType  String? // wpa_psk | pppoe | portal | open — decides whether wifiUsername is required
   installNotes  String? // free-text: mount position, socket, anything the next technician needs
 
   // ── Slot loop (fixed-loop ad inventory) ─────────────────────────────────────
@@ -167,13 +279,36 @@ model Store {
   // Kept nullable rather than defaulted so enabling this feature never silently
   // flips existing stores from their scheduled playlists to a house-ads loop.
   loopSlotCount    Int?
+  // Installed screen (the TV, not the Android box — see Device for that). Captured at
+  // install per docs/SCREEN_SURVEY_SOP.md: photograph the model plate and the power
+  // rating label, then type the wattage in. Null screenWatts = fall back to the fleet
+  // default in PlayerConfig, which is a guess and dominates the electricity estimate's
+  // error — the photos exist so that guess can be replaced with the real figure.
+  screenWatts          Int?
+  screenModel          String?
+  screenPlatePhotoUrl  String? // photo of the model/serial plate
+  screenRatingPhotoUrl String? // photo of the power rating label (the W figure)
+  screenSurveyedAt     DateTime?
+  // Storefront photo — how an operator recognises this store at a glance in the
+  // admin (screen cards, pickers). R2 public URL. Not the screen, the shop.
+  photoUrl             String?
   openDays         Int    @default(127) // bitmask, bit0=Mon … bit6=Sun; closed days excluded from availability
   hoursStart       String @default("09:00") // IST, loop plays hoursStart–hoursEnd
   hoursEnd         String @default("21:00")
   fillerCampaignId String? // override of the default house-ads filler campaign
+  // Sound Ad add-on: store-owner mute override (Alive Partner app). Forces the
+  // designated sound slot silent regardless of the once/hour cadence — read by
+  // /api/device/plan and enforced by the player's PlaybackEngine.resolveVolume().
+  // No refund logic when muted.
+  soundAdMuted     Boolean @default(false)
+  // Slot pricing tier ('standard'|'growth'|'flagship' — see src/lib/slot-pricing.ts).
+  // Admin-assigned per store. For a slot-mode store this drives BOTH the per-slot
+  // price a brand is billed and the store's payout, replacing monthlyCompensationPaise
+  // below (which stays the flat figure for stores not in slot mode).
+  slotPricingTier  String  @default("standard")
 
   tier              String    @default("standard") // standard | premium — set via gated premium signup link
-  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium
+  monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium — flat-rate stores only (slot-mode stores compute dynamically, see slot-pricing-db.ts)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -188,6 +323,9 @@ model Store {
   footfallHourly       FootfallHourly[]
   screenPresenceEvents ScreenPresenceEvent[]
   sensorHealth         StoreSensorHealth?
+  smartPlug            SmartPlug?
+  slotAddons           SlotAddon[]
+  slotRequests         SlotRequest[]
   pushSubscriptions    PushSubscription[]
 
   @@index([city])
@@ -207,6 +345,31 @@ model StorePayment {
   paidBy      String? // admin user id or name
   payRef      String? // UPI reference or transaction ID
   note        String?
+
+  // ── Frozen payout breakdown ─────────────────────────────────────────────────
+  // Written when the month is computed/settled (see src/lib/store-payout-db.ts).
+  // All nullable: rows predating this feature carry only amountPaise.
+  //
+  // These exist because every source the payout reads is destructible —
+  // PlugReading self-prunes at 180 days, deleting a Device cascades away its
+  // PlayEvents, deleting a Campaign cascades away its SlotBookings — so a
+  // recomputation months later would silently disagree with what was paid. A
+  // settled row must be able to answer "why this number" on its own.
+  basePaise        Int?
+  incentivePaise   Int?
+  electricityPaise Int?
+  kwh              Float?
+  kwhSource        String? // metered | estimated
+  paisePerKwh      Int? // tariff snapshot — the fleet figure is mutable
+  brandsPlayed     Int? // distinct campaigns booked in the month
+  filledSlotDays   Int? // Σ over live days of that day's distinct-campaign count
+  avgFilledSlots   Float?
+  liveDays         Int?
+  daysInMonth      Int?
+  tierAtPayout     String?
+  payoutMode       String? // slot | flat
+  computedAt       DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -255,26 +418,123 @@ model Campaign {
   totalAmount    Int
   couponCode     String?  // coupon applied at checkout, if any
   paymentId      String?
-  orderId        String?
+  // Unique so the DATABASE decides that one Razorpay order yields at most one
+  // campaign. verify-payment used a check-then-create, which two concurrent
+  // confirmations of the same payment could both pass. Nullable and Postgres
+  // allows many NULLs in a unique index, so campaigns with no order — trials,
+  // admin-created, pay-later before checkout — are unaffected.
+  orderId        String?  @unique
   status         String   @default("upcoming") // upcoming | active | completed | cancelled
   creativeUrls   String[] @default([]) // R2 URLs of uploaded ad creatives
   // The campaign's 10s slot creative (slot-loop inventory). creativeUrls are raw R2
   // uploads without the md5/type the player cache needs, so slot playback goes
   // through a proper Content row. A booked campaign without one plays as filler.
   slotContentId  String?
+  // Governs this campaign's monthly creative-change quota (see lib/content-quota.ts) —
+  // admin-assigned, independent of a store's own slotPricingTier (a campaign can run
+  // across many stores with different tiers; this is the brand's own plan).
+  slotPricingTier String  @default("standard")
+  // Optional multi-creative rotation for slot mode — overrides slotContentId when
+  // set. The playlist's direct media items rotate deterministically: a campaign's
+  // k-th play of the day shows item (dayIndex + k) mod N, so several positions in
+  // one loop each show a different item and a single position cycles day by day.
+  // Slots stay fixed 10s — the playlist supplies WHICH creative, never the duration.
+  slotPlaylistId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   brand                Brand?                @relation(fields: [brandId], references: [id], onDelete: SetNull)
   slotContent          Content?              @relation("CampaignSlotCreative", fields: [slotContentId], references: [id], onDelete: SetNull)
+  slotPlaylist         Playlist?             @relation("CampaignSlotPlaylist", fields: [slotPlaylistId], references: [id], onDelete: SetNull)
   fillerForStores      Store[]               @relation("StoreFiller")
   slotBookings         SlotBooking[]
   playEvents           PlayEvent[]
   screenPresenceEvents ScreenPresenceEvent[]
+  playGuaranteeCycles  PlayGuaranteeCycle[]
+  slotAddons           SlotAddon[]
+  slotRequests         SlotRequest[]
 
   @@index([brandId])
   @@index([status])
   @@index([email])
+}
+
+// Self-serve slot booking, request-only: a brand spends credits (their Campaign.screens
+// count) requesting a store + time-window; nothing actually books until ALIVE admin
+// approves and assigns the real SlotBooking (unchanged, still admin-only — see
+// lib/slots.ts). Pending AND approved requests both hold their credits reserved;
+// rejected/cancelled release them. See lib/slot-requests-db.ts.
+model SlotRequest {
+  id          String    @id @default(cuid())
+  campaignId  String
+  storeId     String
+  window      String // '1A'|'1B'|'2A'|'2B'|'3A'|'3B'|'3C'|'FULL_DAY' — see lib/slot-windows.ts
+  creditsCost Int // snapshotted at request time (1 off-peak, 2 peak) — a later rate
+  // change must not silently reprice an outstanding request
+  status      String    @default("pending") // 'pending' | 'approved' | 'rejected' | 'cancelled'
+  note        String? // brand's optional note to admin
+  requestedAt DateTime  @default(now())
+  decidedAt   DateTime?
+  decidedBy   String? // free-text, same loose-actor convention as AuditLog.actorId
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([storeId])
+  @@index([status])
+}
+
+// Peak Boost / Sound Ad add-ons — both are flags on top of an existing slot booking,
+// scoped to (store, campaign, type) so a campaign can hold the add-on at each store it
+// has booked independently. First-come-first-served: status is decided once at
+// purchase time against that store's cap (see src/lib/addons.ts) and never revisited,
+// so there is no cancel/refund flow to keep consistent — matches the spec's "no
+// discount/5th slot" stance on going over cap.
+model SlotAddon {
+  id         String   @id @default(cuid())
+  storeId    String
+  campaignId String
+  type       String // 'peak_boost' | 'sound_ad'
+  status     String   @default("active") // 'active' | 'waitlisted'
+  createdAt  DateTime @default(now())
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, campaignId, type])
+  @@index([storeId, type, status])
+  @@index([campaignId])
+}
+
+// Minimum Play Guarantee (SLA) — one row per closed billing cycle (calendar month
+// of a campaign's flight) once shortfall has been checked (see src/lib/sla.ts).
+// promised/delivered are snapshotted at close time so past cycles read consistently
+// even if slot config changes later. makegoodBalance is the shortfall GRANTED at
+// close — the remaining balance is derived at read time from bonus plays delivered
+// since (see getMakegoodWeights in src/lib/sla-db.ts), not decremented here, so this
+// table stays a pure append-only ledger.
+model PlayGuaranteeCycle {
+  id             String    @id @default(cuid())
+  campaignId     String
+  cycleIndex     Int // 0-based month index within the campaign's flight
+  cycleStart     DateTime  @db.Date
+  cycleEnd       DateTime  @db.Date
+  promisedPlays  Int
+  deliveredPlays Int
+  shortfallPlays Int       @default(0)
+  remedyType     String? // 'makegood' | 'credit' — null when no shortfall
+  // makegood: extra plays owed, redistributed as weighted bonus plays in later cycles.
+  makegoodBalance Int      @default(0)
+  // credit: pro-rated bill credit in rupees (same unit as Campaign.pricePerScreen).
+  creditAmount    Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, cycleIndex])
+  @@index([campaignId])
+  @@index([remedyType, makegoodBalance])
 }
 
 // ─── Coupons (brand onboarding discounts) ────────────────────────────────────
@@ -371,7 +631,6 @@ model Device {
   telemetryEvents    TelemetryEvent[]
   remediationTickets RemediationTicket[]
   alerts             DeviceAlert[]
-  smartPlug          SmartPlug?
 
   @@index([storeId])
   @@index([groupName])
@@ -425,9 +684,23 @@ model DeviceAlert {
   causeConfidence    String? // high | medium | low
   causeEvidence      String? // human-readable lines, newline separated — shown verbatim in the panel
 
+  // What the shopkeeper said happened. Kept apart from `cause` above on
+  // purpose: that is the server's verdict from device telemetry, this is a human
+  // standing in front of the screen. Today the classifier returns UNKNOWN across
+  // the fleet (no player build reports uptime yet), so this is the only cause
+  // signal that exists at all; once telemetry ships, comparing the two columns
+  // is how classifyOutageCause earns enough trust to run unsupervised.
+  partnerReportedCause String?   // POWER_CUT | NO_INTERNET | TV_OFF | APP_CLOSED | DONT_KNOW
+  partnerReportedAt    DateTime?
+
   adminReadAt       DateTime? // admin dismissed/saw it in the panel
   partnerNotifiedAt DateTime? // partner push/WhatsApp actually attempted
   partnerReadAt     DateTime?
+  // Last time this outage was included in a "still offline" digest to the admin.
+  // Doubles as the digest's own cadence marker: the most recent value across the
+  // table is when the last digest went out, so no separate singleton row is
+  // needed. See sendStillOfflineDigest in src/lib/device-alerts.ts.
+  adminDigestAt     DateTime?
 
   createdAt DateTime @default(now())
 
@@ -605,6 +878,8 @@ model Playlist {
   schedules    Schedule[]
   // Items in OTHER playlists that nest this playlist (SMIL-style Master → Internal).
   referencedBy PlaylistItem[]   @relation("PlaylistNesting")
+  // Campaigns rotating this playlist's media items as their slot-mode creatives.
+  slotCampaigns Campaign[]      @relation("CampaignSlotPlaylist")
 }
 
 enum PlaylistTransition {
@@ -698,6 +973,12 @@ model SlotBooking {
   slotPosition Int      // 0-based position within the loop
   campaignId   String
   status       String   @default("booked") // reserved for future states; unassign = row delete
+  // Multi-slot placement marker: rows created together for one ad longer than 10s
+  // share a spanId (one row per covered position, consecutive at booking time).
+  // The GROUP defines the playback window — buildSlotLoop emits one item of
+  // rowCount × 10s at the lowest position and skips the rest. Null = a plain
+  // single-slot booking (all legacy rows). Groups are created and deleted whole.
+  spanId       String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -707,6 +988,7 @@ model SlotBooking {
   @@unique([storeId, date, slotPosition])
   @@index([campaignId])
   @@index([date])
+  @@index([spanId])
 }
 
 // ─── Proof-of-play ───────────────────────────────────────────────────────────
@@ -883,7 +1165,85 @@ model HourlyPop {
   @@index([hour])
 }
 
+// ─── Proof-of-play archive (Admin → Proof of Play → Monthly archive) ─────────
+//
+// PlayEvent detail for each completed IST calendar period is exported to CSVs
+// in the private R2 bucket by src/lib/pop-export.ts, then optionally pruned
+// from Postgres after a 45-day lag (payout freeze + 30-day uptime window both
+// still read recent PlayEvents — see the lib header). exportedThrough is the
+// watermark: everything before it is verifiably archived, so periods tile with
+// no gap and no overlap.
+
+enum PopExportFrequency {
+  MONTHLY
+  BIMONTHLY
+}
+
+enum PopExportStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model PopExportConfig {
+  id                Int                @id @default(1)
+  enabled           Boolean            @default(false)
+  frequency         PopExportFrequency @default(MONTHLY)
+  // The admin-optional prune: rows delete only AFTER their period is archived
+  // AND the 45-day lag has passed. Off = archive-only, nothing is ever deleted.
+  deleteAfterExport Boolean            @default(false)
+  // Month-boundary UTC instant; strictly-before-this is in R2.
+  exportedThrough   DateTime?
+  lastRunAt         DateTime?
+  updatedAt         DateTime           @updatedAt
+}
+
+model PopExport {
+  id          String          @id @default(cuid())
+  periodLabel String // '2026-08' (monthly) or '2026-07_2026-08' (bi-monthly)
+  periodStart DateTime // inclusive, IST month edge in UTC
+  periodEnd   DateTime // exclusive, IST month edge in UTC
+  status      PopExportStatus @default(RUNNING)
+  playCount   Int             @default(0)
+  adCount     Int             @default(0) // distinct creatives in the period
+  screenCount Int             @default(0) // distinct devices in the period
+  totalBytes  Int             @default(0) // across all three CSVs
+  playsKey    String? // R2 private-bucket keys, set once verified
+  byAdKey     String?
+  byScreenKey String?
+  // Rows removed by the deferred prune; null while the period's PlayEvents are
+  // still in Postgres (prune off, or lag not yet passed).
+  deletedRows Int?
+  error       String?
+  startedAt   DateTime        @default(now())
+  finishedAt  DateTime?
+
+  @@index([periodStart])
+  @@index([status])
+}
+
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────
+
+// DEAD — do not build on this. Named admin accounts live on `User` (role
+// ADMIN | OPS) with `AdminInvite` + `AdminSession`; nothing reads AdminUser any
+// more. The table is left in place rather than dropped because the migration
+// that created it has already run on production, and removing a table deserves
+// its own deliberate migration rather than a silent one.
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  team         String    // operations | founder | tech — shown on audit entries
+  passwordHash String?   // null until they accept their invite and set one
+  inviteToken  String?   @unique
+  inviteSentAt DateTime?
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([active])
+}
 
 model AuditLog {
   id        String   @id @default(cuid())
@@ -897,6 +1257,42 @@ model AuditLog {
 
   @@index([actorId])
   @@index([action])
+  @@index([createdAt])
+}
+
+// ─── Alerts & Notifications (admin panel) ─────────────────────────────────────
+//
+// The alerts themselves are computed at read time from live device/store/campaign
+// data (see AlertsTab.buildAlerts on the client) — they have no row of their own.
+// These two tables hold the durable, team-visible state layered on top of a
+// computed alert, keyed by its deterministic client-side id (e.g.
+// "device-offline-<deviceId>"). No admin user accounts exist (single shared
+// ADMIN_PASSWORD — see CLAUDE.md), so assignee/author are free text, same
+// loose-actor convention as AuditLog.actorId.
+
+model AlertAction {
+  id        String    @id @default(cuid())
+  alertId   String    @unique
+  team      String? // 'tech' | 'operations' | 'marketing'
+  assignee  String? // free-text person in charge
+  status    String    @default("open") // 'open' | 'closed'
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+  @@index([team])
+}
+
+model AlertComment {
+  id        String   @id @default(cuid())
+  alertId   String
+  author    String?
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([alertId])
   @@index([createdAt])
 }
 
@@ -1067,6 +1463,55 @@ model StoreSensorHealth {
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
 
+// ─── Tuya smart-plug power monitoring (Aziot / Smart Life) ───────────────────
+
+// One Tuya-cloud device (an Aziot 4-node smart plug) linked per store. On
+// Store, not Device: the decommission flow deletes the Device row on re-pair
+// (see the installation-fields note on Store), and the plug is site hardware
+// that outlives any screen swap. The snapshot columns mirror the latest poll
+// so list views never need the readings table.
+model SmartPlug {
+  id           String    @id @default(cuid())
+  storeId      String    @unique
+  tuyaDeviceId String    @unique
+  name         String
+  productName  String?
+  category     String? // Tuya category code, e.g. "pc" (power strip), "cz" (socket)
+  online       Boolean?
+  switchOn     Boolean? // any socket on
+  socketsOn    Int? // how many of the 4 sockets are on
+  socketCount  Int? // boolean switch codes the device exposes
+  powerW       Float?
+  voltageV     Float?
+  currentA     Float?
+  // Per-code multiplier from the device's Tuya specification (raw value → SI
+  // unit, e.g. cur_power reports deci-watts → 0.1). Fetched once at link time;
+  // null means "use defaults" (see parsePlugStatus in src/lib/tuya.ts).
+  scales       Json?
+  lastPolledAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  readings PlugReading[]
+}
+
+model PlugReading {
+  id       String   @id @default(cuid())
+  plugId   String
+  at       DateTime @default(now())
+  online   Boolean
+  switchOn Boolean
+  powerW   Float?
+  // Energy consumed since the previous reading, integrated from wattage over
+  // the (capped) poll gap — see recordPlugPoll in src/lib/tuya-power.ts. Kept
+  // per-interval so month/day totals are a plain SUM regardless of gaps.
+  energyWh Float?
+
+  plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
+
+  @@index([plugId, at])
+}
+
 // Singleton row (id always 1) — fleet-wide player behavior knobs, editable from
 // admin without an APK rebuild. Player reads these via /api/device/plan.
 model PlayerConfig {
@@ -1086,65 +1531,102 @@ model PlayerConfig {
   // Default house-ads campaign for slot-loop filler (Store.fillerCampaignId overrides
   // per store). Plain id, not a relation — a deleted campaign just means no filler.
   fillerCampaignId         String?
+  // Electricity estimation. defaultScreenWatts is the fleet fallback when a store has
+  // no measured screenWatts; paisePerKwh is the tariff applied to estimated units.
+  // Both are assumptions — see lib/power.ts on why the result is an estimate, not a
+  // meter reading, and must always be labelled as such to partners.
+  defaultScreenWatts       Int      @default(60)  // 32–43" LED TV + Android box
+  electricityPaisePerKwh   Int      @default(800) // ₹8.00 per unit
   updatedAt                DateTime @updatedAt
 }
 
-// ─── eWeLink smart plugs (Sonoff) — per-screen mains switch + power telemetry ─
+// ─── Trackable QR redirects ──────────────────────────────────────────────────
+//
+// A printed QR encodes /r/<slug> rather than the destination itself, so the
+// target can be repointed after the sticker is on the wall, and every scan is
+// counted. The redirect must never wait on the write — see src/app/r/[slug].
 
-// Singleton row (id always 1) — the studio's linked eWeLink account. Tokens come
-// from the OAuth flow (admin > Screens > screen drawer > Power > Connect) and are
-// refreshed by the ewelink-poll cron. needsReauth flips on when a refresh fails;
-// the Power card then shows a re-connect button.
-model EwelinkAccount {
-  id           Int       @id @default(1)
-  region       String // cn | as | us | eu → https://{region}-apia.coolkit.{cn|cc}
-  accessToken  String
-  refreshToken String
-  atExpiresAt  DateTime?
-  rtExpiresAt  DateTime?
-  needsReauth  Boolean   @default(false)
-  updatedAt    DateTime  @updatedAt
-}
-
-// A Sonoff plug/switch wired in front of one screen's mains supply.
-model SmartPlug {
-  id              String    @id @default(cuid())
-  deviceId        String    @unique
-  ewelinkDeviceId String    @unique // eWeLink "deviceid"
-  name            String // name in the eWeLink app at link time
-  productModel    String? // e.g. "BASICR4", "POWR316D"
-  uiid            Int? // eWeLink device type id — drives unit scaling for readings
-  // true = has a metering chip (POW/S31 class): powerW/voltageV/currentA are real.
-  // false = relay-only (BASICR4 class): energy can only be estimated as
-  // ratedWatts × relay-on time, and readings are flagged estimated.
-  supportsEnergy  Boolean   @default(false)
-  ratedWatts      Float? // appliance draw used for relay-only estimates
-  online          Boolean?
-  switchOn        Boolean?
-  powerW          Float?
-  voltageV        Float?
-  currentA        Float?
-  lastPolledAt    DateTime?
-  createdAt       DateTime  @default(now())
-
-  device   Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  readings PlugReading[]
-}
-
-// Time series appended by /api/cron/ewelink-poll (5-min cadence via GitHub
-// Actions). energyWh is the energy consumed since the previous reading —
-// measured for metering plugs, ratedWatts-estimated (estimated=true) otherwise.
-model PlugReading {
+model QrDestination {
   id        String   @id @default(cuid())
-  plugId    String
-  at        DateTime @default(now())
-  online    Boolean
-  switchOn  Boolean
-  powerW    Float?
-  energyWh  Float?
-  estimated Boolean  @default(false)
+  slug      String   @unique
+  targetUrl String
+  label     String?
+  createdAt DateTime @default(now())
 
-  plug SmartPlug @relation(fields: [plugId], references: [id], onDelete: Cascade)
+  scans QrScan[]
+}
 
-  @@index([plugId, at])
+model QrScan {
+  id            String   @id @default(cuid())
+  destinationId String
+  scannedAt     DateTime @default(now())
+  referrer      String?
+  userAgent     String?
+  ip            String?
+  country       String?
+  city          String?
+
+  destination QrDestination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  // The dashboard groups by destination over a date window; this covers both.
+  @@index([destinationId, scannedAt])
+  @@index([scannedAt])
+}
+
+// ─── Brand enquiries from /advertise ─────────────────────────────────────────
+//
+// A lead from the advertiser landing page: the brand picked stores, saw a price
+// and accepted the advertising terms. It is deliberately NOT a Brand/User row —
+// nobody has an account yet, and creating one from an unauthenticated form would
+// hand anyone the ability to squat an email address.
+//
+// Money is stored in paise, recomputed on the server from the tier rate card.
+// The figure the browser posted is display-only and never written, the same rule
+// campaigns/save and verify-payment already follow.
+
+model BrandEnquiry {
+  id String @id @default(cuid())
+  // Short human-readable handle ("ENQ-7K3M9QPD") — sales reads it down a phone
+  // line, so it is not the cuid. Unique so it can be quoted back as an id.
+  reference String @unique
+
+  brandName     String
+  contactPerson String
+  phone         String
+  whatsapp      String?
+
+  category   String?
+  budgetBand String?
+
+  // Slugs from src/lib/advertise-network.ts (e.g. "nilgiris-mg-road") — page
+  // config, NOT Store.id. Named so nobody joins them against Store by mistake.
+  // Filtered against the known list before write, so an arbitrary string from a
+  // hostile body can never land here.
+  storeSlugs    String[]
+  slotsPerStore Int
+  months        Int
+
+  creativeStatus String? // ready | not-ready | need-help
+  notes          String?
+
+  // What was accepted, and when. A bare "accepted: true" is not evidence — the
+  // version pins the exact clause text (src/lib/advertise-agreement.ts).
+  agreementVersion    String
+  agreementAcceptedAt DateTime
+
+  // Server-recomputed estimate at the time of enquiry. A quote is still issued
+  // by hand; this is what the brand was shown, kept so a later dispute is
+  // answerable.
+  estMonthlyPaise Int
+  estTotalPaise   Int
+
+  status String @default("new") // new | contacted | won | lost
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Sales works the newest unworked leads first; both indexes serve that list.
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([phone])
 }

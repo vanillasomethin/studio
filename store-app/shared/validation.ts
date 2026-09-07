@@ -35,6 +35,7 @@ export function validateForm(form: FormData): FieldErrors {
   if (!form.address.trim())        e.address  = 'Shop address is required';
   if (!form.city.trim())           e.city     = 'City is required';
   if (form.pincode.length !== 6)   e.pincode  = 'Enter a valid 6-digit pincode';
+  if (!form.lat || !form.lng)      e.lat      = 'Tap your shop on the map or use your current location';
   if (form.gstin && !GSTIN_RE.test(form.gstin.toUpperCase())) {
     e.gstin = 'Invalid GSTIN — must be 15 characters (e.g. 29AAXFV2589C1ZE)';
   }

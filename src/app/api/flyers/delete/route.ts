@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 function getRedis(): Redis | null {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
@@ -12,10 +13,9 @@ function getRedis(): Redis | null {
 const INDEX_KEY = 'flyers:index';
 
 export async function POST(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  if (process.env.ADMIN_PASSWORD && pw !== process.env.ADMIN_PASSWORD) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Fail CLOSED. The previous guard rejected only when ADMIN_PASSWORD was set,
+  // so an unset env var left this destructive route open to anyone.
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const kv = getRedis();
   if (!kv) return NextResponse.json({ success: true, note: 'Redis not configured' });

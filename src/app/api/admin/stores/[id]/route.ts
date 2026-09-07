@@ -2,29 +2,90 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Redis } from '@upstash/redis';
 import { pushDecommission } from '@/lib/fcm';
-import { deleteObject, publicUrl } from '@/lib/r2';
+import { deleteObject, deletePrivateObject, publicUrl } from '@/lib/r2';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
-/** R2 object key for a stored verification-photo URL, or null if it isn't one. */
-function verificationKeyFromUrl(url: string | null): string | null {
-  if (!url) return null;
+/**
+ * R2 object key for a stored verification-photo value, and which bucket holds it.
+ *
+ * Two shapes coexist, so deleting a store has to handle both: a bare key (shop
+ * and install photos, which live in the private bucket and have no public
+ * address) and a full public URL (those same photos before the private-bucket
+ * migration, plus the serial/plug photos, which are still public). Resolving
+ * only the URL shape would leave every post-migration photo — a partner's
+ * premises and its coordinates — sitting in R2 after their store was deleted.
+ */
+function verificationKeyFromStored(stored: string | null): { key: string; wasPublic: boolean } | null {
+  if (!stored) return null;
+  if (!/^https?:\/\//i.test(stored)) {
+    return stored.startsWith('verification/') ? { key: stored, wasPublic: false } : null;
+  }
   const prefix = publicUrl('');
-  if (!prefix || !url.startsWith(prefix)) return null;
-  const key = url.slice(prefix.length);
-  return key.startsWith('verification/') ? key : null;
+  if (!prefix || !stored.startsWith(prefix)) return null;
+  const key = stored.slice(prefix.length);
+  return key.startsWith('verification/') ? { key, wasPublic: true } : null;
 }
+
+/**
+ * The text columns ops may set. Column names come from this fixed list, never
+ * from the request, so the raw UPDATE below stays injection-safe.
+ */
+const TEXT_COLS = [
+  'tvBrand', 'tvModel', 'tvSerial', 'tvTag', 'espSwitchName', 'espPlugId',
+  'wifiSsid', 'wifiUsername', 'wifiPassword', 'wifiAuthType', 'installNotes',
+] as const;
+
+/**
+ * The stored form of a text column: trimmed, or null when blank. The stage gate
+ * and the UPDATE both read every value through this one function, so what the
+ * gate certifies as present is exactly what lands in the column. Non-string
+ * values are rejected with a 400 before either runs (see PATCH).
+ */
+function textCol(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+/** Panel size in inches, or null for blank/nonsense — one rule for gate and write. */
+function tvSize(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= 200 ? Math.round(n) : null;
+}
+
+/**
+ * One map coordinate as ops may send it: a finite JSON number, or a plain
+ * decimal string ("12.9141"). Nothing else — Number() would happily turn '',
+ * '0x1f' or '1e2' into a point on the map, and null/true into 0.
+ */
+function coord(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) return Number(v.trim());
+  return null;
+}
+
+/** The onboarding pipeline in order; 'rejected' sits deliberately outside it. */
+const STAGE_ORDER = ['new', 'contacted', 'physically_onboarded', 'digitally_onboarded', 'live'] as const;
+
+/**
+ * Rank in the pipeline, or -1 for anything that isn't a pipeline stage
+ * ('rejected', junk, non-strings). An array lookup rather than an object map: a
+ * map answers for 'constructor' and every other Object.prototype key.
+ */
+function stageRank(v: unknown): number {
+  return typeof v === 'string' ? (STAGE_ORDER as readonly string[]).indexOf(v) : -1;
+}
+
+/** Rank of the stage at which a screen starts earning, and liveAt is stamped. */
+const LIVE_RANK = STAGE_ORDER.indexOf('live');
 
 function getRedis() {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
   return new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
 }
 
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
-
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
 
   try {
@@ -35,45 +96,182 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       payoutNotes?: string;
       // Installation & hardware (see the Store model) — ops fills these at the site visit.
       tvBrand?: string | null;
+      tvModel?: string | null;
+      tvSerial?: string | null;
       tvSizeInches?: number | string | null;
       tvTag?: string | null;
       tvInstalledAt?: string | null;
       espSwitchName?: string | null;
+      espPlugId?: string | null;
       wifiSsid?: string | null;
+      wifiUsername?: string | null;
       wifiPassword?: string | null;
+      wifiAuthType?: string | null;
       installNotes?: string | null;
+      // Map pin — set or moved from Admin → Stores → Edit → Map pin.
+      lat?: unknown;
+      lng?: unknown;
     };
 
-    // ── GPS-photo gates on stage advancement ─────────────────────────────────
-    // The onboarding pipeline requires field evidence before milestones pass:
-    // a GPS-tagged shop-front photo to cross INTO 'contacted' (Team
-    // verification), and a GPS-tagged installed-TV photo to cross INTO
+    // A text column is a string, or null/undefined to clear/leave it. Anything
+    // else is refused here rather than coerced, because the gate and the write
+    // cannot agree on it: a JSON-number serial ({"tvSerial": 123456789}) looked
+    // present to the gate, crossed the store into 'physically_onboarded' and
+    // stamped tvInstalledAt, then wrote tvSerial NULL — the exact empty install
+    // record the gate exists to prevent, with the unique index inapplicable
+    // because NULL was stored.
+    for (const col of TEXT_COLS) {
+      const raw: unknown = body[col];
+      if (col in body && raw !== null && raw !== undefined && typeof raw !== 'string') {
+        return NextResponse.json(
+          { error: `"${col}" must be text — send it as a JSON string, or null to clear it.` },
+          { status: 400 },
+        );
+      }
+    }
+
+    // ── Map pin ──────────────────────────────────────────────────────────────
+    // A store's pin comes from, in order: the partner at registration → an
+    // on-site GPS fix that fills an EMPTY pin (the photo routes) → ops setting
+    // or moving it here. Both halves or neither, and there is NO clearing path:
+    // a store that has ever been pinned stays on the maps until the pin is
+    // moved somewhere better.
+    let pin: { lat: number; lng: number } | null = null;
+    if ('lat' in body || 'lng' in body) {
+      const lat = coord(body.lat);
+      const lng = coord(body.lng);
+      if (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) {
+        return NextResponse.json(
+          { error: 'Send both lat and lng as decimal degrees. Move the pin rather than clearing it.' },
+          { status: 400 },
+        );
+      }
+      pin = { lat, lng };
+    }
+
+    // Blank clears the field (same as every other text column); anything else
+    // must be one of the four the gate below reasons about.
+    const WIFI_AUTH_TYPES = ['wpa_psk', 'pppoe', 'portal', 'open'];
+    const bodyAuthType = textCol(body.wifiAuthType);
+    if (bodyAuthType && !WIFI_AUTH_TYPES.includes(bodyAuthType)) {
+      return NextResponse.json(
+        { error: `Unknown WiFi security type "${bodyAuthType}". Use one of: ${WIFI_AUTH_TYPES.join(', ')}.` },
+        { status: 400 },
+      );
+    }
+
+    // Only the six stages the admin panel offers may be stored. An unknown one
+    // used to rank nowhere, which skipped the ENTIRE gate below, and was then
+    // written verbatim — so 'physically_onboarded ' (trailing space) or
+    // 'Physically_Onboarded' advanced a store ungated into a value that matches
+    // none of the dashboards' stage comparisons.
+    if (body.onboardingStage && stageRank(body.onboardingStage) < 0 && body.onboardingStage !== 'rejected') {
+      return NextResponse.json(
+        { error: `Unknown onboarding stage "${String(body.onboardingStage)}". Use one of: ${STAGE_ORDER.join(', ')}, rejected.` },
+        { status: 400 },
+      );
+    }
+
+    // ── Gates on stage advancement ───────────────────────────────────────────
+    // The onboarding pipeline requires field evidence before milestones pass: a
+    // GPS-tagged shop-front photo to cross INTO 'contacted' (Team
+    // verification), and the complete site-install record — TV identity, smart
+    // plug, network, three photos and a map pin — to cross INTO
     // 'physically_onboarded' or beyond (Site visit & install). Gates fire only
     // on FORWARD crossings of those milestones — re-saving the current stage
-    // (the admin Save button always sends it), demoting, 'rejected', and
-    // stores already past a milestone (the pre-feature fleet) are unaffected.
-    const STAGE_RANK: Record<string, number> = {
-      new: 0, contacted: 1, physically_onboarded: 2, digitally_onboarded: 3, live: 4,
-    };
-    const targetRank = body.onboardingStage ? STAGE_RANK[body.onboardingStage] : undefined;
-    if (targetRank !== undefined && targetRank >= 1) {
+    // (the admin Save button always sends it), demoting, 'rejected', and stores
+    // already past a milestone (the pre-feature fleet) are unaffected.
+    // 'rejected' and an absent stage both rank -1, so they skip the gate exactly
+    // as they did when they ranked `undefined`.
+    const targetRank = body.onboardingStage ? stageRank(body.onboardingStage) : -1;
+    let stampInstalledAt = false;
+    let stampLiveAt = false;
+    if (targetRank >= 1) {
       try {
-        const rows = await db.$queryRaw<{ onboardingStage: string | null; shopPhotoUrl: string | null; installPhotoUrl: string | null }[]>`
-          SELECT "onboardingStage", "shopPhotoUrl", "installPhotoUrl" FROM "Store" WHERE "id" = ${id} LIMIT 1
+        const rows = await db.$queryRaw<{
+          onboardingStage: string | null;
+          shopPhotoUrl: string | null; installPhotoUrl: string | null;
+          serialPhotoUrl: string | null; plugPhotoUrl: string | null;
+          tvBrand: string | null; tvModel: string | null; tvSerial: string | null;
+          tvSizeInches: number | null; tvTag: string | null; tvInstalledAt: Date | null;
+          espPlugId: string | null; wifiSsid: string | null;
+          wifiUsername: string | null; wifiPassword: string | null; wifiAuthType: string | null;
+          liveAt: Date | null;
+          lat: number | null; lng: number | null;
+        }[]>`
+          SELECT "onboardingStage", "shopPhotoUrl", "installPhotoUrl", "serialPhotoUrl", "plugPhotoUrl",
+                 "tvBrand", "tvModel", "tvSerial", "tvSizeInches", "tvTag", "tvInstalledAt",
+                 "espPlugId", "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType",
+                 "liveAt", "lat", "lng"
+            FROM "Store" WHERE "id" = ${id} LIMIT 1
         `;
         const p = rows[0];
-        const currentRank = p ? (STAGE_RANK[p.onboardingStage ?? 'new'] ?? 0) : 0;
+        // A stored 'rejected' or a stale/unknown value counts as rank 0, so the
+        // gate still fires on the way forward out of it.
+        const currentRank = p ? Math.max(stageRank(p.onboardingStage ?? 'new'), 0) : 0;
         if (p && currentRank < 1 && targetRank >= 1 && !p.shopPhotoUrl) {
           return NextResponse.json(
-            { error: 'Cannot advance stage: the partner has not uploaded the GPS shop-front photo yet (required for Team verification).' },
+            { error: 'Cannot advance stage: the partner has not uploaded the GPS shop-front photo yet (required for Team verification).',
+              missing: ['Photo of the shop front'] },
             { status: 409 },
           );
         }
-        if (p && currentRank < 2 && targetRank >= 2 && !p.installPhotoUrl) {
-          return NextResponse.json(
-            { error: 'Cannot advance stage: the GPS photo of the installed TV has not been uploaded yet (required for Site visit & install).' },
-            { status: 409 },
-          );
+        if (p && currentRank < 2 && targetRank >= 2) {
+          // Checked against the values this save will LEAVE behind, not the
+          // stored row: the panel sends the install fields and the stage in one
+          // PATCH, so a row-only check would reject the very save that fills
+          // them in. Photos are never in the body — they arrive via
+          // POST .../photo — so the row is the only truth for those.
+          const after = { ...p, ...body } as Record<string, unknown>;
+          const authType = textCol(after.wifiAuthType);
+          const missing: string[] = [];
+          if (!textCol(after.tvSerial)) missing.push('TV serial number');
+          if (!textCol(after.tvBrand)) missing.push('TV company');
+          if (!textCol(after.tvModel)) missing.push('TV model');
+          if (tvSize(after.tvSizeInches) === null) missing.push('TV size');
+          if (!textCol(after.tvTag)) missing.push('TV number / tag');
+          if (!textCol(after.espPlugId)) missing.push('Smart plug ID');
+          if (!textCol(after.wifiSsid)) missing.push('WiFi network name');
+          if (!authType) missing.push('WiFi security type');
+          if (authType !== 'open' && !textCol(after.wifiPassword)) missing.push('WiFi password');
+          if ((authType === 'pppoe' || authType === 'portal') && !textCol(after.wifiUsername)) missing.push('WiFi username');
+          if (!p.installPhotoUrl) missing.push('Photo of the installed TV');
+          if (!p.serialPhotoUrl) missing.push('Photo of the serial plate');
+          if (!p.plugPhotoUrl) missing.push('Photo of the smart plug');
+          // The pin this save leaves behind: the body's, else the row's. Not
+          // derived from the photo columns — the photo routes already fill an
+          // empty pin on upload, and the backfill migration covered legacy rows.
+          if (!pin && (p.lat == null || p.lng == null)) missing.push('Map pin (shop location)');
+          // Every miss at once — the executive is standing in the shop and must
+          // see the whole list, not discover it one round trip at a time.
+          if (missing.length) {
+            return NextResponse.json(
+              { error: `Cannot advance stage: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} still missing (required for Site visit & install).`,
+                missing },
+              { status: 409 },
+            );
+          }
+          stampInstalledAt = !p.tvInstalledAt;
+        }
+
+        // Crossing into 'live' is the moment the screen starts earning, and
+        // liveAt is what the payout export bills from. Nothing ever set it:
+        // the only writer was an admin typing a date into the "Set live date"
+        // modal in the Payments tab, so a store walked all the way to 'live'
+        // with liveAt still NULL and simply never appeared in an export.
+        // Every other consumer reads `stage === 'live' || liveAt` and so looked
+        // correct, which is why this stayed invisible.
+        //
+        // Same reasoning as tvInstalledAt above: the executive is standing in
+        // the shop, so do not make a human remember to type today's date.
+        //
+        // Gated on the crossing, not merely on the target, so a re-save of a
+        // store that has been live for months cannot stamp today over its real
+        // start date — a wrong date silently enters the payout maths, which is
+        // worse than a NULL that is visibly wrong. Rows already at 'live' with
+        // a NULL liveAt therefore still need the modal once.
+        if (p && currentRank < LIVE_RANK && targetRank >= LIVE_RANK) {
+          stampLiveAt = !p.liveAt;
         }
       } catch (e) {
         // Fail open ONLY for the not-yet-migrated-columns case; any other DB
@@ -89,9 +287,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const setClauses: string[] = [];
     const values: unknown[] = [];
 
-    if ('liveAt' in body) {
+    if ('liveAt' in body || stampLiveAt) {
+      const d = body.liveAt ? new Date(body.liveAt) : null;
+      // A cleared or absent date on a successful crossing stamps itself; an
+      // explicit date always wins, so the Payments-tab modal can still correct
+      // a store that went live before this was recorded. An unparseable date
+      // falls through to the stamp rather than writing Invalid Date.
       setClauses.push(`"liveAt" = $${values.length + 1}`);
-      values.push(body.liveAt ? new Date(body.liveAt) : null);
+      values.push(d && !isNaN(d.getTime()) ? d : (stampLiveAt ? new Date() : null));
     }
     if (body.onboardingStage) {
       setClauses.push(`"onboardingStage" = $${values.length + 1}`);
@@ -107,28 +310,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     // ── Installation & hardware ──────────────────────────────────────────────
-    // Column names come from this fixed map, never from the request, so the raw
-    // UPDATE stays injection-safe. Blank strings are stored as NULL so clearing
-    // a field in the panel actually clears it.
-    const TEXT_COLS = ['tvBrand', 'tvTag', 'espSwitchName', 'wifiSsid', 'wifiPassword', 'installNotes'] as const;
+    // Same textCol() the gate above read these through, so the row ends up
+    // holding exactly what the gate certified. Blank strings become NULL, so
+    // clearing a field in the panel actually clears it.
     for (const col of TEXT_COLS) {
       if (col in body) {
-        const raw = body[col];
         setClauses.push(`"${col}" = $${values.length + 1}`);
-        values.push(typeof raw === 'string' && raw.trim() ? raw.trim() : null);
+        values.push(textCol(body[col]));
       }
     }
     if ('tvSizeInches' in body) {
-      const n = Number(body.tvSizeInches);
-      // Reject nonsense sizes rather than storing them; blank clears the field.
-      const size = Number.isFinite(n) && n > 0 && n <= 200 ? Math.round(n) : null;
       setClauses.push(`"tvSizeInches" = $${values.length + 1}`);
-      values.push(size);
+      values.push(tvSize(body.tvSizeInches));
     }
-    if ('tvInstalledAt' in body) {
+    if ('tvInstalledAt' in body || stampInstalledAt) {
       const d = body.tvInstalledAt ? new Date(body.tvInstalledAt) : null;
+      // A cleared date on a successful crossing stamps itself: the executive is
+      // standing in the shop, so never make a human type today's date. An
+      // already-recorded install date is left alone (stampInstalledAt is false).
       setClauses.push(`"tvInstalledAt" = $${values.length + 1}`);
-      values.push(d && !isNaN(d.getTime()) ? d : null);
+      values.push(d && !isNaN(d.getTime()) ? d : (stampInstalledAt ? new Date() : null));
+    }
+
+    // ── Map pin ──────────────────────────────────────────────────────────────
+    // Already validated above; written as a pair so lat and lng can never
+    // disagree about which save they came from.
+    if (pin) {
+      setClauses.push(`"lat" = $${values.length + 1}`);
+      values.push(pin.lat);
+      setClauses.push(`"lng" = $${values.length + 1}`);
+      values.push(pin.lng);
     }
 
     if (setClauses.length === 0) return NextResponse.json({ ok: true });
@@ -136,10 +347,44 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     setClauses.push(`"updatedAt" = NOW()`);
     values.push(id);
 
-    await db.$queryRawUnsafe(
-      `UPDATE "Store" SET ${setClauses.join(', ')} WHERE "id" = $${values.length}`,
-      ...values
-    );
+    try {
+      await db.$queryRawUnsafe(
+        `UPDATE "Store" SET ${setClauses.join(', ')} WHERE "id" = $${values.length}`,
+        ...values
+      );
+    } catch (e) {
+      // One physical panel, one store (Store_tvSerial_key). tvSerial is the only
+      // unique column this UPDATE touches, so a 23505 here is always that — name
+      // the store already holding the serial instead of answering a bare 500.
+      const serial = textCol(body.tvSerial);
+      if (!serial || !/Store_tvSerial_key|23505/.test((e as Error).message ?? '')) throw e;
+      const owner = await db.$queryRaw<{ storeName: string }[]>`
+        SELECT "storeName" FROM "Store" WHERE "tvSerial" = ${serial} AND "id" <> ${id} LIMIT 1
+      `;
+      return NextResponse.json(
+        { error: `TV serial ${serial} is already recorded at ${owner[0]?.storeName ?? 'another store'}. Clear it there first if the TV was moved.` },
+        { status: 409 },
+      );
+    }
+
+    // Stage advancement is the field-ops milestone money hangs off (a store
+    // reaching 'live' starts earning), so record who moved it and which columns
+    // the save touched. Only the changed field NAMES — the body carries the
+    // store's WiFi credentials. The pin itself is fine to record (it is on the
+    // public map), but under a key without the word "pin" in it — the audit
+    // scrubber redacts any key that contains it (see SECRET_WORD).
+    await logAdminAction({
+      actor, req,
+      action: 'store.update',
+      target: id,
+      meta: {
+        onboardingStage: body.onboardingStage ?? null,
+        payoutStatus:    body.payoutStatus ?? null,
+        fields:          Object.keys(body),
+        locationSource:  pin ? 'body' : null,
+        ...(pin ? { coords: { lat: pin.lat, lng: pin.lng } } : {}),
+      },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
@@ -148,7 +393,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     // Find the store to get userId before deleting
@@ -169,13 +415,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     // Capture verification-photo keys before the row vanishes so the R2
     // objects can be removed too (tolerant of the columns not existing yet).
-    let photoKeys: string[] = [];
+    let photoKeys: { key: string; wasPublic: boolean }[] = [];
     try {
-      const ph = await db.$queryRaw<{ shopPhotoUrl: string | null; installPhotoUrl: string | null }[]>`
-        SELECT "shopPhotoUrl", "installPhotoUrl" FROM "Store" WHERE "id" = ${id} LIMIT 1
+      const ph = await db.$queryRaw<{ shopPhotoUrl: string | null; installPhotoUrl: string | null; serialPhotoUrl: string | null; plugPhotoUrl: string | null }[]>`
+        SELECT "shopPhotoUrl", "installPhotoUrl", "serialPhotoUrl", "plugPhotoUrl" FROM "Store" WHERE "id" = ${id} LIMIT 1
       `;
-      photoKeys = [verificationKeyFromUrl(ph[0]?.shopPhotoUrl ?? null), verificationKeyFromUrl(ph[0]?.installPhotoUrl ?? null)]
-        .filter((k): k is string => !!k);
+      photoKeys = [ph[0]?.shopPhotoUrl, ph[0]?.installPhotoUrl, ph[0]?.serialPhotoUrl, ph[0]?.plugPhotoUrl]
+        .map((u) => verificationKeyFromStored(u ?? null))
+        .filter((k): k is { key: string; wasPublic: boolean } => !!k);
     } catch { /* columns not yet migrated */ }
 
     // Delete store (cascades to StorePayment, StoreOffer, Bill, Device via FK)
@@ -186,8 +433,23 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       db.$executeRaw`DELETE FROM "User" WHERE "id" = ${userId}`,
     ]);
 
+    // Logged the moment the rows are gone, not at the end: the cleanup below can
+    // throw, and an irreversible cascade delete must never go unrecorded because
+    // a best-effort push failed. Counts only — the store row no longer exists.
+    await logAdminAction({
+      actor, req,
+      action: 'store.delete',
+      target: id,
+      meta:   { userId, devices: doomedDevices.length, photos: photoKeys.length },
+    });
+
     await pushDecommission(doomedDevices.map((d) => d.fcmToken!));
-    for (const key of photoKeys) await deleteObject(key).catch(() => { /* best-effort */ });
+    // Each photo is removed from whichever bucket actually holds it; a
+    // private-bucket key handed to the public delete would silently no-op.
+    for (const p of photoKeys) {
+      const remove = p.wasPublic ? deleteObject : deletePrivateObject;
+      await remove(p.key).catch(() => { /* best-effort */ });
+    }
 
     // Remove from Redis index (non-fatal)
     try {

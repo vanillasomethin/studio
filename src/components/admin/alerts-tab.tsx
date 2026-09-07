@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, AlertTriangle, CheckCircle2, Store, BarChart3, Tv2,
-  RefreshCw, X, ChevronRight,
+  RefreshCw, X, ChevronRight, MessageSquare, UserCircle2, Check, RotateCcw, Send,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +31,49 @@ type StoreRow = {
 type CampaignRow = {
   id: string; brandName: string; totalAmount: number; status: string;
   paymentId?: string; createdAt: string;
+};
+// Real DeviceAlert rows from /api/admin/alerts — joined onto the synthesized
+// offline cards below so the shopkeeper's answer and the telemetry verdict
+// have a persistent surface (the watcher's toast lasts 12 seconds; this page
+// is where an admin looks afterwards).
+type DeviceAlertRow = {
+  id: string; deviceId: string; status: 'OPEN' | 'RESOLVED';
+  startedAt: string;
+  cause: string | null;
+  partnerReportedCause: string | null;
+  partnerReportedAt: string | null;
+};
+
+/** The shopkeeper's answer, worded as testimony — it is what they told us, not telemetry. */
+function partnerSaysText(cause: string | null): string | null {
+  switch (cause) {
+    case 'POWER_CUT':   return 'power cut at the store';
+    case 'NO_INTERNET': return 'no internet at the store';
+    case 'TV_OFF':      return 'the TV was switched off';
+    case 'APP_CLOSED':  return 'the player app was closed';
+    case 'DONT_KNOW':   return 'doesn’t know why it stopped';
+    default:            return null;
+  }
+}
+
+// Durable, team-visible action state layered on top of a computed alert — see
+// /api/admin/alert-actions. Distinct from `dismissed`, a personal, local-only hide.
+type AlertTeam = 'tech' | 'operations' | 'marketing';
+type AlertActionState = {
+  alertId: string;
+  team: AlertTeam | null;
+  assignee: string | null;
+  status: 'open' | 'closed';
+  closedAt: string | null;
+  closedBy: string | null;
+  commentCount: number;
+};
+type AlertCommentRow = { id: string; author: string | null; body: string; createdAt: string };
+
+const TEAM_CONFIG: Record<AlertTeam, { label: string; badge: string }> = {
+  tech:       { label: 'Tech Team',  badge: 'bg-violet-50 text-violet-700 border border-violet-200' },
+  operations: { label: 'Operations', badge: 'bg-cyan-50 text-cyan-700 border border-cyan-200' },
+  marketing:  { label: 'Marketing',  badge: 'bg-pink-50 text-pink-700 border border-pink-200' },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -89,10 +132,20 @@ function buildAlerts(
   devices: DeviceRow[],
   stores: StoreRow[],
   campaigns: CampaignRow[],
+  deviceAlerts: DeviceAlertRow[],
   dismissed: Set<string>,
 ): Alert[] {
   const alerts: Alert[] = [];
   const now = Date.now();
+
+  // Newest OPEN DeviceAlert per device, so the offline cards can carry what is
+  // actually known about the outage rather than a generic "go check".
+  const openByDevice = new Map<string, DeviceAlertRow>();
+  for (const a of deviceAlerts) {
+    if (a.status !== 'OPEN') continue;
+    const cur = openByDevice.get(a.deviceId);
+    if (!cur || a.startedAt > cur.startedAt) openByDevice.set(a.deviceId, a);
+  }
 
   // Offline devices — critical if >1h, warning if >10min
   for (const d of devices) {
@@ -101,10 +154,18 @@ function buildAlerts(
     const severity: AlertSeverity = lastMs > 60 * 60 * 1000 ? 'critical' : 'warning';
     const offStr = d.lastSeen ? timeSince(d.lastSeen) : 'unknown';
     const id = `device-offline-${d.id}`;
+    // Lead with the shopkeeper's answer when there is one — it usually decides
+    // the next move (wait out the power cut / call the ISP / drive out), and
+    // "check power and internet" is redundant once a human has answered.
+    const row  = openByDevice.get(d.id);
+    const says = partnerSaysText(row?.partnerReportedCause ?? null);
+    const tail = says
+      ? `Partner says: ${says}${row?.partnerReportedAt ? ` (answered ${timeSince(row.partnerReportedAt)})` : ''}.`
+      : 'Check power and internet connection at the store.';
     alerts.push({
       id, severity, category: 'device',
       title: `${d.storeName} is offline`,
-      body: `Last seen ${offStr}${d.locality ? ` · ${d.locality}` : ''}. Check power and internet connection at the store.`,
+      body: `Last seen ${offStr}${d.locality ? ` · ${d.locality}` : ''}. ${tail}`,
       timestamp: d.lastSeen ?? new Date().toISOString(),
       link: { label: 'View screens', tab: 'screens' },
       dismissed: dismissed.has(id),
@@ -179,37 +240,318 @@ function buildAlerts(
   });
 }
 
+// ─── The team, for assigning to a real person ─────────────────────────────────
+//
+// Assignment used to be a free-text box: you typed a name, and nothing connected
+// it to an actual colleague — which is why an alert could be "assigned" to a
+// person who never had an account, and why nobody could be tagged reliably.
+// /api/admin/team already knows everyone with console access, so the panel
+// offers them directly.
+//
+// One request shared by every alert row: the panel renders per alert, and a
+// fetch inside it would mean one request per alert on screen. The promise is
+// cached at module scope so the Nth panel reuses the first one's work.
+
+type TeamMember = { id: string; email: string | null; name: string | null; role: string; status: string };
+
+let teamPromise: Promise<TeamMember[]> | null = null;
+
+function fetchTeam(): Promise<TeamMember[]> {
+  teamPromise ??= fetch('/api/admin/team')
+    .then((r) => (r.ok ? r.json() : { members: [] }))
+    .then((d: { members?: TeamMember[] }) => d.members ?? [])
+    // A failed lookup must not break assigning — the panel falls back to the
+    // free-text field, which is what it always was.
+    .catch(() => []);
+  return teamPromise;
+}
+
+/** Display name for a member: their name, else the local part of their email. */
+function memberLabel(m: TeamMember): string {
+  return m.name?.trim() || m.email?.split('@')[0] || 'Unknown';
+}
+
+function useAdminTeam(): TeamMember[] {
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  useEffect(() => {
+    let live = true;
+    void fetchTeam().then((m) => { if (live) setTeam(m); });
+    return () => { live = false; };
+  }, []);
+  return team;
+}
+
+// ─── Alert Actions (assign / comment / close) ─────────────────────────────────
+
+
+function AlertActionsPanel({
+  alertId, action, onChange,
+}: {
+  alertId: string;
+  action?: AlertActionState;
+  onChange: () => void;
+}) {
+  const [open, setOpen] = useState<'assign' | 'comments' | null>(null);
+  const teamMembers = useAdminTeam();
+  const [team, setTeam] = useState<AlertTeam | ''>(action?.team ?? '');
+  const [assignee, setAssignee] = useState(action?.assignee ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const [comments, setComments] = useState<AlertCommentRow[] | null>(null);
+  const [newComment, setNewComment] = useState('');
+  const [posting, setPosting] = useState(false);
+
+  async function postAction(body: Record<string, unknown>) {
+    setSaving(true);
+    try {
+      await fetch('/api/admin/alert-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alertId, ...body }),
+      });
+      onChange();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadComments() {
+    setComments(null);
+    const res = await fetch(`/api/admin/alerts/comments?alertId=${encodeURIComponent(alertId)}`);
+    const data = res.ok ? await res.json() as { comments: AlertCommentRow[] } : { comments: [] };
+    setComments(data.comments);
+  }
+
+  async function addComment() {
+    const body = newComment.trim();
+    if (!body) return;
+    setPosting(true);
+    try {
+      await fetch('/api/admin/alerts/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alertId, body }),
+      });
+      setNewComment('');
+      await loadComments();
+      onChange(); // refresh comment count on the parent
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  const isClosed = action?.status === 'closed';
+
+  return (
+    <div className="mt-2.5">
+      {/* Status row: team / assignee / closed badges */}
+      {(action?.team || action?.assignee || isClosed) && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          {action?.team && (
+            <span className={`admin-badge ${TEAM_CONFIG[action.team].badge}`}>{TEAM_CONFIG[action.team].label}</span>
+          )}
+          {action?.assignee && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <UserCircle2 className="h-3 w-3" /> {action.assignee}
+            </span>
+          )}
+          {isClosed && (
+            <span className="admin-badge bg-green-50 text-green-700 border border-green-200 flex items-center gap-1">
+              <Check className="h-3 w-3" /> Closed{action.closedBy ? ` by ${action.closedBy}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setOpen(open === 'assign' ? null : 'assign')}
+          className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/60 transition-colors"
+        >
+          <UserCircle2 className="h-3 w-3" /> {action?.team || action?.assignee ? 'Reassign' : 'Assign'}
+        </button>
+        <button
+          onClick={() => { const next = open === 'comments' ? null : 'comments'; setOpen(next); if (next === 'comments' && comments === null) loadComments(); }}
+          className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/60 transition-colors"
+        >
+          <MessageSquare className="h-3 w-3" /> Comment{action && action.commentCount > 0 ? ` (${action.commentCount})` : ''}
+        </button>
+        {isClosed ? (
+          <button
+            onClick={() => postAction({ action: 'reopen' })}
+            disabled={saving}
+            className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+          >
+            <RotateCcw className="h-3 w-3" /> Reopen
+          </button>
+        ) : (
+          <button
+            onClick={() => postAction({ action: 'close' })}
+            disabled={saving}
+            className="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700 hover:bg-green-100 transition-colors disabled:opacity-50"
+          >
+            <Check className="h-3 w-3" /> Close
+          </button>
+        )}
+      </div>
+
+      {/* Assign panel */}
+      {open === 'assign' && (
+        <div className="mt-2 rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Team</label>
+            {(['tech', 'operations', 'marketing'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTeam(team === t ? '' : t)}
+                className={`admin-chip${team === t ? ' admin-chip--active' : ''}`}
+              >
+                {TEAM_CONFIG[t].label}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Person</label>
+            {/* Real colleagues, picked rather than typed. Initials instead of a
+                bare <select> of names, per the house rule on identity. */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {teamMembers.map((m) => {
+                const label = memberLabel(m);
+                const on = assignee === label;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setAssignee(on ? '' : label)}
+                    title={m.email ?? label}
+                    className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                      on ? 'border-primary/50 bg-primary/10 text-primary'
+                         : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                    }`}
+                  >
+                    <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white ${
+                      on ? 'bg-primary' : 'bg-muted-foreground/60'
+                    }`}>
+                      {label[0]?.toUpperCase()}
+                    </span>
+                    {label}
+                    {m.status !== 'active' && (
+                      <span className="text-[9px] font-normal opacity-60">({m.status})</span>
+                    )}
+                  </button>
+                );
+              })}
+              {teamMembers.length === 0 && (
+                <span className="text-[11px] text-muted-foreground">
+                  No console accounts yet — add colleagues in Admin → Team.
+                </span>
+              )}
+            </div>
+            {/* Still typable, for someone without a console account (a field tech,
+                a store owner) — the chips are the fast path, not the only one. */}
+            <input
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+              placeholder="…or type someone not on the console"
+              className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
+            />
+          </div>
+          <button
+            onClick={async () => { await postAction({ action: 'assign', team: team || null, assignee }); setOpen(null); }}
+            disabled={saving}
+            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+          </button>
+        </div>
+      )}
+
+      {/* Comments panel */}
+      {open === 'comments' && (
+        <div className="mt-2 rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+          {comments === null ? (
+            <div className="flex justify-center py-3"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /></div>
+          ) : comments.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">No comments yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {comments.map((c) => (
+                <div key={c.id} className="text-[11px]">
+                  <span className="font-semibold text-foreground">{c.author || 'Admin'}</span>
+                  <span className="ml-1.5 text-muted-foreground/70">{timeSince(c.createdAt)}</span>
+                  <p className="text-muted-foreground mt-0.5 leading-relaxed">{c.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 pt-1 border-t border-border/60">
+            <input
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addComment(); }}
+              placeholder="Add a comment…"
+              className="flex-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px]"
+            />
+            <button
+              onClick={addComment}
+              disabled={posting || !newComment.trim()}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {posting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) {
   const [alerts,    setAlerts]    = useState<Alert[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [actions,   setActions]   = useState<Map<string, AlertActionState>>(new Map());
   const [loading,   setLoading]   = useState(true);
   const [filter,    setFilter]    = useState<'all' | 'active' | AlertSeverity>('active');
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
 
   const fetchAlerts = useCallback(async () => {
     setLoading(true);
-    const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
-    const h = { 'admin-password': pw };
     try {
-      const [devR, stR, cmR] = await Promise.all([
-        fetch('/api/devices',         { headers: h }).then((r) => r.ok ? r.json() : { devices: [] }),
-        fetch('/api/stores/save',     { headers: h }).then((r) => r.ok ? r.json() : []),
-        fetch('/api/campaigns/admin', { headers: h }).then((r) => r.ok ? r.json() : []),
+      // No admin-password header: these routes authorize the named session
+      // cookie, which fetch sends on same-origin requests by default.
+      const [devR, stR, cmR, daR] = await Promise.all([
+        fetch('/api/devices').then((r) => r.ok ? r.json() : { devices: [] }),
+        fetch('/api/stores/save').then((r) => r.ok ? r.json() : []),
+        fetch('/api/campaigns/admin').then((r) => r.ok ? r.json() : []),
+        // Real DeviceAlert rows — carries the partner's "why is it off?" answer.
+        fetch('/api/admin/alerts').then((r) => r.ok ? r.json() : { alerts: [] }),
       ]);
       const devs = (devR.devices ?? []) as DeviceRow[];
       const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as StoreRow[];
       const cms  = Array.isArray(cmR) ? cmR : [] as CampaignRow[];
+      const das  = (daR?.alerts ?? []) as DeviceAlertRow[];
       const dis  = loadDismissed();
       setDismissed(dis);
-      setAlerts(buildAlerts(devs, sts, cms, dis));
+      setAlerts(buildAlerts(devs, sts, cms, das, dis));
       setLastFetch(new Date());
     } catch { /* non-critical */ }
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
+  // Team-visible assignment/close/comment state — separate fetch (and separate
+  // refresh trigger) from the computed alerts themselves, see /api/admin/alert-actions.
+  const fetchActions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/alert-actions');
+      const data = res.ok ? await res.json() as { actions: AlertActionState[] } : { actions: [] };
+      setActions(new Map(data.actions.map((a) => [a.alertId, a])));
+    } catch { /* non-critical */ }
+  }, []);
+
+  useEffect(() => { fetchAlerts(); fetchActions(); }, [fetchAlerts, fetchActions]);
 
   const dismiss = (id: string) => {
     const next = new Set(dismissed).add(id);
@@ -262,7 +604,7 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
               <X className="h-3 w-3" /> Dismiss all
             </button>
           )}
-          <button onClick={() => fetchAlerts()} disabled={loading}
+          <button onClick={() => { fetchAlerts(); fetchActions(); }} disabled={loading}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary/90 transition-colors disabled:opacity-50">
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Refresh
@@ -320,12 +662,13 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
       ) : (
         <div className="space-y-2">
           {filtered.map((a) => {
-            const sev  = SEV_CONFIG[a.severity];
-            const Icon = sev.icon;
-            const Cat  = CAT_ICON[a.category];
+            const sev    = SEV_CONFIG[a.severity];
+            const Icon   = sev.icon;
+            const Cat    = CAT_ICON[a.category];
+            const action = actions.get(a.id);
             return (
               <div key={a.id}
-                className={`relative rounded-xl border border-border bg-card p-4 border-l-4 ${sev.border} ${a.dismissed ? 'opacity-40' : ''} transition-opacity`}
+                className={`relative rounded-xl border border-border bg-card p-4 border-l-4 ${sev.border} ${a.dismissed || action?.status === 'closed' ? 'opacity-40' : ''} transition-opacity`}
               >
                 <div className="flex items-start gap-3">
                   {/* Category icon */}
@@ -346,6 +689,7 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
                         {a.link.label} <ChevronRight className="h-3 w-3" />
                       </button>
                     )}
+                    <AlertActionsPanel alertId={a.id} action={action} onChange={fetchActions} />
                   </div>
 
                   {/* Dismiss */}
@@ -364,7 +708,7 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
 
       {/* Footer note */}
       <p className="text-[10px] text-muted-foreground/50 admin-font-mono text-center pt-2">
-        Alerts auto-generate from device status, store registrations, and campaign data. Dismissed alerts persist in browser storage.
+        Alerts auto-generate from device status, store registrations, and campaign data. Dismiss just hides an alert for you; Assign/Comment/Close are saved for the whole team.
       </p>
     </div>
   );

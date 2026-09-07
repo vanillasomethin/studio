@@ -4,7 +4,7 @@ const sections = [
   {
     id: 'overview',
     title: 'Agreement Overview',
-    content: `These Terms of Service ("Terms") constitute a legally binding agreement between ALIVE Advertising Pvt. Ltd. ("ALIVE," "we," "us," or "our") and any individual, business entity, kirana store owner, or brand partner ("you" or "User") who accesses or uses our platform, services, digital screens, or any related offerings.
+    content: `These Terms of Service ("Terms") constitute a legally binding agreement between VS Collective LLP, operating the ALIVE network ("ALIVE," "we," "us," or "our"), and any individual, business entity, kirana store owner, or brand partner ("you" or "User") who accesses or uses our platform, services, digital screens, or any related offerings.
 
 By installing ALIVE equipment, accessing our dashboard, running campaigns, or engaging with our services in any capacity, you confirm that you have read, understood, and agree to be bound by these Terms. If you do not agree, please do not use our services.`,
   },
@@ -35,7 +35,7 @@ By installing ALIVE equipment, accessing our dashboard, running campaigns, or en
       },
       {
         heading: '2.3 Account Security',
-        text: 'You must immediately notify ALIVE at contact@alivemedia.in if you suspect any unauthorized use of your account. ALIVE shall not be liable for any loss arising from unauthorized use of your account due to your failure to maintain the security of your credentials.',
+        text: 'You must immediately notify ALIVE at hello@wearealive.in if you suspect any unauthorized use of your account. ALIVE shall not be liable for any loss arising from unauthorized use of your account due to your failure to maintain the security of your credentials.',
       },
     ],
   },
@@ -104,7 +104,7 @@ By installing ALIVE equipment, accessing our dashboard, running campaigns, or en
     subsections: [
       {
         heading: '5.1 ALIVE\'s Intellectual Property',
-        text: 'The ALIVE Platform, technology, algorithms, trade dress, brand name, logo, and all related materials are the exclusive intellectual property of ALIVE Advertising Pvt. Ltd. Nothing in these Terms grants you any ownership or licence to ALIVE\'s intellectual property except as expressly required to use the services.',
+        text: 'The ALIVE Platform, technology, algorithms, trade dress, brand name, logo, and all related materials are the exclusive intellectual property of VS Collective LLP. Nothing in these Terms grants you any ownership or licence to ALIVE\'s intellectual property except as expressly required to use the services.',
       },
       {
         heading: '5.2 Brand Partner Content Licence',
@@ -182,9 +182,9 @@ export default function TermsPage() {
           <p className="text-sm text-muted-foreground">Governing Use of ALIVE Platform &amp; Services</p>
           <div className="flex flex-wrap gap-x-6 gap-y-1 pt-2 text-xs text-muted-foreground/70">
             <span><strong className="text-muted-foreground">Effective date:</strong> May 1, 2025</span>
-            <span><strong className="text-muted-foreground">Company:</strong> ALIVE Advertising Pvt. Ltd.</span>
+            <span><strong className="text-muted-foreground">Company:</strong> VS Collective LLP</span>
             <span><strong className="text-muted-foreground">Location:</strong> Mangaluru, Karnataka, India</span>
-            <span><strong className="text-muted-foreground">Email:</strong> legal@alivemedia.in</span>
+            <span><strong className="text-muted-foreground">Email:</strong> hello@wearealive.in</span>
           </div>
         </div>
 
@@ -252,10 +252,10 @@ export default function TermsPage() {
             <h2 className="text-base font-bold text-foreground">12. Contact Information</h2>
             <p>For any queries regarding these Terms, please contact:</p>
             <div className="text-foreground space-y-0.5 font-medium">
-              <p>ALIVE Advertising Pvt. Ltd.</p>
-              <p className="text-muted-foreground font-normal">Mangaluru, Karnataka, India</p>
-              <p>Email: <a href="mailto:legal@alivemedia.in" className="text-primary hover:underline">legal@alivemedia.in</a></p>
-              <p>Website: <a href="https://www.alivemedia.in" className="text-primary hover:underline">www.alivemedia.in</a></p>
+              <p>VS Collective LLP (ALIVE)</p>
+              <p className="text-muted-foreground font-normal">217, Milestone 25, Balmatta, Mangalore, Karnataka, India</p>
+              <p>Email: <a href="mailto:hello@wearealive.in" className="text-primary hover:underline">hello@wearealive.in</a></p>
+              <p>Website: <a href="https://www.wearealive.in" className="text-primary hover:underline">www.wearealive.in</a></p>
             </div>
           </section>
         </div>
@@ -263,7 +263,7 @@ export default function TermsPage() {
 
       <footer className="border-t border-border/30 py-6 text-center">
         <p className="text-xs text-muted-foreground/40">
-          © 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru, Karnataka, India
+          © 2026 VS Collective LLP · Mangaluru, Karnataka, India
         </p>
       </footer>
     </div>

@@ -4,14 +4,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushPlanUpdated } from '@/lib/fcm';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     const device = await db.device.update({
@@ -21,6 +19,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
     // Immediately notify the device via FCM so it doesn't wait for the 15-min poll
     pushPlanUpdated([id]).catch(() => {});
+    await logAdminAction({
+      actor, req,
+      action: 'device.force_sync',
+      target: id,
+      meta:   { forceSyncAt: device.forceSyncAt?.toISOString() ?? null },
+    });
     return NextResponse.json({
       ok: true,
       forceSyncAt: device.forceSyncAt?.toISOString() ?? null,

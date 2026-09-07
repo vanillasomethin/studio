@@ -180,7 +180,9 @@ export default function Home() {
       <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
         <a href="#" className="brand">alive<span className="dot" /></a>
         <ul>
-          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#voices','Voices']].map(([href,lbl]) => (
+          {/* '/advertise' is the one page link in this list of section anchors —
+              the advertiser landing page has no section on the homepage. */}
+          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#voices','Voices'],['/advertise','Advertise']].map(([href,lbl]) => (
             <li key={href}><a href={href}>{lbl}</a></li>
           ))}
         </ul>
@@ -361,7 +363,7 @@ export default function Home() {
             { tag:'Reinvest',title:'Compound the winners.',    desc:'Push budget toward SKUs and PIN codes where lift was highest. Re-run in one click.' },
           ].map((b, i) => (
             <div key={b.tag} className="fade" style={{ '--delay': `${i * 0.12}s`, padding: '40px 48px', borderLeft: i === 1 ? '1px solid var(--rule)' : 'none' } as React.CSSProperties}>
-              <span className="tag" style={{ fontFamily: '"DM Mono",monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--red)', fontWeight: 600 }}>{b.tag}</span>
+              <span className="tag" style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--red)', fontWeight: 600 }}>{b.tag}</span>
               <p style={{ fontWeight: 700, fontSize: 'clamp(15px,1.4vw,19px)', letterSpacing: '-0.02em', margin: '8px 0 10px', lineHeight: 1.25 }}>{b.title}</p>
               <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--ink-2)' }}>{b.desc}</p>
             </div>
@@ -500,7 +502,7 @@ export default function Home() {
           <div className="col">
             <h4>Product</h4>
             <ul>
-              {['For Brands','For Kiranas','For Consumers','Measurement','How It Works'].map(l => <li key={l}><a href="#">{l}</a></li>)}
+              {([['For Brands','/advertise'],['For Kiranas','#'],['For Consumers','#'],['Measurement','#'],['How It Works','#']] as const).map(([l,h]) => <li key={l}><a href={h}>{l}</a></li>)}
             </ul>
           </div>
           <div className="col">
@@ -512,8 +514,8 @@ export default function Home() {
           <div className="col">
             <h4>Reach Us</h4>
             <p><a href="mailto:hello@wearealive.in" style={{ color: 'inherit' }}><strong>hello@wearealive.in</strong></a>For brand &amp; press enquiries</p>
-            <p style={{ marginTop: 14 }}><a href="tel:+917411324448" style={{ color: 'inherit' }}><strong>+91 74113 24448</strong></a>Mon–Sat · 10 AM to 7 PM IST</p>
-            <p style={{ marginTop: 14 }}><strong>VS Collective LLP · Mangaluru</strong>#13 First Floor, Highland Manor<br />Falnir, Mangaluru 575 002</p>
+            <p style={{ marginTop: 14 }}><a href="tel:+919606072227" style={{ color: 'inherit' }}><strong>+91 96060 72227</strong></a>Mon–Sat · 10 AM to 7 PM IST</p>
+            <p style={{ marginTop: 14 }}><strong>VS Collective LLP · Mangaluru</strong>217, Milestone 25<br />Balmatta, Mangalore</p>
           </div>
         </div>
 

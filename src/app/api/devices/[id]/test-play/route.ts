@@ -13,13 +13,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { pushPlanUpdated } from '@/lib/fcm';
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 const TEST_DURATION_MINS = 3;
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
 
 /** Playlist used for tests: the admin-configured one, else the smallest playlist
  *  that has content (a short clip makes for the fastest confirmation). */
@@ -38,7 +35,8 @@ async function resolveTestPlaylistId(): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
   const { id } = await params;
   try {
     const device = await db.device.findUnique({ where: { id }, select: { id: true } });
@@ -71,6 +69,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // test resolves in seconds. Best-effort: without FCM it still works, just slower.
     await pushPlanUpdated([device.id]).catch(() => {});
 
+    // A test is a real priority-9 takeover: for TEST_DURATION_MINS this screen
+    // stops showing whatever a brand booked. Record who pre-empted which screen,
+    // so an unexplained gap in a campaign's proof-of-play has an explanation.
+    await logAdminAction({
+      actor, req,
+      action: 'test_play.start',
+      target: device.id,
+      meta: {
+        scheduleId: schedule.id,
+        playlistId,
+        expiresAt:  schedule.endAt.toISOString(),
+      },
+    });
+
     return NextResponse.json({
       scheduleId: schedule.id,
       playlistId,
@@ -83,7 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   const { id } = await params;
   const since = req.nextUrl.searchParams.get('since');
   if (!since) return NextResponse.json({ error: 'since required' }, { status: 400 });

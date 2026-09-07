@@ -3,11 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 // Kept in sync with /api/devices and the device-health cron — see comment there.
 const OFFLINE_THRESHOLD_MS = 20 * 60 * 1000;
@@ -19,7 +15,7 @@ function effectiveStatus(lastSeen: Date | null, dbStatus: string) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
     const rows = await db.device.findMany({
       where:  { groupName: { not: null } },

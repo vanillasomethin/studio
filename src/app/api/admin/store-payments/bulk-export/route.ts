@@ -5,11 +5,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-function checkAdmin(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { computeStorePayoutBatch } from '@/lib/store-payout-db';
+import { monthWindow } from '@/lib/store-payout';
 
 function fmtMonth(m: string) {
   const [y, mo] = m.split('-');
@@ -17,8 +15,25 @@ function fmtMonth(m: string) {
     .toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
+// Every cell of the bank file goes through this — no exceptions. Partner-supplied
+// values (upiId, bank details, ownerName, whatsapp) reach this file verbatim, so
+// escaping per-field invites the one that gets missed.
+function csvCell(value: unknown): string {
+  const s = value == null ? '' : String(value);
+  // Strip control characters rather than rely on quoting them. A quoted CRLF is
+  // legal RFC-4180, but bank upload portals parse line-by-line and would read the
+  // tail as a second payment instruction. Nothing legitimate in a name, UPI id,
+  // account number, IFSC or phone contains one.
+  const flat = s.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  // A leading = + - @ turns the cell into a formula when the admin opens the file.
+  const guarded = /^[=+\-@]/.test(flat) ? `'${flat}` : flat;
+  // Quote unconditionally and double internal quotes so a comma or quote cannot
+  // shift columns and redirect a transfer to another account.
+  return `"${guarded.replace(/"/g, '""')}"`;
+}
+
 export async function GET(req: NextRequest) {
-  if (!checkAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await requireAdmin(req))) return adminUnauthorized();
 
   const { searchParams } = new URL(req.url);
   const month = searchParams.get('month'); // YYYY-MM
@@ -27,22 +42,21 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Get all stores that have a live date in or before this month
-    const [y, mo] = month.split('-').map(Number);
-    const monthStart = new Date(y, mo - 1, 1);
-    const monthEnd   = new Date(y, mo, 1);
+    // Only stores that actually went live earn a payout. agreedAt means the partner
+    // signed, not that a screen is running — paying on it pays for nothing.
+    // new Date(y, mo, 1) is SERVER-local — UTC on Vercel — so a store that went
+    // live at 2026-10-01 03:00 IST read as 2026-09-30 21:30 and got paid for
+    // September. monthWindow gives the true IST month edge.
+    const { end: monthEnd } = monthWindow(month);
 
     const stores = await db.store.findMany({
-      where: {
-        OR: [
-          { liveAt: { lte: monthEnd } },
-          { agreedAt: { lte: monthEnd } },
-        ],
-      },
+      where: { liveAt: { not: null, lt: monthEnd } },
       select: {
         id: true, storeName: true, ownerName: true, whatsapp: true,
         upiId: true, bankAccountNo: true, bankIfsc: true, bankAccountName: true, payoutMethod: true,
-        liveAt: true, agreedAt: true,
+        monthlyCompensationPaise: true,
+        liveAt: true,
+        loopSlotCount: true, slotPricingTier: true, tier: true, screenWatts: true,
       },
     });
 
@@ -53,12 +67,12 @@ export async function GET(req: NextRequest) {
     });
     const paidSet = new Set(paidThisMonth.map((p) => p.storeId));
 
-    const pending = stores.filter((s) => {
-      if (paidSet.has(s.id)) return false;
-      const start = s.liveAt ?? s.agreedAt;
-      if (!start) return false;
-      return new Date(start) <= monthEnd;
-    });
+    const unpaid = stores.filter((s) => !paidSet.has(s.id));
+
+    // A row with no destination is rejected by the bank and can fail the whole
+    // batch. Drop them, but report the count rather than truncating silently.
+    const pending = unpaid.filter((s) => s.upiId || s.bankAccountNo);
+    const skippedNoPayoutDetails = unpaid.length - pending.length;
 
     if (pending.length === 0) {
       return NextResponse.json({ error: 'No pending stores for this month' }, { status: 404 });
@@ -66,6 +80,16 @@ export async function GET(req: NextRequest) {
 
     const monthLabel = fmtMonth(month);
     const narration  = `ALIVE Partner ${monthLabel}`;
+
+    // The bank file must carry the same figure the tab shows and the ledger
+    // records — base + slot incentive + electricity. Using the flat
+    // monthlyCompensationPaise here underpaid every slot-tier partner in exactly
+    // the way the premium bug it replaced did.
+    const payouts = await computeStorePayoutBatch(month, pending.map((s) => ({
+      id: s.id, liveAt: s.liveAt, loopSlotCount: s.loopSlotCount,
+      slotPricingTier: s.slotPricingTier, tier: s.tier,
+      monthlyCompensationPaise: s.monthlyCompensationPaise, screenWatts: s.screenWatts,
+    })));
 
     // ── Build CSV rows ────────────────────────────────────────────────────────
     // Generic format compatible with most Indian bank bulk upload portals.
@@ -75,14 +99,13 @@ export async function GET(req: NextRequest) {
     ];
 
     pending.forEach((store, i) => {
-      const name    = `"${store.ownerName || store.storeName}"`;
+      const name    = store.ownerName || store.storeName;
       const account = store.upiId ?? store.bankAccountNo ?? '';
       const ifsc    = store.bankIfsc ?? '';
       const mode    = store.upiId ? 'UPI' : 'NEFT';
-      const amount  = '500.00';
-      const note    = `"${narration}"`;
+      const amount  = ((payouts.get(store.id)?.totalPaise ?? store.monthlyCompensationPaise) / 100).toFixed(2);
       const phone   = store.whatsapp ?? '';
-      rows.push([i + 1, name, account, ifsc, amount, mode, note, phone].join(','));
+      rows.push([i + 1, name, account, ifsc, amount, mode, narration, phone].map(csvCell).join(','));
     });
 
     const csv = rows.join('\r\n');
@@ -92,6 +115,8 @@ export async function GET(req: NextRequest) {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${filename}"`,
+        'X-Alive-Rows': String(pending.length),
+        'X-Alive-Skipped-No-Payout-Details': String(skippedNoPayoutDetails),
       },
     });
   } catch (e) {

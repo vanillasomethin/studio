@@ -6,14 +6,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import { triggerTranscode } from '@/lib/transcode-lambda';
-
-function adminGuard(req: NextRequest) {
-  const pw = req.headers.get('admin-password') ?? '';
-  return !!process.env.ADMIN_PASSWORD && pw === process.env.ADMIN_PASSWORD;
-}
+import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
+import { logAdminAction } from '@/lib/admin-audit';
 
 export async function POST(req: NextRequest) {
-  if (!adminGuard(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const actor = await requireAdmin(req);
+  if (!actor) return adminUnauthorized();
 
   const { contentId } = await req.json().catch(() => ({})) as { contentId?: string };
   if (!contentId) return NextResponse.json({ error: 'contentId required' }, { status: 400 });
@@ -25,7 +23,8 @@ export async function POST(req: NextRequest) {
 
     // Transcode from the preserved original when there is one — re-encoding the
     // rendition would stack generation loss.
-    await triggerTranscode(contentId, publicUrl(content.originalObjectKey ?? content.objectKey));
+    const sourceKey = content.originalObjectKey ?? content.objectKey;
+    await triggerTranscode(contentId, publicUrl(sourceKey));
 
     try {
       await db.content.update({
@@ -36,6 +35,17 @@ export async function POST(req: NextRequest) {
       // Fallback: ORM fails if this DB hasn't run the transcodeStatus migration yet.
       await db.$executeRaw`UPDATE "Content" SET "transcodeStatus" = 'pending', "transcodeError" = NULL WHERE id = ${contentId}`;
     }
+
+    // A transcode replaces the bytes that play on screens, so record who queued
+    // it and which source it re-encodes from.
+    await logAdminAction({
+      actor, req,
+      action: 'transcode_job.create',
+      target: contentId,
+      // Key deliberately not named *Key — admin-audit scrubs credential-shaped
+      // field names, and /key/i would redact the object path into uselessness.
+      meta:   { name: content.name, source: sourceKey },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {

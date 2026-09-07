@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { resolveStoreId } from '@/lib/store-partner-auth';
-import { isAdmin } from '@/lib/admin-auth';
+import { requireAdmin } from '@/lib/admin-guard';
 import { getPrivateObject } from '@/lib/r2';
 
 const KINDS = {
@@ -35,8 +35,17 @@ export async function GET(req: NextRequest) {
   const requested = req.nextUrl.searchParams.get('storeId');
 
   // Admins review any store's onboarding evidence; partners see only their own.
+  //
+  // requireAdmin (the named, 2FA-backed session) rather than the `admin-password`
+  // header check, for two reasons. The console renders these photos in a plain
+  // <img>, and a browser image request carries cookies but cannot carry a custom
+  // header — a header-based check would 401 every thumbnail in the onboarding
+  // review, which is the one place these photos exist to be looked at. And the
+  // shared secret was deliberately retired from the admin surface; honouring it
+  // again here would put every partner's premises behind a credential the rest of
+  // the console no longer accepts.
   let storeId: string | null = null;
-  if (isAdmin(req)) {
+  if (await requireAdmin(req)) {
     storeId = requested;
   } else {
     storeId = await resolveStoreId(requested);
