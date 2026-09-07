@@ -15,7 +15,9 @@ import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 import { db } from '@/lib/db';
 
-export const PROSPECT_STATUSES = ['scouting', 'contacted', 'negotiating', 'rejected', 'converted'] as const;
+// Not exported: a route file may only export handlers and route config, and
+// Next fails the build on anything else.
+const PROSPECT_STATUSES = ['scouting', 'contacted', 'negotiating', 'rejected', 'converted'] as const;
 type ProspectStatus = (typeof PROSPECT_STATUSES)[number];
 
 const isStatus = (v: unknown): v is ProspectStatus =>

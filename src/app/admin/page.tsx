@@ -11,7 +11,7 @@ import {
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
-  Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus, QrCode, Camera, ShieldCheck, Users, MapPinned,
+  Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus, QrCode, Camera, ShieldCheck, Users, MapPinned, Film,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { signIn, signOut as authSignOut } from 'next-auth/react';
@@ -28,6 +28,7 @@ const SlotsTab        = dynamic(() => import('@/components/admin/slots-tab'),   
 const PowerTab        = dynamic(() => import('@/components/admin/power-tab'),        { ssr: false });
 const QrTab           = dynamic(() => import('@/components/admin/qr-tab'),           { ssr: false });
 const ProspectsTab    = dynamic(() => import('@/components/admin/prospects-tab'),    { ssr: false });
+const FillersTab      = dynamic(() => import('@/components/admin/fillers-tab'),      { ssr: false });
 const CompositionsTab = dynamic(() => import('@/components/admin/compositions-tab'), { ssr: false });
 const LayoutsTab      = dynamic(() => import('@/components/admin/layouts-tab'),       { ssr: false });
 const MonitoringTab   = dynamic(() => import('@/components/admin/monitoring-tab'),   { ssr: false });
@@ -149,6 +150,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   power:      { eyebrow: 'Electricity',        title: 'Screen power'       },
   qr:         { eyebrow: 'Scan tracking',      title: 'QR codes'           },
   prospects:  { eyebrow: 'Network growth',     title: 'Prospect locations' },
+  fillers:    { eyebrow: 'Unsold positions',   title: 'House content'      },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   coupons:    { eyebrow: 'Brand discounts',    title: 'Coupons'            },
   enquiries:  { eyebrow: 'Advertiser leads',   title: 'Enquiries'          },
@@ -1972,6 +1974,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
       { id: 'products' as Tab,   label: 'Products',         icon: Package,         count: null },
       { id: 'team' as Tab,       label: 'Team',             icon: Users,           count: null },
       { id: 'alerts' as Tab,     label: 'Alerts',           icon: Bell,            count: null },
+      { id: 'fillers' as Tab,    label: 'House content',    icon: Film,            count: null },
       { id: 'prospects' as Tab,  label: 'Prospects',        icon: MapPinned,       count: null },
       { id: 'roadmap' as Tab,    label: 'Platform',         icon: Map,             count: null },
     ],
@@ -2654,6 +2657,7 @@ function Dashboard({ email }: { email: string | null }) {
     power:      'Power',
     qr:         'QR codes',
     prospects:  'Prospect locations',
+    fillers:    'House content',
     content:    'Creatives',
     compositions: 'Compositions',
     stores:       'Store Partners',
@@ -2738,6 +2742,7 @@ function Dashboard({ email }: { email: string | null }) {
               {tab === 'power'      && <PowerTab />}
               {tab === 'qr'         && <QrTab />}
               {tab === 'prospects' && <ProspectsTab />}
+              {tab === 'fillers'   && <FillersTab />}
               {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}

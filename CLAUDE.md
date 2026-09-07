@@ -310,6 +310,10 @@ When a generic control and a graphical one both work, use the graphical one.
   `admin.css` hangs `--font-display` / `--font-body` / `--font-mono` off
   `.admin-fonts`, not `:root`, because a custom property containing `var()`
   resolves on the element it is declared on.
+- Icons: `npm run icons:pwa` regenerates the PWA set in `public/icons/` AND
+  `src/app/favicon.ico` from the wordmark — never hand-place either. The favicon
+  is the `a` plus the red dot, not the whole wordmark, because "alive•" is a
+  smudge at 16px; `src/app/icon.tsx` draws the same mark for `/icon`.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.
