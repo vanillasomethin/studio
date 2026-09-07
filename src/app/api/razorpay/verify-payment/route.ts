@@ -22,8 +22,36 @@ type Body = {
     totalAmount:    number;
     couponCode?:    string;
     preferredStoreIds?: unknown; // store ids picked on the onboarding map
+    // Which agreement the buyer accepted, and when. Recorded, never enforced —
+    // see the note where it is normalised below.
+    agreementVersion?:    string;
+    agreementAcceptedAt?: string;
   };
 };
+
+/**
+ * Normalise the acceptance a paid booking carries.
+ *
+ * Deliberately asymmetric with /api/campaigns/save, which REFUSES a booking
+ * without an accepted agreement. By the time this route runs, Razorpay has
+ * already taken the brand's money: refusing here would leave them charged with
+ * no campaign, which is a far worse outcome than a row whose acceptance we have
+ * to chase by hand. So a missing version is recorded as missing — visible in
+ * admin as "not captured" — and the campaign is still written.
+ */
+function acceptanceOf(campaign: { agreementVersion?: string; agreementAcceptedAt?: string }): {
+  agreementVersion: string | null; agreementAcceptedAt: Date | null;
+} {
+  const version = typeof campaign.agreementVersion === 'string'
+    ? campaign.agreementVersion.trim().slice(0, 40)
+    : '';
+  if (!version) return { agreementVersion: null, agreementAcceptedAt: null };
+  const raw = campaign.agreementAcceptedAt ? new Date(campaign.agreementAcceptedAt) : null;
+  // Unusable or future-dated timestamps fall back to server time — a forged one
+  // is not evidence, and this is the moment the payment settled either way.
+  const at = raw && !Number.isNaN(raw.getTime()) && raw.getTime() <= Date.now() ? raw : new Date();
+  return { agreementVersion: version, agreementAcceptedAt: at };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -157,7 +185,9 @@ export async function POST(req: NextRequest) {
       // Bring an existing campaign to `active`. Shared by the pay-later branch
       // and by the loser of a create race, which are the same situation once the
       // row exists: the payment is settled and the row must reflect it.
-      const activateExisting = async (row: { id: string; status: string; preferredStoreIds: string[] }) => {
+      const activateExisting = async (row: {
+        id: string; status: string; preferredStoreIds: string[]; agreementVersion: string | null;
+      }) => {
         // Keep the row internally consistent: the charge was recomputed at
         // current rates, so the stored per-screen rate must follow it.
         const ppw = Math.floor(Number(campaign.pricePerScreen));
@@ -178,6 +208,11 @@ export async function POST(req: NextRequest) {
             ...(keptPicks.length !== (row.preferredStoreIds?.length ?? 0) ? { preferredStoreIds: keptPicks } : {}),
             ...(paidCoupon ? { couponCode: paidCoupon } : {}),
             ...(Number.isFinite(ppw) && ppw > 0 ? { pricePerScreen: ppw } : {}),
+            // Fill-empty only. A pay-later row already carries the acceptance
+            // captured when it was booked, and that is the real evidence — the
+            // moment the buyer ticked the box, not the later moment they paid.
+            // Overwriting it would replace a true record with a weaker one.
+            ...(row.agreementVersion ? {} : acceptanceOf(campaign)),
           },
         });
         // The pay-later flow reaches payment through here, so it counted no
@@ -212,6 +247,7 @@ export async function POST(req: NextRequest) {
               paymentId:      razorpay_payment_id,
               orderId:        razorpay_order_id,
               status:         'active',
+              ...acceptanceOf(campaign),
             },
           });
 

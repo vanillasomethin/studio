@@ -10,6 +10,11 @@ import {
   asTier, campaignBaseForCount, campaignBaseForStores, storeMonthlyPrice,
 } from '@/lib/brand-pricing';
 import { SLOT_TIERS_BY_VALUE, SLOT_TIER_LABEL, type SlotTier } from '@/lib/slot-pricing';
+import {
+  BRAND_AGREEMENT_EXECUTION_NOTE, BRAND_AGREEMENT_TITLE, BRAND_AGREEMENT_VERSION,
+  acceptBrandAgreement, brandAgreementClauses,
+  type BrandAgreementAcceptance as AcceptedAgreement,
+} from '@/lib/brand-agreement';
 import { useBrandScreens } from '@/components/brand/use-brand-screens';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
@@ -33,7 +38,11 @@ type OnboardingFormData = {
   screens: number;
   months: number;
   startDate: string;
-  agreementSigned: boolean;
+  // What the buyer accepted, not merely THAT they accepted. Carries the clause
+  // version and the moment the box was ticked, because both are written to the
+  // Campaign as the evidence of agreement. A bare boolean was the old shape and
+  // it recorded nothing — see src/lib/brand-agreement.ts.
+  acceptedAgreement: AcceptedAgreement | null;
   // Store ids picked on the map — a routing hint for ops, not a reservation.
   // When non-empty, screens is kept in sync with its length. Names are kept
   // client-side so later steps can echo the picks; never sent to the API.
@@ -798,7 +807,7 @@ function StepAgreement({
   data, onChange, onNext, onBack, isTrial,
 }: {
   data: OnboardingFormData;
-  onChange: (k: keyof OnboardingFormData, v: boolean) => void;
+  onChange: (k: keyof OnboardingFormData, v: AcceptedAgreement | null) => void;
   onNext: () => void;
   onBack: () => void;
   isTrial?: boolean;
@@ -811,98 +820,11 @@ function StepAgreement({
     : campaignBaseForCount(data.screens, 1));
   const effectiveDate  = format(new Date(), 'd MMMM yyyy');
 
-  const clauses = [
-    {
-      n: '1', title: 'What we provide',
-      items: [
-        'We display your advertisements on digital screens installed inside kirana stores and retail outlets across your selected locations.',
-        'You get a dedicated Account Manager who handles scheduling, creative formatting, and campaign reporting.',
-        'We provide screen uptime reports and campaign performance summaries.',
-      ],
-    },
-    {
-      n: '2', title: 'Your campaign',
-      items: [
-        `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}.`,
-        isTrial
-          ? `This is a free trial campaign — the standard monthly fee of ${monthlyFee} plus GST is waived; nothing is payable.`
-          : `The monthly fee is ${monthlyFee} plus applicable GST.`,
-        isTrial
-          ? 'Campaign dates are confirmed after creative submission.'
-          : 'Campaign dates are confirmed after payment and creative submission.',
-        'Minimum play guarantee: once your screens are booked, we guarantee the "Guaranteed plays/day" figure shown on your dashboard. If we fall short of that guarantee in a billing month, we will add the missed plays to your rotation the following month at no extra cost (make-good); if there is no following month, we will issue a pro-rated bill credit for the shortfall instead. We will never apply both remedies for the same shortfall.',
-        'Peak-window frequency: during peak viewing windows (9–11am, 12:30–2:30pm, 5:30–7:30pm, 7:30–9:30pm), screens with a Peak Boost add-on active play more often than screens without it. Your ad still plays every rotation cycle even without Peak Boost — only its frequency during those specific windows is reduced relative to boosted campaigns. Outside peak windows, all screens rotate equally regardless of Peak Boost.',
-      ],
-    },
-    {
-      n: '3', title: 'Payment',
-      items: [
-        isTrial
-          ? 'No payment is due for this trial campaign. Renewals after the trial are charged at the standard rates.'
-          : 'Payment is collected upfront via Razorpay before your campaign is activated.',
-        isTrial
-          ? 'No invoice is raised for a ₹0 trial.'
-          : 'A GST invoice will be sent to your registered email within 2 business days of payment.',
-        'Fees for completed campaign months are non-refundable. If we cancel your campaign for reasons within our control, we will issue a prorated refund.',
-        'Late or disputed payments attract interest of 2% per month.',
-      ],
-    },
-    {
-      n: '4', title: 'Your content',
-      items: [
-        'You are solely responsible for ensuring your ad content is accurate, lawful, and complies with applicable advertising regulations.',
-        'We may reject or remove content that violates any law, is misleading, or conflicts with our content policies — without liability to you.',
-        'Send your ad creative and logo to your Account Manager after payment. Specifications: MP4 or JPEG/PNG, 1920 × 1080 px, max 100 MB.',
-      ],
-    },
-    {
-      n: '5', title: 'Intellectual property',
-      items: [
-        'You retain full ownership of your ad content and brand assets.',
-        'You grant us a non-exclusive licence to display your content on our screens for the campaign duration.',
-        'We retain ownership of our platform, scheduling software, and reporting tools.',
-      ],
-    },
-    {
-      n: '6', title: 'Limitation of liability',
-      items: [
-        'Our total liability to you for any claim arising from these Terms is limited to the fees you paid for the affected campaign period.',
-        'We are not liable for indirect, incidental, or consequential losses, including lost revenue or reputational damage.',
-        'We are not liable for screen downtime caused by third-party store closures, power outages, or force majeure events. We will notify you and extend your campaign where reasonably possible.',
-      ],
-    },
-    {
-      n: '7', title: 'Ending this agreement',
-      items: [
-        'Either party may end this agreement with 30 days written notice.',
-        'We may suspend or terminate immediately if you breach a material term, including non-payment or submission of unlawful content.',
-        'On termination, outstanding fees become immediately due.',
-      ],
-    },
-    {
-      n: '8', title: 'Privacy',
-      items: [
-        'We collect your business details (name, email, phone, GSTIN) to manage your campaign and issue invoices.',
-        'We do not sell your information to third parties.',
-        'Payment processing is handled by Razorpay, subject to their privacy policy.',
-      ],
-    },
-    {
-      n: '9', title: 'Governing law',
-      items: [
-        'These Terms are governed by the laws of India.',
-        'Any disputes will first be addressed through good-faith discussions. If unresolved within 30 days, disputes will be referred to arbitration in Mangaluru, Karnataka, under the Arbitration and Conciliation Act, 1996.',
-        'Courts in Mangaluru, Karnataka have exclusive jurisdiction for any proceedings.',
-      ],
-    },
-    {
-      n: '10', title: 'Changes to these terms',
-      items: [
-        'We may update these Terms from time to time. We will notify you of material changes by email.',
-        'Continued use of our services after changes take effect means you accept the revised Terms.',
-      ],
-    },
-  ];
+  // Rendered from the shared lib so this flow and the dashboard booking modal
+  // cannot drift apart: they sell the same product under the same contract.
+  const clauses = brandAgreementClauses({
+    screens: data.screens, months: data.months, monthlyFee, isTrial,
+  });
 
   return (
     <div className="space-y-6">
@@ -913,8 +835,8 @@ function StepAgreement({
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="border-b border-border bg-card px-5 py-4">
-          <p className="text-sm font-bold text-foreground">Alive Advertising — Terms of Service</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Effective date: {effectiveDate}</p>
+          <p className="text-sm font-bold text-foreground">{BRAND_AGREEMENT_TITLE}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Version {BRAND_AGREEMENT_VERSION} · Effective date: {effectiveDate}</p>
         </div>
 
         {/* No nested scroll — content flows naturally so mobile page scroll works */}
@@ -968,8 +890,7 @@ function StepAgreement({
           <div className="pt-4 border-t border-border">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Digital Acceptance</p>
             <p className="text-xs text-muted-foreground/70 mb-4 leading-relaxed">
-              This agreement is executed electronically under the Information Technology Act, 2000.
-              Electronic acceptance via the ALIVE platform constitutes valid execution without physical signatures.
+              {BRAND_AGREEMENT_EXECUTION_NOTE}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div className="space-y-1">
@@ -988,7 +909,12 @@ function StepAgreement({
                 {data.phone      && <p className="text-muted-foreground">+91 {data.phone}</p>}
                 {data.gstin      && <p className="text-muted-foreground">GSTIN: {data.gstin}</p>}
                 <p className="text-muted-foreground">Campaign: {data.screens} screen{data.screens !== 1 ? 's' : ''} · {data.months} month{data.months !== 1 ? 's' : ''} · {isTrial ? 'free trial — fee waived' : `${monthlyFee}/mo`}</p>
-                <p className="text-muted-foreground">Date of acceptance: {effectiveDate}</p>
+                <p className="text-muted-foreground">
+                  Date of acceptance:{' '}
+                  {data.acceptedAgreement
+                    ? format(new Date(data.acceptedAgreement.at), 'd MMMM yyyy, h:mm a')
+                    : 'on acceptance below'}
+                </p>
               </div>
             </div>
           </div>
@@ -1000,8 +926,13 @@ function StepAgreement({
         <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
           <Checkbox
             id="agree"
-            checked={data.agreementSigned}
-            onCheckedChange={(v) => onChange('agreementSigned', !!v)}
+            checked={!!data.acceptedAgreement}
+            // Stamped at the tick, not at submit: this is the moment the buyer
+            // agreed, and it is what gets written to the Campaign as evidence.
+            onCheckedChange={(v) => onChange(
+              'acceptedAgreement',
+              v ? { version: BRAND_AGREEMENT_VERSION, at: new Date().toISOString() } : null,
+            )}
             className="mt-0.5 shrink-0"
           />
           <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
@@ -1015,7 +946,7 @@ function StepAgreement({
           <Button variant="outline" onClick={onBack} className="gap-1.5 h-11">
             <ArrowLeft className="h-4 w-4" /> Back
           </Button>
-          <Button onClick={onNext} disabled={!data.agreementSigned} className="flex-1 gap-1.5 h-11">
+          <Button onClick={onNext} disabled={!data.acceptedAgreement} className="flex-1 gap-1.5 h-11">
             Accept &amp; continue <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
@@ -1141,6 +1072,8 @@ function StepPayment({
                 totalAmount:    total, // actual charged amount, incl. any promo discount + GST
                 couponCode:     promoCode || undefined,
                 preferredStoreIds: data.preferredStoreIds,
+                agreementVersion:    data.acceptedAgreement?.version,
+                agreementAcceptedAt: data.acceptedAgreement?.at,
               },
             }),
           });
@@ -1619,11 +1552,16 @@ function StepDone({ data, paymentId, chargedTotal, isTrial }: {
 
 const INITIAL: OnboardingFormData = {
   brandName: '', contactName: '', email: '', phone: '', gstin: '',
-  screens: 3, months: 1, startDate: format(new Date(Date.now() + 7 * 86400000), 'yyyy-MM-dd'), agreementSigned: false,
+  screens: 3, months: 1, startDate: format(new Date(Date.now() + 7 * 86400000), 'yyyy-MM-dd'), acceptedAgreement: null,
   preferredStoreIds: [], preferredStoreNames: {}, preferredStoreTiers: {},
 };
 
 const PENDING_KEY = 'alive_pending_campaign';
+
+/** How long an interrupted checkout stays resumable. Long enough to cover a
+ *  sign-in detour and a distracted afternoon, short enough that stale pricing
+ *  never comes back to life. */
+const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 
 function BrandOnboardingInner() {
   const searchParams = useSearchParams();
@@ -1639,19 +1577,37 @@ function BrandOnboardingInner() {
   const isLoaded    = status !== 'loading';
   const isSignedIn  = status === 'authenticated';
 
-  // Restore a pending campaign if the user left during payment and came back signed in
+  // Restore a pending campaign if the user left during payment and came back
+  // signed in.
+  //
+  // This lands on the AGREEMENT step, never on payment. It used to setStep(5),
+  // which is how brands ended up booking without ever seeing the terms: the
+  // draft below is written on every visit that reaches payment and is only
+  // cleared on a successful save, so anyone who reached checkout once and
+  // wandered off was afterwards dropped straight onto Payment on every signed-in
+  // return — agreement screen skipped, on the strength of an `agreed: true` flag
+  // sitting in their own localStorage. Acceptance is dropped on restore for the
+  // same reason: the clauses quote this campaign's own screens, months and fee,
+  // so a tick carried over from a different draft is not consent to THIS one.
+  // The cost is one checkbox on a screen they have seen; the alternative is a
+  // contract nobody can show was read.
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     try {
       const saved = localStorage.getItem(PENDING_KEY);
-      if (saved) {
-        const { form: savedForm } = JSON.parse(saved) as { form: OnboardingFormData };
-        localStorage.removeItem(PENDING_KEY);
-        // Merge over defaults — forms saved before newer fields existed
-        // (e.g. preferredStoreIds) would otherwise restore with undefined.
-        setForm({ ...INITIAL, ...savedForm });
-        setStep(5); // drop straight back to payment
-      }
+      if (!saved) return;
+      localStorage.removeItem(PENDING_KEY);
+      const { form: savedForm, savedAt } = JSON.parse(saved) as {
+        form: OnboardingFormData; savedAt?: number;
+      };
+      // Stale drafts start over rather than resurrect: prices, tiers and store
+      // availability all move, and silently reviving a month-old basket quotes
+      // a figure we no longer honour.
+      if (typeof savedAt !== 'number' || Date.now() - savedAt > DRAFT_TTL_MS) return;
+      // Merge over defaults — forms saved before newer fields existed
+      // (e.g. preferredStoreIds) would otherwise restore with undefined.
+      setForm({ ...INITIAL, ...savedForm, acceptedAgreement: null });
+      setStep(4);
     } catch { /* ignore */ }
   }, [isLoaded, isSignedIn]);
 
@@ -1661,10 +1617,14 @@ function BrandOnboardingInner() {
   const next = () => { setDirection(1);  setStep((s) => Math.min(s + 1, STEPS.length + 2)); };
   const back = () => { setDirection(-1); setStep((s) => Math.max(s - 1, 1)); };
 
-  // Save campaign data when the user reaches the payment step
+  // Save campaign data when the user reaches the payment step. Stamped so the
+  // restore above can tell a checkout interrupted minutes ago from an abandoned
+  // basket it should not revive.
   useEffect(() => {
     if (step === 5) {
-      try { localStorage.setItem(PENDING_KEY, JSON.stringify({ form })); } catch { /* ignore */ }
+      try {
+        localStorage.setItem(PENDING_KEY, JSON.stringify({ form, savedAt: Date.now() }));
+      } catch { /* ignore */ }
     }
   }, [step, form]);
 
@@ -1696,6 +1656,9 @@ function BrandOnboardingInner() {
           totalAmount,
           status,
           preferredStoreIds: form.preferredStoreIds,
+          // Evidence of agreement — the route refuses a booking without it.
+          agreementVersion:    form.acceptedAgreement?.version,
+          agreementAcceptedAt: form.acceptedAgreement?.at,
         }),
       });
       const body = await res.json().catch(() => null) as { data?: { error?: string } } | null;
@@ -1770,7 +1733,7 @@ function BrandOnboardingInner() {
                 <StepCampaign data={form} onChange={(k, v) => update(k, v as OnboardingFormData[keyof OnboardingFormData])} onNext={next} onBack={back} isTrial={isTrial} />
               )}
               {step === 4 && (
-                <StepAgreement data={form} onChange={(k, v) => update(k, v as boolean)} onNext={next} onBack={back} isTrial={isTrial} />
+                <StepAgreement data={form} onChange={update} onNext={next} onBack={back} isTrial={isTrial} />
               )}
               {step === 5 && (
                 <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onBack={back} isTrial={isTrial} />
