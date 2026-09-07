@@ -5,6 +5,7 @@ import { pushDecommission } from '@/lib/fcm';
 import { deleteObject, deletePrivateObject, publicUrl } from '@/lib/r2';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
+import { STORE_CATEGORIES, isStoreCategory } from '@/lib/store-categories';
 
 /**
  * R2 object key for a stored verification-photo value, and which bucket holds it.
@@ -34,6 +35,7 @@ function verificationKeyFromStored(stored: string | null): { key: string; wasPub
 const TEXT_COLS = [
   'tvBrand', 'tvModel', 'tvSerial', 'tvTag', 'espSwitchName', 'espPlugId',
   'wifiSsid', 'wifiUsername', 'wifiPassword', 'wifiAuthType', 'installNotes',
+  'category',
 ] as const;
 
 /**
@@ -108,6 +110,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       wifiPassword?: string | null;
       wifiAuthType?: string | null;
       installNotes?: string | null;
+      // Shop category slug — see src/lib/store-categories.ts.
+      category?: string | null;
       // Map pin — set or moved from Admin → Stores → Edit → Map pin.
       lat?: unknown;
       lng?: unknown;
@@ -156,6 +160,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (bodyAuthType && !WIFI_AUTH_TYPES.includes(bodyAuthType)) {
       return NextResponse.json(
         { error: `Unknown WiFi security type "${bodyAuthType}". Use one of: ${WIFI_AUTH_TYPES.join(', ')}.` },
+        { status: 400 },
+      );
+    }
+
+    // Same shape as wifiAuthType: blank clears, anything else must be a known
+    // slug so the maps/filters built on this column never meet a typo.
+    const bodyCategory = textCol(body.category);
+    if (bodyCategory && !isStoreCategory(bodyCategory)) {
+      return NextResponse.json(
+        { error: `Unknown shop category "${bodyCategory}". Use one of: ${STORE_CATEGORIES.map((c) => c.value).join(', ')}.` },
         { status: 400 },
       );
     }

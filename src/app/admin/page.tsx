@@ -47,6 +47,7 @@ const MapPicker        = dynamic(() => import('@/components/map-picker'),       
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
+import { STORE_CATEGORIES } from '@/lib/store-categories';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ type StoreReg = {
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
   lat?: number | null; lng?: number | null; gstin?: string; email?: string; createdAt: string;
   onboardingStage?: string | null; payoutStatus?: string | null; payoutMethod?: string | null; upiId?: string | null;
-  tier?: string | null; monthlyCompensationPaise?: number | null;
+  tier?: string | null; monthlyCompensationPaise?: number | null; category?: string | null;
   bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
   referralCode?: string; referredBy?: string | null; agreedAt?: string | null; liveAt?: string | null;
@@ -1011,6 +1012,7 @@ function StoresPanel() {
         onboardingStage: store.onboardingStage,
         payoutStatus: store.payoutStatus,
         payoutNotes: store.payoutNotes || null,
+        category: store.category ?? null,
         // Installation & hardware — sent as-is; the route normalises blanks to
         // NULL and validates the size/date, so clearing a field really clears it.
         tvBrand:       store.tvBrand ?? null,
@@ -1384,7 +1386,7 @@ function StoresPanel() {
                         the ops-typed label fields above, which stay pure metadata. */}
                     <StorePlugPanel storeId={s.id} />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
                         <option value="new">New</option>
                         <option value="contacted">Contacted / verified</option>
@@ -1398,6 +1400,14 @@ function StoresPanel() {
                         <option value="ready">Ready for payout</option>
                         <option value="paid">Paid</option>
                         <option value="on_hold">On hold</option>
+                      </select>
+                      {/* Empty = not categorised (the pre-feature fleet); picking
+                          the blank option again clears it on the next Save. */}
+                      <select value={s.category ?? ''} onChange={(e) => patchLocal(s.id, { category: e.target.value || null })} className={inp}>
+                        <option value="">Shop category — not set</option>
+                        {STORE_CATEGORIES.map((c) => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
                       </select>
                     </div>
                     {saveError?.id === s.id && (
