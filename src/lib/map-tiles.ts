@@ -4,8 +4,7 @@
 // none, every tile the server returns is an image that reads "API key required",
 // which is exactly what a map here shows the moment the key is missing. The key
 // is free up to 5M tile requests a month and needs no account —
-// https://carto.com/basemaps/apikey — and goes in NEXT_PUBLIC_CARTO_API_KEY
-// (EXPO_PUBLIC_CARTO_API_KEY for store-app, see store-app/lib/static-tile-map.ts).
+// https://carto.com/basemaps/apikey — and goes in NEXT_PUBLIC_CARTO_API_KEY.
 //
 // With no key we fall back to OpenStreetMap's standard tiles rather than show an
 // error. OSM's tile policy asks that this stays light use with attribution kept
