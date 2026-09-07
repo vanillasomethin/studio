@@ -2,10 +2,11 @@
 
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Menu, Package, Users, BarChart, Info, LayoutDashboard, ArrowRight, Store } from 'lucide-react';
+import { Menu, Package, Users, BarChart, Info, LayoutDashboard, ArrowRight, Store, Megaphone } from 'lucide-react';
 import { Logo } from '../icons/logo';
 
 const navLinks = [
+  { href: '/advertise', label: 'Advertise', icon: Megaphone },
   { href: '#how-it-works', label: 'How It Works', icon: Info },
   { href: '#features', label: 'Features', icon: Package },
   { href: '#market-proof', label: 'Market Proof', icon: BarChart },

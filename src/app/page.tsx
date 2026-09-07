@@ -180,7 +180,9 @@ export default function Home() {
       <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
         <a href="#" className="brand">alive<span className="dot" /></a>
         <ul>
-          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#voices','Voices']].map(([href,lbl]) => (
+          {/* '/advertise' is the one page link in this list of section anchors —
+              the advertiser landing page has no section on the homepage. */}
+          {[['#story','Story'],['#audiences','Audiences'],['#how','How It Works'],['#experience','Experience'],['#proof','Proof'],['#voices','Voices'],['/advertise','Advertise']].map(([href,lbl]) => (
             <li key={href}><a href={href}>{lbl}</a></li>
           ))}
         </ul>
@@ -500,7 +502,7 @@ export default function Home() {
           <div className="col">
             <h4>Product</h4>
             <ul>
-              {['For Brands','For Kiranas','For Consumers','Measurement','How It Works'].map(l => <li key={l}><a href="#">{l}</a></li>)}
+              {([['For Brands','/advertise'],['For Kiranas','#'],['For Consumers','#'],['Measurement','#'],['How It Works','#']] as const).map(([l,h]) => <li key={l}><a href={h}>{l}</a></li>)}
             </ul>
           </div>
           <div className="col">
