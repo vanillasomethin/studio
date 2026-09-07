@@ -7,7 +7,7 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, EyeOff, Package, Ticket, Star, Copy,
   Tv2, CalendarClock, FileBarChart2, Activity,
-  ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Map, Layers,
+  ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Inbox, Map, Layers,
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
@@ -39,6 +39,7 @@ const AlertsTab        = dynamic(() => import('@/components/admin/alerts-tab'), 
 const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-panel'),   { ssr: false });
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
+const EnquiriesTab     = dynamic(() => import('@/components/admin/enquiries-tab'),       { ssr: false });
 const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),            { ssr: false });
 const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
 const MapPicker        = dynamic(() => import('@/components/map-picker'),                { ssr: false });
@@ -86,7 +87,7 @@ type Campaign = {
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'power' | 'qr' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products' | 'team';
+type Tab = 'overview' | 'flyers' | 'stores' | 'campaigns' | 'slots' | 'power' | 'qr' | 'payments' | 'coupons' | 'screens' | 'content' | 'programming' | 'compositions' | 'layouts' | 'reports' | 'pop' | 'monitoring' | 'footfall' | 'alerts' | 'media' | 'roadmap' | 'products' | 'team' | 'enquiries';
 type DeviceRow = { id: string; storeName: string; status: string; lastSeen?: string | null; locality?: string | null };
 
 const NAV: { group: string; items: { id: Tab; label: string; icon: React.ElementType; badge?: string }[] }[] = [
@@ -147,6 +148,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   qr:         { eyebrow: 'Scan tracking',      title: 'QR codes'           },
   payments:   { eyebrow: 'Store payouts',      title: 'Partner payments'   },
   coupons:    { eyebrow: 'Brand discounts',    title: 'Coupons'            },
+  enquiries:  { eyebrow: 'Advertiser leads',   title: 'Enquiries'          },
   screens:    { eyebrow: 'Screen fleet',       title: 'Registered screens' },
   content:    { eyebrow: 'Media library',      title: 'Content'            },
   programming:  { eyebrow: 'Screen programming', title: 'Programming'        },
@@ -1933,6 +1935,7 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     items: [
       { id: 'overview' as Tab,   label: 'Overview',         icon: LayoutDashboard, count: null },
       { id: 'campaigns' as Tab,  label: 'Campaigns',        icon: Megaphone,       count: null },
+      { id: 'enquiries' as Tab,  label: 'Enquiries',        icon: Inbox,           count: null },
       { id: 'compositions' as Tab, label: 'Compositions',     icon: CalendarClock,   count: null },
     ],
   },
@@ -2642,6 +2645,7 @@ function Dashboard({ email }: { email: string | null }) {
   const sectionName: Record<Tab, string> = {
     overview:   'Overview',
     campaigns:  'Campaigns',
+    enquiries:  'Enquiries',
     slots:      'Slot inventory',
     power:      'Power',
     qr:         'QR codes',
@@ -2715,6 +2719,7 @@ function Dashboard({ email }: { email: string | null }) {
               {tab === 'campaigns'  && <CampaignsPanel />}
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
               {tab === 'coupons'    && <CouponsTab />}
+              {tab === 'enquiries'  && <EnquiriesTab />}
               {tab === 'team'       && <TeamTab />}
               {tab === 'screens'    && <ScreensTab />}
               {tab === 'content'    && <ContentTab />}
