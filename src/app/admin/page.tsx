@@ -40,6 +40,7 @@ const AutoFlyerPanel   = dynamic(() => import('@/components/admin/auto-flyer-pan
 const AppPreviewCard   = dynamic(() => import('@/components/admin/app-preview-card'),   { ssr: false });
 const CouponsTab       = dynamic(() => import('@/components/admin/coupons-tab'),         { ssr: false });
 const EnquiriesTab     = dynamic(() => import('@/components/admin/enquiries-tab'),       { ssr: false });
+const AdvertisePinsPanel = dynamic(() => import('@/components/admin/advertise-pins-panel'), { ssr: false });
 const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),            { ssr: false });
 const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
 const MapPicker        = dynamic(() => import('@/components/map-picker'),                { ssr: false });
@@ -2715,7 +2716,12 @@ function Dashboard({ email }: { email: string | null }) {
                   <FlyersList refresh={refreshKey} />
                 </div>
               )}
-              {tab === 'stores'     && <StoresPanel />}
+              {tab === 'stores'     && (
+                <div className="space-y-6">
+                  <AdvertisePinsPanel />
+                  <StoresPanel />
+                </div>
+              )}
               {tab === 'campaigns'  && <CampaignsPanel />}
               {tab === 'payments'   && <StorePaymentsTab adminPassword={adminPw} />}
               {tab === 'coupons'    && <CouponsTab />}
