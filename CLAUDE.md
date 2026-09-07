@@ -396,7 +396,7 @@ PREMIUM_MONTHLY_PAISE           # premium store monthly remuneration in paise (d
 TUYA_CLIENT_ID                  # Tuya IoT Platform Access ID — Aziot smart-plug power monitoring (optional; feature off if absent)
 TUYA_CLIENT_SECRET              # Tuya IoT Platform Access Secret
 TUYA_API_BASE                   # Tuya data-center base URL (default https://openapi.tuyain.com — India)
-NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https://carto.com/basemaps/apikey. Unset → every map falls back to OpenStreetMap tiles. Mirror it as EXPO_PUBLIC_CARTO_API_KEY for store-app.
+NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https://carto.com/basemaps/apikey. Unset → every map falls back to OpenStreetMap tiles.
 # Electricity tariff is NOT an env var: measured (smart plug) and estimated
 # (proof-of-play) costs both price kWh from PlayerConfig.electricityPaisePerKwh.
 ```
