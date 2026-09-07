@@ -16,7 +16,6 @@ import {
   SLOT_SECONDS,
   STORES_BY_TIER,
   TIER_META,
-  formatInr,
 } from '@/lib/advertise-network';
 import Estimator from './estimator';
 import NetworkMap from './network-map';
@@ -484,12 +483,12 @@ function CreativeRequirements() {
             Our team shoots and cuts a {SLOT_SECONDS}-second ad built for a silent screen — your pack,
             your price, one clear message. Two rounds of changes included.
           </p>
-          {/* TODO: confirm the production fee and turnaround with the studio, then put the
-              real number here instead of "from". */}
-          <p className="mt-4 text-2xl font-black tracking-tight" style={{ color: 'var(--brand-accent-strong)' }}>
-            from {formatInr(7500)}
-            <span className="ml-1 text-sm font-bold" style={{ color: 'var(--brand-ink-muted)' }}>
-              one-off
+          {/* Deliberately no public number: production is priced per brief and
+              quoted alongside the booking. */}
+          <p className="mt-4 text-xl font-black tracking-tight" style={{ color: 'var(--brand-accent-strong)' }}>
+            Quoted with your booking
+            <span className="ml-1.5 text-sm font-bold" style={{ color: 'var(--brand-ink-muted)' }}>
+              one-off fee
             </span>
           </p>
           <p className="mt-3 text-sm">
@@ -506,13 +505,12 @@ function WhatYouGet() {
   const items = [
     {
       title: 'A proof-of-play report every month',
-      // TODO: confirm the report format and delivery date with ops.
-      body: 'Every play logged by store and by date. It arrives in the first week of the following month, so you can see exactly what you paid for.',
+      body: 'Every play is logged by store and by date, and you get the report after each campaign month — so you can see exactly what you paid for.',
     },
     {
-      title: 'Screens that are actually on',
-      // TODO: confirm the uptime commitment and the make-good rule with ops.
-      body: `Every screen reports in through the day. If one goes dark for more than a day, those plays are made good or credited — you are never billed for a blank screen.`,
+      title: 'A minimum play guarantee',
+      // The same remedy the FAQ describes — lib/sla.ts is the source of truth.
+      body: 'Screens report in through the day, and plays delivered are checked against plays promised at the end of every campaign month. Any shortfall is made good with extra plays, or credited pro-rata in your final month.',
     },
     {
       title: 'A live store count',
@@ -538,30 +536,30 @@ function WhatYouGet() {
 
 function Faq() {
   const faqs = [
+    // Every answer below states what the platform actually does — the swap
+    // quota is lib/content-quota.ts, the downtime remedy is the Minimum Play
+    // Guarantee in lib/sla.ts, and the invoice/payment terms mirror the brand
+    // Terms of Service already live on /brand-onboarding. Change the system
+    // first, then the words here.
     {
       q: 'What is the minimum commitment?',
-      // TODO: confirm the minimum term with sales.
-      a: 'One month, one store, one slot. Most brands start with three or four stores for a month to see how the creative performs, then extend. Bookings run calendar month to calendar month.',
+      a: 'One month, one store, one slot. Most brands start with three or four stores for a month to see how the creative performs, then extend. Bookings run month to month from your start date.',
     },
     {
       q: 'Can I change the ad mid-month?',
-      // TODO: confirm the free-swap allowance and notice period with ops.
-      a: 'Yes. One swap a month is free — send the new file with three working days notice and we schedule it across every store you are in. Extra swaps in the same month are charged at a small handling fee.',
+      a: 'Yes — every plan includes creative changes each month, and how many depends on the store: one change a month at a Standard store, three at a Growth store, and unlimited changes at a Flagship store. Send the new 10-second file to your account contact and we schedule it.',
     },
     {
       q: 'What happens if a screen is down?',
-      // TODO: confirm the downtime / make-good policy with ops.
-      a: 'Screens are monitored through the day. Short outages are made good by extending your run; if a store is dark for more than a day, that store is credited pro-rata on your next invoice. You are never billed for plays that did not happen.',
+      a: 'Every booking carries a minimum play guarantee. Screens log every single play, and at the end of each campaign month we compare the plays delivered against the plays promised. Any shortfall is made good with extra plays in your next month — or, in your final month, credited back pro-rata. Either way, you never pay for plays that did not happen.',
     },
     {
       q: 'Do I get a GST invoice?',
-      // TODO: confirm with finance whether the rate card is quoted before or after GST.
-      a: `Yes. Every booking is invoiced by ${brand.legalName}, GSTIN ${brand.gstin}, with GST charged at the applicable rate on top of the rate card. The invoice is emailed the day the campaign starts.`,
+      a: `Yes. Every booking is invoiced by ${brand.legalName}, GSTIN ${brand.gstin}, with GST at 18% on top of the rate card. The invoice is emailed to you within two business days of payment.`,
     },
     {
       q: 'When do I pay?',
-      // TODO: confirm payment terms and accepted methods with finance.
-      a: 'The first month is paid in advance, before the campaign goes live. Longer runs are billed monthly in advance after that. Bank transfer, UPI and card all work.',
+      a: 'Before the campaign goes live. Pay online by UPI, card or netbanking through Razorpay, or confirm the booking and settle by invoice before your start date. Fees for completed months are non-refundable; if we ever cancel for reasons within our control, the unused part of your term is refunded pro-rata.',
     },
   ];
 

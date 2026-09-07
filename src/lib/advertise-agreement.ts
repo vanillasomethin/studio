@@ -23,7 +23,7 @@ import { brand } from '@/lib/brand';
  * enquiry, so an accepted agreement can always be reproduced exactly — a bare
  * "accepted: true" is not evidence of what was accepted.
  */
-export const AGREEMENT_VERSION = '2026-09-03';
+export const AGREEMENT_VERSION = '2026-09-07';
 
 export const AGREEMENT_TITLE = `${brand.name} advertising — Terms of Service`;
 
@@ -66,11 +66,10 @@ export function agreementClauses(totals: Estimate): Clause[] {
       n: '3',
       title: 'Payment',
       items: [
-        // TODO: confirm payment terms with finance — mirrors the FAQ on this page.
-        'The first month is payable in advance, before your campaign goes live. Longer runs are billed monthly in advance after that.',
-        `A GST invoice is raised by ${brand.legalName}, GSTIN ${brand.gstin}, and emailed within two working days of payment.`,
+        // Mirrors the brand Terms of Service already live on /brand-onboarding.
+        'Payment is collected before your campaign goes live — online through Razorpay (UPI, card or netbanking), or by invoice settled before the start date for bookings confirmed through sales.',
+        `A GST invoice is raised by ${brand.legalName}, GSTIN ${brand.gstin}, with GST at 18%, and emailed within two business days of payment.`,
         'Fees for completed months are non-refundable. If we cancel for reasons within our control, we refund the unused part of the term pro-rata.',
-        // TODO: confirm the late-payment interest rate with finance.
         'Late or disputed payments attract interest at 2% a month.',
       ],
     },
@@ -78,11 +77,11 @@ export function agreementClauses(totals: Estimate): Clause[] {
       n: '4',
       title: 'Screen uptime',
       items: [
-        'Screens report in through the day and we monitor them.',
-        // TODO: confirm the downtime threshold and the make-good rule with ops.
-        'Short outages are made good by extending your run. If a store is dark for more than a full day, that store is credited pro-rata on your next invoice.',
+        // The Minimum Play Guarantee — this is what lib/sla.ts actually computes.
+        'Screens report in through the day and every play is logged.',
+        'Your booking carries a minimum play guarantee: at the end of each campaign month, plays delivered are checked against plays promised. Any shortfall is made good with extra plays in the following month, or credited pro-rata in the final month of your term.',
         'You are never billed for plays that did not happen.',
-        'We are not liable for downtime caused by store closures, power cuts or events outside our control, but the credit above still applies.',
+        'We are not liable for downtime caused by store closures, power cuts or events outside our control, but the guarantee above still applies.',
       ],
     },
     {
@@ -92,8 +91,8 @@ export function agreementClauses(totals: Estimate): Clause[] {
         `You supply one ${SLOT_SECONDS}-second MP4 (H.264), 1920 × 1080, 16:9, that works with no sound.`,
         'You are responsible for your advertisement being accurate, lawful and compliant with Indian advertising rules.',
         'We may refuse or pull content that breaks a law, misleads, or conflicts with our content policy, without liability to you.',
-        // TODO: confirm the free-swap allowance and notice period with ops.
-        'One creative swap a month is free with three working days notice. Further swaps in the same month carry a handling fee.',
+        // The per-tier quota in lib/content-quota.ts, in words.
+        'Creative changes are included every month: one change at a Standard store, three at a Growth store, unlimited at a Flagship store.',
       ],
     },
     {
@@ -109,8 +108,10 @@ export function agreementClauses(totals: Estimate): Clause[] {
       n: '7',
       title: 'Reporting',
       items: [
-        // TODO: confirm the report format and delivery date with ops.
-        'You get a proof-of-play report each month, listing plays by store and by date.',
+        // No delivery-date promise on purpose: the players log every play (that
+        // part is system fact), but when the report lands is an ops habit, not
+        // a coded guarantee — so the clause does not commit to one.
+        'You get a proof-of-play report after each campaign month, listing plays by store and by date.',
         'Play counts recorded by our players are the reference figure for billing and for any make-good.',
       ],
     },
