@@ -959,7 +959,9 @@ function StepPayment({
   onBack: () => void;
   isTrial?: boolean;
 }) {
-  const [loading,   setLoading]   = useState(false);
+  // Which CTA is in flight — keeps the idle button's label honest while the
+  // other one works (a bare boolean made "Pay later" flip Razorpay's label).
+  const [loading,   setLoading]   = useState<false | 'razorpay' | 'confirm'>(false);
   const [error,     setError]     = useState<string | null>(null);
   const [promoInput, setPromoInput] = useState('');
   const [showPromo, setShowPromo] = useState(false);
@@ -1010,7 +1012,7 @@ function StepPayment({
   const endDate   = startDate ? addMonths(startDate, data.months) : null;
 
   const handlePay = async () => {
-    setLoading(true);
+    setLoading('razorpay');
     setError(null);
     try {
       await loadRazorpayScript();
@@ -1237,11 +1239,11 @@ function StepPayment({
           <button
             type="button"
             onClick={async () => {
-              setLoading(true); setError(null);
+              setLoading('confirm'); setError(null);
               const err = await onConfirm(0, 0);
               if (err) { setError(err); setLoading(false); }
             }}
-            disabled={loading}
+            disabled={!!loading}
             className="relative w-full overflow-hidden rounded-xl bg-green-700 px-6 py-4 font-bold text-white transition-all hover:bg-green-800 disabled:opacity-60 active:scale-[0.99]"
           >
             <span className="relative flex items-center justify-center gap-2 text-sm">
@@ -1251,48 +1253,51 @@ function StepPayment({
           </button>
         ) : (
           <>
-            {/* PRIMARY — pay now via Razorpay */}
+            {/* PRIMARY — confirm booking, pay later */}
             <button
               type="button"
-              onClick={handlePay}
-              disabled={loading}
+              disabled={!!loading}
+              onClick={async () => {
+                setLoading('confirm'); setError(null);
+                const err = await onConfirm(pricePerScreen, total);
+                if (err) { setError(err); setLoading(false); }
+              }}
               className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-              <span className="relative flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm">
-                  {loading
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
-                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
-                </span>
-                {!loading && (
-                  <span className="flex items-center gap-2 border-l border-primary-foreground/20 pl-3">
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-primary-foreground/60">powered by</span>
-                    <RazorpayMark />
-                  </span>
-                )}
+              <span className="relative flex items-center justify-center gap-2 text-sm">
+                {loading === 'confirm'
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="h-4 w-4" />}
+                Confirm Booking — Pay later
               </span>
             </button>
 
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
               <div className="flex-1 h-px bg-border" />
-              <span>or confirm and pay later</span>
+              <span>or pay now</span>
               <div className="flex-1 h-px bg-border" />
             </div>
 
-            {/* SECONDARY — confirm booking, pay later */}
+            {/* SECONDARY — pay now via Razorpay */}
             <button
               type="button"
-              disabled={loading}
-              onClick={async () => {
-                setLoading(true); setError(null);
-                const err = await onConfirm(pricePerScreen, total);
-                if (err) { setError(err); setLoading(false); }
-              }}
+              onClick={handlePay}
+              disabled={!!loading}
               className="relative w-full overflow-hidden rounded-xl border border-border bg-card px-6 py-3.5 font-bold text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground disabled:opacity-60 active:scale-[0.99]"
             >
-              <span className="relative flex items-center justify-center gap-2.5 text-sm">
-                <CheckCircle2 className="h-4 w-4" /> Confirm Booking — Pay later
+              <span className="relative flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  {loading === 'razorpay'
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Razorpay…</>
+                    : <><ArrowRight className="h-4 w-4" /> Pay {fmt(total)} now</>}
+                </span>
+                {loading !== 'razorpay' && (
+                  <span className="flex items-center gap-2 border-l border-border pl-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">powered by</span>
+                    <RazorpayMark />
+                  </span>
+                )}
               </span>
             </button>
           </>
