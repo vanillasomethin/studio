@@ -16,6 +16,7 @@ import {
   type BrandAgreementAcceptance as AcceptedAgreement,
 } from '@/lib/brand-agreement';
 import { useBrandScreens } from '@/components/brand/use-brand-screens';
+import { useAnimationStallGuard } from '@/hooks/use-animation-stall-guard';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -132,10 +133,13 @@ function loadRazorpayScript(): Promise<void> {
 
 // ─── Animation variants ────────────────────────────────────────────────────────
 
+// Enter-only (design convention) — and deliberately NO exit/mode="wait" pair:
+// exit-gated steps mount only after the outgoing animation finishes, which in a
+// rAF-starved tab (backgrounded phone, suspended webview) never happens and
+// leaves the wizard body blank on a step that "should" be showing.
 const stepVariants = {
   enter:  (dir: number) => ({ opacity: 0,  y: dir >= 0 ? 28 : -18,  scale: 0.984 }),
   center: { opacity: 1,  y: 0,   scale: 1,    transition: { duration: 0.38, ease: [0.22, 1, 0.36, 1] } },
-  exit:   (dir: number) => ({ opacity: 0,  y: dir >= 0 ? -18 : 28, scale: 0.984, transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } }),
 };
 
 const stagger = {
@@ -1569,13 +1573,17 @@ function BrandOnboardingInner() {
 
   const [step,      setStep]      = useState(1);
   const [direction, setDirection] = useState<1 | -1>(1);
+  const { data: session, status } = useSession();
+  const isLoaded    = status !== 'loading';
+  const isSignedIn  = status === 'authenticated';
+  // A frozen tab can still leave the ENTER animation parked at opacity 0 —
+  // reveal the step regardless once the animation should long be done.
+  // isLoaded gates the container's render, so it must re-arm the guard.
+  const stepStallGuard = useAnimationStallGuard<HTMLDivElement>([step, isLoaded]);
   const [form,      setForm]      = useState<OnboardingFormData>(INITIAL);
   const [paymentId, setPaymentId] = useState('');
   const [orderId,   setOrderId]   = useState('');
   const [chargedTotal, setChargedTotal] = useState(0);
-  const { data: session, status } = useSession();
-  const isLoaded    = status !== 'loading';
-  const isSignedIn  = status === 'authenticated';
 
   // Restore a pending campaign if the user left during payment and came back
   // signed in.
@@ -1716,14 +1724,13 @@ function BrandOnboardingInner() {
           </div>
         )}
         {isLoaded && (
-          <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={step}
+              ref={stepStallGuard}
               custom={direction}
               variants={stepVariants}
               initial="enter"
               animate="center"
-              exit="exit"
             >
               {step === 1 && <StepWelcome onNext={next} />}
               {step === 2 && (
@@ -1740,7 +1747,6 @@ function BrandOnboardingInner() {
               )}
               {step === 6 && <StepDone data={form} paymentId={paymentId} chargedTotal={chargedTotal} isTrial={isTrial} />}
             </motion.div>
-          </AnimatePresence>
         )}
       </main>
 

@@ -9,6 +9,7 @@ import {
   ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, Tag, MapPin,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
+import { useAnimationStallGuard } from '@/hooks/use-animation-stall-guard';
 
 // ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
 // Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
@@ -100,9 +101,12 @@ function AgreementStep({ form, agreed, setAgreed, onBack, onSubmit, busy, err, p
     : premium ? agreementTermsFor(premiumMonthly)
     : AGREEMENT_TERMS;
   const fullAddress = [form.address, form.locality, form.city, form.pincode].filter(Boolean).join(', ');
+  // A rAF-starved tab freezes the enter animation at opacity 0 (blank
+  // agreement) — reveal the step regardless once the animation should be done.
+  const stallGuard = useAnimationStallGuard<HTMLDivElement>([]);
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
+    <motion.div ref={stallGuard} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
 
       <div className="flex items-center gap-2">
         <button type="button" onClick={onBack}
