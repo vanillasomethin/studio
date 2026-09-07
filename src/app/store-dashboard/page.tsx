@@ -59,6 +59,10 @@ type StoreInfo = {
   deviceCount?:      number;
   tier?:                     string;
   monthlyCompensationPaise?: number;
+  // Clause 3.3's figure for THIS partner, resolved by /api/stores/me. Absent on a
+  // stale cached payload — the agreement link degrades to generic rather than guess.
+  agreementTier?:            string | null;
+  agreementMonthlyRupees?:   number | null;
   payoutMethod?: string; upiId?: string; bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
   // GPS-verified onboarding photos (see GpsPhotoUpload)
   shopPhotoUrl?:    string | null; shopPhotoLat?:    number | null; shopPhotoLng?:    number | null; shopPhotoAt?:    string | null;
@@ -1026,7 +1030,28 @@ function ClaimModal({ store, onClose, claimMonthKey, claimAmountPaise }: {
 
 function AgreementCard({ store }: { store: StoreInfo }) {
   const agreedAt = store.agreedAt;
-  const monthlyRupees = Math.round((store.monthlyCompensationPaise ?? 50000) / 100);
+  // What clause 3.3 actually says for this partner, straight from /api/stores/me.
+  // Deliberately NOT derived from monthlyCompensationPaise: for a slot-mode store
+  // that field carries the current dynamic payout (base + incentive), so quoting it
+  // here stated a contract figure that drifted with slot fill. Until the server
+  // answers (stale localStorage payload) both the figure and the link stay generic
+  // rather than assert a number this partner never signed.
+  const monthlyRupees = store.agreementMonthlyRupees ?? null;
+  const slotMode = !!store.agreementTier;
+  const paidWhen = 'Paid within 10 working days of month end via UPI/NEFT.';
+  const remuneration = monthlyRupees == null
+    ? `Per your signed agreement. ${paidWhen}`
+    : slotMode
+      ? `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen guaranteed, plus a performance-linked incentive. ${paidWhen}`
+      : `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen, fixed. ${paidWhen}`;
+  // Params match the link /store builds at signup, so a partner reopening their
+  // contract sees their OWN tier's clause rather than the ₹500 default.
+  const agreementHref = monthlyRupees == null
+    ? '/store-agreement'
+    : `/store-agreement?${new URLSearchParams({
+        monthly: String(monthlyRupees),
+        ...(store.agreementTier ? { tier: store.agreementTier } : {}),
+      }).toString()}`;
   const date = agreedAt
     ? new Date(agreedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
     : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -1063,7 +1088,7 @@ function AgreementCard({ store }: { store: StoreInfo }) {
       {/* Key terms compact */}
       <div className="divide-y divide-border">
         {[
-          { t: 'Remuneration', d: `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen, fixed. Paid within 10 working days of month end via UPI/NEFT.` },
+          { t: 'Remuneration', d: remuneration },
           { t: 'Electricity',  d: 'Reimbursed at screen rated power × actual hours × prevailing tariff.' },
           { t: 'Equipment',    d: 'Screen installed free. Remains ALIVE property at all times.' },
           { t: 'Exit',         d: '30 days written notice by either party. ALIVE removes screen at its cost.' },
@@ -1077,7 +1102,7 @@ function AgreementCard({ store }: { store: StoreInfo }) {
 
       <div className="px-5 py-3 border-t border-border flex items-center justify-between">
         <p className="text-[10px] text-muted-foreground/50">Agreement accepted · {date}</p>
-        <a href="/store-agreement" target="_blank" rel="noreferrer"
+        <a href={agreementHref} target="_blank" rel="noreferrer"
           className="text-[11px] font-semibold text-primary hover:underline underline-offset-2">
           Full agreement →
         </a>
