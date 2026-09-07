@@ -6,10 +6,9 @@ import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
-  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, Tag,
+  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, Tag, MapPin,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
-import MapPicker from '@/components/map-picker';
 
 // ─── Shared source-of-truth ────────────────────────────────────────────────────────────────
 // Edit shared/agreement-terms.ts, shared/validation.ts, or shared/constants.ts
@@ -258,10 +257,6 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
   const errors    = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
 
-  const handleLocation = (lat: string, lng: string, locality: string, pincode: string, city: string) => {
-    setForm((p) => ({ ...p, lat, lng, locality: locality || p.locality, pincode: pincode || p.pincode, city: city || p.city }));
-  };
-
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
     if (hasErrors) { setTouched(true); return; }
@@ -413,12 +408,6 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
         )}
       </div>
 
-      <div className="space-y-1">
-        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-500">Pin your shop on the map</label>
-        <p className="text-[10px] text-gray-400">Tap “Use my current location” or drag the pin. City and pincode will be autofilled.</p>
-        <MapPicker lat={form.lat} lng={form.lng} onLocation={handleLocation} error={fe('lat')} />
-      </div>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Locality" value={form.locality} onChange={(v) => set('locality', v)} placeholder="Kankanady" />
         <Field label="Pincode" value={form.pincode} onChange={(v) => set('pincode', v.replace(/\D/g, '').slice(0, 6))} placeholder="575002" error={fe('pincode')} />
@@ -432,6 +421,14 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
           className={`w-full px-3 py-2.5 text-sm rounded-xl border bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none ${fe('address') ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-red-400 focus:ring-red-100'}`}
         />
         {fe('address') && <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" />{fe('address')}</p>}
+      </div>
+
+      {/* No map pin at registration: the store's location comes from the GPS
+          shop-front photo uploaded during onboarding (its EXIF fix becomes
+          Store.lat/lng). Said here so partners don't hunt for a map step. */}
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+        <MapPin className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+        <p className="text-[11px] text-gray-600 font-semibold">No map needed — your shop’s location is captured from the GPS photo you upload after registering.</p>
       </div>
 
       <div className="space-y-1">

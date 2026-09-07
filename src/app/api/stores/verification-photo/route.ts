@@ -35,8 +35,10 @@ export const maxDuration = 30;
 // in the admin panel next to the registered map pin, so the team can verify the
 // photo was really taken at the shop before advancing the onboarding stage —
 // /api/admin/stores/[id] refuses to advance past 'new' without a shop photo and
-// past 'contacted' without an install photo. The fix also fills the store's map
-// pin when it has none yet (see the UPDATE below), which puts it on the map.
+// past 'contacted' without an install photo. A shop photo whose fix came from
+// the photo itself (EXIF) also BECOMES the store's map pin (see the UPDATE
+// below) — the photo is the default location, so nobody is asked to re-pin the
+// store by hand to match it. Device-sourced fixes only fill an empty pin.
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -101,20 +103,24 @@ export async function POST(req: NextRequest) {
     // learned it (no tag sent, or the hardware columns aren't migrated yet), in
     // which case the response omits the field and clients keep their own value.
     let effectiveTvTag: string | null | undefined;
-    // Map pin. A store's pin comes from, in order: the partner at registration
-    // → an on-site GPS fix that fills an EMPTY pin → ops setting or moving it in
-    // Admin → Stores. Any fix qualifies, EXIF or device: a store onboarded with
-    // its GPS data goes on the map automatically, and the Stores panel flags a
-    // photo-filled pin for ops to confirm by eye. Pairwise and inside the one
-    // statement, so a stored lat can never pair with a photo lng.
+    // Map pin. The shop photo IS the store's location: a fix read from the
+    // photo's own EXIF overwrites whatever pin the partner hand-dropped at
+    // registration — the photo is the default location, and nobody should be
+    // asked to set or confirm a pin to match it. A device-sourced fix (EXIF
+    // missing, phone position used instead) is NOT from the photo, so it only
+    // fills an EMPTY pin — otherwise a partner re-uploading from home would
+    // silently walk the store off the map. Ops can still move the pin later in
+    // Admin → Stores. Pairwise and inside the one statement, so a stored lat
+    // can never pair with a photo lng.
+    const exifShopFix = kind === 'shop' && source === 'exif';
     try {
       if (kind === 'shop') {
         await db.$executeRaw`
           UPDATE "Store" SET
             "shopPhotoUrl" = ${url}, "shopPhotoLat" = ${lat}, "shopPhotoLng" = ${lng},
             "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now},
-            "lat" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
-            "lng" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
+            "lat" = CASE WHEN ${exifShopFix} OR "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN ${exifShopFix} OR "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
       } else {

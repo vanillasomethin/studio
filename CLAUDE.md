@@ -110,10 +110,15 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 - Always `// eslint-disable-next-line @next/next/no-img-element` before `<img>` tags
 
 **Store map pin:**
-- `Store.lat/lng` comes from, in order: the partner's pin at registration (required) →
-  an on-site GPS fix that fills an EMPTY pin (any shop/install photo, EXIF or device
-  fix, via `/api/stores/verification-photo` or `/api/admin/stores/[id]/photo`) → ops
-  setting/moving it in Admin → Stores → Edit →
+- `Store.lat/lng`: the shop photo's own EXIF GPS is the store's location — uploading a
+  shop photo with an `exif`-sourced fix (via `/api/stores/verification-photo` or
+  `/api/admin/stores/[id]/photo`) SETS the pin outright. Registration asks for NO map
+  pin (web + store-app; `/api/stores/save` still validates coordinates if an old
+  draft/build sends them), so a store is off the maps until an onboarding photo carries
+  a fix. Nobody is ever asked to set or confirm a pin to match the photo — the admin
+  Map pin block shows provenance only. Device-sourced fixes and install photos only
+  fill an EMPTY pin (so a re-upload away from the shop can't move the store); ops can
+  still move the pin in Admin → Stores → Edit →
   Map pin (`PATCH /api/admin/stores/[id]` with `{ lat, lng }`; no clearing path). A pin
   is required to cross into `physically_onboarded` (409 lists `Map pin (shop location)`).
   A pinned store is on the public map at once (any stage but `rejected`), in the brand picker (non-bookable
@@ -244,7 +249,7 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 
 ## Store Registration Flow
 
-1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), Leaflet map (pin required), locality/pincode/city autofill via Nominatim, referral code
+1. **Step 1** — Store name, owner name, WhatsApp (= username), password (min 6 chars), GSTIN (optional), locality/pincode/city/address typed by hand (no map step — the store's location comes from the GPS shop photo during onboarding), referral code
 2. **Step 2** — Agreement preview, party block prefilled, "I agree" checkbox, submit → generates referral code + saves `agreedAt`
 
 Form data persisted to `sessionStorage('alive_store_draft')` so navigating to agreement page and back doesn't lose data.

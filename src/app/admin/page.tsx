@@ -745,12 +745,13 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
   );
 }
 
-/** Map pin block for the expanded store card. A store's pin comes from the
- *  partner's registration → an on-site GPS fix that fills an EMPTY pin → ops
- *  moving it here. The draft lives in this component and is NOT written
- *  through patchLocal until "Save pin" succeeds: the global Save never sends
- *  lat/lng, so a half-dragged pin can neither ride along with it nor be lost
- *  to a stale re-sync. */
+/** Map pin block for the expanded store card. A store's pin is the shop
+ *  photo's EXIF GPS by default (the upload overwrites the hand-dropped
+ *  registration pin); device fixes and install photos only fill an empty pin,
+ *  and ops can move it here. The draft lives in this component and is NOT
+ *  written through patchLocal until "Save pin" succeeds: the global Save never
+ *  sends lat/lng, so a half-dragged pin can neither ride along with it nor be
+ *  lost to a stale re-sync. */
 function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: number, lng: number) => void }) {
   const pinned = store.lat != null && store.lng != null;
   const [draft,  setDraft]  = useState<{ lat: number; lng: number } | null>(pinned ? { lat: store.lat!, lng: store.lng! } : null);
@@ -766,8 +767,8 @@ function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: numb
   const dirty = draft != null && (draft.lat !== store.lat || draft.lng !== store.lng);
   const hasShopFix    = store.shopPhotoLat    != null && store.shopPhotoLng    != null;
   const hasInstallFix = store.installPhotoLat != null && store.installPhotoLng != null;
-  // Provenance by exact equality: an upload that filled an empty pin copied the
-  // photo's fix verbatim, so a match means "auto-filled, nobody has looked".
+  // Provenance by exact equality: an upload that set the pin (EXIF shop fix,
+  // or a fix that filled an empty pin) copied the photo's fix verbatim.
   const from = !pinned ? null
     : store.lat === store.shopPhotoLat    && store.lng === store.shopPhotoLng    ? 'shop'
     : store.lat === store.installPhotoLat && store.lng === store.installPhotoLng ? 'install'
@@ -832,9 +833,11 @@ function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: numb
             className="underline underline-offset-2 hover:text-foreground">
             {store.lat!.toFixed(6)}, {store.lng!.toFixed(6)}
           </a>
+          {/* Provenance only — the photo's GPS IS the store location by design,
+              so this must read as information, never as an ask to re-pin. */}
           {from && (
-            <p className="mt-0.5 font-semibold text-amber-700 dark:text-amber-300">
-              Pin taken from the {from === 'shop' ? 'shop-photo' : 'install-photo'} GPS — confirm it on the map
+            <p className="mt-0.5 text-muted-foreground">
+              Pin from the {from === 'shop' ? 'shop-photo' : 'install-photo'} GPS
             </p>
           )}
         </div>
