@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BASEMAP } from '@/lib/map-tiles';
-import { MapPin, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 const MANGALURU: [number, number] = [12.8698, 74.8431];
 
@@ -216,7 +216,7 @@ export default function ScreenPickerMap({
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500 inline-block" /> Few left</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-400 inline-block" /> Sold out</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-white border-2 border-amber-500 inline-block" /> Coming soon</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary inline-block" /> Selected</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full inline-block" style={{ background: '#dc2626' }} /> Selected</span>
       </div>
 
       {selected.length > 0 && (
@@ -229,9 +229,9 @@ export default function ScreenPickerMap({
                 key={id}
                 type="button"
                 onClick={() => onToggle(id, pin.storeName)}
-                className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/60 transition-colors"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-foreground hover:border-foreground/30 transition-colors"
               >
-                <MapPin className="h-3 w-3 text-primary" />
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ background: '#dc2626' }} />
                 {pin.storeName}
                 <X className="h-3 w-3 text-muted-foreground" />
               </button>

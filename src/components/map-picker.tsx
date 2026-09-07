@@ -6,16 +6,27 @@ import { MapPin, LocateFixed, Loader2, CheckCircle2, AlertCircle } from 'lucide-
 
 // Dynamically import leaflet only on client — avoids SSR window errors
 async function loadLeaflet() {
-  const L = (await import('leaflet')).default;
-  // Fix default marker icon path broken by webpack — self-hosted so it works in restricted WebViews
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (L.Icon.Default.prototype as any)._getIconUrl;
-  L.Icon.Default.mergeOptions({
-    iconUrl:       '/leaflet/marker-icon.png',
-    iconRetinaUrl: '/leaflet/marker-icon-2x.png',
-    shadowUrl:     '/leaflet/marker-shadow.png',
+  return (await import('leaflet')).default;
+}
+
+// A round mark, drawn in the DOM rather than Leaflet's default teardrop PNG:
+// the sprite is fetched from a CDN webpack rewrites away, and self-hosting it
+// left three placeholder files in public/leaflet/ that rendered as a broken
+// image. A divIcon has no asset to lose, and matches the dots on the public
+// network map. 36px box for a touch-sized drag target around a 16px dot.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pinIcon(L: any) {
+  return L.divIcon({
+    className: '',
+    html:
+      '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">' +
+        '<div style="width:16px;height:16px;border-radius:50%;background:#dc2626;' +
+        'border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>' +
+      '</div>',
+    iconSize:   [36, 36],
+    iconAnchor: [18, 18],
+    popupAnchor: [0, -14],
   });
-  return L;
 }
 
 async function reverseGeocode(lat: number, lng: number) {
@@ -35,7 +46,7 @@ async function reverseGeocode(lat: number, lng: number) {
 type Props = {
   lat: string; lng: string;
   onLocation: (lat: string, lng: string, locality: string, pincode: string, city: string) => void;
-  error?: string;   // form validation message (e.g. pin required) — reddens the map border
+  error?: string;   // form validation message (e.g. pin required) — shown under the map
 };
 
 export default function MapPicker({ lat, lng, onLocation, error }: Props) {
@@ -65,7 +76,7 @@ export default function MapPicker({ lat, lng, onLocation, error }: Props) {
       const map = L.map(containerRef.current, { zoomControl: true }).setView([initLat, initLng], lat ? 17 : 13);
       L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(map);
 
-      const marker = L.marker([initLat, initLng], { draggable: true }).addTo(map);
+      const marker = L.marker([initLat, initLng], { draggable: true, icon: pinIcon(L) }).addTo(map);
       marker.bindPopup('<b>Drag to pin your exact shop location</b>').openPopup();
 
       const onMove = async () => {
@@ -168,7 +179,7 @@ export default function MapPicker({ lat, lng, onLocation, error }: Props) {
       )}
 
       {/* Map */}
-      <div className={`relative rounded-2xl overflow-hidden border ${error ? 'border-red-300' : 'border-gray-200'}`} style={{ height: 240 }}>
+      <div className="relative rounded-2xl overflow-hidden border border-gray-200" style={{ height: 240 }}>
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
         {!lat && (
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-none">
