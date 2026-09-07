@@ -2,17 +2,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Redis } from '@upstash/redis';
 import { pushDecommission } from '@/lib/fcm';
-import { deleteObject, publicUrl } from '@/lib/r2';
+import { deleteObject, deletePrivateObject, publicUrl } from '@/lib/r2';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 
-/** R2 object key for a stored verification-photo URL, or null if it isn't one. */
-function verificationKeyFromUrl(url: string | null): string | null {
-  if (!url) return null;
+/**
+ * R2 object key for a stored verification-photo value, and which bucket holds it.
+ *
+ * Two shapes coexist, so deleting a store has to handle both: a bare key (shop
+ * and install photos, which live in the private bucket and have no public
+ * address) and a full public URL (those same photos before the private-bucket
+ * migration, plus the serial/plug photos, which are still public). Resolving
+ * only the URL shape would leave every post-migration photo — a partner's
+ * premises and its coordinates — sitting in R2 after their store was deleted.
+ */
+function verificationKeyFromStored(stored: string | null): { key: string; wasPublic: boolean } | null {
+  if (!stored) return null;
+  if (!/^https?:\/\//i.test(stored)) {
+    return stored.startsWith('verification/') ? { key: stored, wasPublic: false } : null;
+  }
   const prefix = publicUrl('');
-  if (!prefix || !url.startsWith(prefix)) return null;
-  const key = url.slice(prefix.length);
-  return key.startsWith('verification/') ? key : null;
+  if (!prefix || !stored.startsWith(prefix)) return null;
+  const key = stored.slice(prefix.length);
+  return key.startsWith('verification/') ? { key, wasPublic: true } : null;
 }
 
 /**
@@ -403,14 +415,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     // Capture verification-photo keys before the row vanishes so the R2
     // objects can be removed too (tolerant of the columns not existing yet).
-    let photoKeys: string[] = [];
+    let photoKeys: { key: string; wasPublic: boolean }[] = [];
     try {
       const ph = await db.$queryRaw<{ shopPhotoUrl: string | null; installPhotoUrl: string | null; serialPhotoUrl: string | null; plugPhotoUrl: string | null }[]>`
         SELECT "shopPhotoUrl", "installPhotoUrl", "serialPhotoUrl", "plugPhotoUrl" FROM "Store" WHERE "id" = ${id} LIMIT 1
       `;
       photoKeys = [ph[0]?.shopPhotoUrl, ph[0]?.installPhotoUrl, ph[0]?.serialPhotoUrl, ph[0]?.plugPhotoUrl]
-        .map((u) => verificationKeyFromUrl(u ?? null))
-        .filter((k): k is string => !!k);
+        .map((u) => verificationKeyFromStored(u ?? null))
+        .filter((k): k is { key: string; wasPublic: boolean } => !!k);
     } catch { /* columns not yet migrated */ }
 
     // Delete store (cascades to StorePayment, StoreOffer, Bill, Device via FK)
@@ -432,7 +444,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     });
 
     await pushDecommission(doomedDevices.map((d) => d.fcmToken!));
-    for (const key of photoKeys) await deleteObject(key).catch(() => { /* best-effort */ });
+    // Each photo is removed from whichever bucket actually holds it; a
+    // private-bucket key handed to the public delete would silently no-op.
+    for (const p of photoKeys) {
+      const remove = p.wasPublic ? deleteObject : deletePrivateObject;
+      await remove(p.key).catch(() => { /* best-effort */ });
+    }
 
     // Remove from Redis index (non-fatal)
     try {
