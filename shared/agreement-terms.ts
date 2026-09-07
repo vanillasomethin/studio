@@ -74,9 +74,9 @@ export type AgreementTier = 'standard' | 'growth' | 'flagship';
 
 /** Guaranteed monthly minimum per screen, in rupees, by tier. */
 export const TIER_MONTHLY_MINIMUM_RUPEES: Record<AgreementTier, number> = {
-  standard: 650,
-  growth:   1150,
-  flagship: 1650,
+  standard: 500,
+  growth:   1000,
+  flagship: 1500,
 };
 
 export function agreementTermsForTier(tier: AgreementTier): { heading: string; body: string }[] {

@@ -32,25 +32,25 @@ eq('zero positions costs nothing', slotBookingPriceRupees('flagship', 0), 0);
 console.log('storeSlotPayoutPaise — guaranteed tier base, plus the per-slot incentive on top');
 // Pinned to the reference incentive table (raw incentive, before the base floor):
 //   filled  Standard(₹1,000/slot)  Growth(₹2,000/slot)  Flagship(₹3,000/slot)
-//   Base    ₹650                   ₹1,150               ₹1,650
+//   Base    ₹500                   ₹1,000               ₹1,500
 //   5       ₹500                   ₹1,000               ₹1,500
 //   10      ₹1,000                 ₹2,000               ₹3,000
 //   15      ₹1,500                 ₹3,000               ₹4,500
 //   20      ₹2,000                 ₹4,000               ₹6,000
 //   30      ₹3,000                 ₹6,000               ₹9,000
 // The base is paid every month irrespective of occupancy and the table figure is
-// added on top, so Standard at 5 filled is ₹650 + ₹500 = ₹1,150.
+// added on top, so Standard at 5 filled is ₹500 + ₹500 = ₹1,000.
 const RUPEES = (p) => p / 100;
 const INCENTIVE_TABLE = {
   standard: { 5: 500,  10: 1000, 15: 1500, 20: 2000, 30: 3000 },
   growth:   { 5: 1000, 10: 2000, 15: 3000, 20: 4000, 30: 6000 },
   flagship: { 5: 1500, 10: 3000, 15: 4500, 20: 6000, 30: 9000 },
 };
-const BASE_RUPEES = { standard: 650, growth: 1150, flagship: 1650 };
+const BASE_RUPEES = { standard: 500, growth: 1000, flagship: 1500 };
 
-eq('base row, standard', RUPEES(storeSlotPayoutPaise('standard', 0)), 650);
-eq('base row, growth',   RUPEES(storeSlotPayoutPaise('growth',   0)), 1150);
-eq('base row, flagship', RUPEES(storeSlotPayoutPaise('flagship', 0)), 1650);
+eq('base row, standard', RUPEES(storeSlotPayoutPaise('standard', 0)), 500);
+eq('base row, growth',   RUPEES(storeSlotPayoutPaise('growth',   0)), 1000);
+eq('base row, flagship', RUPEES(storeSlotPayoutPaise('flagship', 0)), 1500);
 
 for (const [tier, rows] of Object.entries(INCENTIVE_TABLE)) {
   for (const [filled, incentive] of Object.entries(rows)) {

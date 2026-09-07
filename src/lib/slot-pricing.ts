@@ -7,11 +7,11 @@
 // Brand price for N positions bought at a store = N × the store's tier rate — this is
 // a live formula, not restricted to any fixed package size.
 //
-// Store payout: the tier's guaranteed monthly base (₹650/₹1,150/₹1,650), paid
+// Store payout: the tier's guaranteed monthly base (₹500/₹1,000/₹1,500), paid
 // every month irrespective of occupancy, PLUS the per-filled-slot incentive on
 // top. The base is never traded against the incentive — the reference table in
 // verify-slot-pricing.mjs lists the incentive component alone, so a Standard
-// store with 5 filled earns ₹650 + ₹500 = ₹1,150.
+// store with 5 filled earns ₹500 + ₹500 = ₹1,000.
 //
 // Plays/day for a slot is unrelated to tier (tier is pricing/payout only, not
 // playback frequency) — see loopRepeatsPerDay in lib/slots.ts for that, unchanged.
@@ -44,9 +44,9 @@ export const SLOT_TIER_RATE_RUPEES: Record<SlotTier, number> = {
 
 /** Guaranteed monthly base per tier — paid every month regardless of occupancy. */
 export const STORE_PAYOUT_BASE_PAISE: Record<SlotTier, number> = {
-  standard: 65_000, // ₹650
-  growth: 115_000,  // ₹1,150
-  flagship: 165_000, // ₹1,650
+  standard: 50_000, // ₹500
+  growth: 100_000,  // ₹1,000
+  flagship: 150_000, // ₹1,500
 };
 
 /** Kept as the old name so existing imports don't break. @deprecated use STORE_PAYOUT_BASE_PAISE */
