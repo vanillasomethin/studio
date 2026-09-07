@@ -20,6 +20,7 @@ import {
   getPlays, downloadPlaysCsv, getDevices, getContent, getDeviceGroups,
   type PlaysResponse, type Device, type Content, type DeviceGroup,
 } from '@/lib/backend-api';
+import PopArchivePanel from '@/components/admin/pop-archive-panel';
 
 // ─── Time helpers (IST) ────────────────────────────────────────────────────────
 // PlayEvent timestamps are stored UTC; the business is India-based, so all display
@@ -545,6 +546,9 @@ export default function ProofOfPlayTab() {
           </div>
         </>
       )}
+
+      {/* Long-term archive: auto-export to cloud storage + optional pruning */}
+      <PopArchivePanel />
     </div>
   );
 }
