@@ -22,7 +22,7 @@ import {
 import { SLOT_WINDOWS, type WindowId } from '@/lib/slot-windows';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
-import { getScreenPrice, getListPrice } from '@/lib/brand-pricing';
+import { monthlySubtotal, tierRate, type SlotTier } from '@/lib/brand-pricing';
 
 type Campaign = {
   id: string; name?: string; brandName?: string; contactName?: string | null;
@@ -1416,6 +1416,10 @@ const PENDING_KEY = 'alive_pending_campaign';
 type PendingForm = {
   brandName: string; contactName: string; email: string; phone: string;
   gstin: string; screens: number; months: number; startDate: string;
+  // Map picks from onboarding — tier-priced. Optional: drafts saved before
+  // tier pricing carry neither, and price as all-Standard.
+  preferredStoreIds?: string[];
+  preferredStoreTiers?: Record<string, SlotTier>;
 };
 
 // Pricing comes from the shared lib — no local price tables (see brand-pricing.ts).
@@ -1440,8 +1444,12 @@ function PendingPaymentCard({
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  const pricePerScreen = getScreenPrice(pending.screens);
-  const total          = pricePerScreen * pending.screens * pending.months;
+  // Tier-priced from the onboarding picks; display-only — the server reprices
+  // the picked ids from the DB when the order is created.
+  const pendingTiers   = (pending.preferredStoreIds ?? []).map((id) => pending.preferredStoreTiers?.[id] ?? 'standard');
+  const monthly        = monthlySubtotal(pending.screens, pendingTiers);
+  const total          = monthly * pending.months;
+  const pricePerScreen = Math.round(monthly / Math.max(1, pending.screens)); // blended, for display + the campaign row
   const fmtLocal       = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
   const handlePay = async () => {
@@ -1450,9 +1458,10 @@ function PendingPaymentCard({
       await loadRazorpay();
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // Server recomputes the charge from screens/months (no GST on this
-        // pay-later flow, preserving existing behaviour).
-        body: JSON.stringify({ screens: pending.screens, months: pending.months, applyGst: false, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName } }),
+        // Server recomputes the charge from screens/months + the picked
+        // stores' tiers (no GST on this pay-later flow, preserving existing
+        // behaviour).
+        body: JSON.stringify({ screens: pending.screens, months: pending.months, preferredStoreIds: pending.preferredStoreIds ?? [], applyGst: false, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName } }),
       });
       const body = await res.json() as { id?: string; amount?: number; error?: string };
       if (!res.ok) throw new Error(body.error ?? 'Could not create order');
@@ -1561,11 +1570,14 @@ type ModalFormData = {
 
 type ModalStep = 1 | 2 | 3;
 
+// Dashboard rebookings are count-mode (no map picker here), so every screen
+// is priced at the Standard tier rate; tier-priced picks go through the full
+// onboarding flow.
 const SCREEN_TIERS_MODAL = [
-  { screens: 1,  pricePerScreen: getScreenPrice(1),  listPerScreen: getListPrice(1) },
-  { screens: 3,  pricePerScreen: getScreenPrice(3),  listPerScreen: getListPrice(3), popular: true },
-  { screens: 10, pricePerScreen: getScreenPrice(10), listPerScreen: getListPrice(10) },
-  { screens: 20, pricePerScreen: getScreenPrice(20), listPerScreen: getListPrice(20) },
+  { screens: 1,  pricePerScreen: tierRate('standard') },
+  { screens: 3,  pricePerScreen: tierRate('standard'), popular: true },
+  { screens: 10, pricePerScreen: tierRate('standard') },
+  { screens: 20, pricePerScreen: tierRate('standard') },
 ] as const;
 
 const DURATION_OPTS = [
@@ -1599,7 +1611,7 @@ function NewCampaignModal({
   const [error,      setError]      = useState<string | null>(null);
   const [succeeded,  setSucceeded]  = useState(false);
 
-  const pricePerScreen = getScreenPrice(modalForm.screens);
+  const pricePerScreen = tierRate('standard');
   const subtotal       = pricePerScreen * modalForm.screens * modalForm.months;
   const gstAmount      = Math.round(subtotal * 0.18);
   const total          = subtotal + gstAmount;
@@ -1810,9 +1822,8 @@ function NewCampaignModal({
                           {active && <Check className="absolute right-2 top-2 h-3.5 w-3.5 text-primary" />}
                           <p className="text-xl font-black text-foreground">{t.screens}</p>
                           <p className="text-[10px] text-muted-foreground">{t.screens === 1 ? 'screen' : 'screens'}</p>
-                          <p className="text-[10px] text-muted-foreground/50 line-through mt-1">{fmt(t.listPerScreen)}</p>
-                          <p className="text-xs font-bold text-foreground">{fmt(t.pricePerScreen)}</p>
-                          <p className="text-[10px] text-muted-foreground">per screen/mo · online</p>
+                          <p className="text-xs font-bold text-foreground mt-1">{fmt(t.pricePerScreen)}</p>
+                          <p className="text-[10px] text-muted-foreground">per screen/mo · Standard stores</p>
                         </button>
                       );
                     })}

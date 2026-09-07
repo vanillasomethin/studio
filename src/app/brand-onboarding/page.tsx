@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addMonths } from 'date-fns';
 import { useSession } from 'next-auth/react';
-import { getScreenPrice, getListPrice } from '@/lib/brand-pricing';
+import { monthlySubtotal, tierCounts, tierRate, type SlotTier } from '@/lib/brand-pricing';
 import { Logo } from '@/components/icons/logo';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,10 +31,12 @@ type OnboardingFormData = {
   startDate: string;
   agreementSigned: boolean;
   // Store ids picked on the map — a routing hint for ops, not a reservation.
-  // When non-empty, screens is kept in sync with its length. Names are kept
-  // client-side so later steps can echo the picks; never sent to the API.
+  // When non-empty, screens is kept in sync with its length. Names and tiers
+  // are kept client-side so later steps can echo the picks and price them;
+  // the server reprices from the DB, so tiers here are display-only.
   preferredStoreIds: string[];
   preferredStoreNames: Record<string, string>;
+  preferredStoreTiers: Record<string, SlotTier>;
 };
 
 type RazorpayResponse = {
@@ -48,14 +50,33 @@ type RazorpayResponse = {
 // Leaflet touches window — client-only.
 const ScreenPickerMap = dynamic(() => import('@/components/brand/screen-picker-map'), { ssr: false });
 
-// Marketing tiers — prices come from the shared pricing lib (list = struck-through
-// anchor, online = charged), so the display can never drift from the charge.
+// Count-mode plan cards — priced at the Standard tier rate from the shared
+// pricing lib, so the display can never drift from the charge. Growth and
+// Flagship rates apply only to stores picked on the map above the cards.
 const SCREEN_TIERS = [
-  { screens: 1,  pricePerScreen: getScreenPrice(1),  listPerScreen: getListPrice(1),  playsPerDay: 144,  monthlyViews: 4320  },
-  { screens: 3,  pricePerScreen: getScreenPrice(3),  listPerScreen: getListPrice(3),  playsPerDay: 432,  monthlyViews: 12960, popular: true },
-  { screens: 10, pricePerScreen: getScreenPrice(10), listPerScreen: getListPrice(10), playsPerDay: 1440, monthlyViews: 43200 },
-  { screens: 20, pricePerScreen: getScreenPrice(20), listPerScreen: getListPrice(20), playsPerDay: 2880, monthlyViews: 86400 },
+  { screens: 1,  pricePerScreen: tierRate('standard'), playsPerDay: 144,  monthlyViews: 4320  },
+  { screens: 3,  pricePerScreen: tierRate('standard'), playsPerDay: 432,  monthlyViews: 12960, popular: true },
+  { screens: 10, pricePerScreen: tierRate('standard'), playsPerDay: 1440, monthlyViews: 43200 },
+  { screens: 20, pricePerScreen: tierRate('standard'), playsPerDay: 2880, monthlyViews: 86400 },
 ] as const;
+
+// One tier entry per picked store, for the shared pricing helpers. Falls back
+// to standard for a pick whose tier didn't make it into the form (old saved
+// drafts) — same fallback the server applies for unresolvable ids.
+function pickedTiers(data: Pick<OnboardingFormData, 'preferredStoreIds' | 'preferredStoreTiers'>): SlotTier[] {
+  return data.preferredStoreIds.map((id) => data.preferredStoreTiers[id] ?? 'standard');
+}
+
+const TIER_LABELS: Record<SlotTier, string> = { standard: 'Standard', growth: 'Growth', flagship: 'Flagship' };
+
+// "2 Flagship + 1 Growth" — used wherever the screen mix needs naming.
+function tierMixLabel(screens: number, tiers: SlotTier[]): string {
+  const counts = tierCounts(screens, tiers);
+  return (['flagship', 'growth', 'standard'] as SlotTier[])
+    .filter((t) => counts[t] > 0)
+    .map((t) => `${counts[t]} ${TIER_LABELS[t]}`)
+    .join(' + ');
+}
 
 const DURATION_OPTIONS = [
   { months: 1, label: '1 mo'  },
@@ -449,22 +470,29 @@ function StepCampaign({
   onBack: () => void;
   isTrial?: boolean;
 }) {
-  const pricePerScreen = getScreenPrice(data.screens);
-  const listPerScreen  = getListPrice(data.screens);
-  const total          = pricePerScreen * data.screens * data.months;
-  const valid          = data.screens > 0 && data.months > 0 && data.startDate;
+  const tiers          = pickedTiers(data);
+  const monthly        = monthlySubtotal(data.screens, tiers);
+  const total          = monthly * data.months;
   const mapDriven      = data.preferredStoreIds.length > 0;
+  // Count-mode screens are all Standard, so the per-screen rate is exact there;
+  // in map mode it's the blended average, shown only where a single number fits.
+  const pricePerScreen = Math.round(monthly / Math.max(1, data.screens));
+  const valid          = data.screens > 0 && data.months > 0 && data.startDate;
   const [capHit, setCapHit] = useState(false);
 
   // Manual count controls clear any map selection — one source of truth for count.
   const setCount = (n: number) => {
-    if (mapDriven) { onChange('preferredStoreIds', []); onChange('preferredStoreNames', {}); }
+    if (mapDriven) {
+      onChange('preferredStoreIds', []);
+      onChange('preferredStoreNames', {});
+      onChange('preferredStoreTiers', {});
+    }
     setCapHit(false);
     onChange('screens', Math.min(MAX_SCREENS, Math.max(1, n)));
   };
   const adjustScreens = (delta: number) => setCount(data.screens + delta);
 
-  const toggleStore = (id: string, storeName: string) => {
+  const toggleStore = (id: string, storeName: string, tier: SlotTier) => {
     const isSelected = data.preferredStoreIds.includes(id);
     if (!isSelected && data.preferredStoreIds.length >= MAX_SCREENS) { setCapHit(true); return; }
     setCapHit(false);
@@ -473,8 +501,11 @@ function StepCampaign({
       : [...data.preferredStoreIds, id];
     onChange('preferredStoreIds', next);
     const names = { ...data.preferredStoreNames };
-    if (isSelected) delete names[id]; else names[id] = storeName;
+    const tierMap = { ...data.preferredStoreTiers };
+    if (isSelected) { delete names[id]; delete tierMap[id]; }
+    else { names[id] = storeName; tierMap[id] = tier; }
     onChange('preferredStoreNames', names);
+    onChange('preferredStoreTiers', tierMap);
     if (next.length > 0) onChange('screens', next.length);
   };
 
@@ -505,8 +536,10 @@ function StepCampaign({
         )}
         {mapDriven && (
           <motion.p variants={fadeUp} className="text-xs text-muted-foreground">
-            <strong className="text-foreground">{data.preferredStoreIds.length} screen{data.preferredStoreIds.length > 1 ? 's' : ''} selected on the map.</strong>{' '}
-            Our team routes your campaign to these stores. Changing the plan cards or custom count below switches you back to a plain count and clears your map picks.
+            <strong className="text-foreground">
+              {data.preferredStoreIds.length} screen{data.preferredStoreIds.length > 1 ? 's' : ''} selected — {tierMixLabel(data.screens, tiers)} · {fmt(monthly)}/month.
+            </strong>{' '}
+            Each store is priced at its tier rate. Our team routes your campaign to these stores. Changing the plan cards or custom count below switches you back to a plain count (Standard rate) and clears your picks.
           </motion.p>
         )}
       </motion.div>
@@ -549,12 +582,8 @@ function StepCampaign({
                     <p className="text-xs text-muted-foreground mt-0.5">{t.screens === 1 ? 'screen' : 'screens'}</p>
                   </div>
                   <div className="border-t border-border pt-3 space-y-1">
-                    <p className="text-[10px] text-muted-foreground/50 line-through leading-none">{fmt(t.listPerScreen)}/screen</p>
                     <p className="text-base font-black text-foreground leading-none">{fmt(t.pricePerScreen)}</p>
-                    <p className="text-[10px] text-muted-foreground leading-none">per screen / month · online price</p>
-                    <p className="text-[11px] font-bold text-green-700 leading-none">
-                      Save ₹{t.listPerScreen - t.pricePerScreen}/screen/mo
-                    </p>
+                    <p className="text-[10px] text-muted-foreground leading-none">per screen / month · Standard stores</p>
                   </div>
                   <div className="space-y-1 pt-1">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -583,8 +612,7 @@ function StepCampaign({
           <div>
             <p className="text-sm font-semibold text-foreground">Custom count</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              <span className="line-through text-muted-foreground/50">{fmt(listPerScreen)}</span>{' '}
-              {fmt(pricePerScreen)} per screen · {fmt(pricePerScreen * data.screens)}/month
+              {fmt(tierRate('standard'))} per screen · Standard stores · {fmt(tierRate('standard') * data.screens)}/month
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -670,13 +698,15 @@ function StepCampaign({
               <div className="space-y-0.5">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Campaign total</p>
                 <p className="text-sm text-muted-foreground">
-                  {fmt(pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}
+                  {mapDriven
+                    ? <>{tierMixLabel(data.screens, tiers)} · {fmt(monthly)}/mo × {data.months} {data.months === 1 ? 'month' : 'months'}</>
+                    : <>{fmt(pricePerScreen)} × {data.screens} {data.screens === 1 ? 'screen' : 'screens'} × {data.months} {data.months === 1 ? 'month' : 'months'}</>}
                 </p>
-                <p className="text-xs text-green-600 font-semibold">
-                  {isTrial
-                    ? <>Campaign value {fmt(total)} — free on trial</>
-                    : <>Saving {fmt((listPerScreen - pricePerScreen) * data.screens * data.months)} vs standard rate</>}
-                </p>
+                {isTrial && (
+                  <p className="text-xs text-green-600 font-semibold">
+                    Campaign value {fmt(total)} — free on trial
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <motion.p
@@ -733,8 +763,11 @@ function StepAgreement({
   onBack: () => void;
   isTrial?: boolean;
 }) {
-  const pricePerScreen = getScreenPrice(data.screens);
-  const monthlyFee     = fmt(pricePerScreen * data.screens);
+  const agreementTiers = pickedTiers(data);
+  const monthlyFee     = fmt(monthlySubtotal(data.screens, agreementTiers));
+  const screensClause  = data.preferredStoreIds.length > 0
+    ? `${data.screens} ${data.screens === 1 ? 'screen' : 'screens'} (${tierMixLabel(data.screens, agreementTiers)})`
+    : `${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}`;
   const effectiveDate  = format(new Date(), 'd MMMM yyyy');
 
   const clauses = [
@@ -749,7 +782,7 @@ function StepAgreement({
     {
       n: '2', title: 'Your campaign',
       items: [
-        `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${data.screens} ${data.screens === 1 ? 'screen' : 'screens'}.`,
+        `This campaign runs for ${data.months} ${data.months === 1 ? 'month' : 'months'} across ${screensClause}.`,
         isTrial
           ? `This is a free trial campaign — the standard monthly fee of ${monthlyFee} plus GST is waived; nothing is payable.`
           : `The monthly fee is ${monthlyFee} plus applicable GST.`,
@@ -966,9 +999,13 @@ function StepPayment({
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; type: 'FLAT' | 'PERCENT'; value: number } | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
 
-  const pricePerScreen = getScreenPrice(data.screens);
-  const listPerScreen  = getListPrice(data.screens);
-  const baseSubtotal   = pricePerScreen * data.screens * data.months;
+  const payTiers       = pickedTiers(data);
+  const monthly        = monthlySubtotal(data.screens, payTiers);
+  const mixCounts      = tierCounts(data.screens, payTiers);
+  const baseSubtotal   = monthly * data.months;
+  // Blended per-screen rate — stored on the campaign row for ops display; the
+  // authoritative charge is recomputed server-side from the picked stores.
+  const pricePerScreen = Math.round(monthly / Math.max(1, data.screens));
   // Discount derived live from the coupon rule so it stays correct if the buyer
   // changes screens/months after applying (esp. PERCENT coupons).
   const promoCode      = appliedCoupon?.code ?? '';
@@ -1019,8 +1056,11 @@ function StepPayment({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           // Server recomputes the charge from these — `total` is display-only.
+          // preferredStoreIds drive tier pricing: the server resolves each id's
+          // tier from the DB, so client-side tier labels can't change the price.
           screens:    data.screens,
           months:     data.months,
+          preferredStoreIds: data.preferredStoreIds,
           couponCode: promoCode || undefined,
           applyGst:   true,
           receipt:    `alive_${Date.now()}`,
@@ -1104,27 +1144,26 @@ function StepPayment({
             <span className="text-muted-foreground">Duration</span>
             <span className="font-semibold text-foreground">{data.months} month{data.months > 1 ? 's' : ''}</span>
           </motion.div>
-          {/* Price per screen — discount theater is meaningless on a ₹0 trial */}
-          <motion.div variants={fadeUp} className="flex items-center justify-between">
-            <span className="text-muted-foreground">Price / screen / month</span>
-            <span className="flex items-center gap-2 font-semibold text-foreground">
-              {!isTrial && <span className="text-xs text-muted-foreground/50 line-through">{fmt(listPerScreen)}</span>}
-              {fmt(pricePerScreen)}
-              <span className="text-[10px] text-muted-foreground font-normal">excl. GST</span>
-            </span>
-          </motion.div>
-          {!isTrial && (
-            <motion.div variants={fadeUp} className="flex items-center justify-between text-green-700 text-xs font-semibold">
-              <span>Online booking discount</span>
-              <span>−₹{listPerScreen - pricePerScreen}/screen/mo</span>
+          {/* Screen mix, one line per tier — the rate table the total comes from */}
+          {(['flagship', 'growth', 'standard'] as SlotTier[]).filter((t) => mixCounts[t] > 0).map((t) => (
+            <motion.div key={t} variants={fadeUp} className="flex items-center justify-between">
+              <span className="text-muted-foreground">
+                {mixCounts[t]} × {TIER_LABELS[t]} screen{mixCounts[t] > 1 ? 's' : ''}
+              </span>
+              <span className="flex items-center gap-2 font-semibold text-foreground">
+                {fmt(tierRate(t))}<span className="text-[10px] text-muted-foreground font-normal">/screen/mo · excl. GST</span>
+              </span>
             </motion.div>
-          )}
+          ))}
           {/* Map-picked screens echo */}
           {data.preferredStoreIds.length > 0 && (
             <motion.div variants={fadeUp} className="flex flex-wrap gap-1.5 pt-1">
               {data.preferredStoreIds.map((id) => data.preferredStoreNames[id] && (
                 <span key={id} className="rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
                   {data.preferredStoreNames[id]}
+                  <span className="ml-1 font-normal text-muted-foreground/70">
+                    {TIER_LABELS[data.preferredStoreTiers[id] ?? 'standard']}
+                  </span>
                 </span>
               ))}
             </motion.div>
@@ -1529,7 +1568,7 @@ function StepDone({ data, paymentId, chargedTotal, isTrial }: {
 const INITIAL: OnboardingFormData = {
   brandName: '', contactName: '', email: '', phone: '', gstin: '',
   screens: 3, months: 1, startDate: format(new Date(Date.now() + 7 * 86400000), 'yyyy-MM-dd'), agreementSigned: false,
-  preferredStoreIds: [], preferredStoreNames: {},
+  preferredStoreIds: [], preferredStoreNames: {}, preferredStoreTiers: {},
 };
 
 const PENDING_KEY = 'alive_pending_campaign';

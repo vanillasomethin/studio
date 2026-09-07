@@ -1,11 +1,15 @@
 // POST /api/razorpay/create-order
 // Creates a Razorpay order for a brand campaign. The charge amount is
-// RECOMPUTED server-side from { screens, months, couponCode } — the client's
-// own total is never trusted, so it can't be tampered with in the browser.
+// RECOMPUTED server-side from { screens, months, preferredStoreIds,
+// couponCode } — the client's own total is never trusted, so it can't be
+// tampered with in the browser. Pricing is tier-based: each picked store is
+// billed at its slotPricingTier rate resolved from the DB HERE (the client
+// sends only ids, never tiers); unpicked screens are Standard.
 //
 // Body:
 //   screens    number   (required)
 //   months     number   (required)
+//   preferredStoreIds string[]? (map picks — resolved to tiers server-side)
 //   couponCode string?  (validated against the DB; ignored if invalid)
 //   applyGst   boolean  (whether this flow adds 18% GST — preserves each
 //                        flow's existing behaviour; onboarding/renewal = true,
@@ -17,8 +21,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { campaignTotal } from '@/lib/brand-pricing';
+import { campaignTotal, tierCounts, isSlotTier, type SlotTier } from '@/lib/brand-pricing';
 import { resolveCoupon } from '@/lib/coupons';
+import { sanitizeStoreIds } from '@/lib/store-ids';
 
 export async function POST(req: NextRequest) {
   const keyId     = process.env.RAZORPAY_KEY_ID;
@@ -34,6 +39,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
       screens?: number; months?: number; couponCode?: string;
+      preferredStoreIds?: unknown;
       applyGst?: boolean; trial?: boolean; email?: string;
       receipt?: string; notes?: Record<string, unknown>;
     };
@@ -42,6 +48,20 @@ export async function POST(req: NextRequest) {
     const months  = Math.floor(Number(body.months));
     if (!Number.isFinite(screens) || screens < 1 || screens > 50 || !Number.isFinite(months) || months < 1 || months > 12) {
       return NextResponse.json({ error: 'Invalid order: screens must be 1–50 and months 1–12.' }, { status: 400 });
+    }
+
+    // Resolve each picked store's tier from the DB — the client sends ids
+    // only, so the rate can't be spoofed. Ids that don't resolve (deleted
+    // store, forged id) fall through to Standard inside the pricing helper,
+    // matching how ops treats unresolvable picks: routed as plain screens.
+    const pickedIds = sanitizeStoreIds(body.preferredStoreIds);
+    let tiers: SlotTier[] = [];
+    if (pickedIds.length > 0) {
+      const stores = await db.store.findMany({
+        where:  { id: { in: pickedIds } },
+        select: { slotPricingTier: true },
+      });
+      tiers = stores.map((s) => (isSlotTier(s.slotPricingTier) ? s.slotPricingTier : 'standard'));
     }
 
     // ── Recompute the authoritative amount (rupees) ────────────────────────────
@@ -68,14 +88,14 @@ export async function POST(req: NextRequest) {
       // claimed discount is never trusted.
       let discount = 0;
       if (body.couponCode) {
-        const base = campaignTotal({ screens, months, applyGst: false });
+        const base = campaignTotal({ screens, months, tiers, applyGst: false });
         const res  = await resolveCoupon(body.couponCode, base);
         if (res.valid) {
           discount = res.discount;
           appliedCoupon = body.couponCode.toUpperCase();
         }
       }
-      amountRupees = campaignTotal({ screens, months, discount, applyGst: body.applyGst !== false });
+      amountRupees = campaignTotal({ screens, months, tiers, discount, applyGst: body.applyGst !== false });
     }
 
     // Razorpay requires note values to be strings
@@ -91,6 +111,11 @@ export async function POST(req: NextRequest) {
     // of the same name cannot override it.
     safeNotes.alive_screens = String(screens);
     safeNotes.alive_months  = String(months);
+    // The tier mix the amount was computed from (unpicked screens counted as
+    // standard). verify-payment compares the saved picks against this, so a
+    // buyer can't price standard stores and then claim flagship ones.
+    const mix = tierCounts(screens, tiers);
+    safeNotes.alive_tiers = `standard:${mix.standard},growth:${mix.growth},flagship:${mix.flagship}`;
     // Same reasoning for the coupon: the discount was granted HERE, so the
     // redemption must be counted against what was granted here. Leaving
     // verify-payment to read the code off the request body let a buyer take the

@@ -9,47 +9,42 @@ import {
 } from '@/components/ui/card';
 import { Check, ArrowRight, Star } from 'lucide-react';
 
+// Store tiers — must match the checkout rates in lib/slot-pricing.ts
+// (Standard ₹1,000 / Growth ₹2,000 / Flagship ₹3,000 per screen per month).
 const plans = [
   {
-    name: 'Starter',
-    price: '799',
-    description: 'Perfect for getting started and testing the waters in a single high-traffic location.',
-    shops: '1 Shop',
-    screens: '1 Screen',
+    name: 'Standard',
+    price: '1,000',
+    description: 'Local kirana screens with a loyal daily footfall.',
     features: [
-      '~144 plays per day',
-      '~4,320 monthly views',
+      '~144 plays per day per screen',
+      '~4,320 monthly views per screen',
       'Targeted local reach',
-      'Basic performance analytics'
+      'Campaign performance reporting'
     ],
     isPopular: false,
   },
   {
     name: 'Growth',
-    price: '2,249',
-    description: 'Expand your reach across multiple key stores to capture a larger audience.',
-    shops: '3 Shops',
-    screens: '3 Screens',
+    price: '2,000',
+    description: 'Busy neighbourhood anchor stores with heavier walk-ins.',
     features: [
-      '~432 plays per day',
-      '~12,960 monthly views',
-      'Multi-store campaign management',
+      'Everything in Standard',
+      'High-footfall locations',
       'Detailed analytics & insights',
       'Priority support'
     ],
     isPopular: true,
   },
   {
-    name: 'Enterprise',
-    price: 'Custom',
-    description: 'Maximum impact with wide-scale deployment and tailored solutions.',
-    shops: '5+ Shops',
-    screens: 'Custom',
+    name: 'Flagship',
+    price: '3,000',
+    description: 'Premium high-visibility stores at prime locations.',
     features: [
-      'Volume-based pricing',
+      'Everything in Growth',
+      'Prime, high-visibility placements',
       'Dedicated account manager',
-      'API access & integrations',
-      'Custom creative services'
+      'Custom creative support'
     ],
     isPopular: false,
   },
@@ -67,7 +62,8 @@ export default function BusinessModel({ onGetStartedClick }: BusinessModelProps)
           Find a Plan That Works for You
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
-          Affordable, scalable plans designed to put your brand in the spotlight.
+          Every store is tiered by footfall and visibility. Pick the exact stores you
+          want at booking — mix tiers freely in one campaign.
         </p>
 
         <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-3">
@@ -88,7 +84,7 @@ export default function BusinessModel({ onGetStartedClick }: BusinessModelProps)
                         {plan.price !== 'Custom' ? '₹' + plan.price : 'Custom'}
                     </span>
                     <span className="text-muted-foreground">
-                        {plan.price !== 'Custom' ? ' /mo' : ''}
+                        {plan.price !== 'Custom' ? ' /screen/mo' : ''}
                     </span>
                  </div>
                 <ul className="space-y-3">
@@ -101,8 +97,8 @@ export default function BusinessModel({ onGetStartedClick }: BusinessModelProps)
                 </ul>
               </CardContent>
               <CardFooter>
-                <Button className="w-full" variant={plan.name === 'Growth' ? 'default' : 'outline'} onClick={onGetStartedClick}>
-                  {plan.name === 'Enterprise' ? 'Contact Sales' : 'Get Started'}
+                <Button className="w-full" variant={plan.isPopular ? 'default' : 'outline'} onClick={onGetStartedClick}>
+                  Get Started
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </CardFooter>
