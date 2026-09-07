@@ -51,35 +51,48 @@ export type NetworkStore = {
   lng: number;
 };
 
-// TODO: every lat/lng below is a placeholder dropped on the right neighbourhood,
-// not a surveyed shop location. Replace each one with the store's real pin from
-// Admin → Stores before this page is published.
+/**
+ * Loose key for matching a curated name against whatever ops typed into
+ * Store.storeName — "Nilgiri's M G Road" and "Nilgiris MG Road" are one shop.
+ */
+export function storeMatchKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// The lat/lng below are FALLBACKS, not surveyed shop locations — each is dropped
+// on roughly the right neighbourhood so the map is never empty.
+//
+// The real pin lives on Store.lat/lng, surveyed at registration, and
+// /api/advertise/network serves it to the map keyed by the names below. So the
+// way to fix a wrong pin is Admin → Stores → Edit → Map pin, not this file: a
+// coordinate pasted here would immediately start drifting from the one every
+// other map in the app uses.
 export const NETWORK_STORES: NetworkStore[] = [
   // Flagship
-  { id: 'nilgiris-mg-road',            name: 'Nilgiris MG Road',            tier: 'flagship', lat: 12.8752, lng: 74.8433 }, // TODO: real coords
-  { id: 'bhargavi-hyper-mart-mg-road', name: 'Bhargavi Hyper Mart MG Road', tier: 'flagship', lat: 12.8778, lng: 74.8447 }, // TODO: real coords
-  { id: 'apple-mart-falnir',           name: 'Apple Mart Falnir',           tier: 'flagship', lat: 12.8686, lng: 74.8462 }, // TODO: real coords
-  { id: 'apple-mart-padavinangady',    name: 'Apple Mart Padavinangady',    tier: 'flagship', lat: 12.8931, lng: 74.8536 }, // TODO: real coords
-  { id: 'misbah-falnir',               name: 'Misbah Falnir',               tier: 'flagship', lat: 12.8709, lng: 74.8489 }, // TODO: real coords
-  { id: 'fathima-stores-hampankatta',  name: 'Fathima Stores Hampankatta',  tier: 'flagship', lat: 12.8703, lng: 74.8421 }, // TODO: real coords
+  { id: 'nilgiris-mg-road',            name: 'Nilgiris MG Road',            tier: 'flagship', lat: 12.8752, lng: 74.8433 },
+  { id: 'bhargavi-hyper-mart-mg-road', name: 'Bhargavi Hyper Mart MG Road', tier: 'flagship', lat: 12.8778, lng: 74.8447 },
+  { id: 'apple-mart-falnir',           name: 'Apple Mart Falnir',           tier: 'flagship', lat: 12.8686, lng: 74.8462 },
+  { id: 'apple-mart-padavinangady',    name: 'Apple Mart Padavinangady',    tier: 'flagship', lat: 12.8931, lng: 74.8536 },
+  { id: 'misbah-falnir',               name: 'Misbah Falnir',               tier: 'flagship', lat: 12.8709, lng: 74.8489 },
+  { id: 'fathima-stores-hampankatta',  name: 'Fathima Stores Hampankatta',  tier: 'flagship', lat: 12.8703, lng: 74.8421 },
 
   // Growth
-  { id: 'margins-bejai',                 name: 'Margins Bejai',                 tier: 'growth', lat: 12.8865, lng: 74.8471 }, // TODO: real coords
-  { id: 'baliga-bejai-kapikad',          name: 'Baliga Bejai–Kapikad',          tier: 'growth', lat: 12.8912, lng: 74.8489 }, // TODO: real coords
-  { id: 'apple-mart-kadri',              name: 'Apple Mart Kadri',              tier: 'growth', lat: 12.8884, lng: 74.8598 }, // TODO: real coords
-  { id: 'misbah-marnamikatte',           name: 'Misbah Marnamikatte',           tier: 'growth', lat: 12.8801, lng: 74.8515 }, // TODO: real coords
-  { id: 'fathima-superstore-kankanady',  name: 'Fathima Superstore Kankanady',  tier: 'growth', lat: 12.8648, lng: 74.8557 }, // TODO: real coords
-  { id: 'nilgiris-urwa',                 name: 'Nilgiris Urwa',                 tier: 'growth', lat: 12.8846, lng: 74.8382 }, // TODO: real coords
-  { id: 'bhargavi-super-mart-derebail',  name: 'Bhargavi Super Mart Derebail',  tier: 'growth', lat: 12.9004, lng: 74.8402 }, // TODO: real coords
-  { id: 'katteyangadi',                  name: 'Katteyangadi',                  tier: 'growth', lat: 12.9057, lng: 74.8551 }, // TODO: real coords
-  { id: 'super-foodmart-bendoor',        name: 'Super Foodmart Bendoor',        tier: 'growth', lat: 12.8693, lng: 74.8514 }, // TODO: real coords
-  { id: 'kadri-mart',                    name: 'Kadri Mart',                    tier: 'growth', lat: 12.8925, lng: 74.8623 }, // TODO: real coords
-  { id: 'impala-z-mart',                 name: 'Impala Z Mart',                 tier: 'growth', lat: 12.8823, lng: 74.8455 }, // TODO: real coords
+  { id: 'margins-bejai',                 name: 'Margins Bejai',                 tier: 'growth', lat: 12.8865, lng: 74.8471 },
+  { id: 'baliga-bejai-kapikad',          name: 'Baliga Bejai–Kapikad',          tier: 'growth', lat: 12.8912, lng: 74.8489 },
+  { id: 'apple-mart-kadri',              name: 'Apple Mart Kadri',              tier: 'growth', lat: 12.8884, lng: 74.8598 },
+  { id: 'misbah-marnamikatte',           name: 'Misbah Marnamikatte',           tier: 'growth', lat: 12.8801, lng: 74.8515 },
+  { id: 'fathima-superstore-kankanady',  name: 'Fathima Superstore Kankanady',  tier: 'growth', lat: 12.8648, lng: 74.8557 },
+  { id: 'nilgiris-urwa',                 name: 'Nilgiris Urwa',                 tier: 'growth', lat: 12.8846, lng: 74.8382 },
+  { id: 'bhargavi-super-mart-derebail',  name: 'Bhargavi Super Mart Derebail',  tier: 'growth', lat: 12.9004, lng: 74.8402 },
+  { id: 'katteyangadi',                  name: 'Katteyangadi',                  tier: 'growth', lat: 12.9057, lng: 74.8551 },
+  { id: 'super-foodmart-bendoor',        name: 'Super Foodmart Bendoor',        tier: 'growth', lat: 12.8693, lng: 74.8514 },
+  { id: 'kadri-mart',                    name: 'Kadri Mart',                    tier: 'growth', lat: 12.8925, lng: 74.8623 },
+  { id: 'impala-z-mart',                 name: 'Impala Z Mart',                 tier: 'growth', lat: 12.8823, lng: 74.8455 },
 
   // Standard
-  { id: 'market-7-kankanady', name: 'Market 7 Kankanady', tier: 'standard', lat: 12.8662, lng: 74.8583 }, // TODO: real coords
-  { id: 'mary-hill-store',    name: 'Mary Hill Store',    tier: 'standard', lat: 12.8843, lng: 74.8341 }, // TODO: real coords
-  { id: 'a-h-store-falnir',   name: 'A H Store Falnir',   tier: 'standard', lat: 12.8671, lng: 74.8437 }, // TODO: real coords
+  { id: 'market-7-kankanady', name: 'Market 7 Kankanady', tier: 'standard', lat: 12.8662, lng: 74.8583 },
+  { id: 'mary-hill-store',    name: 'Mary Hill Store',    tier: 'standard', lat: 12.8843, lng: 74.8341 },
+  { id: 'a-h-store-falnir',   name: 'A H Store Falnir',   tier: 'standard', lat: 12.8671, lng: 74.8437 },
 ];
 
 export const STORES_BY_TIER: { tier: SlotTier; stores: NetworkStore[] }[] = TIER_ORDER.map(tier => ({
