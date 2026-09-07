@@ -30,6 +30,10 @@ export async function getPowerSettings(): Promise<{ defaultWatts: number; paiseP
 export async function estimateStorePower(
   stores: { id: string; screenWatts: number | null }[],
   since: Date = istMonthStart(),
+  // Optional exclusive upper bound. Without it the window is since→now, which is
+  // right for "this month so far" but wrong for settling a NAMED past month —
+  // `?month=2026-07` would otherwise price July-1-to-today. Half-open [since, until).
+  until?: Date,
 ): Promise<Map<string, PowerEstimate>> {
   const out = new Map<string, PowerEstimate>();
   if (stores.length === 0) return out;
@@ -44,7 +48,7 @@ export async function estimateStorePower(
 
   const buckets = devices.length
     ? await db.hourlyPop.findMany({
-        where:  { deviceId: { in: devices.map((d) => d.id) }, hour: { gte: since } },
+        where:  { deviceId: { in: devices.map((d) => d.id) }, hour: { gte: since, ...(until ? { lt: until } : {}) } },
         select: { deviceId: true, totalMs: true },
       })
     : [];
@@ -74,7 +78,7 @@ export async function estimateStorePower(
       by:     ['plugId'],
       where:  {
         plugId: { in: plugs.map((p) => p.id) },
-        at:     { gte: since },
+        at:     { gte: since, ...(until ? { lt: until } : {}) },
         powerW: { gte: RUNNING_WATTS_FLOOR },
       },
       _avg: { powerW: true },

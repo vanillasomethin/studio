@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { istToday } from '@/lib/slots';
 import { availabilityGrid } from '@/lib/slots-db';
+import { isSlotTier, type SlotTier } from '@/lib/slot-pricing';
 
 const LIMITED_THRESHOLD = 0.7; // ≥70% of the store's loop sold → "limited"
 
@@ -29,6 +30,11 @@ export type ScreenPin = {
   // null = store isn't slot-managed (schedule mode) or is closed that day; ops
   // can still schedule it, so the picker treats null as selectable.
   slotStatus: 'available' | 'limited' | 'sold_out' | null;
+  // standard | growth | flagship — the network tier of the location, so a buyer
+  // can browse by calibre of store. It is a LABEL here and nothing more:
+  // onboarding still quotes one flat per-screen rate, so no per-slot price is
+  // exposed alongside it (two different prices on one page reads as a bug).
+  tier: SlotTier;
 };
 
 export async function GET(req: NextRequest) {
@@ -49,7 +55,7 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, storeName: true, locality: true, city: true,
         lat: true, lng: true, liveAt: true, onboardingStage: true,
-        loopSlotCount: true, openDays: true,
+        loopSlotCount: true, openDays: true, slotPricingTier: true,
       },
     });
     // Leaflet throws on a bad LatLng, and one bad row would take the picker
@@ -82,6 +88,9 @@ export async function GET(req: NextRequest) {
         lat: s.lat!, lng: s.lng!,
         live: s.liveAt != null || s.onboardingStage === 'live',
         slotStatus,
+        // Anything unrecognised reads as standard — the same fallback
+        // tierForSignupKey applies, so a bad value can't invent a premium store.
+        tier: isSlotTier(s.slotPricingTier) ? s.slotPricingTier : 'standard',
       };
     });
 
