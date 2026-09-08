@@ -2,6 +2,7 @@
   "expo": {
     "name": "ALIVE Store",
     "slug": "alive-store",
+    "owner": "vs-collective-llp",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -16,7 +17,7 @@
     "android": {
       "package": "com.partner.alive",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ef4444"
@@ -33,7 +34,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/6a63834c-7c6a-474c-a438-ca5bbfd0b32f"
+      "url": "https://u.expo.dev/c71c9af8-9f0f-479e-b267-8a767b053692"
     },
     "plugins": [
       "expo-router",
@@ -57,7 +58,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow ALIVE Store to access your photos for KYC and flyer uploads.",
-          "cameraPermission": "Allow ALIVE Store to use the camera for your KYC selfie."
+          "cameraPermission": "Allow ALIVE Store to use the camera for your KYC selfie.",
+          "microphonePermission": false
         }
       ],
       [
@@ -70,8 +72,11 @@
       "expo-asset"
     ],
     "extra": {
+      "router": {
+        "origin": false
+      },
       "eas": {
-        "projectId": "6a63834c-7c6a-474c-a438-ca5bbfd0b32f"
+        "projectId": "c71c9af8-9f0f-479e-b267-8a767b053692"
       }
     }
   }
