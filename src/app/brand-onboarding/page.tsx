@@ -409,7 +409,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
           Begin onboarding <ArrowRight className="h-4 w-4" />
         </motion.button>
         <p className="text-xs text-muted-foreground/40 tracking-wide">
-          Takes less than 5 minutes · {new Date().getFullYear()} · ALIVE Advertising Pvt. Ltd.
+          Takes less than 5 minutes · {new Date().getFullYear()} · VS Collective LLP
         </p>
       </motion.div>
     </div>
@@ -940,7 +940,7 @@ function StepAgreement({
             className="mt-0.5 shrink-0"
           />
           <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
-            I have read and agree to the ALIVE Terms of Service. I confirm I am
+            I have read and agree to the Alive Advertising Terms of Service. I confirm I am
             authorised to enter into this agreement on behalf of{' '}
             <strong className="text-foreground">{data.brandName || 'my organisation'}</strong>.
           </label>
@@ -1752,7 +1752,7 @@ function BrandOnboardingInner() {
 
       <footer className="border-t border-border/30 py-5 text-center">
         <p className="text-xs text-muted-foreground/40 tracking-wide">
-          © {new Date().getFullYear()} ALIVE Advertising Pvt. Ltd. ·{' '}
+          © {new Date().getFullYear()} VS Collective LLP ·{' '}
           <a href="mailto:hello@wearealive.in" className="hover:text-muted-foreground transition-colors">
             hello@wearealive.in
           </a>
