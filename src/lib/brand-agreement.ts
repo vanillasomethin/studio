@@ -22,9 +22,9 @@ import { brand } from '@/lib/brand';
  * Changing clause wording without bumping this is the one thing that breaks the
  * guarantee, because a stored version would then point at text nobody kept.
  */
-export const BRAND_AGREEMENT_VERSION = '2026-09-07';
+export const BRAND_AGREEMENT_VERSION = '2026-09-08';
 
-export const BRAND_AGREEMENT_TITLE = 'Alive Advertising — Terms of Service';
+export const BRAND_AGREEMENT_TITLE = 'VS Collective LLP — Terms of Service';
 
 /** Executed electronically — the wording both flows show above the checkbox. */
 export const BRAND_AGREEMENT_EXECUTION_NOTE =

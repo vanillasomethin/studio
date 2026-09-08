@@ -940,7 +940,7 @@ function StepAgreement({
             className="mt-0.5 shrink-0"
           />
           <label htmlFor="agree" className="text-sm text-muted-foreground leading-relaxed cursor-pointer select-none">
-            I have read and agree to the Alive Advertising Terms of Service. I confirm I am
+            I have read and agree to the ALIVE Terms of Service. I confirm I am
             authorised to enter into this agreement on behalf of{' '}
             <strong className="text-foreground">{data.brandName || 'my organisation'}</strong>.
           </label>
