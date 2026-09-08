@@ -10,6 +10,7 @@
 // same white ground. Same brand, legible at the size it is actually seen.
 
 const { chromium } = require('playwright-core');
+const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
@@ -117,7 +118,13 @@ function buildIco(pngs) {
       await page.setContent(page$html(size, scale), { waitUntil: 'load' });
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(150);
-      await page.screenshot({ path: path.join(OUT_DIR, file), omitBackground: false });
+      // Chromium's screenshot encoder drops the alpha channel and writes plain
+      // RGB whenever every captured pixel is fully opaque — true here, since the
+      // page paints its own opaque white background. Next/Turbopack's ICO
+      // decoder requires RGBA, so ensureAlpha() adds the channel back (all 255s;
+      // nothing is actually transparent) before the PNG hits disk.
+      const rgba = await sharp(await page.screenshot({ omitBackground: true })).ensureAlpha().png().toBuffer();
+      fs.writeFileSync(path.join(OUT_DIR, file), rgba);
       await page.close();
       console.log(`wrote public/icons/${file}  (${size}x${size})`);
     }
@@ -129,7 +136,8 @@ function buildIco(pngs) {
       await page.setContent(favicon$html(size), { waitUntil: 'load' });
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(150);
-      pngs.push({ size, data: await page.screenshot({ omitBackground: false }) });
+      const rgba = await sharp(await page.screenshot({ omitBackground: true })).ensureAlpha().png().toBuffer();
+      pngs.push({ size, data: rgba });
       await page.close();
     }
     fs.writeFileSync(FAVICON, buildIco(pngs));
