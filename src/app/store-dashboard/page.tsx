@@ -1530,7 +1530,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
       </main>
 
       <footer className="border-t border-border/30 py-5 text-center mt-6">
-        <p className="text-xs text-muted-foreground/30">© 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru</p>
+        <p className="text-xs text-muted-foreground/30">© 2025 VS Collective LLP · Mangaluru</p>
       </footer>
 
       <AnimatePresence>
