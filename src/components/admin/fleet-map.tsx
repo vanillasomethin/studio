@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BASEMAP } from '@/lib/map-tiles';
+import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 import type { Device } from '@/lib/backend-api';
 
 const MANGALURU: [number, number] = [12.8698, 74.8431];
@@ -112,6 +113,9 @@ export default function FleetMap({ devices, stores = [] }: Props) {
       mapRef.current     = map;
       leafletRef.current = L;
 
+      // Locality hairlines under the fleet dots — ops read outages by area.
+      void addLocalityBoundaries(L, map, () => !cancelled && mapRef.current === map);
+
       for (const d of withGeo) {
         const icon = L.divIcon({ html: markerHtml(d.status), className: '', iconSize: [12, 12], iconAnchor: [6, 6] });
         const popup = `
@@ -152,10 +156,13 @@ export default function FleetMap({ devices, stores = [] }: Props) {
   }, [devices]);
 
   return (
-    <div
-      ref={containerRef}
-      className="rounded-xl overflow-hidden border border-border"
-      style={{ height: 420 }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="rounded-xl overflow-hidden border border-border"
+        style={{ height: 420 }}
+      />
+      <style>{LOCALITY_TIP_CSS}</style>
+    </>
   );
 }
