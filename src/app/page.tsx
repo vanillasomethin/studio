@@ -539,7 +539,7 @@ export default function Home() {
         </div>
 
         <div className="bot">
-          <div>© {ROMAN_YEAR} · Alive Networks Pvt. Ltd.</div>
+          <div>© {ROMAN_YEAR} · ALIVE Advertising Pvt. Ltd.</div>
           <div className="mid">Live across India · 11 languages</div>
           <div className="end">
             <a href="/privacy-policy">Privacy</a><a href="#">Terms</a><a href="/delete-account">Delete my data</a><a href="#">Instagram</a><a href="#">LinkedIn</a>
