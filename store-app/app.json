@@ -15,7 +15,7 @@
       "resizeMode": "cover"
     },
     "android": {
-      "package": "com.partner.alive",
+      "package": "in.wearealive.store",
       "googleServicesFile": "./google-services.json",
       "versionCode": 5,
       "adaptiveIcon": {
