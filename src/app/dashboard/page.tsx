@@ -2025,7 +2025,7 @@ function NewCampaignModal({
                     className="mt-0.5 h-4 w-4 rounded border-border accent-primary shrink-0"
                   />
                   <span className="text-sm text-muted-foreground leading-relaxed select-none">
-                    I have read and agree to the Alive Advertising Terms of Service. I confirm I am
+                    I have read and agree to the ALIVE Terms of Service. I confirm I am
                     authorised to enter into this agreement on behalf of{' '}
                     <strong className="text-foreground">{prefill.brandName || 'my organisation'}</strong>.
                   </span>
