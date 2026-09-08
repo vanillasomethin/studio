@@ -69,7 +69,8 @@
           "defaultChannel": "alerts"
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-font"
     ],
     "extra": {
       "router": {
