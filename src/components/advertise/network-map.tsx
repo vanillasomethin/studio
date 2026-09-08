@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BASEMAP } from '@/lib/map-tiles';
+import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 import { brand, brandType } from '@/lib/brand';
 import {
   NETWORK_STORES,
@@ -154,6 +155,9 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       leafletRef.current = L;
       mapRef.current = map;
       setReady(true);
+
+      // Locality hairlines under the pins, so tiers read against real areas.
+      void addLocalityBoundaries(L, map, () => mapRef.current === map);
     }
 
     void init();
@@ -250,6 +254,7 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       </ul>
 
       <style>{`
+        ${LOCALITY_TIP_CSS}
         .adv-pin{display:inline-flex;align-items:center;justify-content:center;border-radius:9999px;
           border:2px solid var(--brand-accent);font-weight:700;line-height:1;
           font-family:${brandType.sans};box-shadow:0 1px 3px rgba(0,0,0,.22);

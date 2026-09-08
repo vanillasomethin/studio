@@ -23,6 +23,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BASEMAP } from '@/lib/map-tiles';
+import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 import { coreColor, SHOP_PIN_CSS, shopPinHtml, swatchStyle, TIER } from '@/components/sections/store-locations-map';
 import type { SlotTier } from '@/lib/slot-pricing';
 import { X } from 'lucide-react';
@@ -145,6 +146,13 @@ export default function ScreenPickerMap({
           dragging: !L.Browser.mobile,
         }).setView(pins.length ? center : MANGALURU, 13);
         L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(mapRef.current);
+
+        // Locality hairlines under the pins — same reference layer as the
+        // homepage map, so a brand picking screens sees the same city. Guarded
+        // by the ref, not `cancelled`: this effect re-runs per pins change and
+        // the map outlives those runs — only unmount nulls the ref.
+        const map = mapRef.current;
+        void addLocalityBoundaries(L, map, () => mapRef.current === map);
       }
 
       // Rebuild markers from the current pins.
@@ -263,7 +271,7 @@ export default function ScreenPickerMap({
 
       {/* The homepage map owns this CSS string, so the mark behaves identically
           on both pages (entry pop, hover and active scaling). */}
-      <style>{SHOP_PIN_CSS}</style>
+      <style>{SHOP_PIN_CSS + LOCALITY_TIP_CSS}</style>
     </div>
   );
 }

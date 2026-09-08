@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { BASEMAP } from '@/lib/map-tiles';
+import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 
 type StoreStatus = 'live' | 'in_progress';
 
@@ -242,6 +243,10 @@ export default function StoreLocationsMap() {
 
       mapInstanceRef.current = map;
       setMapReady(true);
+
+      // Locality hairlines under everything; the red coverage rings are
+      // (re)added later in the marker effect, so they always draw above.
+      void addLocalityBoundaries(L, map, () => mapInstanceRef.current === map);
     }
 
     init();
@@ -423,6 +428,7 @@ export default function StoreLocationsMap() {
 
       <style>{`
         ${SHOP_PIN_CSS}
+        ${LOCALITY_TIP_CSS}
         .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}
         .alive-popup .leaflet-popup-content{margin:0;line-height:1.4;}
         .alive-popup .leaflet-popup-tip-container{display:none;}
