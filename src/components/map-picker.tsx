@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BASEMAP } from '@/lib/map-tiles';
+// PINNING_BASEMAP, not BASEMAP: this map exists to place a pin on a specific
+// shop, and the presentation style omits the building and landmark names a
+// partner aims at. See the note in lib/map-tiles.ts.
+import { PINNING_BASEMAP } from '@/lib/map-tiles';
 import { MapPin, LocateFixed, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 // Dynamically import leaflet only on client — avoids SSR window errors
@@ -74,7 +77,7 @@ export default function MapPicker({ lat, lng, onLocation, error }: Props) {
       if (cancelled || !containerRef.current || mapRef.current) return;
 
       const map = L.map(containerRef.current, { zoomControl: true }).setView([initLat, initLng], lat ? 17 : 13);
-      L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(map);
+      L.tileLayer(PINNING_BASEMAP.url, { attribution: PINNING_BASEMAP.attribution, maxZoom: PINNING_BASEMAP.maxZoom }).addTo(map);
 
       const marker = L.marker([initLat, initLng], { draggable: true, icon: pinIcon(L) }).addTo(map);
       marker.bindPopup('<b>Drag to pin your exact shop location</b>').openPopup();

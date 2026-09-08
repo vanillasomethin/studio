@@ -24,7 +24,7 @@ export async function GET(
       select: {
         id: true, name: true, hardwareKey: true, groupName: true, status: true, lastSeen: true,
         uptimePctD30: true, storeId: true,
-        store: { select: { storeName: true, city: true, loopSlotCount: true, openDays: true, fillerCampaignId: true } },
+        store: { select: { storeName: true, city: true, loopSlotCount: true, openDays: true, fillerCreativeId: true } },
       },
     });
     if (!device) return NextResponse.json({ error: 'Device not found' }, { status: 404 });
@@ -147,7 +147,7 @@ export async function GET(
       const store = device.store!;
       const today = istToday(now);
       slotOpenToday = isOpenOn(store.openDays, today);
-      const filler  = await resolveFillerCampaign(store.fillerCampaignId);
+      const filler  = await resolveFillerCampaign(store.fillerCreativeId);
       slotHasFiller = filler != null;
       if (slotOpenToday) {
         const bookings = await db.slotBooking.findMany({

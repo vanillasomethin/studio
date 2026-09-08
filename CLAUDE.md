@@ -60,7 +60,7 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
 | Cache | Upstash Redis — lazy `getRedis()` pattern only, never module-level |
 | Media | Cloudflare R2 via AWS SDK. Browser → server-side proxy (`/api/admin/r2-upload`) → R2. Never direct browser PUT (CORS). |
 | Payments | Razorpay (brand campaigns) |
-| Maps | Plain Leaflet (no react-leaflet — React 19 only). Tiles always come from `BASEMAP` in `src/lib/map-tiles.ts`: CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OpenStreetMap otherwise. Never paste a tile URL — CARTO tiles without a key render "API key required". |
+| Maps | Plain Leaflet (no react-leaflet — React 19 only). Never paste a tile URL; import from `src/lib/map-tiles.ts`, picking by the map's JOB. `BASEMAP` (CARTO Voyager when `NEXT_PUBLIC_CARTO_API_KEY` is set, OSM otherwise) for LOOKING — marketing network map, admin fleet/monitoring, brand onboarding. `PINNING_BASEMAP` (always OSM standard) for PLACING a pin — store registration, admin move-pin — because CARTO's raster style omits the building and landmark names a partner aims at, and pins landed in the wrong place without them. CARTO tiles without a key render "API key required". |
 | Geocoding | OpenStreetMap Nominatim |
 | AI | Genkit + Google AI (Gemini 2.5 Flash) |
 | React | 18.3.1 — NOT 19 |
@@ -124,6 +124,12 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
   A pinned store is on the public map at once (any stage but `rejected`), in the brand picker (non-bookable
   "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
   stage. Nothing waits for `live` — don't build a "live only" filter on any map.
+- Somewhere ALIVE is only *considering* is a `ProspectLocation`, never a Store —
+  Admin → Prospects, click the map to drop one. A Store with a pin is public
+  immediately, so a prospect modelled as a Store would advertise a shop that has
+  agreed to nothing. Nothing in that table is read by any public route; it
+  carries a status (scouting → contacted → negotiating → rejected/converted) and
+  links to the Store id once it converts.
 - Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"
   (`SECRET_WORD` in `src/lib/admin-audit.ts`) — name pin-related meta keys
   `locationSource` / `coords`, never anything with "pin" in it.
@@ -260,7 +266,7 @@ Form data persisted to `sessionStorage('alive_store_draft')` so navigating to ag
 
 - Protected per-route by `requireAdmin()` — a named session, not a header secret
 - The browser holds no admin credential; the session cookie is httpOnly
-- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | Platform Map
+- Tabs: Dashboard | Flyers | Stores | Products | Campaigns | Enquiries | Payments | Coupons | Screens | Content | Programming | Slot inventory | Compositions | Layouts | Reports | Monitoring | Media | Alerts | House content | Prospects | Platform Map
 - Adding a tab means five edits in `src/app/admin/page.tsx`: the `Tab` union, `PAGE_META`, `sectionName`, `NAV_DESIGN` and the render line. `PAGE_META`/`sectionName` are `Record<Tab, …>`, so the compiler catches a missed one. (`NAV` near the top of the file is dead — `NAV_DESIGN` is the live sidebar.)
 
 ---
@@ -309,6 +315,10 @@ When a generic control and a graphical one both work, use the graphical one.
   `admin.css` hangs `--font-display` / `--font-body` / `--font-mono` off
   `.admin-fonts`, not `:root`, because a custom property containing `var()`
   resolves on the element it is declared on.
+- Icons: `npm run icons:pwa` regenerates the PWA set in `public/icons/` AND
+  `src/app/favicon.ico` from the wordmark — never hand-place either. The favicon
+  is the `a` plus the red dot, not the whole wordmark, because "alive•" is a
+  smudge at 16px; `src/app/icon.tsx` draws the same mark for `/icon`.
 - Logo: the `alive•` wordmark is **Poppins 800** (fonts.google.com/specimen/Poppins)
   with the red dot. Always render it via `<Logo/>` (`src/components/icons/logo.tsx`)
   — never hand-roll the markup, and never restyle its font, weight, or colour.

@@ -8,7 +8,15 @@ export async function GET(req: NextRequest) {
   // so an unset env var published every brand's campaign and payment status.
   if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
+    // House filler is not a campaign and must not appear among the brands'.
+    // Filler now lives in FillerCreative, but the rows that were fillers BEFORE
+    // that migration are still Campaign rows — deleting them would have cascaded
+    // away their play history, so they were kept and are excluded here instead.
+    // The set only shrinks: a filler created from now on is never a Campaign.
+    const houseIds = (await db.fillerCreative.findMany({ select: { id: true } })).map((f) => f.id);
+
     const campaigns = await db.campaign.findMany({
+      where:   houseIds.length ? { id: { notIn: houseIds } } : {},
       orderBy: { createdAt: 'desc' },
       include: {
         brand: { select: { id: true, brandName: true, trialOfferedAt: true, trialUsedAt: true } },

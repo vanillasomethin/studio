@@ -166,6 +166,39 @@ model AdminInvite {
   @@index([expiresAt])
 }
 
+/// A location ALIVE is CONSIDERING — a shop worth approaching, a junction worth
+/// covering — recorded so it can be reviewed and studied before anyone signs.
+///
+/// Deliberately not a Store. A Store with a pin is on the public map the moment
+/// it is pinned (see the map-pin note in CLAUDE.md), which is right for a real
+/// partner and wrong for a prospect: putting scouting notes on the marketing
+/// site would advertise shops that have not agreed to anything. Nothing here is
+/// ever served to a public route.
+model ProspectLocation {
+  id        String   @id @default(cuid())
+  /// What ops calls it — a shop name, or a description of the spot.
+  label     String
+  lat       Float
+  lng       Float
+  locality  String?
+  city      String?
+  /// Free-text observations: footfall, who owns it, what was said.
+  notes     String?
+  /// scouting | contacted | negotiating | rejected | converted
+  status    String   @default("scouting")
+  /// Set when a prospect becomes a real partner, so the history is not lost and
+  /// the same spot is not scouted twice. Plain id, not a relation — deleting the
+  /// store should not delete the note that it started here.
+  storeId   String?
+  /// Who added it, for the same "who did what" reason the audit log exists.
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
 // ─── Store partners ──────────────────────────────────────────────────────────
 
 model Store {
@@ -295,7 +328,7 @@ model Store {
   openDays         Int    @default(127) // bitmask, bit0=Mon … bit6=Sun; closed days excluded from availability
   hoursStart       String @default("09:00") // IST, loop plays hoursStart–hoursEnd
   hoursEnd         String @default("21:00")
-  fillerCampaignId String? // override of the default house-ads filler campaign
+  fillerCreativeId String? // override of the default house filler (see FillerCreative)
   // Sound Ad add-on: store-owner mute override (Alive Partner app). Forces the
   // designated sound slot silent regardless of the once/hour cadence — read by
   // /api/device/plan and enforced by the player's PlaybackEngine.resolveVolume().
@@ -317,7 +350,7 @@ model Store {
   updatedAt         DateTime  @updatedAt
 
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fillerCampaign       Campaign?             @relation("StoreFiller", fields: [fillerCampaignId], references: [id], onDelete: SetNull)
+  fillerCreative       FillerCreative?       @relation("StoreFillerCreative", fields: [fillerCreativeId], references: [id], onDelete: SetNull)
   slotBookings         SlotBooking[]
   devices              Device[]
   bills                Bill[]
@@ -460,7 +493,6 @@ model Campaign {
   brand                Brand?                @relation(fields: [brandId], references: [id], onDelete: SetNull)
   slotContent          Content?              @relation("CampaignSlotCreative", fields: [slotContentId], references: [id], onDelete: SetNull)
   slotPlaylist         Playlist?             @relation("CampaignSlotPlaylist", fields: [slotPlaylistId], references: [id], onDelete: SetNull)
-  fillerForStores      Store[]               @relation("StoreFiller")
   slotBookings         SlotBooking[]
   playEvents           PlayEvent[]
   screenPresenceEvents ScreenPresenceEvent[]
@@ -876,9 +908,43 @@ model Content {
 
   items             PlaylistItem[]
   slotCreativeFor   Campaign[]     @relation("CampaignSlotCreative")
+  fillerCreativeFor FillerCreative[] @relation("FillerContent")
 
   @@index([uploadedById])
   @@index([folder])
+}
+
+/// ALIVE's own house content, used to fill loop positions nobody bought.
+///
+/// Deliberately NOT a Campaign. A campaign is something a brand bought and is
+/// billed for; filler is ours and is billed to nobody. Modelling them as one
+/// thing put house content in the campaigns list, in the slot-booking picker, in
+/// revenue reports and in the brand-facing pickers, and every one of those had
+/// to remember to filter it back out. A separate table means it simply is not
+/// there to filter.
+///
+/// It carries the same two creative shapes a campaign does — one piece of
+/// content, or a playlist whose media items rotate deterministically — because
+/// that is what the slot loop already knows how to play.
+model FillerCreative {
+  id         String   @id @default(cuid())
+  name       String
+  /// Single creative. Ignored when `playlistId` is set.
+  contentId  String?
+  /// Multi-creative rotation; its k-th play of the day shows item (dayIndex+k) % N,
+  /// the same rule as Campaign.slotPlaylist.
+  playlistId String?
+  /// Off keeps the row (and its history) while taking it out of rotation.
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  content  Content?  @relation("FillerContent",  fields: [contentId],  references: [id], onDelete: SetNull)
+  playlist Playlist? @relation("FillerPlaylist", fields: [playlistId], references: [id], onDelete: SetNull)
+
+  forStores Store[] @relation("StoreFillerCreative")
+
+  @@index([active])
 }
 
 model Playlist {
@@ -894,6 +960,7 @@ model Playlist {
   referencedBy PlaylistItem[]   @relation("PlaylistNesting")
   // Campaigns rotating this playlist's media items as their slot-mode creatives.
   slotCampaigns Campaign[]      @relation("CampaignSlotPlaylist")
+  fillerCreatives FillerCreative[] @relation("FillerPlaylist")
 }
 
 enum PlaylistTransition {
@@ -1542,9 +1609,9 @@ model PlayerConfig {
   // Playlist pushed by the per-screen "Test" action (admin > Screens). Kept short so a
   // liveness check confirms quickly. Falls back to the newest non-empty playlist.
   testPlaylistId           String?
-  // Default house-ads campaign for slot-loop filler (Store.fillerCampaignId overrides
-  // per store). Plain id, not a relation — a deleted campaign just means no filler.
-  fillerCampaignId         String?
+  // Default house filler for the slot loop (Store.fillerCreativeId overrides it
+  // per store). Plain id, not a relation — a deleted row just means no filler.
+  fillerCreativeId         String?
   // Electricity estimation. defaultScreenWatts is the fleet fallback when a store has
   // no measured screenWatts; paisePerKwh is the tariff applied to estimated units.
   // Both are assumptions — see lib/power.ts on why the result is an estimate, not a
