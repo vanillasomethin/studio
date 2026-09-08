@@ -7,6 +7,14 @@ import Image from 'next/image';
 const AliveBeforeAfter    = dynamic(() => import('@/components/interactive/alive-before-after'),    { ssr: false });
 const StoreLocationsMap   = dynamic(() => import('@/components/sections/store-locations-map'),   { ssr: false });
 
+/* Current year in the loader/footer's Roman-numeral motif (2026 → MMXXVI) */
+const ROMAN_YEAR = (() => {
+  const numerals: [number, string][] = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+  let n = new Date().getFullYear(), out = '';
+  for (const [v, r] of numerals) while (n >= v) { out += r; n -= v; }
+  return out;
+})();
+
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
 
@@ -171,7 +179,7 @@ export default function Home() {
       <div className={`loader${loaded ? ' done' : ''}`} id="loader">
         <div className="loader-inner">
           <div className="loader-mark">alive<span className="dot" /></div>
-          <div className="loader-num">In-store · MMXXVI · Network 027</div>
+          <div className="loader-num">In-store · {ROMAN_YEAR} · Network 027</div>
           <div className="loader-bar" />
         </div>
       </div>
@@ -531,7 +539,7 @@ export default function Home() {
         </div>
 
         <div className="bot">
-          <div>© MMXXVI · Alive Networks Pvt. Ltd.</div>
+          <div>© {ROMAN_YEAR} · Alive Networks Pvt. Ltd.</div>
           <div className="mid">Live across India · 11 languages</div>
           <div className="end">
             <a href="/privacy-policy">Privacy</a><a href="#">Terms</a><a href="/delete-account">Delete my data</a><a href="#">Instagram</a><a href="#">LinkedIn</a>

@@ -307,7 +307,7 @@ export default function PrivacyPage() {
 
       <footer className="border-t border-border/30 py-6 text-center">
         <p className="text-xs text-muted-foreground/40">
-          © 2026 VS Collective LLP · Mangaluru, Karnataka, India
+          © {new Date().getFullYear()} VS Collective LLP · Mangaluru, Karnataka, India
         </p>
       </footer>
     </div>

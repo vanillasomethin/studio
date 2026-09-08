@@ -2387,7 +2387,7 @@ export default function DashboardPage() {
 
       <footer className="border-t border-border/30 py-5 text-center">
         <p className="text-xs text-muted-foreground/40">
-          © 2025 VS Collective LLP · hello@wearealive.in
+          © {new Date().getFullYear()} VS Collective LLP · hello@wearealive.in
         </p>
       </footer>
 
