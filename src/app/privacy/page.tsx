@@ -4,7 +4,7 @@ const sections = [
   {
     id: 'commitment',
     title: 'Our Commitment to Your Privacy',
-    content: 'ALIVE Advertising Pvt. Ltd. ("ALIVE," "we," "us," or "our") is committed to protecting the privacy and personal information of all individuals who interact with our services. This Privacy Policy explains how we collect, use, disclose, and protect information when you use our Platform, visit our website, or engage with our services as a Store Partner, Brand Partner, or general user.\n\nThis Policy is published in compliance with the Information Technology Act, 2000, the Information Technology (Reasonable Security Practices and Procedures and Sensitive Personal Data or Information) Rules, 2011, and, to the extent applicable, the Digital Personal Data Protection Act, 2023 ("DPDPA").',
+    content: 'VS Collective LLP, operating the ALIVE network ("ALIVE," "we," "us," or "our"), is committed to protecting the privacy and personal information of all individuals who interact with our services. This Privacy Policy explains how we collect, use, disclose, and protect information when you use our Platform — the wearealive.in website, the ALIVE Store mobile app for store partners, and our in-store screen network — or engage with our services as a Store Partner, Brand Partner, or general user.\n\nThis Policy is published in compliance with the Information Technology Act, 2000, the Information Technology (Reasonable Security Practices and Procedures and Sensitive Personal Data or Information) Rules, 2011, and, to the extent applicable, the Digital Personal Data Protection Act, 2023 ("DPDPA").',
   },
   {
     id: 'collection',
@@ -14,29 +14,43 @@ const sections = [
         heading: '1.1 Information You Provide Directly',
         text: 'When you register on our Platform or engage with our services, we collect:',
         bullets: [
-          'Identity Information: Full name, business name, designation, and PAN/GSTIN for compliance purposes.',
-          'Contact Information: Email address, phone number, and business/store address.',
+          'Identity Information: Full name, business/store name, designation, and PAN/GSTIN for compliance purposes.',
+          'Contact Information: Email address, phone/WhatsApp number, and business/store address.',
+          'Account Credentials: Your password, stored only as a salted hash — never in plain text.',
           'Financial Information: Bank account details and UPI information for processing revenue share payments to Store Partners.',
           'Campaign Information: Ad creatives, target parameters, campaign budgets, and scheduling preferences submitted by Brand Partners.',
           'Communications: Records of your correspondence with our support team, feedback, and survey responses.',
         ],
       },
       {
-        heading: '1.2 Information Collected Automatically',
+        heading: '1.2 KYC Documents (Store Partners)',
+        text: 'To verify store partners and comply with our payout obligations, the ALIVE Store app and dashboard collect photographs of your PAN card, Aadhaar card, and a selfie. These identity documents are stored in access-controlled private storage — never in any publicly reachable location — and are served only through authenticated endpoints to you and to authorised ALIVE staff for verification.',
+      },
+      {
+        heading: '1.3 ALIVE Store Mobile App',
+        text: 'The ALIVE Store Android app for store partners collects, with your permission:',
+        bullets: [
+          'Location: A one-time device location fix, used solely to place your shop on the ALIVE network map when no location is on file. Photos of your shop that you upload may carry embedded GPS coordinates (EXIF), which we use for the same purpose. The app does not track your location in the background or continuously.',
+          'Camera and Photos: Used only when you initiate an action — taking your KYC selfie, photographing identity documents, or uploading shop photos and offer flyers.',
+          'Push Notification Token: A device push token registered to your store account so we can send service alerts, such as your screen going offline or coming back online. Unregistered automatically when you sign out.',
+          'Device Information: Device model, operating system version, and app version, used for diagnostics and support.',
+        ],
+      },
+      {
+        heading: '1.4 Information Collected Automatically',
         text: 'When you use our Platform or Screens, we may automatically collect:',
         bullets: [
-          'Device Information: Device type, operating system, app version, and unique device identifiers for registered Screens and dashboard users.',
           'Usage Data: Log data, pages visited, features used, session duration, and IP addresses from Platform usage.',
           'Performance Data: Screen uptime metrics, Proof-of-Play logs, content delivery timestamps, and connectivity status.',
         ],
       },
       {
-        heading: '1.3 Aggregated and Anonymised In-Store Data',
+        heading: '1.5 Aggregated and Anonymised In-Store Data',
         text: 'Our Screens may use technical tools (such as basic motion detection or footfall counters, if deployed) to generate aggregated, anonymised audience estimates for campaign reporting. ALIVE does NOT collect biometric data, facial recognition data, or any information that identifies individual shoppers. All in-store audience data is processed at the aggregate level only.',
       },
       {
-        heading: '1.4 Information from Third Parties',
-        text: 'We may receive information from payment processors, government databases for GST validation, and advertising partners for audience targeting purposes. All such data sharing is conducted under applicable contractual and legal protections.',
+        heading: '1.6 Information from Third Parties',
+        text: 'We may receive information from payment processors and government databases for GST/identity validation. All such data sharing is conducted under applicable contractual and legal protections.',
       },
     ],
   },
@@ -51,6 +65,7 @@ const sections = [
           'To install and manage Screens at Store Partner locations.',
           'To deliver, track, and report on Brand Partner Campaigns.',
           'To process payments and revenue share to Store Partners.',
+          'To send service notifications — such as screen offline/online alerts — to the ALIVE Store app.',
           'To provide technical support and respond to user queries.',
         ],
       },
@@ -72,7 +87,7 @@ const sections = [
       },
       {
         heading: '2.4 Marketing and Communications',
-        text: 'With your consent, we may send you updates about new features, promotions, and opportunities. You may opt out of marketing communications at any time by clicking "unsubscribe" in our emails or contacting us at contact@alivemedia.in.',
+        text: 'With your consent, we may send you updates about new features, promotions, and opportunities. You may opt out of marketing communications at any time by clicking "unsubscribe" in our emails or contacting us at hello@wearealive.in.',
       },
     ],
   },
@@ -84,7 +99,7 @@ const sections = [
       'Contractual Necessity: Processing required to perform our agreement with you as a Store Partner or Brand Partner.',
       'Legitimate Interests: Processing necessary for our business operations, fraud prevention, and Platform improvement, where such interests are not overridden by your rights.',
       'Legal Obligation: Processing required to comply with applicable laws and regulatory requirements.',
-      'Consent: Where we rely on your consent (e.g., for marketing), you have the right to withdraw it at any time.',
+      'Consent: Where we rely on your consent (e.g., for marketing, or the app permissions above), you have the right to withdraw it at any time.',
     ],
   },
   {
@@ -93,11 +108,11 @@ const sections = [
     subsections: [
       {
         heading: '4.1 Within the ALIVE Network',
-        text: 'Brand Partners receive aggregated campaign performance reports including Proof-of-Play data and anonymised audience estimates. Individual shopper information is never shared with Brand Partners.',
+        text: 'Brand Partners receive aggregated campaign performance reports including Proof-of-Play data and anonymised audience estimates. Individual shopper information is never shared with Brand Partners, and store partner identity documents are never shared with anyone outside ALIVE.',
       },
       {
         heading: '4.2 Service Providers',
-        text: 'We may share your information with trusted third-party service providers who assist in operating our Platform, processing payments, providing cloud infrastructure, or delivering services on our behalf. These providers are bound by confidentiality obligations and may only use your data for the specific purposes we authorise.',
+        text: 'We share information with trusted third-party providers only to the extent needed to run the Platform: cloud hosting (Vercel), database services (Neon), file storage (Cloudflare), payment processing (Razorpay), WhatsApp/SMS delivery (e.g., MSG91, Twilio), and push notification delivery (Expo). These providers are bound by confidentiality obligations and may only use your data for the specific purposes we authorise.',
       },
       {
         heading: '4.3 Legal Requirements',
@@ -119,7 +134,8 @@ const sections = [
     text: 'We retain personal information for as long as necessary to fulfil the purposes described in this Policy, unless a longer retention period is required by law. Specifically:',
     bullets: [
       'Account Information: Retained for the duration of your account and for 5 years thereafter for legal compliance purposes.',
-      'Financial Records: Retained for 7 years as required under the Companies Act, 2013 and GST regulations.',
+      'KYC Documents: Retained while your partnership is active and as required by law; deleted on account deletion (see Section 9).',
+      'Financial Records: Retained for 7 years as required under applicable tax and accounting regulations.',
       'Campaign Data and Proof-of-Play Records: Retained for 3 years from campaign completion.',
       'Platform Usage Logs: Retained for 12 months.',
     ],
@@ -131,10 +147,10 @@ const sections = [
     text: 'Our web-based Platform may use cookies and similar tracking technologies to enhance user experience, maintain sessions, and analyse usage. Types of cookies we use:',
     bullets: [
       'Essential Cookies: Required for the Platform to function correctly (e.g., login sessions, security tokens).',
-      'Analytics Cookies: Used to understand how users interact with the Platform (e.g., Google Analytics). These are anonymised and aggregated.',
+      'Analytics Cookies: Used to understand how users interact with the Platform. These are anonymised and aggregated.',
       'Preference Cookies: Used to remember your settings and preferences.',
     ],
-    footer: 'You can control cookies through your browser settings. Disabling essential cookies may affect Platform functionality.',
+    footer: 'You can control cookies through your browser settings. Disabling essential cookies may affect Platform functionality. The ALIVE Store mobile app does not use cookies; it stores your session securely on your device.',
   },
   {
     id: 'security',
@@ -142,10 +158,10 @@ const sections = [
     text: 'ALIVE implements appropriate technical and organisational security measures to protect your information against unauthorised access, alteration, disclosure, or destruction. These measures include:',
     bullets: [
       'Encryption of data in transit using TLS/SSL protocols.',
-      'Secure access controls and role-based permissions on the Platform.',
-      'Regular security reviews and vulnerability assessments.',
+      'Identity documents stored in private, access-controlled storage separated from public media.',
+      'Secure access controls, role-based permissions, and multi-factor authentication for administrative access.',
+      'Passwords stored only as salted hashes.',
       'Restricted access to personal data on a need-to-know basis.',
-      'Secure, password-protected infrastructure hosted on reputed cloud providers.',
     ],
     footer: 'While we take all reasonable precautions, no method of transmission over the internet or electronic storage is completely secure. We cannot guarantee absolute security.',
   },
@@ -156,21 +172,31 @@ const sections = [
     bullets: [
       'Right to Access: You may request a copy of the personal data we hold about you.',
       'Right to Correction: You may request correction of inaccurate or incomplete personal data.',
-      'Right to Erasure: You may request deletion of your personal data in certain circumstances, subject to legal and contractual obligations.',
-      'Right to Withdraw Consent: Where processing is based on consent, you may withdraw consent at any time.',
-      'Right to Grievance Redressal: You may raise a grievance with our designated Privacy Officer.',
+      'Right to Erasure: You may request deletion of your personal data in certain circumstances, subject to legal and contractual obligations (see Section 9).',
+      'Right to Withdraw Consent: Where processing is based on consent, you may withdraw consent at any time. App permissions (location, camera, photos, notifications) can be revoked in your device settings.',
+      'Right to Grievance Redressal: You may raise a grievance with our designated Grievance Officer.',
     ],
-    footer: 'To exercise any of these rights, please write to us at privacy@alivemedia.in. We will respond to your request within 30 days.',
+    footer: 'To exercise any of these rights, please write to us at hello@wearealive.in. We will respond to your request within 30 days.',
+  },
+  {
+    id: 'delete-account',
+    title: '9. Account and Data Deletion',
+    text: 'You can request deletion of your ALIVE account — including accounts created through the ALIVE Store mobile app — at any time:',
+    bullets: [
+      'Email hello@wearealive.in with the subject "Delete my account" from your registered email, or',
+      'WhatsApp or call +91 96060 72227 from your registered number.',
+    ],
+    footer: 'After verifying your identity, we will delete your account, profile, KYC documents, uploaded photos, and push notification tokens within 30 days. We retain only what the law requires us to keep — financial and payout records (up to 7 years under tax regulations) — and aggregated data that no longer identifies you. If you have an active store partnership or campaign, deletion takes effect after outstanding contractual obligations (such as pending payouts) are settled.',
   },
   {
     id: 'children',
-    title: '9. Children\'s Privacy',
-    content: 'ALIVE\'s services are not directed at children under the age of 18. We do not knowingly collect personal information from minors. If we become aware that we have inadvertently collected information from a child, we will take prompt steps to delete such information. Parents or guardians who believe their child\'s information has been collected should contact us at privacy@alivemedia.in.',
+    title: '10. Children\'s Privacy',
+    content: 'ALIVE\'s services are not directed at children under the age of 18. We do not knowingly collect personal information from minors. If we become aware that we have inadvertently collected information from a child, we will take prompt steps to delete such information. Parents or guardians who believe their child\'s information has been collected should contact us at hello@wearealive.in.',
   },
   {
     id: 'cross-border',
-    title: '10. Cross-Border Data Transfers',
-    content: 'As ALIVE primarily operates within India, most data processing occurs within India. In the event we use cloud services or third-party providers that process data outside India, we will ensure appropriate contractual safeguards are in place and that such transfers comply with applicable Indian data protection law.',
+    title: '11. Cross-Border Data Transfers',
+    content: 'As ALIVE primarily operates within India, most data processing occurs within India. Where our cloud service providers process data outside India, we ensure appropriate contractual safeguards are in place and that such transfers comply with applicable Indian data protection law.',
   },
   {
     id: 'updates',
@@ -194,12 +220,12 @@ export default function PrivacyPage() {
         <div className="mb-12 space-y-3 border-b border-border pb-10">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Legal</p>
           <h1 className="text-4xl font-bold tracking-tight text-foreground">Privacy Policy</h1>
-          <p className="text-sm text-muted-foreground">How We Collect, Use, and Protect Your Information</p>
+          <p className="text-sm text-muted-foreground">How We Collect, Use, and Protect Your Information — on wearealive.in and the ALIVE Store app</p>
           <div className="flex flex-wrap gap-x-6 gap-y-1 pt-2 text-xs text-muted-foreground/70">
-            <span><strong className="text-muted-foreground">Effective date:</strong> May 1, 2025</span>
-            <span><strong className="text-muted-foreground">Company:</strong> ALIVE Advertising Pvt. Ltd.</span>
+            <span><strong className="text-muted-foreground">Effective date:</strong> September 7, 2026</span>
+            <span><strong className="text-muted-foreground">Company:</strong> VS Collective LLP</span>
             <span><strong className="text-muted-foreground">Location:</strong> Mangaluru, Karnataka, India</span>
-            <span><strong className="text-muted-foreground">Privacy email:</strong> privacy@alivemedia.in</span>
+            <span><strong className="text-muted-foreground">Privacy email:</strong> hello@wearealive.in</span>
           </div>
         </div>
 
@@ -255,25 +281,25 @@ export default function PrivacyPage() {
 
           {/* Grievance Officer */}
           <section id="grievance" className="rounded-xl border border-border bg-card p-6 space-y-3">
-            <h2 className="text-base font-bold text-foreground">11. Grievance Officer</h2>
+            <h2 className="text-base font-bold text-foreground">13. Grievance Officer</h2>
             <p>In accordance with the Information Technology Act, 2000 and associated rules, ALIVE has designated a Grievance Officer to address any concerns or complaints relating to the processing of personal data.</p>
             <div className="text-foreground font-medium space-y-0.5">
-              <p>Grievance Officer — ALIVE Advertising Pvt. Ltd.</p>
-              <p className="text-muted-foreground font-normal">Mangaluru, Karnataka, India</p>
-              <p>Email: <a href="mailto:privacy@alivemedia.in" className="text-primary hover:underline">privacy@alivemedia.in</a></p>
+              <p>Grievance Officer — VS Collective LLP</p>
+              <p className="text-muted-foreground font-normal">217, Milestone 25, Balmatta, Mangalore, Karnataka, India</p>
+              <p>Email: <a href="mailto:hello@wearealive.in" className="text-primary hover:underline">hello@wearealive.in</a></p>
               <p className="text-muted-foreground font-normal text-xs">Response time: within 30 days of receipt of grievance</p>
             </div>
           </section>
 
           {/* Contact */}
           <section id="contact" className="rounded-xl border border-border bg-card p-6 space-y-3">
-            <h2 className="text-base font-bold text-foreground">13. Contact Us</h2>
+            <h2 className="text-base font-bold text-foreground">14. Contact Us</h2>
             <p>If you have any questions, concerns, or requests relating to this Privacy Policy, please contact:</p>
             <div className="text-foreground font-medium space-y-0.5">
-              <p>ALIVE Advertising Pvt. Ltd.</p>
-              <p className="text-muted-foreground font-normal">Mangaluru, Karnataka, India</p>
-              <p>Privacy: <a href="mailto:privacy@alivemedia.in" className="text-primary hover:underline">privacy@alivemedia.in</a></p>
-              <p>General: <a href="mailto:contact@alivemedia.in" className="text-primary hover:underline">contact@alivemedia.in</a></p>
+              <p>VS Collective LLP (ALIVE)</p>
+              <p className="text-muted-foreground font-normal">217, Milestone 25, Balmatta, Mangalore, Karnataka, India</p>
+              <p>Email: <a href="mailto:hello@wearealive.in" className="text-primary hover:underline">hello@wearealive.in</a></p>
+              <p>Phone / WhatsApp: <a href="tel:+919606072227" className="text-primary hover:underline">+91 96060 72227</a></p>
             </div>
           </section>
         </div>
@@ -281,7 +307,7 @@ export default function PrivacyPage() {
 
       <footer className="border-t border-border/30 py-6 text-center">
         <p className="text-xs text-muted-foreground/40">
-          © 2025 ALIVE Advertising Pvt. Ltd. · Mangaluru, Karnataka, India
+          © 2026 VS Collective LLP · Mangaluru, Karnataka, India
         </p>
       </footer>
     </div>

@@ -36,8 +36,8 @@ const FEATURES = [
   },
   {
     icon: 'gift-outline' as const,
-    title: '₹500 joining bonus',
-    sub: 'Credited the day your screen goes live — no conditions.',
+    title: 'Referral rewards',
+    sub: 'Earn ₹500 for every new partner you refer.',
   },
 ];
 

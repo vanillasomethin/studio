@@ -65,6 +65,9 @@ export async function POST(req: NextRequest) {
       // activate — the squatter's brand on a campaign somebody else paid for.
       status?:        string;
       preferredStoreIds?: unknown; // store ids picked on the onboarding map
+      // Which agreement the buyer accepted, and when they ticked the box.
+      agreementVersion?:    string;
+      agreementAcceptedAt?: string;
     };
 
     if (!body.email || !body.brandName) {
@@ -108,6 +111,28 @@ export async function POST(req: NextRequest) {
       const envelope = await respond({ error: 'Invalid campaign status.' }, { route, request: { status: body.status }, outcome: 'invalid_request', policyFlags: ['invalid_status'], errorCategory: 'validation', startedAtMs });
       return NextResponse.json(envelope, { status: 400 });
     }
+
+    // Acceptance is the whole point of the agreement step, and a checkbox that
+    // only ever lived in React state was no record of it: every campaign booked
+    // before this was stored with no evidence of what its buyer agreed to.
+    // Refused rather than defaulted — inventing a version here would produce a
+    // row that claims consent nobody can show was given, which is worse than a
+    // booking that fails loudly and can be retried.
+    const agreementVersion = typeof body.agreementVersion === 'string'
+      ? body.agreementVersion.trim().slice(0, 40)
+      : '';
+    if (!agreementVersion) {
+      const envelope = await respond({ error: 'The campaign agreement must be accepted before the booking can be saved.' }, { route, request: { email: body.email }, outcome: 'invalid_request', policyFlags: ['agreement_not_accepted'], errorCategory: 'validation', startedAtMs });
+      return NextResponse.json(envelope, { status: 400 });
+    }
+    // A forged, skewed or future-dated timestamp is not evidence of anything, so
+    // anything unusable falls back to server time rather than being stored as
+    // given. Matches /api/advertise/enquiry.
+    const acceptedAtRaw = body.agreementAcceptedAt ? new Date(body.agreementAcceptedAt) : null;
+    const agreementAcceptedAt =
+      acceptedAtRaw && !Number.isNaN(acceptedAtRaw.getTime()) && acceptedAtRaw.getTime() <= Date.now()
+        ? acceptedAtRaw
+        : new Date();
 
     const screens = Math.floor(Number(body.screens ?? 1));
     const months  = Math.floor(Number(body.months  ?? 1));
@@ -202,6 +227,8 @@ export async function POST(req: NextRequest) {
         totalAmount:    isTrial ? 0 : body.totalAmount,
         status,
         preferredStoreIds,
+        agreementVersion,
+        agreementAcceptedAt,
       },
     });
 

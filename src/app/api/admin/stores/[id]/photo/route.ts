@@ -142,22 +142,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const url = publicUrl(key);
 
     const at = new Date();
-    // Map pin. A store's pin comes from, in order: the partner at registration
-    // → an on-site GPS fix that fills an EMPTY pin → ops setting or moving it
-    // in Admin → Stores. Ops is standing in the shop, so any shop/install fix
-    // qualifies here (EXIF or device); serial/plug never touch the pin.
+    // Map pin. A shop photo whose fix came from the photo's own EXIF is the
+    // store's location — it overwrites the hand-dropped registration pin, same
+    // as the partner route, so nobody is asked to re-pin the store to match
+    // the photo. Device-sourced fixes (what this panel's camera capture sends)
+    // and install photos only fill an EMPTY pin — an ops-moved pin must not be
+    // stomped by a routine re-shoot. Serial/plug never touch the pin.
     const fillsPin = kind === 'shop' || kind === 'install';
+    const exifShopFix = kind === 'shop' && source === 'exif';
     let storeLat: number | null = null;
     let storeLng: number | null = null;
     try {
       // COALESCE, so a kind that legitimately has no fix (a serial plate shot
       // indoors) records the new photo without erasing coordinates already held
       // for it. A supplied pair still overwrites, which is what a re-shoot at
-      // the real location should do. The pin, by contrast, is only ever FILLED
-      // (both halves, in the one statement, so a stored lat never pairs with a
-      // photo lng) — a pin that exists is left where the partner or ops put it.
-      // RETURNING the pin the row now holds, so the panel can show the store
-      // on the map the moment an upload has put it there.
+      // the real location should do. The pin: an EXIF shop fix ($9) replaces
+      // it outright, anything else only FILLS it (both halves, in the one
+      // statement, so a stored lat never pairs with a photo lng). RETURNING
+      // the pin the row now holds, so the panel can show the store on the map
+      // the moment an upload has put it there.
       const rows = await db.$queryRawUnsafe<{ lat: number | null; lng: number | null }[]>(
         `UPDATE "Store" SET
            "${prefix}Url" = $1,
@@ -165,11 +168,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
            "${prefix}Lng" = COALESCE($3, "${prefix}Lng"),
            "${prefix}Source" = COALESCE($4, "${prefix}Source"),
            "${prefix}At" = $5, "updatedAt" = $6,
-           "lat" = CASE WHEN $8 AND $2 IS NOT NULL AND $3 IS NOT NULL AND ("lat" IS NULL OR "lng" IS NULL) THEN $2 ELSE "lat" END,
-           "lng" = CASE WHEN $8 AND $2 IS NOT NULL AND $3 IS NOT NULL AND ("lat" IS NULL OR "lng" IS NULL) THEN $3 ELSE "lng" END
+           "lat" = CASE WHEN $8 AND $2 IS NOT NULL AND $3 IS NOT NULL AND ($9 OR "lat" IS NULL OR "lng" IS NULL) THEN $2 ELSE "lat" END,
+           "lng" = CASE WHEN $8 AND $2 IS NOT NULL AND $3 IS NOT NULL AND ($9 OR "lat" IS NULL OR "lng" IS NULL) THEN $3 ELSE "lng" END
          WHERE "id" = $7
          RETURNING "lat", "lng"`,
-        url, lat, lng, source, at, at, id, fillsPin,
+        url, lat, lng, source, at, at, id, fillsPin, exifShopFix,
       );
       storeLat = rows[0]?.lat ?? null;
       storeLng = rows[0]?.lng ?? null;

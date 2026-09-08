@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { mintStoreToken, resolveStoreId } from '@/lib/store-partner-auth';
 import { computeStoreMonthlyPayoutPaise } from '@/lib/slot-pricing-db';
+import { TIER_MONTHLY_MINIMUM_RUPEES, type AgreementTier } from '@shared/agreement-terms';
 
 // Base columns guaranteed from init migration — no optional columns here
 type StoreRow = {
@@ -63,6 +64,34 @@ export async function GET(req: NextRequest) {
       };
     } catch { /* column not yet migrated — safe default null */ }
 
+    // Clause 3.3 of the agreement is tier-specific, so the dashboard has to link a
+    // partner to their OWN contract instead of the generic ₹500 copy. Resolved here,
+    // where the payout mode and tier are known for certain, rather than in the client
+    // — the dashboard's localStorage payload can be a stale cache, and a cached row
+    // without these fields must degrade to the generic link, never to a guessed
+    // figure. Read separately for the same reason as the photo columns below.
+    // NB: capture the flat column before the slot-mode compute overwrites it —
+    // monthlyCompensationPaise becomes base+incentive for slot stores.
+    const flatCompensationPaise = monthlyCompensationPaise;
+    let agreementTier: AgreementTier | null = null;
+    let agreementMonthlyRupees: number | null = null;
+    try {
+      const slotCols = await db.$queryRaw<{ slotPricingTier: string | null; loopSlotCount: number | null }[]>`
+        SELECT "slotPricingTier", "loopSlotCount" FROM "Store" WHERE "id" = ${storeId} LIMIT 1
+      `;
+      const t = slotCols[0]?.slotPricingTier ?? null;
+      if (slotCols[0]?.loopSlotCount != null) {
+        // Slot mode: the tier's guaranteed minimum, plus the incentive clause. An
+        // unrecognised tier falls back to standard so the clause agrees with what
+        // the partner is actually paid — computePayout's isSlotTier() does the same.
+        agreementTier = t && t in TIER_MONTHLY_MINIMUM_RUPEES ? (t as AgreementTier) : 'standard';
+        agreementMonthlyRupees = TIER_MONTHLY_MINIMUM_RUPEES[agreementTier];
+      } else {
+        // Flat mode: the store's own flat figure (₹500 standard, ₹1000 premium).
+        agreementMonthlyRupees = Math.round(flatCompensationPaise / 100);
+      }
+    } catch { /* slot columns not yet migrated — omit; the link stays generic */ }
+
     // Slot-mode stores compute their payout dynamically (fill count × tier rate) —
     // see slot-pricing-db.ts. Falls back to the flat monthlyCompensationPaise above
     // for stores not in slot mode, or if the slot columns aren't migrated yet.
@@ -71,6 +100,17 @@ export async function GET(req: NextRequest) {
     } catch { /* slot columns not yet migrated — keep the flat default above */ }
     // GPS-verified onboarding photos — separate query so a missing migration
     // can't take the stage/payout fields down with it.
+    //
+    // Absolute, because the mobile app renders these directly and has no origin
+    // to resolve a relative path against. Callers send their store token on the
+    // image request; the web dashboard's session cookie covers it automatically.
+    const photoUrl = (kind: 'shop' | 'install', stored: string | null | undefined): string | null => {
+      if (!stored) return null;
+      if (/^https?:\/\//i.test(stored)) return stored; // legacy public object
+      const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://wearealive.in';
+      return `${base}/api/stores/verification-photo/view?kind=${kind}&storeId=${encodeURIComponent(storeId)}`;
+    };
+
     type PhotoCols = {
       shopPhotoUrl: string | null; shopPhotoLat: number | null; shopPhotoLng: number | null;
       shopPhotoSource: string | null; shopPhotoAt: Date | null;
@@ -117,12 +157,18 @@ export async function GET(req: NextRequest) {
       deviceCount,
       tier,
       monthlyCompensationPaise,
+      agreementTier,
+      agreementMonthlyRupees,
       ...payout,
-      shopPhotoUrl:     photos.shopPhotoUrl     ?? null,
+      // Verification photos are served through an authenticated route, never as
+      // a direct object address — the stored value is a private-bucket key, and
+      // handing that to a client would be meaningless anyway. Legacy public URLs
+      // pass through unchanged so older app builds keep rendering them.
+      shopPhotoUrl:     photoUrl('shop',    photos.shopPhotoUrl),
       shopPhotoLat:     photos.shopPhotoLat     ?? null,
       shopPhotoLng:     photos.shopPhotoLng     ?? null,
       shopPhotoAt:      photos.shopPhotoAt instanceof Date ? photos.shopPhotoAt.toISOString() : (photos.shopPhotoAt ?? null),
-      installPhotoUrl:  photos.installPhotoUrl  ?? null,
+      installPhotoUrl:  photoUrl('install', photos.installPhotoUrl),
       installPhotoLat:  photos.installPhotoLat  ?? null,
       installPhotoLng:  photos.installPhotoLng  ?? null,
       installPhotoAt:   photos.installPhotoAt instanceof Date ? photos.installPhotoAt.toISOString() : (photos.installPhotoAt ?? null),

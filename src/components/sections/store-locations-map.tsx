@@ -36,21 +36,21 @@ type StoreTier = 'standard' | 'growth' | 'flagship';
 // amber, standard is ink. Grey means onboarded — signed up, screen on its way.
 // `color` paints the marker core; `text`/`tint` are the darker chip pairing so
 // small caps stay readable on the popup card.
-const TIER: Record<StoreTier, { label: string; color: string; text: string; tint: string }> = {
+export const TIER: Record<StoreTier, { label: string; color: string; text: string; tint: string }> = {
   flagship: { label: 'Flagship', color: RED,       text: '#b91c1c', tint: 'rgba(220,38,38,.09)' },
   growth:   { label: 'Growth',   color: '#f59e0b', text: '#b45309', tint: 'rgba(245,158,11,.14)' },
   standard: { label: 'Standard', color: '#111827', text: '#111827', tint: 'rgba(17,24,39,.06)' },
 };
 const ONBOARDED = '#9ca3af';
 
-function coreColor(status: StoreStatus, tier?: StoreTier): string {
+export function coreColor(status: StoreStatus, tier?: StoreTier): string {
   return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
 }
 
 // The dot's box, in px. Geometry is derived from this everywhere — the SVG,
 // the divIcon's iconSize/iconAnchor/popupAnchor, and the CSS below — so the
 // mark can be resized in one place without floating off its shop.
-const DOT = 18;
+export const DOT = 18;
 
 /** The marker markup: coloured core, white gap, hairline red rim. */
 export function shopPinHtml(core: string, active: boolean): string {
@@ -65,8 +65,18 @@ export function shopPinHtml(core: string, active: boolean): string {
   );
 }
 
+/** The pin's interaction styling (entry, hover, active) — exported beside
+ *  shopPinHtml so every map that renders the mark ships identical behaviour. */
+export const SHOP_PIN_CSS =
+  `.alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
+.alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
+.alive-shop-pin:hover{transform:scale(1.25);}
+.alive-shop-pin.is-active{transform:scale(1.35);}
+.alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
+@keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}`;
+
 /** Legend / list swatch that matches the pin: same core, same hairline rim. */
-function swatchStyle(color: string, size: number): React.CSSProperties {
+export function swatchStyle(color: string, size: number): React.CSSProperties {
   return {
     width: size, height: size, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
     background: color, border: '1.5px solid #ffffff', boxShadow: `0 0 0 1px ${RED}`,
@@ -127,13 +137,35 @@ function shopCardHtml(store: StorePin): string {
   );
 }
 
-// Haversine metres between two points — sizes each area ring from its members.
-function metersBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const rad = Math.PI / 180, R = 6371000;
-  const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
-  const h = Math.sin(dLat / 2) ** 2 +
-    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
+// A pincode area from /geo/pincode-areas-mangaluru.json — official data.gov.in
+// boundaries, vendored and simplified (see the file's attribution key).
+type AreaFeature = {
+  properties: { Pincode?: string; Office_Name?: string };
+  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] };
+};
+
+// Ray-cast a point against the outer ring(s) of a polygon/multipolygon. Holes
+// are ignored — for "does this shop sit inside this pincode area" that's plenty.
+function areaContains(geom: AreaFeature['geometry'], lat: number, lng: number): boolean {
+  const rings: number[][][] =
+    geom.type === 'Polygon'
+      ? [(geom.coordinates as number[][][])[0]]
+      : (geom.coordinates as number[][][][]).map((poly) => poly[0]);
+  return rings.some((ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  });
+}
+
+// "Kodiyalbail S.O" → "Kodiyalbail" — office-type suffixes are postal jargon,
+// not area names.
+function areaName(f: AreaFeature): string {
+  const office = (f.properties.Office_Name ?? '').replace(/\s+[HSB]\.O\.?$/i, '').trim();
+  return office || f.properties.Pincode || 'Area';
 }
 
 export default function StoreLocationsMap() {
@@ -156,6 +188,17 @@ export default function StoreLocationsMap() {
     fetch('/api/stores/locations')
       .then(r => r.json())
       .then(d => setStores((d.stores ?? []).filter((s: StorePin) => s.lat && s.lng)))
+      .catch(() => {});
+  }, []);
+
+  // Pincode area polygons — a static, CDN-cached file; which of them get drawn
+  // is decided by where the stores are.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [areas, setAreas] = useState<any>(null);
+  useEffect(() => {
+    fetch('/geo/pincode-areas-mangaluru.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setAreas)
       .catch(() => {});
   }, []);
 
@@ -265,43 +308,36 @@ export default function StoreLocationsMap() {
         markersRef.current.set(store.id, marker);
       });
 
-      // ── Area-wise coverage borders ────────────────────────────────────────
-      // Group shops by locality (city, then the shop itself, as fallbacks) and
-      // ring each cluster with a thin dashed red boundary — the areas ALIVE
-      // covers, visible the moment the map opens. Rebuilt wholesale with the
-      // markers; rings live in the overlay pane, so dots stay clickable above
-      // them, and a sticky tooltip names the area on hover.
+      // ── Area-wise coverage borders (real pincode boundaries) ─────────────
+      // The areas ALIVE covers, outlined thin: official pincode polygons from
+      // the vendored file, not shapes derived from store positions. A pincode
+      // qualifies when a shop claims it OR geometrically sits inside it, so a
+      // blank or mistyped pincode in a registration can't hide a covered area.
+      // Rings live in the vector pane under the dots — markers stay clickable —
+      // and hovering names the area, not the stores.
       if (zonesRef.current) { zonesRef.current.remove(); zonesRef.current = null; }
-      const groups = new Map<string, StorePin[]>();
-      stores.forEach((s) => {
-        // `||` not `??`: a failed autofill leaves locality as '' — nullish
-        // coalescing would lump every such store into one city-wide ring.
-        const key = (s.locality || s.city || s.id).trim().toLowerCase();
-        const list = groups.get(key);
-        if (list) list.push(s); else groups.set(key, [s]);
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const zones = (L as any).layerGroup();
-      groups.forEach((members) => {
-        const lat = members.reduce((sum, m) => sum + m.lat, 0) / members.length;
-        const lng = members.reduce((sum, m) => sum + m.lng, 0) / members.length;
-        const spread = members.reduce((r, m) => Math.max(r, metersBetween(lat, lng, m.lat, m.lng)), 0);
-        // ~200m exclusivity plus breathing room for a lone shop; clamped so one
-        // bad geocode can't paint a ring across half the city.
-        const radius = Math.min(Math.max(spread + 180, 260), 2500);
-        const name = (members[0].locality || members[0].city || members[0].storeName).trim();
-        (L as any).circle([lat, lng], {
-          radius, color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
-          fillColor: RED, fillOpacity: 0.04,
-        })
-          .bindTooltip(
-            `${esc(name)} · ${members.length} store${members.length > 1 ? 's' : ''}`,
-            { sticky: true, direction: 'top', className: 'alive-zone-tip' },
-          )
-          .addTo(zones);
-      });
-      zones.addTo(map);
-      zonesRef.current = zones;
+      if (areas?.features?.length) {
+        const claimed = new Set(
+          stores.map((s) => (s.pincode ?? '').trim()).filter((p) => /^\d{6}$/.test(p)),
+        );
+        const zones = (L as any).geoJSON(areas, {
+          filter: (f: AreaFeature) =>
+            (!!f.properties.Pincode && claimed.has(f.properties.Pincode)) ||
+            stores.some((s) => areaContains(f.geometry, s.lat, s.lng)),
+          style: {
+            color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
+            fillColor: RED, fillOpacity: 0.04,
+          },
+          onEachFeature: (f: AreaFeature, layer: { bindTooltip(content: string, options?: object): void }) => {
+            layer.bindTooltip(
+              `${esc(areaName(f))} · ${esc(f.properties.Pincode ?? '')}`,
+              { sticky: true, direction: 'top', className: 'alive-zone-tip' },
+            );
+          },
+        });
+        zones.addTo(map);
+        zonesRef.current = zones;
+      }
 
       if (stores.length > 1) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -311,7 +347,7 @@ export default function StoreLocationsMap() {
     }
 
     addMarkers();
-  }, [stores, mapReady]);
+  }, [stores, mapReady, areas]);
 
   const liveCount     = stores.filter((s) => s.status === 'live').length;
   const progressCount = stores.length - liveCount;
@@ -386,12 +422,7 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
-        .alive-shop-pin{width:${DOT}px;height:${DOT}px;display:block;transform-origin:50% 50%;cursor:pointer;animation:alive-pin-in .4s cubic-bezier(.2,.8,.3,1.15) both;transition:transform .18s ease;}
-        .alive-shop-pin svg{display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.32));transition:filter .18s ease;}
-        .alive-shop-pin:hover{transform:scale(1.25);}
-        .alive-shop-pin.is-active{transform:scale(1.35);}
-        .alive-shop-pin.is-active svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));}
-        @keyframes alive-pin-in{from{opacity:0;transform:scale(.3);}to{opacity:1;transform:none;}}
+        ${SHOP_PIN_CSS}
         .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}
         .alive-popup .leaflet-popup-content{margin:0;line-height:1.4;}
         .alive-popup .leaflet-popup-tip-container{display:none;}

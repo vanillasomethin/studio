@@ -227,17 +227,27 @@ nav.nav .cta .cta-dot{width:6px;height:6px;border-radius:50%;background:#fff;}
 /* Sections — homepage only (scoped via body.home-page to avoid breaking dashboard) */
 body.home-page section{position:relative;padding:0 32px;}
 /* Higher-specificity overrides for sections that need vertical padding */
-body.home-page section.hero{position:sticky;top:0;padding-top:108px;padding-bottom:56px;}
+/* Padding is svh-capped here, not just on .hero below, because this selector wins. */
+body.home-page section.hero{position:sticky;top:0;padding-top:clamp(56px,7svh,108px);padding-bottom:clamp(28px,3.6svh,56px);}
 body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 @media(min-width:1101px){body.home-page section{padding-right:80px;}.proof,.join{padding-right:100px;}footer.f{padding-right:100px;}}
 
-/* Hero */
-.hero{padding-bottom:56px;padding-top:108px;overflow:hidden;position:sticky;top:0;min-height:100svh;z-index:1;background:var(--bg);}
-.hero-eyebrow{display:grid;grid-template-columns:1.15fr 1fr;gap:48px;align-items:end;margin-bottom:28px;}
+/* Hero
+   The hero is sticky at top:0 and .content-stack (z-index 2) slides over it, so
+   anything past the first 100svh of it can NEVER be scrolled into view. Every
+   vertical measure below is therefore capped against svh: the block shrinks with
+   the screen instead of pushing the three audience CTAs under the fold. Keep any
+   new hero content inside that budget, or it is invisible on short viewports. */
+.hero{padding-bottom:clamp(28px,3.6svh,56px);padding-top:clamp(56px,7svh,108px);overflow:hidden;position:sticky;top:0;min-height:100svh;z-index:1;background:var(--bg);}
+/* Under 1100px the hero grid stacks, so the phone mockup lands below the CTAs and the
+   hero can never fit one screen. Release the sticky pin so the page just scrolls.
+   Must match body.home-page section.hero above, or that rule's position:sticky wins. */
+@media(max-width:1100px){body.home-page section.hero{position:relative;min-height:auto;}}
+.hero-eyebrow{display:grid;grid-template-columns:1.15fr 1fr;gap:48px;align-items:end;margin-bottom:clamp(16px,2svh,28px);}
 .hero-eyebrow .l{font-family:var(--font-dm-mono),monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-2);font-weight:500;line-height:1.8;}
 .hero-eyebrow .r{text-align:left;max-width:360px;line-height:1.55;font-family:var(--font-manrope),sans-serif;font-size:15px;font-weight:400;color:var(--ink-2);justify-self:end;margin-left:auto;}
 .hero-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:48px;align-items:end;}
-.hero h1{font-family:var(--font-manrope),sans-serif;font-weight:700;font-size:clamp(56px,8.6vw,128px);line-height:.94;letter-spacing:-0.045em;color:var(--ink);}
+.hero h1{font-family:var(--font-manrope),sans-serif;font-weight:700;font-size:clamp(56px,min(8.6vw,11svh),128px);line-height:.94;letter-spacing:-0.045em;color:var(--ink);}
 .hero h1 span[class]{transition:color .45s cubic-bezier(.4,0,.2,1);}
 .hero h1 .red{color:var(--red);}
 .hero h1 .ink-fade{color:var(--ink);}
@@ -249,8 +259,8 @@ body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 .ready .hero h1 .line:nth-child(3) .word{transition-delay:.4s;}
 
 /* Hero CTAs */
-.hero-ctas{margin-top:28px;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--rule-cream);}
-.hctabtn{display:flex;align-items:center;justify-content:space-between;padding:16px 4px;border-bottom:1px solid var(--rule-cream);text-decoration:none;color:var(--ink);cursor:pointer;transition:padding-left .45s cubic-bezier(.76,0,.24,1),color .35s;position:relative;}
+.hero-ctas{margin-top:clamp(16px,2.4svh,28px);display:flex;flex-direction:column;gap:0;border-top:1px solid var(--rule-cream);}
+.hctabtn{display:flex;align-items:center;justify-content:space-between;padding:clamp(10px,1.5svh,16px) 4px;border-bottom:1px solid var(--rule-cream);text-decoration:none;color:var(--ink);cursor:pointer;transition:padding-left .45s cubic-bezier(.76,0,.24,1),color .35s;position:relative;}
 .hctabtn::before{content:"";position:absolute;left:0;top:50%;width:0;height:1px;background:var(--red);transform:translateY(-50%);transition:width .45s cubic-bezier(.76,0,.24,1);}
 .hctabtn:hover,.hctabtn.is-active{padding-left:28px;color:var(--red);}
 .hctabtn:hover::before,.hctabtn.is-active::before{width:18px;}
@@ -263,7 +273,7 @@ body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 .hctabtn-num{font-family:var(--font-dm-mono),monospace;font-size:11px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase;font-weight:500;}
 
 /* Alive screen device */
-.alive-screen{position:relative;width:100%;max-width:360px;margin-left:auto;aspect-ratio:9/16;border-radius:26px;padding:18px 14px 22px;background:linear-gradient(160deg,#1a1a1a 0%,#0a0a0a 100%);box-shadow:0 30px 60px -20px rgba(220,38,38,.35),0 14px 30px -12px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.05);}
+.alive-screen{position:relative;width:100%;max-width:min(360px,36svh);margin-left:auto;aspect-ratio:9/16;border-radius:26px;padding:18px 14px 22px;background:linear-gradient(160deg,#1a1a1a 0%,#0a0a0a 100%);box-shadow:0 30px 60px -20px rgba(220,38,38,.35),0 14px 30px -12px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.05);}
 .alive-screen::before{content:"";position:absolute;top:8px;left:50%;width:56px;height:4px;border-radius:999px;background:rgba(255,255,255,.18);transform:translateX(-50%);}
 .alive-screen::after{content:"";position:absolute;top:8px;left:calc(50% + 40px);width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.25);}
 .alive-screen .screen{position:relative;width:100%;height:100%;border-radius:14px;overflow:hidden;background:#000;}
@@ -278,7 +288,12 @@ body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 .alive-screen .cap .loc{display:block;font-family:var(--font-dm-mono),monospace;font-size:10px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;color:rgba(255,255,255,.7);margin-bottom:6px;}
 
 /* Hero footrow */
-.hero-footrow{margin-top:40px;display:grid;grid-template-columns:repeat(3,1fr);gap:32px;align-items:end;padding-top:22px;border-top:1px solid var(--rule-cream);}
+.hero-footrow{margin-top:clamp(20px,3svh,40px);display:grid;grid-template-columns:repeat(3,1fr);gap:32px;align-items:end;padding-top:22px;border-top:1px solid var(--rule-cream);}
+/* The stats strip sits below the CTAs, so on a short viewport it is the part that
+   overflows the sticky hero and becomes unreachable. Measured crossover is ~770px of
+   viewport; drop it below 800 for margin. The same three numbers are repeated in the
+   Proof section further down, so nothing is lost. */
+@media(max-height:800px){.hero-footrow{display:none;}}
 .hero-footrow .cell{display:flex;flex-direction:column;gap:6px;}
 .hero-footrow .label{font-family:var(--font-dm-mono),monospace;font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);}
 .hero-footrow .value{font-size:15px;line-height:1.35;color:var(--ink-2);font-weight:500;max-width:22ch;}

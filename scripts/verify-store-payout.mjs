@@ -75,8 +75,8 @@ for (const tier of SLOT_TIERS) {
 
 // The spec's headline example.
 const standard5 = computePayout({ ...base, slotPricingTier: 'standard', filledByDay: fullMonth(5) });
-check('standard, 5 filled all month → 115000 paise', standard5.basePaise + standard5.incentivePaise, 115_000);
-check('  …of which base', standard5.basePaise, 65_000);
+check('standard, 5 filled all month → 100000 paise', standard5.basePaise + standard5.incentivePaise, 100_000);
+check('  …of which base', standard5.basePaise, 50_000);
 check('  …of which incentive', standard5.incentivePaise, 50_000);
 check('  avgFilledSlots', standard5.avgFilledSlots, 5);
 
@@ -85,7 +85,7 @@ const withPower = computePayout({
   ...base, slotPricingTier: 'standard', filledByDay: fullMonth(5), kwh: 26.8, paisePerKwh: 800,
 });
 check('electricity 26.8 kWh @ 800 p/kWh', withPower.electricityPaise, 21_440);
-check('total = base + incentive + electricity', withPower.totalPaise, 65_000 + 50_000 + 21_440);
+check('total = base + incentive + electricity', withPower.totalPaise, 50_000 + 50_000 + 21_440);
 
 // ── Half a month live → half the base, and only the days lived count ────────
 const halfDays = 16; // live from the 16th → 16 days (16th..31st)
@@ -94,13 +94,13 @@ for (let d = 16; d <= 31; d++) halfMap.set(`2026-07-${d}`, 5);
 const half = computePayout({
   ...base, slotPricingTier: 'standard', liveDays: halfDays, filledByDay: halfMap,
 });
-check('half month base is pro-rated', half.basePaise, Math.round((65_000 * 16) / 31));
+check('half month base is pro-rated', half.basePaise, Math.round((50_000 * 16) / 31));
 check('half month incentive is pro-rated', half.incentivePaise, Math.round((10_000 * 16 * 5) / 31));
 check('half month avgFilledSlots still 5', half.avgFilledSlots, 5);
 
 // ── Edge cases ──────────────────────────────────────────────────────────────
 const dark = computePayout({ ...base, slotPricingTier: 'standard', filledByDay: new Map(), brandsPlayed: 0 });
-check('no bookings → base only (the base is guaranteed)', dark.totalPaise, 65_000);
+check('no bookings → base only (the base is guaranteed)', dark.totalPaise, 50_000);
 
 const notLive = computePayout({ ...base, slotPricingTier: 'standard', liveDays: 0, filledByDay: new Map() });
 check('never live → zero', notLive.totalPaise, 0);

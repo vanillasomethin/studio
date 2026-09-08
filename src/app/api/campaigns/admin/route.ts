@@ -86,6 +86,10 @@ export async function GET(req: NextRequest) {
         .map((id) => storeById.get(id))
         .filter((s): s is NonNullable<typeof s> => !!s)
         .map((s) => ({ id: s.id, storeName: s.storeName, locality: s.locality })),
+      // Evidence of agreement. null on rows booked before acceptance was
+      // recorded — ops sees "not captured" rather than a fabricated version.
+      agreementVersion:    c.agreementVersion,
+      agreementAcceptedAt: c.agreementAcceptedAt?.toISOString() ?? null,
       trialOfferedAt:  c.brand?.trialOfferedAt?.toISOString() ?? null,
       trialUsedAt:     c.brand?.trialUsedAt?.toISOString()    ?? null,
       slotSpan:        'error' in spanned ? null : spanned.span,

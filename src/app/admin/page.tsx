@@ -12,6 +12,7 @@ import {
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
   Megaphone, Image, Radar, Grid3x3, Zap, ImagePlus, QrCode, Camera, ShieldCheck, Users, MapPinned, Film,
+  AlertCircle,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { signIn, signOut as authSignOut } from 'next-auth/react';
@@ -49,6 +50,7 @@ const MapPicker        = dynamic(() => import('@/components/map-picker'),       
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
+import { STORE_CATEGORIES } from '@/lib/store-categories';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -61,7 +63,7 @@ type StoreReg = {
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
   lat?: number | null; lng?: number | null; gstin?: string; email?: string; createdAt: string;
   onboardingStage?: string | null; payoutStatus?: string | null; payoutMethod?: string | null; upiId?: string | null;
-  tier?: string | null; monthlyCompensationPaise?: number | null;
+  tier?: string | null; monthlyCompensationPaise?: number | null; category?: string | null;
   bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
   referralCode?: string; referredBy?: string | null; agreedAt?: string | null; liveAt?: string | null;
@@ -86,6 +88,7 @@ type Campaign = {
   status: 'upcoming' | 'active' | 'completed' | 'trial'; createdAt: string;
   trialOfferedAt: string | null; trialUsedAt: string | null;
   preferredStores?: { id: string; storeName: string; locality: string | null }[];
+  agreementVersion: string | null; agreementAcceptedAt: string | null;
 };
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
@@ -749,12 +752,13 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
   );
 }
 
-/** Map pin block for the expanded store card. A store's pin comes from the
- *  partner's registration → an on-site GPS fix that fills an EMPTY pin → ops
- *  moving it here. The draft lives in this component and is NOT written
- *  through patchLocal until "Save pin" succeeds: the global Save never sends
- *  lat/lng, so a half-dragged pin can neither ride along with it nor be lost
- *  to a stale re-sync. */
+/** Map pin block for the expanded store card. A store's pin is the shop
+ *  photo's EXIF GPS by default (the upload overwrites the hand-dropped
+ *  registration pin); device fixes and install photos only fill an empty pin,
+ *  and ops can move it here. The draft lives in this component and is NOT
+ *  written through patchLocal until "Save pin" succeeds: the global Save never
+ *  sends lat/lng, so a half-dragged pin can neither ride along with it nor be
+ *  lost to a stale re-sync. */
 function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: number, lng: number) => void }) {
   const pinned = store.lat != null && store.lng != null;
   const [draft,  setDraft]  = useState<{ lat: number; lng: number } | null>(pinned ? { lat: store.lat!, lng: store.lng! } : null);
@@ -770,8 +774,8 @@ function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: numb
   const dirty = draft != null && (draft.lat !== store.lat || draft.lng !== store.lng);
   const hasShopFix    = store.shopPhotoLat    != null && store.shopPhotoLng    != null;
   const hasInstallFix = store.installPhotoLat != null && store.installPhotoLng != null;
-  // Provenance by exact equality: an upload that filled an empty pin copied the
-  // photo's fix verbatim, so a match means "auto-filled, nobody has looked".
+  // Provenance by exact equality: an upload that set the pin (EXIF shop fix,
+  // or a fix that filled an empty pin) copied the photo's fix verbatim.
   const from = !pinned ? null
     : store.lat === store.shopPhotoLat    && store.lng === store.shopPhotoLng    ? 'shop'
     : store.lat === store.installPhotoLat && store.lng === store.installPhotoLng ? 'install'
@@ -836,9 +840,11 @@ function MapPinEditor({ store, onSaved }: { store: StoreReg; onSaved: (lat: numb
             className="underline underline-offset-2 hover:text-foreground">
             {store.lat!.toFixed(6)}, {store.lng!.toFixed(6)}
           </a>
+          {/* Provenance only — the photo's GPS IS the store location by design,
+              so this must read as information, never as an ask to re-pin. */}
           {from && (
-            <p className="mt-0.5 font-semibold text-amber-700 dark:text-amber-300">
-              Pin taken from the {from === 'shop' ? 'shop-photo' : 'install-photo'} GPS — confirm it on the map
+            <p className="mt-0.5 text-muted-foreground">
+              Pin from the {from === 'shop' ? 'shop-photo' : 'install-photo'} GPS
             </p>
           )}
         </div>
@@ -1012,6 +1018,7 @@ function StoresPanel() {
         onboardingStage: store.onboardingStage,
         payoutStatus: store.payoutStatus,
         payoutNotes: store.payoutNotes || null,
+        category: store.category ?? null,
         // Installation & hardware — sent as-is; the route normalises blanks to
         // NULL and validates the size/date, so clearing a field really clears it.
         tvBrand:       store.tvBrand ?? null,
@@ -1385,7 +1392,7 @@ function StoresPanel() {
                         the ops-typed label fields above, which stay pure metadata. */}
                     <StorePlugPanel storeId={s.id} />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
                         <option value="new">New</option>
                         <option value="contacted">Contacted / verified</option>
@@ -1399,6 +1406,14 @@ function StoresPanel() {
                         <option value="ready">Ready for payout</option>
                         <option value="paid">Paid</option>
                         <option value="on_hold">On hold</option>
+                      </select>
+                      {/* Empty = not categorised (the pre-feature fleet); picking
+                          the blank option again clears it on the next Save. */}
+                      <select value={s.category ?? ''} onChange={(e) => patchLocal(s.id, { category: e.target.value || null })} className={inp}>
+                        <option value="">Shop category — not set</option>
+                        {STORE_CATEGORIES.map((c) => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
                       </select>
                     </div>
                     {saveError?.id === s.id && (
@@ -1501,7 +1516,7 @@ function CampaignsPanel() {
         <div className="rounded-xl border border-border overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
-              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Date', 'Trial', ''].map((h) => (
+              <tr>{['Brand', 'Contact', 'Screens', 'Amount', 'Status', 'Terms', 'Date', 'Trial', ''].map((h) => (
                 <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
               ))}</tr>
             </thead>
@@ -1530,6 +1545,26 @@ function CampaignsPanel() {
                         {isPaid ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
                         {isPaid ? 'Paid' : isTrial ? 'Trial' : 'Pay later'}
                       </Badge>
+                    </td>
+                    {/* Loud only when it is missing: a booking we cannot show was
+                        agreed to is the exception worth spotting, and every row
+                        predating acceptance recording is one. */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {c.agreementVersion ? (
+                        <span
+                          className="text-[10px] text-muted-foreground/70"
+                          title={`Agreement version ${c.agreementVersion}${c.agreementAcceptedAt ? ` · accepted ${fmtDate(c.agreementAcceptedAt)}` : ''}`}
+                        >
+                          v{c.agreementVersion}
+                          {c.agreementAcceptedAt && (
+                            <span className="block text-muted-foreground/40">{fmtDate(c.agreementAcceptedAt)}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <Badge variant="warning" className="text-[10px] py-0.5 px-2 font-bold whitespace-nowrap">
+                          <AlertCircle className="h-2.5 w-2.5" /> Not captured
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground/60 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">

@@ -62,6 +62,10 @@ eas build --platform android --profile production
 
 ## Step 4 — Publish to Play Store
 
+> Everything Console-side — account type, listing assets, data-safety form
+> answers, review-access credentials, release flow — is prefilled in
+> [PLAY_STORE_CHECKLIST.md](./PLAY_STORE_CHECKLIST.md).
+
 ### Option A — Manual upload (recommended for first release)
 
 1. Go to [Play Console](https://play.google.com/console) → **Create app**
@@ -108,6 +112,10 @@ eas update --branch production --message "Fix KYC upload bug"
 - Each build profile maps to a channel (see `eas.json` → `build.<profile>.channel`):
   `production` AABs use the `production` channel, `preview` APKs use `preview`, etc.
   Always push updates to the channel matching the build your users have installed.
+- OTA can only reach builds that shipped **with `expo-updates` compiled in**
+  (wired 2026-09-07). Builds up to versionCode 4 predate it and can never
+  receive an OTA update — replace them once with a fresh APK/AAB, then OTA
+  works from there on.
 
 ### B. Native changes → new build + Play Store submission (versionCode bump required)
 
@@ -164,12 +172,15 @@ succeeds but no notification ever arrives):**
 
 1. In the Firebase console (the same ALIVE project the TV player uses is fine),
    add an Android app with package `com.partner.alive` and download its
-   `google-services.json` into `store-app/`.
-2. Reference it in `app.json`: `"android": { "googleServicesFile": "./google-services.json", ... }`.
-3. Upload the FCM V1 service-account key to EAS so Expo's push service may send
+   `google-services.json` into `store-app/`. `app.json` already references it
+   (`android.googleServicesFile`), so **every** Android build now fails loudly
+   until the file exists — that's intended. It is client config (it ships
+   inside the APK anyway), so committing it is fine; `google-service-account.json`
+   is the secret one that must never be committed.
+2. Upload the FCM V1 service-account key to EAS so Expo's push service may send
    through your Firebase project: `npx eas credentials` → Android →
    `com.partner.alive` → Google Service Account → "Set up FCM V1".
-4. Rebuild the APK (`npm run build:android`). Expo Go cannot receive remote
+3. Rebuild the APK (`npm run build:android`). Expo Go cannot receive remote
    push on Android SDK 52+ — only EAS builds can.
 
 Test end-to-end: sign in on a physical device, accept the notification

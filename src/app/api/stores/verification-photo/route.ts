@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { deleteObject, putObject, publicUrl } from '@/lib/r2';
+import { deleteObject, putObject, publicUrl, putPrivateObject, deletePrivateObject, isPrivateBucketConfigured } from '@/lib/r2';
 import { resolveStoreId } from '@/lib/store-partner-auth';
 import crypto from 'crypto';
 
-/** R2 object key for a stored verification-photo URL, or null if it isn't one. */
-function verificationKeyFromUrl(url: string | null): string | null {
-  if (!url) return null;
+/**
+ * Resolve a previously stored verification photo to its R2 key.
+ *
+ * Two shapes coexist while the fleet migrates to the private bucket: a bare key
+ * (current — the object is private and has no public address) and a full public
+ * URL (legacy — written when these photos lived in the public bucket). Both must
+ * resolve so the superseded object can be deleted, and the caller needs to know
+ * WHICH bucket to delete it from.
+ */
+function verificationKeyFromStored(stored: string | null): { key: string; wasPublic: boolean } | null {
+  if (!stored) return null;
+  if (!/^https?:\/\//i.test(stored)) {
+    return stored.startsWith('verification/') ? { key: stored, wasPublic: false } : null;
+  }
   const prefix = publicUrl('');
-  if (!prefix || !url.startsWith(prefix)) return null;
-  const key = url.slice(prefix.length);
-  return key.startsWith('verification/') ? key : null;
+  if (!prefix || !stored.startsWith(prefix)) return null;
+  const key = stored.slice(prefix.length);
+  return key.startsWith('verification/') ? { key, wasPublic: true } : null;
 }
 
 export const maxDuration = 30;
@@ -35,8 +46,10 @@ export const maxDuration = 30;
 // in the admin panel next to the registered map pin, so the team can verify the
 // photo was really taken at the shop before advancing the onboarding stage —
 // /api/admin/stores/[id] refuses to advance past 'new' without a shop photo and
-// past 'contacted' without an install photo. The fix also fills the store's map
-// pin when it has none yet (see the UPDATE below), which puts it on the map.
+// past 'contacted' without an install photo. A shop photo whose fix came from
+// the photo itself (EXIF) also BECOMES the store's map pin (see the UPDATE
+// below) — the photo is the default location, so nobody is asked to re-pin the
+// store by hand to match it. Device-sourced fixes only fill an empty pin.
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -81,17 +94,29 @@ export async function POST(req: NextRequest) {
     // Remember the photo being replaced (if any) so its R2 object can be
     // removed once the new one is committed — otherwise re-uploads orphan
     // objects in the bucket forever.
-    let oldKey: string | null = null;
+    let old: { key: string; wasPublic: boolean } | null = null;
     try {
       const col  = kind === 'shop' ? 'shopPhotoUrl' : 'installPhotoUrl';
       const prev = await db.$queryRawUnsafe<{ url: string | null }[]>(
         `SELECT "${col}" AS url FROM "Store" WHERE "id" = $1 LIMIT 1`, storeId,
       );
-      oldKey = verificationKeyFromUrl(prev[0]?.url ?? null);
+      old = verificationKeyFromStored(prev[0]?.url ?? null);
     } catch { /* columns not yet migrated — nothing to replace */ }
 
-    await putObject(key, Buffer.from(bytes), file.type);
-    const url = publicUrl(key);
+    // These photos carry the coordinates of a partner's premises, so they go to
+    // the bucket with no public domain. What is stored on the row is the key,
+    // not a URL: the image is readable only through the authenticated view
+    // route, so it cannot be enumerated, shared or indexed.
+    if (!isPrivateBucketConfigured()) {
+      return NextResponse.json(
+        { error: 'Photo upload is temporarily unavailable. Please contact hello@wearealive.in.' },
+        { status: 503 },
+      );
+    }
+    await putPrivateObject(key, Buffer.from(bytes), file.type);
+    // Clients receive a route to fetch through, never a direct object address.
+    const url = `/api/stores/verification-photo/view?kind=${kind}&storeId=${encodeURIComponent(storeId)}`;
+    const storedValue = key;
 
     // Raw UPDATE with explicit columns, matching the KYC route's schema-drift
     // tolerance: on a DB where the migration hasn't run yet this fails cleanly
@@ -101,26 +126,30 @@ export async function POST(req: NextRequest) {
     // learned it (no tag sent, or the hardware columns aren't migrated yet), in
     // which case the response omits the field and clients keep their own value.
     let effectiveTvTag: string | null | undefined;
-    // Map pin. A store's pin comes from, in order: the partner at registration
-    // → an on-site GPS fix that fills an EMPTY pin → ops setting or moving it in
-    // Admin → Stores. Any fix qualifies, EXIF or device: a store onboarded with
-    // its GPS data goes on the map automatically, and the Stores panel flags a
-    // photo-filled pin for ops to confirm by eye. Pairwise and inside the one
-    // statement, so a stored lat can never pair with a photo lng.
+    // Map pin. The shop photo IS the store's location: a fix read from the
+    // photo's own EXIF overwrites whatever pin the partner hand-dropped at
+    // registration — the photo is the default location, and nobody should be
+    // asked to set or confirm a pin to match it. A device-sourced fix (EXIF
+    // missing, phone position used instead) is NOT from the photo, so it only
+    // fills an EMPTY pin — otherwise a partner re-uploading from home would
+    // silently walk the store off the map. Ops can still move the pin later in
+    // Admin → Stores. Pairwise and inside the one statement, so a stored lat
+    // can never pair with a photo lng.
+    const exifShopFix = kind === 'shop' && source === 'exif';
     try {
       if (kind === 'shop') {
         await db.$executeRaw`
           UPDATE "Store" SET
-            "shopPhotoUrl" = ${url}, "shopPhotoLat" = ${lat}, "shopPhotoLng" = ${lng},
+            "shopPhotoUrl" = ${storedValue}, "shopPhotoLat" = ${lat}, "shopPhotoLng" = ${lng},
             "shopPhotoSource" = ${source}, "shopPhotoAt" = ${now}, "updatedAt" = ${now},
-            "lat" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
-            "lng" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
+            "lat" = CASE WHEN ${exifShopFix} OR "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
+            "lng" = CASE WHEN ${exifShopFix} OR "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
           WHERE "id" = ${storeId}
         `;
       } else {
         await db.$executeRaw`
           UPDATE "Store" SET
-            "installPhotoUrl" = ${url}, "installPhotoLat" = ${lat}, "installPhotoLng" = ${lng},
+            "installPhotoUrl" = ${storedValue}, "installPhotoLat" = ${lat}, "installPhotoLng" = ${lng},
             "installPhotoSource" = ${source}, "installPhotoAt" = ${now}, "updatedAt" = ${now},
             "lat" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lat} ELSE "lat" END,
             "lng" = CASE WHEN "lat" IS NULL OR "lng" IS NULL THEN ${lng} ELSE "lng" END
@@ -152,11 +181,17 @@ export async function POST(req: NextRequest) {
       }
     } catch (e) {
       // DB write failed — don't leave the fresh object orphaned in R2.
-      await deleteObject(key).catch(() => { /* best-effort */ });
+      await deletePrivateObject(key).catch(() => { /* best-effort */ });
       throw e;
     }
 
-    if (oldKey && oldKey !== key) await deleteObject(oldKey).catch(() => { /* best-effort */ });
+    // Delete the superseded object from whichever bucket it actually lived in —
+    // a legacy photo is still in the public one, and leaving it there would keep
+    // the partner's coordinates publicly readable after they replaced it.
+    if (old && old.key !== key) {
+      const remove = old.wasPublic ? deleteObject : deletePrivateObject;
+      await remove(old.key).catch(() => { /* best-effort */ });
+    }
 
     return NextResponse.json({
       ok: true, url, lat, lng, source,

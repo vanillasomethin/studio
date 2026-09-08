@@ -11,7 +11,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import { C } from '../../lib/colors';
 import { loadSession, saveSession } from '../../lib/storage';
-import { getStoreMe, getStorePower, uploadVerificationPhoto, type StoreSession, type StorePowerSummary } from '../../lib/api';
+import { getStoreMe, getStorePower, uploadVerificationPhoto, authHeaders, type StoreSession, type StorePowerSummary } from '../../lib/api';
 import { registerForPush } from '../../lib/notifications';
 
 type Stage = 'new' | 'contacted' | 'visited' | 'installed' | 'live' | string;
@@ -98,7 +98,10 @@ function GpsPhotoRow({ kind, store, onUploaded }: {
   if (url) {
     return (
       <View style={s.photoChip}>
-        <Image source={{ uri: url }} style={s.photoThumb} />
+        {/* Served by an authenticated route, so the request carries the signed
+            store token. React Native forwards these headers on the image fetch;
+            legacy public URLs simply ignore them. */}
+        <Image source={{ uri: url, headers: authHeaders(store.token) }} style={s.photoThumb} />
         <View style={{ flex: 1 }}>
           <Text style={s.photoChipTitle}>✓ GPS photo uploaded</Text>
           {typeof lat === 'number' && typeof lng === 'number' && (

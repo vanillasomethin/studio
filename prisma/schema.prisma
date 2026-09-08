@@ -342,6 +342,10 @@ model Store {
 
   tier              String    @default("standard") // standard | premium — set via gated premium signup link
   monthlyCompensationPaise Int @default(50000) // monthly remuneration; ₹500 standard, ₹1000 premium — flat-rate stores only (slot-mode stores compute dynamically, see slot-pricing-db.ts)
+  // Shop category slug (kirana | supermarket | …) — allowlist in
+  // src/lib/store-categories.ts. Admin-set (Admin → Stores → Edit); null = not
+  // categorised yet, which is every store registered before the field existed.
+  category          String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -458,6 +462,16 @@ model Campaign {
   // admin-created, pay-later before checkout — are unaffected.
   orderId        String?  @unique
   status         String   @default("upcoming") // upcoming | active | completed | cancelled
+  // The agreement this booking was made under. The version pins the exact clause
+  // text (src/lib/brand-agreement.ts) so an accepted agreement can be reproduced
+  // — a bare "agreed: true" cannot tell you WHAT was agreed to. Same reasoning,
+  // and same shape, as BrandEnquiry.agreementVersion.
+  //
+  // Nullable on purpose: rows booked before acceptance was recorded genuinely
+  // carry no evidence, and backfilling a default would invent one. An empty
+  // column here means "we did not capture it", which is the truth.
+  agreementVersion    String?
+  agreementAcceptedAt DateTime?
   creativeUrls   String[] @default([]) // R2 URLs of uploaded ad creatives
   // The campaign's 10s slot creative (slot-loop inventory). creativeUrls are raw R2
   // uploads without the md5/type the player cache needs, so slot playback goes
@@ -1230,6 +1244,63 @@ model HourlyPop {
   @@unique([deviceId, hour])
   @@index([deviceId])
   @@index([hour])
+}
+
+// ─── Proof-of-play archive (Admin → Proof of Play → Monthly archive) ─────────
+//
+// PlayEvent detail for each completed IST calendar period is exported to CSVs
+// in the private R2 bucket by src/lib/pop-export.ts, then optionally pruned
+// from Postgres after a 45-day lag (payout freeze + 30-day uptime window both
+// still read recent PlayEvents — see the lib header). exportedThrough is the
+// watermark: everything before it is verifiably archived, so periods tile with
+// no gap and no overlap.
+
+enum PopExportFrequency {
+  MONTHLY
+  BIMONTHLY
+}
+
+enum PopExportStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model PopExportConfig {
+  id                Int                @id @default(1)
+  enabled           Boolean            @default(false)
+  frequency         PopExportFrequency @default(MONTHLY)
+  // The admin-optional prune: rows delete only AFTER their period is archived
+  // AND the 45-day lag has passed. Off = archive-only, nothing is ever deleted.
+  deleteAfterExport Boolean            @default(false)
+  // Month-boundary UTC instant; strictly-before-this is in R2.
+  exportedThrough   DateTime?
+  lastRunAt         DateTime?
+  updatedAt         DateTime           @updatedAt
+}
+
+model PopExport {
+  id          String          @id @default(cuid())
+  periodLabel String // '2026-08' (monthly) or '2026-07_2026-08' (bi-monthly)
+  periodStart DateTime // inclusive, IST month edge in UTC
+  periodEnd   DateTime // exclusive, IST month edge in UTC
+  status      PopExportStatus @default(RUNNING)
+  playCount   Int             @default(0)
+  adCount     Int             @default(0) // distinct creatives in the period
+  screenCount Int             @default(0) // distinct devices in the period
+  totalBytes  Int             @default(0) // across all three CSVs
+  playsKey    String? // R2 private-bucket keys, set once verified
+  byAdKey     String?
+  byScreenKey String?
+  // Rows removed by the deferred prune; null while the period's PlayEvents are
+  // still in Postgres (prune off, or lag not yet passed).
+  deletedRows Int?
+  error       String?
+  startedAt   DateTime        @default(now())
+  finishedAt  DateTime?
+
+  @@index([periodStart])
+  @@index([status])
 }
 
 // ─── Audit log (T2) ──────────────────────────────────────────────────────────

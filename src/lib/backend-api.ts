@@ -247,6 +247,78 @@ export const updatePlayerConfig = (body: Partial<Omit<PlayerConfig, 'updatedAt'>
   apiFetch<{ config: PlayerConfig }>('/api/admin/player-config', { method: 'PATCH', body: JSON.stringify(body) })
     .then((r) => r.config);
 
+// ─── Proof-of-play archive (monthly export → R2, optional pruning) ───────────
+
+export type PopExportConfig = {
+  enabled:           boolean;
+  frequency:         'MONTHLY' | 'BIMONTHLY';
+  deleteAfterExport: boolean;
+  exportedThrough:   string | null;
+  lastRunAt:         string | null;
+  updatedAt:         string;
+};
+
+export type PopExportRow = {
+  id:          string;
+  periodLabel: string;
+  periodStart: string;
+  periodEnd:   string;
+  status:      'RUNNING' | 'COMPLETED' | 'FAILED';
+  playCount:   number;
+  adCount:     number;
+  screenCount: number;
+  totalBytes:  number;
+  playsKey:    string | null;
+  byAdKey:     string | null;
+  byScreenKey: string | null;
+  deletedRows: number | null;
+  error:       string | null;
+  startedAt:   string;
+  finishedAt:  string | null;
+};
+
+export type PopExportStatus = {
+  config:  PopExportConfig;
+  exports: PopExportRow[];
+  next:    { periodLabel: string; periodEnd: string; due: boolean } | null;
+};
+
+export type PopSweepResult = {
+  skipped?: 'disabled' | 'up-to-date' | 'already-running';
+  export?:  { periodLabel: string; status: 'COMPLETED' | 'FAILED'; playCount: number; error: string | null };
+  pruned:   { periodLabel: string; deletedRows: number }[];
+};
+
+export const getPopExportStatus = () =>
+  apiFetch<PopExportStatus>('/api/admin/pop-export');
+
+export const updatePopExportConfig = (body: Partial<Pick<PopExportConfig, 'enabled' | 'frequency' | 'deleteAfterExport'>>) =>
+  apiFetch<{ config: PopExportConfig }>('/api/admin/pop-export', { method: 'PATCH', body: JSON.stringify(body) })
+    .then((r) => r.config);
+
+export const runPopExportNow = () =>
+  apiFetch<PopSweepResult>('/api/admin/pop-export/run', { method: 'POST' });
+
+// Same fetch → blob dance as downloadPlaysCsv: the file lives behind the admin
+// session, so a plain <a href> would download an unauthenticated 401 body.
+export async function downloadPopExportFile(id: string, file: 'plays' | 'byAd' | 'byScreen'): Promise<void> {
+  const res = await fetch(`/api/admin/pop-export/download?id=${encodeURIComponent(id)}&file=${file}`, {
+    headers: adminHeaders(), credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(msg || `HTTP ${res.status}`);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="([^"]+)"/);
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = match?.[1] ?? `alive-pop-${file}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const searchStores = (params?: { q?: string; city?: string }) => {
   const qs = params && Object.keys(params).filter(k => params[k as keyof typeof params]).length
     ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
