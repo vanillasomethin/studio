@@ -642,7 +642,7 @@ export default function StorePage() {
 
       <footer className="border-t border-gray-200 py-5 text-center mt-4 bg-white">
         <p className="text-xs text-gray-400">
-          © 2025 VS Collective LLP · Mangaluru ·{' '}
+          © {new Date().getFullYear()} VS Collective LLP · Mangaluru ·{' '}
           <a href={`https://wa.me/${SUPPORT_WHATSAPP.replace('+', '')}`} className="hover:text-gray-600 transition-colors">WhatsApp us</a>
         </p>
       </footer>
