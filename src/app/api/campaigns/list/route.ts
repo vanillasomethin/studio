@@ -41,6 +41,11 @@ export async function GET() {
       // at the Standard rate — a campaign of Flagship stores would settle at a
       // third of its price.
       preferredStoreIds: c.preferredStoreIds,
+      // The promo the pay-later quote honoured. Any flow charging this
+      // campaign must hand it back to create-order along with the storeIds
+      // above — the charge is recomputed there, and without the code it comes
+      // out full-price against a discounted quote.
+      couponCode:     c.couponCode,
       creativeUrls:   c.creativeUrls,
       createdAt:      c.createdAt.toISOString(),
     }));

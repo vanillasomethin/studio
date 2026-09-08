@@ -7,9 +7,6 @@
 //   screens    number   (required)
 //   months     number   (required)
 //   couponCode string?  (validated against the DB; ignored if invalid)
-//   applyGst   boolean  (whether this flow adds 18% GST — preserves each
-//                        flow's existing behaviour; onboarding/renewal = true,
-//                        pay-later pending campaign = false)
 //   trial      boolean? (free first campaign — server-gated, see below)
 //   email      string?  (required when trial=true, for eligibility)
 //   receipt    string?
@@ -35,7 +32,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
       screens?: number; months?: number; couponCode?: string;
-      applyGst?: boolean; trial?: boolean; email?: string;
+      trial?: boolean; email?: string;
       storeIds?: string[];
       receipt?: string; notes?: Record<string, unknown>;
     };
@@ -116,7 +113,12 @@ export async function POST(req: NextRequest) {
           appliedCoupon = body.couponCode.toUpperCase();
         }
       }
-      amountRupees = campaignTotal({ screens, months, tiers, discount, applyGst: body.applyGst !== false });
+      // GST is not the client's to waive. An applyGst flag used to let each
+      // flow choose here, which really meant any caller could post
+      // applyGst:false and shave 18% off the charge — and the dashboard's
+      // pay-later card did exactly that, settling GST-less against the
+      // GST-inclusive quote every saved booking carries.
+      amountRupees = campaignTotal({ screens, months, tiers, discount, applyGst: true });
     }
 
     // Razorpay requires note values to be strings

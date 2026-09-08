@@ -30,6 +30,7 @@ import { respond } from '@/lib/api-envelope';
 import { hitLimit } from '@/lib/rate-limit';
 import { notifyAdminWA } from '@/lib/notify';
 import { sanitizeStoreIds } from '@/lib/store-ids';
+import { resolveCoupon } from '@/lib/coupons';
 
 // Free-text fields are written straight to rows that ops reads. Caps stop an
 // anonymous caller using the table as free storage, and keep a hostile string
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
       // activate — the squatter's brand on a campaign somebody else paid for.
       status?:        string;
       preferredStoreIds?: unknown; // store ids picked on the onboarding map
+      couponCode?:    string;      // promo the quoted total honours — validated below
       // Which agreement the buyer accepted, and when they ticked the box.
       agreementVersion?:    string;
       agreementAcceptedAt?: string;
@@ -162,6 +164,26 @@ export async function POST(req: NextRequest) {
     const isTrial = Number(body.totalAmount) <= 0 || body.status === 'trial';
     const status  = isTrial ? 'trial' : (body.status ?? 'upcoming');
 
+    // The promo the displayed quote was built with. Validated NOW and stored on
+    // the row: a pay-later booking is charged days later by create-order, which
+    // re-resolves the code from the database — a code that was never persisted
+    // meant the brand was quoted the discounted total here and silently charged
+    // the full one at payment. Refused rather than dropped when it fails,
+    // because saving the booking without it would re-create exactly that gap
+    // between the confirmation the brand read and the row that was stored.
+    // Trials carry no coupon — their total is already ₹0.
+    let couponCode: string | null = null;
+    if (!isTrial && typeof body.couponCode === 'string' && body.couponCode.trim() !== '') {
+      // Subtotal 0: only validity (active / expiry / redemption cap) matters
+      // here — the discount is recomputed from live prices at charge time.
+      const coupon = await resolveCoupon(body.couponCode, 0);
+      if (!coupon.valid) {
+        const envelope = await respond({ error: `${coupon.error}. Remove or change the promo code and confirm again.` }, { route, request: { couponCode: body.couponCode }, outcome: 'invalid_request', policyFlags: ['invalid_coupon'], errorCategory: 'validation', startedAtMs });
+        return NextResponse.json(envelope, { status: 400 });
+      }
+      couponCode = coupon.code;
+    }
+
     // C1: a free trial is allowed only once per brand. Without this, anyone
     // could repeatedly create ₹0 campaigns via the ?trial=1 link. The
     // totalAmount leg covers legacy trial rows saved as pending_payment ₹0.
@@ -227,6 +249,7 @@ export async function POST(req: NextRequest) {
         totalAmount:    isTrial ? 0 : body.totalAmount,
         status,
         preferredStoreIds,
+        couponCode,
         agreementVersion,
         agreementAcceptedAt,
       },
