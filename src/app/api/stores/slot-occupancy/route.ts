@@ -1,12 +1,14 @@
 // GET /api/stores/slot-occupancy?storeId=…
-// Store partner's own screen: how many of today's slots are filled, and which brands
-// are currently running elsewhere in the network but not yet on this screen.
+// Store partner's own screen: what is actually playing in today's loop, how many
+// slots are filled, and which brands run elsewhere in the network but not here yet.
 // Auth: store-partner pattern — resolveStoreId, never auth()-gated (see CLAUDE.md).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { publicUrl } from '@/lib/r2';
 import { resolveStoreId } from '@/lib/store-partner-auth';
-import { istToday } from '@/lib/slots';
+import { istToday, buildSlotLoop, slotDayIndex, slotSpanForDuration } from '@/lib/slots';
+import { resolveFillerCampaign, campaignCreatives, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
 import { filledSlotCount } from '@/lib/slot-pricing-db';
 
 export async function GET(req: NextRequest) {
@@ -14,24 +16,107 @@ export async function GET(req: NextRequest) {
   if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const store = await db.store.findUnique({ where: { id: storeId }, select: { loopSlotCount: true } });
+    const store = await db.store.findUnique({
+      where: { id: storeId },
+      select: { loopSlotCount: true, fillerCreativeId: true },
+    });
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
     if (store.loopSlotCount == null) return NextResponse.json({ slotMode: false });
 
     const today = istToday();
-    const [filledCount, hereRows, elsewhereRows] = await Promise.all([
+    const todayDate = new Date(`${today}T00:00:00Z`);
+    const [filledCount, bookings, elsewhereRows, filler] = await Promise.all([
       filledSlotCount(storeId, today),
       db.slotBooking.findMany({
-        where: { storeId, date: new Date(`${today}T00:00:00Z`) },
-        select: { campaignId: true }, distinct: ['campaignId'],
+        where:   { storeId, date: todayDate },
+        orderBy: { slotPosition: 'asc' },
+        select: {
+          slotPosition: true, campaignId: true, spanId: true,
+          campaign: {
+            select: {
+              id: true, name: true,
+              brand: { select: { brandName: true } },
+              ...CAMPAIGN_SLOT_CREATIVES_SELECT,
+            },
+          },
+        },
       }),
       db.slotBooking.findMany({
-        where: { date: new Date(`${today}T00:00:00Z`), storeId: { not: storeId } },
+        where: { date: todayDate, storeId: { not: storeId } },
         select: { campaignId: true, storeId: true }, distinct: ['campaignId', 'storeId'],
       }),
+      resolveFillerCampaign(store.fillerCreativeId),
     ]);
-    const hereIds = new Set(hereRows.map((r) => r.campaignId));
 
+    // The same composition the player will actually receive — bonus redistribution
+    // and house filler included — rather than a count of booked rows. A partner
+    // looking at their screen sees what is on it, not what was sold.
+    const loop = buildSlotLoop(
+      store.loopSlotCount,
+      bookings.map((b) => {
+        const creatives = campaignCreatives(b.campaign);
+        return {
+          slotPosition: b.slotPosition,
+          campaignId:   b.campaignId,
+          creativeIds:  creatives.map((c) => c.contentId),
+          spanId:       b.spanId,
+          creativeSpan: creatives.length ? Math.max(...creatives.map((c) => slotSpanForDuration(c.durationMs))) : 1,
+        };
+      }),
+      filler,
+      slotDayIndex(today),
+    );
+
+    const contentIds = [...new Set(loop.map((a) => a.contentId))];
+    const contents = contentIds.length
+      ? await db.content.findMany({
+          where:  { id: { in: contentIds } },
+          select: { id: true, name: true, objectKey: true, type: true },
+        })
+      : [];
+    const contentById = new Map(contents.map((c) => [c.id, c]));
+
+    // A booked campaign is 'sold'. Anything else attributed to one of those same
+    // campaigns is a bonus play in a position nobody bought; whatever is left is
+    // house filler, whose id is a FillerCreative, not a Campaign.
+    const soldCampaignIds = new Set(bookings.map((b) => b.campaignId));
+    const brandByCampaign = new Map(
+      bookings.map((b) => [b.campaignId, b.campaign.brand?.brandName ?? b.campaign.name ?? 'A brand']),
+    );
+
+    const entries = loop.map((a) => {
+      const c = contentById.get(a.contentId);
+      const source = !a.isFiller ? 'sold' : soldCampaignIds.has(a.campaignId) ? 'bonus' : 'filler';
+      return {
+        position:    a.slotPosition,
+        spanSlots:   a.spanSlots,
+        source,
+        campaignId:  a.campaignId,
+        // Null for house filler — it belongs to ALIVE, not to a brand.
+        brandName:   source === 'filler' ? null : (brandByCampaign.get(a.campaignId) ?? 'A brand'),
+        contentName: c?.name ?? null,
+        // Videos have no poster frame, so this is the media itself. The caller
+        // renders an icon for video rather than pretending it is a thumbnail.
+        contentUrl:  c ? publicUrl(c.objectKey) : null,
+        contentType: c ? c.type.toLowerCase() as 'image' | 'video' : null,
+      };
+    });
+
+    // Per-brand rollup — what a partner actually reads. Counted in POSITIONS, so a
+    // 30s ad occupying three of them reads as three, matching the strip above it.
+    const byCampaign = new Map<string, { campaignId: string; brandName: string; slots: number; guaranteed: number }>();
+    let houseSlots = 0;
+    for (const e of entries) {
+      if (e.source === 'filler') { houseSlots += e.spanSlots; continue; }
+      const row = byCampaign.get(e.campaignId)
+        ?? { campaignId: e.campaignId, brandName: e.brandName ?? 'A brand', slots: 0, guaranteed: 0 };
+      row.slots += e.spanSlots;
+      if (e.source === 'sold') row.guaranteed += e.spanSlots;
+      byCampaign.set(e.campaignId, row);
+    }
+    const onScreen = [...byCampaign.values()].sort((a, b) => b.slots - a.slots);
+
+    const hereIds = new Set(bookings.map((b) => b.campaignId));
     const storeCountByCampaign = new Map<string, number>();
     for (const r of elsewhereRows) {
       if (hereIds.has(r.campaignId)) continue;
@@ -49,8 +134,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       slotMode: true,
       loopSlotCount: store.loopSlotCount,
+      date: today,
       filledCount,
       openSlots: Math.max(0, store.loopSlotCount - filledCount),
+      houseSlots,
+      loop: entries,
+      onScreen,
       missingBrands: missingIds.map((id) => ({
         campaignId: id,
         brandName: campaignById.get(id)?.brand?.brandName ?? campaignById.get(id)?.name ?? 'A brand',

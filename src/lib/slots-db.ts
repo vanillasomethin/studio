@@ -2,7 +2,42 @@
 // math there stays pure (no Prisma import) and unit-testable.
 
 import { db } from '@/lib/db';
-import { isOpenOn, istToday, slotSpanForDuration } from '@/lib/slots';
+import { isOpenOn, istToday, slotSpanForDuration, type SlotCreativeMeta } from '@/lib/slots';
+
+// ── Campaign slot creatives ───────────────────────────────────────────────────
+
+/** The Prisma select every caller needs to resolve a campaign's slot creatives.
+ *  Spread it into a wider select when you also want the campaign's brand, name,
+ *  or richer content fields — `campaignCreatives` matches structurally. */
+export const CAMPAIGN_SLOT_CREATIVES_SELECT = {
+  slotContent:  { select: { id: true, durationMs: true, type: true } },
+  slotPlaylist: { select: { items: {
+    where:   { contentId: { not: null } },
+    orderBy: { order: 'asc' as const },
+    select:  { content: { select: { id: true, durationMs: true, type: true } } },
+  } } },
+};
+
+/** Structural, not Prisma-generated, so a select carrying EXTRA fields (brand,
+ *  content name, objectKey) still satisfies it. */
+export type CampaignCreativeSource = {
+  slotContent?:  { id: string; durationMs: number | null; type: string } | null;
+  slotPlaylist?: { items: { content: { id: string; durationMs: number | null; type: string } | null }[] } | null;
+};
+
+/** A campaign's slot creatives in rotation order. The slot playlist wins over the
+ *  single creative — same precedence as `slotCreativeIds` in lib/slots.ts, but
+ *  carrying durations so the span can be derived. */
+export function campaignCreatives(c: CampaignCreativeSource): SlotCreativeMeta[] {
+  const fromPlaylist = (c.slotPlaylist?.items ?? [])
+    .map((i) => i.content)
+    .filter((x): x is NonNullable<typeof x> => x != null)
+    .map((x) => ({ contentId: x.id, durationMs: x.durationMs, type: x.type }));
+  if (fromPlaylist.length > 0) return fromPlaylist;
+  return c.slotContent
+    ? [{ contentId: c.slotContent.id, durationMs: c.slotContent.durationMs, type: c.slotContent.type }]
+    : [];
+}
 
 // ── Loop resizing ─────────────────────────────────────────────────────────────
 
