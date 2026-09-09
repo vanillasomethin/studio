@@ -13,9 +13,9 @@ const eq = (name, actual, expected) => {
   console.error(`  FAIL ${name}\n       expected ${e}\n       actual   ${a}`);
 };
 
-const c = (id, content) => ({ campaignId: id, slotContentId: content });
+const c = (id, content) => ({ campaignId: id, creativeIds: [content] });
 const booking = (pos, id, content = `${id}-creative`) => ({ slotPosition: pos, ...c(id, content) });
-const FILLER = { campaignId: 'house', contentId: 'house-creative' };
+const FILLER = { campaignId: 'house', creativeIds: ['house-creative'] };
 const shape = (loop) => loop.map((a) => `${a.slotPosition}:${a.campaignId}${a.isFiller ? '*' : ''}`);
 
 console.log('buildSlotLoop — spec rules 3/4 (no dark slots)');
@@ -45,11 +45,11 @@ eq('non-contiguous bookings keep their exact positions',
 // A booked campaign with no 10s creative is still SOLD (availability) but cannot render,
 // so its position must not go dark — it falls through to redistribution.
 eq('sold campaign without creative → position redistributed, not dark',
-  shape(buildSlotLoop(4, [booking(0, 'A'), { slotPosition: 1, campaignId: 'B', slotContentId: null }], FILLER)),
+  shape(buildSlotLoop(4, [booking(0, 'A'), { slotPosition: 1, campaignId: 'B', creativeIds: [] }], FILLER)),
   ['0:A','1:A*','2:A*','3:A*']);
 
 eq('only unplayable sales → house filler carries the loop',
-  shape(buildSlotLoop(3, [{ slotPosition: 0, campaignId: 'B', slotContentId: null }], FILLER)),
+  shape(buildSlotLoop(3, [{ slotPosition: 0, campaignId: 'B', creativeIds: [] }], FILLER)),
   ['0:house*','1:house*','2:house*']);
 
 // Nothing playable anywhere: positions are omitted rather than emitting broken items.
@@ -115,15 +115,15 @@ console.log('buildSlotLoop — makegood weighting (Minimum Play Guarantee)');
 // A campaign owed a makegood gets extra entries in the round-robin bonus pool, so it
 // wins a bigger share of the empties — without changing who is eligible to play at all.
 eq('weighted campaign gets more of the empties than its unweighted peer',
-  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER, new Map([['A', 2]]))),
+  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER, 0, new Map([['A', 2]]))),
   ['0:A','1:B','2:A*','3:A*','4:A*','5:B*']);
 
 eq('zero/omitted weight is identical to the plain round-robin',
-  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER, new Map([['A', 0]]))),
+  shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER, 0, new Map([['A', 0]]))),
   shape(buildSlotLoop(6, [booking(0, 'A'), booking(1, 'B')], FILLER)));
 
 eq('weighting an unsold campaignId is a no-op (not in the pool to begin with)',
-  shape(buildSlotLoop(4, [booking(0, 'A')], FILLER, new Map([['ghost', 5]]))),
+  shape(buildSlotLoop(4, [booking(0, 'A')], FILLER, 0, new Map([['ghost', 5]]))),
   shape(buildSlotLoop(4, [booking(0, 'A')], FILLER)));
 
 console.log(failures === 0 ? '\nAll slot rules verified.' : `\n${failures} failure(s).`);

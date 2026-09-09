@@ -1,0 +1,95 @@
+# Runs the repo's invariant guards on every PR and every push to main.
+#
+# Why this exists: there is no test runner configured here. Every guard is a
+# scripts/verify-*.mjs suite that exits non-zero on failure, and nothing ever
+# invoked them in CI — so a broken guard was indistinguishable from a passing
+# one. buildSlotLoop migrated to the multi-creative model
+# (filler: { campaignId, creativeIds }) and gained a dayIndex parameter, while
+# verify-slots.mjs kept building the old single-creative shape and passing its
+# weights Map into dayIndex's position. The suite threw on its first assertion
+# and ran ZERO checks. Nobody noticed, because nobody ran it.
+#
+# tsc cannot catch that class of drift: the suites are .mjs and tsconfig's
+# include is ["**/*.ts", "**/*.tsx"], so they sit outside the type-checked set
+# regardless of allowJs. Executing them is the only thing that proves they work.
+#
+# Node 22 is required: the suites import TypeScript directly (../src/lib/*.ts)
+# via --experimental-strip-types, which does not exist on Node 20.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      # No suite talks to a database — they are pure math. But src/lib/db.ts
+      # constructs a PrismaClient at import time and some suites reach it
+      # transitively (verify-pop-periods -> pop-export -> db), so the datasource
+      # URL merely has to parse. Nothing ever connects to this.
+      DATABASE_URL: 'postgresql://ci:ci@127.0.0.1:5432/ci'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # @prisma/client is a generated package. The suites that transitively
+      # import src/lib/db.ts need it to exist; generating explicitly beats
+      # relying on an install hook. Reads prisma/schema.prisma only — no DB.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # Globbed rather than enumerated as `npm run verify:*` on purpose: two
+      # suites (verify-brand-billing, verify-store-payout) have no package.json
+      # script, so an enumerated list would silently skip 2 of 12 — the same
+      # "guard exists but never runs" failure this workflow prevents. A glob
+      # cannot drift out of sync with the directory.
+      #
+      # Every suite runs even after one fails, so a single broken invariant
+      # doesn't mask the rest; the job still fails at the end.
+      - name: Verify invariants
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          suites=(scripts/verify-*.mjs)
+          if [ ${#suites[@]} -eq 0 ]; then
+            echo "::error::no scripts/verify-*.mjs found - did they move?"
+            exit 1
+          fi
+
+          failed=()
+          for f in "${suites[@]}"; do
+            echo "::group::$f"
+            if node --experimental-strip-types "$f"; then
+              echo "--- ok"
+            else
+              echo "--- FAILED"
+              failed+=("$f")
+            fi
+            echo "::endgroup::"
+          done
+
+          echo "ran ${#suites[@]} suite(s), ${#failed[@]} failed"
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "::error::failing verify suites: ${failed[*]}"
+            exit 1
+          fi
