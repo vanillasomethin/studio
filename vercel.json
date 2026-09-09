@@ -1,7 +1,7 @@
 {
   "buildCommand": "npm run build",
   "framework": "nextjs",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)store-app' 2>/dev/null && exit 0 || exit 1",
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "crons": [
     { "path": "/api/cron/device-health", "schedule": "0 3 * * *" },
     { "path": "/api/cron/tuya-power", "schedule": "30 3 * * *" }
