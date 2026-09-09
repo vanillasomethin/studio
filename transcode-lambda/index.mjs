@@ -14,7 +14,8 @@
 //      plays bytes that were never through ffmpeg — worth it, because the re-encode is
 //      lossy and `-r 30` in particular introduces frame-duplication judder on the 24/25fps
 //      masters that agencies actually deliver. Step 4 still runs on this path.
-//   3. Otherwise re-encodes to H.264 Main Profile / Level 4.1, yuv420p, <=1920x1080, 30fps,
+//   3. Otherwise re-encodes to H.264 Main Profile / Level 4.1, yuv420p, 1080p in the
+//      source's own orientation (1920x1080 landscape, 1080x1920 portrait), 30fps,
 //      AAC audio — a profile/level virtually every Android TV hardware decoder
 //      (Realtek, Amlogic, Allwinner, MediaTek) supports. Budget Realtek SoCs in the
 //      field have been observed rejecting High Profile / Level 5.0 sources at
@@ -54,7 +55,7 @@ import { promisify } from 'util';
 import { writeFile, readFile, unlink } from 'fs/promises';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import ffprobePath from '@ffprobe-installer/ffprobe';
-import { isAlreadySafe, parseFps } from './conformance.mjs';
+import { isAlreadySafe, parseFps, SCALE_FILTER } from './conformance.mjs';
 
 const run = promisify(execFile);
 
@@ -95,7 +96,7 @@ async function encodeHevc(contentId, tmpIn, tmpOutHevc) {
     await run(ffmpegPath.path, [
       '-y', '-i', tmpIn,
       '-c:v', 'libx265', '-tag:v', 'hvc1', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
-      '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,crop=trunc(iw/2)*2:trunc(ih/2)*2",
+      '-vf', SCALE_FILTER,
       '-r', '30', '-b:v', '3M', '-maxrate', '4M', '-bufsize', '6M',
       '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
       tmpOutHevc,
@@ -183,16 +184,12 @@ export const handler = async (event) => {
     // 3. Re-encode to a broadly hardware-decodable profile/level.
     // -profile:v main -level 4.1: the actual fix — covers up to 1920x1080(or portrait
     //   equivalent)@30fps and is what budget Realtek/Amlogic/Allwinner decoders expect.
-    // -vf scale=...:force_original_aspect_ratio=decrease: never upscale, cap at 1080p.
-    //   The trailing crop rounds both dimensions down to even — aspect-fit can yield an
-    //   odd width on portrait sources (e.g. 1440x2732 → 569x1080) and libx264/x265
-    //   reject odd dimensions in yuv420p. (force_divisible_by needs a newer ffmpeg than
-    //   the pinned static build.)
+    // -vf SCALE_FILTER: never upscale, cap at 1080p in the source's own orientation.
     // -pix_fmt yuv420p: 8-bit only — 10-bit/HDR isn't supported on these chips.
     await run(ffmpegPath.path, [
       '-y', '-i', tmpIn,
       '-c:v', 'libx264', '-profile:v', 'main', '-level', '4.1', '-pix_fmt', 'yuv420p',
-      '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,crop=trunc(iw/2)*2:trunc(ih/2)*2",
+      '-vf', SCALE_FILTER,
       '-r', '30', '-b:v', '6M', '-maxrate', '8M', '-bufsize', '12M',
       '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
       tmpOut,

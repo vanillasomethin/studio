@@ -477,7 +477,7 @@ Give this table to every brand and every designer before they send a file. Rejec
 | Property | Requirement |
 |---|---|
 | Orientation | **Portrait.** All screens are Android TV panels mounted in portrait. |
-| Resolution | **1080 × 1920 preferred** (any resolution is accepted — the pipeline downscales to ≤1080p, but starting at 1080×1920 avoids quality loss and wasted upload time on 4K masters) |
+| Resolution | **1080 × 1920 preferred** (any resolution is accepted — the pipeline downscales to 1080p in the source's own orientation, so a portrait master stays 1080 × 1920 rather than being fitted into a landscape box, but starting at 1080 × 1920 still avoids a re-encode and wasted upload time on 4K masters) |
 | Slot creative duration | **Exactly 10 seconds.** The slot loop is fixed 10 s positions (`SLOT_DURATION_MS = 10_000` in `src/lib/slots.ts`). A longer video gets cut off or breaks loop math; do not accept it. |
 | Video format | Any common container/codec — the pipeline re-encodes to **H.264 Main@4.1, yuv420p, ≤1080p30 + AAC** (see §7.2). A master delivered already in that shape (≤8 Mbps, AAC or silent) is detected on upload and served untouched; anything else is re-encoded and loses a generation. Don't promise a brand their bitrate survives unless you have confirmed the export settings. |
 | Images | JPG/PNG. Display duration is set per playlist item in the playlist editor (images don't need transcoding). |

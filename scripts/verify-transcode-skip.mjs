@@ -14,7 +14,7 @@ import { execFileSync } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { isAlreadySafe, parseFps, MAX_BITRATE } from '../transcode-lambda/conformance.mjs';
+import { isAlreadySafe, parseFps, MAX_BITRATE, SCALE_FILTER } from '../transcode-lambda/conformance.mjs';
 
 let failures = 0;
 let checks = 0;
@@ -195,6 +195,28 @@ if (!haveFfmpeg()) {
     ]);
     const t = probe(tenBit);
     eq('real 10-bit source is NOT skipped', isAlreadySafe(t.video, t.audio, t.bitrate), false);
+
+    // ─── SCALE_FILTER: the box must follow the source's orientation ─────────────
+    // Every fleet panel is portrait-mounted (SOP 4.5) and SOP 7.2 asks brands for
+    // 1080x1920, so the portrait rows are the ones that actually ship.
+    console.log('\nSCALE_FILTER — downscale box follows orientation');
+    const scaled = (size) => {
+      const out = make(`scaled-${size}.mp4`, [
+        ...src(size),
+        '-c:v', 'libx264', '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-vf', SCALE_FILTER,
+        ...CAPPED,
+      ]);
+      const p = probe(out);
+      return `${p.video.width}x${p.video.height}`;
+    };
+    eq('native portrait 1080x1920 survives intact', scaled('1080x1920'), '1080x1920');
+    eq('native landscape 1920x1080 survives intact', scaled('1920x1080'), '1920x1080');
+    eq('4K portrait caps to 1080x1920, not 608x1080', scaled('2160x3840'), '1080x1920');
+    eq('4K landscape caps to 1920x1080', scaled('3840x2160'), '1920x1080');
+    eq('tall phone master keeps its height', scaled('1440x2732'), '1012x1920');
+    eq('sub-1080p portrait is never upscaled', scaled('720x1280'), '720x1280');
+    eq('ultrawide fits the landscape box', scaled('3840x1080'), '1920x540');
+    eq('square fits the portrait box width', scaled('2000x2000'), '1080x1080');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -202,7 +224,7 @@ if (!haveFfmpeg()) {
 
 // A suite that silently stops asserting still exits 0, so the count is itself an
 // invariant — see the "green check != a guard that ran" note in ci.yml.
-const MIN_CHECKS = 41;
+const MIN_CHECKS = 49;
 if (checks < MIN_CHECKS) {
   console.error(`\nOnly ${checks} checks ran, expected at least ${MIN_CHECKS} — did a block get skipped?`);
   failures++;
