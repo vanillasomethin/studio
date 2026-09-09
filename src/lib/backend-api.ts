@@ -110,6 +110,17 @@ export type Content = {
   folder?:     string;
   transcodeStatus?: 'pending' | 'done' | 'error' | null;
   transcodeError?:  string | null;
+  // Owning brand. null = ALIVE house content (filler, product shots, templates) —
+  // a real state, not missing data. brandName is denormalised for display so the
+  // library table needs no second lookup.
+  brandId?:    string | null;
+  brandName?:  string | null;
+};
+
+export type AdminBrand = {
+  id:            string;
+  brandName:     string;
+  creativeCount: number;
 };
 
 export type PlaylistItem = {
@@ -427,15 +438,20 @@ export const getContent = () =>
 export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
 
-export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: string | null }) =>
-  apiFetch<{ id: string; tags: string[]; folder?: string | null }>('/api/content', {
+export const getBrands = () =>
+  apiFetch<{ brands: AdminBrand[] }>('/api/admin/brands').then((r) => r.brands);
+
+// brandId: pass null to unassign a creative back to house content; omit it to
+// leave the current owner untouched. undefined and null mean different things here.
+export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: string | null; brandId?: string | null }) =>
+  apiFetch<{ id: string; tags: string[]; folder?: string | null; brandId?: string | null }>('/api/content', {
     method: 'PATCH',
     body:   JSON.stringify({ id, ...body }),
   });
 
 export const initiateUpload = (body: {
   name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; mimeType?: string; durationMs?: number;
-  width?: number; height?: number;
+  width?: number; height?: number; brandId?: string | null;
 }) =>
   apiFetch<{ id: string; uploadUrl: string; objectKey: string }>('/api/content', {
     method: 'POST',
