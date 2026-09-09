@@ -17,6 +17,12 @@ import { useEffect, useRef } from 'react';
  * Pass anything that remounts or swaps the animated content (e.g. the wizard
  * step) in `deps` — including flags that gate whether the container renders at
  * all, so the effect re-runs once the ref is actually attached.
+ *
+ * Scope: ENTER animations only. This deliberately does not rescue `layoutId` /
+ * `layout` shared-element transitions — those strand fully opaque (only their
+ * transform is wrong), so the `opacity < 0.99` test never fires, and widening
+ * it would not help because framer re-applies the projection transform on
+ * every layout change. Those are banned outright instead; see CLAUDE.md.
  */
 export function useAnimationStallGuard<T extends HTMLElement>(deps: readonly unknown[] = []) {
   const ref = useRef<T>(null);

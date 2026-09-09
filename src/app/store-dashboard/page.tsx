@@ -11,6 +11,7 @@ import {
   KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck, Camera,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
+import { useAnimationStallGuard } from '@/hooks/use-animation-stall-guard';
 import { extractGpsFromFile } from '@/lib/exif-gps';
 import { storeFetch } from '@/lib/store-fetch';
 import VoiceBillTab from '@/components/store/voice-bill-tab';
@@ -182,8 +183,12 @@ function PhoneLogin() {
     setResetPhone(''); setOtp(''); setNewPw('');
   };
 
+  // A rAF-starved renderer freezes the enter animations at opacity 0 — a
+  // blank login gate. Re-arm per view so each panel gets its own deadline.
+  const stallGuard = useAnimationStallGuard<HTMLDivElement>([view]);
+
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div ref={stallGuard} className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border/30 bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-4xl items-center px-4 sm:px-6">
           <a href="/" className="opacity-70 hover:opacity-100 transition-opacity"><Logo /></a>
@@ -192,11 +197,11 @@ function PhoneLogin() {
 
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
-          <AnimatePresence mode="wait">
+          <AnimatePresence>
 
             {/* ── Sign in ── */}
             {view === 'login' && (
-              <motion.div key="login" variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6">
+              <motion.div key="login" variants={stagger} initial="hidden" animate="show" className="space-y-6">
                 <motion.div variants={fadeUp} className="space-y-1.5">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Store Partner Portal</p>
                   <h1 className="text-3xl font-bold tracking-tight text-foreground">Sign in</h1>
@@ -263,7 +268,7 @@ function PhoneLogin() {
 
             {/* ── Forgot: enter phone ── */}
             {view === 'forgot_phone' && (
-              <motion.div key="forgot_phone" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+              <motion.div key="forgot_phone" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                 <div className="space-y-1.5">
                   <button onClick={backToLogin} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
                     <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
@@ -310,7 +315,7 @@ function PhoneLogin() {
 
             {/* ── Forgot: enter OTP + new password ── */}
             {view === 'forgot_otp' && (
-              <motion.div key="forgot_otp" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+              <motion.div key="forgot_otp" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                 <div className="space-y-1.5">
                   <button onClick={() => { setView('forgot_phone'); setError(null); }}
                     className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
@@ -948,7 +953,7 @@ function ClaimModal({ store, onClose, claimMonthKey, claimAmountPaise }: {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <motion.div
         initial={{ opacity: 0, y: 32 }} animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 32 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
         className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 space-y-5"
       >
         {sent ? (
@@ -1241,8 +1246,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
     });
   };
 
+  // A rAF-starved renderer freezes the welcome banner and tab panels at
+  // opacity 0. Re-arm on every content swap so each gets a fresh deadline.
+  const stallGuard = useAnimationStallGuard<HTMLDivElement>([tab, claimOpen]);
+
   return (
-    <div className="min-h-screen bg-background">
+    <div ref={stallGuard} className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-border/30 bg-background/95 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6">
@@ -1338,10 +1347,10 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
         </div>
 
         {/* Tab content */}
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
 
           {tab === 'overview' && (
-            <motion.div key="ov" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
+            <motion.div key="ov" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
               {/* Timeline — dynamic based on onboardingStage + deviceCount */}
               {(() => {
@@ -1437,7 +1446,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           )}
 
           {tab === 'earnings' && (
-            <motion.div key="earn" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
+            <motion.div key="earn" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
 
               {/* Single-line stats */}
               <div className="rounded-2xl border border-border bg-card px-5 py-3 flex items-center divide-x divide-border">
@@ -1471,7 +1480,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           )}
 
           {tab === 'flyers' && (
-            <motion.div key="fly" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
+            <motion.div key="fly" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
               <div className="rounded-2xl border border-border bg-card p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-bold text-foreground">Active flyers</h2>
@@ -1497,31 +1506,31 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
           )}
 
           {tab === 'voicebill' && (
-            <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key="vb" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
               <VoiceBillTab storeId={storeData.id} storeName={storeData.storeName} upiId={storeData.upiId} token={storeData.token} />
             </motion.div>
           )}
 
           {tab === 'offers' && (
-            <motion.div key="offers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key="offers" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
               <OffersTab />
             </motion.div>
           )}
 
           {tab === 'flyergen' && (
-            <motion.div key="flyergen" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key="flyergen" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
               <FlyerTab storeName={storeData.storeName} />
             </motion.div>
           )}
 
           {tab === 'settings' && (
-            <motion.div key="set" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key="set" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
               <OffersAndPayoutSettings store={storeData} onSaved={(patch) => setStoreData((p) => ({ ...p, ...patch }))} />
             </motion.div>
           )}
 
           {tab === 'kyc' && (
-            <motion.div key="kyc" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key="kyc" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
               <KycTab />
             </motion.div>
           )}

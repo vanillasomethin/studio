@@ -732,6 +732,28 @@ function StoreSlotSettings({ store, campaigns, fillers, defaultFiller, onClose, 
             <span className="text-[10px] text-muted-foreground">— screen runs the fixed ad loop instead of its schedules</span>
           </label>
 
+          {/* Deliberately OUTSIDE the slot-mode block below: a tier is what
+              brands pay per slot here and what the partner is paid, and it has
+              to be settable on a store that has not been switched into slot
+              mode yet — which is every store ops has just onboarded. Also
+              editable from Admin → Stores → Edit, where onboarding happens. */}
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+              Pricing tier <span className="font-normal normal-case tracking-normal text-muted-foreground/70">— price per slot, and the store's payout</span>
+            </label>
+            <div className="flex gap-1.5">
+              {SLOT_TIERS.map((t) => (
+                <button key={t} onClick={() => setTier(t)}
+                  className={`flex-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition-colors ${
+                    tier === t ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground/70'
+                  }`}>
+                  {TIER_LABEL[t]}<br />₹{SLOT_TIER_RATE_RUPEES[t].toLocaleString('en-IN')}/slot
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">Not shown to the store partner — their dashboard only shows the resulting payout total.</p>
+          </div>
+
           <div className={enabled ? '' : 'opacity-40 pointer-events-none'}>
             <div className="space-y-3">
               <div>
@@ -746,23 +768,6 @@ function StoreSlotSettings({ store, campaigns, fillers, defaultFiller, onClose, 
                     Reducing from {store.loopSlotCount}. Upcoming bookings above slot {count} move down into free slots automatically, and the brands see it on their dashboard. Only a day with more bookings than {count} will block the change.
                   </p>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
-                  Pricing tier <span className="font-normal normal-case tracking-normal text-muted-foreground/70">— price per slot, and the store's payout</span>
-                </label>
-                <div className="flex gap-1.5">
-                  {SLOT_TIERS.map((t) => (
-                    <button key={t} onClick={() => setTier(t)}
-                      className={`flex-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition-colors ${
-                        tier === t ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground/70'
-                      }`}>
-                      {TIER_LABEL[t]}<br />₹{SLOT_TIER_RATE_RUPEES[t].toLocaleString('en-IN')}/slot
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">Not shown to the store partner — their dashboard only shows the resulting payout total.</p>
               </div>
 
               <div>
