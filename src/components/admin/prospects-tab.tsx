@@ -106,7 +106,14 @@ export default function ProspectsTab() {
     (async () => {
       const L = (await import('leaflet')).default;
       if (cancelled || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: true }).setView(MANGALURU, 13);
+      // Keeps its own basemap (see the note above) but not Leaflet's rAF tile
+      // fade: a throttled renderer never runs the frame callback that walks a
+      // tile up to opacity 1, so the prospects would float on white. Same
+      // reason as createAliveMap — read the note at the top of
+      // src/lib/alive-map.ts.
+      const map = L.map(containerRef.current, {
+        zoomControl: true, scrollWheelZoom: true, fadeAnimation: false,
+      }).setView(MANGALURU, 13);
       L.tileLayer(PINNING_BASEMAP.url, {
         attribution: PINNING_BASEMAP.attribution, maxZoom: PINNING_BASEMAP.maxZoom,
       }).addTo(map);
