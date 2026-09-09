@@ -1,5 +1,16 @@
 # ALIVE Store — Android Deployment
 
+> **Where this app is today:** package `in.wearealive.store`, Expo SDK 54, EAS
+> project `@vs-collective-llp/alive-store`
+> (`c71c9af8-9f0f-479e-b267-8a767b053692`), live on Play **internal testing** at
+> version 1.1.0 / versionCode 6.
+>
+> `google-services.json` is the project-wide config for the `alive-player`
+> Firebase project, so it carries client entries for all three Android apps —
+> the retired original partner package, `in.wearealive.player` (the TV player)
+> and `in.wearealive.store` (this app). The old package name appearing in there
+> is expected and correct; don't "fix" it.
+
 ## Prerequisites
 
 | Requirement | Notes |
@@ -124,7 +135,7 @@ You only need this when you:
 - Change `app.json`'s `android` config (permissions, package name, icon, etc.)
 - Upgrade the Expo SDK / React Native version
 - Change `runtimeVersion` (this happens automatically with `policy: "appVersion"`
-  whenever you bump `version` in `app.json` — so bump `versionCode` too)
+  whenever you bump `version` in `app.json`)
 
 ```json
 "version": "1.1.0",     ← bump for a new runtimeVersion (native change)
@@ -176,7 +187,7 @@ via Expo's push API — no server-side FCM key needed.
 succeeds but no notification ever arrives):**
 
 1. In the Firebase console (the same ALIVE project the TV player uses is fine),
-   add an Android app with package `com.partner.alive` and download its
+   add an Android app with package `in.wearealive.store` and download its
    `google-services.json` into `store-app/`. `app.json` already references it
    (`android.googleServicesFile`), so **every** Android build now fails loudly
    until the file exists — that's intended. It is client config (it ships
@@ -184,7 +195,7 @@ succeeds but no notification ever arrives):**
    is the secret one that must never be committed.
 2. Upload the FCM V1 service-account key to EAS so Expo's push service may send
    through your Firebase project: `npx eas credentials` → Android →
-   `com.partner.alive` → Google Service Account → "Set up FCM V1".
+   `in.wearealive.store` → Google Service Account → "Set up FCM V1".
 3. Rebuild the APK (`npm run build:android`). Expo Go cannot receive remote
    push on Android SDK 52+ — only EAS builds can.
 

@@ -1,4 +1,4 @@
-// Expo push sender for the partner mobile app (store-app, com.partner.alive).
+// Expo push sender for the partner mobile app (store-app, in.wearealive.store).
 //
 // The partner app is a React Native/Expo build, so browser web-push can never
 // reach it — Expo's push service is its only channel. Tokens live in the same
