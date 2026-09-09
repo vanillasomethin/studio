@@ -960,11 +960,16 @@ function StepAgreement({
 }
 
 function StepPayment({
-  data, onSuccess, onConfirm, onBack, isTrial,
+  data, onSuccess, onConfirm, onCouponChange, onBack, isTrial,
 }: {
   data: OnboardingFormData;
   onSuccess: (paymentId: string, orderId: string, chargedTotal: number) => void;
-  onConfirm: (effectivePricePerScreen: number, totalRupees: number) => Promise<string | null>;
+  onConfirm: (effectivePricePerScreen: number, totalRupees: number, couponCode?: string) => Promise<string | null>;
+  /** Mirrors the applied promo up to the page, which stamps it into the
+   *  payment-step draft — the dashboard's pending-payment card charges from
+   *  that draft, and a code that only ever lived in this component's state
+   *  was quoted here and silently missing there. */
+  onCouponChange: (code: string) => void;
   onBack: () => void;
   isTrial?: boolean;
 }) {
@@ -994,6 +999,9 @@ function StepPayment({
   const subtotal       = Math.max(0, baseSubtotal - promoDiscount);
   const gstAmount      = Math.round(subtotal * 0.18);
   const total          = isTrial ? 0 : subtotal + gstAmount;
+
+  // See onCouponChange — the saved draft must always carry the code being quoted.
+  useEffect(() => { onCouponChange(promoCode); }, [promoCode, onCouponChange]);
 
   // Validate the code server-side against the admin-managed coupon list.
   const applyPromo = async () => {
@@ -1041,7 +1049,6 @@ function StepPayment({
           months:     data.months,
           storeIds:   data.preferredStoreIds.length > 0 ? data.preferredStoreIds : undefined,
           couponCode: promoCode || undefined,
-          applyGst:   true,
           receipt:    `alive_${Date.now()}`,
           notes:      { brand: data.brandName, email: data.email, screens: data.screens, months: data.months },
         }),
@@ -1282,8 +1289,30 @@ function StepPayment({
               disabled={!!loading}
               onClick={async () => {
                 setLoading('confirm'); setError(null);
-                const err = await onConfirm(pricePerScreen, total);
-                if (err) { setError(err); setLoading(false); }
+                const err = await onConfirm(pricePerScreen, total, promoCode || undefined);
+                if (err) {
+                  // A save refused because the applied code died between apply
+                  // and confirm (expired, cap filled) would otherwise leave a
+                  // Confirm button that can only fail — re-check the code, and
+                  // if it is dead, drop it so the total re-quotes honestly.
+                  if (appliedCoupon) {
+                    try {
+                      const res = await fetch('/api/coupons/validate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: appliedCoupon.code, subtotal: baseSubtotal }),
+                      });
+                      const check = await res.json() as { valid: boolean };
+                      if (!check.valid) {
+                        setAppliedCoupon(null);
+                        setError(`Promo code ${appliedCoupon.code} is no longer valid — it has been removed and the total updated. Please confirm again.`);
+                        setLoading(false);
+                        return;
+                      }
+                    } catch { /* couldn't re-check — surface the original error */ }
+                  }
+                  setError(err); setLoading(false);
+                }
               }}
               className="relative w-full overflow-hidden rounded-xl bg-primary px-6 py-4 font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
             >
@@ -1584,6 +1613,10 @@ function BrandOnboardingInner() {
   const [paymentId, setPaymentId] = useState('');
   const [orderId,   setOrderId]   = useState('');
   const [chargedTotal, setChargedTotal] = useState(0);
+  // The promo applied on the payment step, mirrored up so the draft saved
+  // below carries it — the dashboard's pending-payment card charges from that
+  // draft and must honour (or loudly drop) the code the quote was built with.
+  const [payCoupon, setPayCoupon] = useState('');
 
   // Restore a pending campaign if the user left during payment and came back
   // signed in.
@@ -1631,10 +1664,10 @@ function BrandOnboardingInner() {
   useEffect(() => {
     if (step === 5) {
       try {
-        localStorage.setItem(PENDING_KEY, JSON.stringify({ form, savedAt: Date.now() }));
+        localStorage.setItem(PENDING_KEY, JSON.stringify({ form, couponCode: payCoupon || undefined, savedAt: Date.now() }));
       } catch { /* ignore */ }
     }
-  }, [step, form]);
+  }, [step, form, payCoupon]);
 
   const showIndicator = step >= 2 && step <= 5;
 
@@ -1646,6 +1679,7 @@ function BrandOnboardingInner() {
   const saveCampaign = async (
     effectivePricePerScreen: number,
     status: 'upcoming' | 'pending_payment' | 'trial', totalAmount: number,
+    couponCode?: string,
   ): Promise<string | null> => {
     try {
       const res = await fetch('/api/campaigns/save', {
@@ -1664,6 +1698,9 @@ function BrandOnboardingInner() {
           totalAmount,
           status,
           preferredStoreIds: form.preferredStoreIds,
+          // The promo the quoted total honours — the route re-validates it and
+          // keeps it on the row so the eventual charge re-applies it.
+          couponCode,
           // Evidence of agreement — the route refuses a booking without it.
           agreementVersion:    form.acceptedAgreement?.version,
           agreementAcceptedAt: form.acceptedAgreement?.at,
@@ -1678,8 +1715,8 @@ function BrandOnboardingInner() {
     }
   };
 
-  const handleConfirmBooking = async (effectivePricePerScreen: number, totalRupees: number): Promise<string | null> => {
-    const err = await saveCampaign(effectivePricePerScreen, isTrial ? 'trial' : 'pending_payment', totalRupees);
+  const handleConfirmBooking = async (effectivePricePerScreen: number, totalRupees: number, couponCode?: string): Promise<string | null> => {
+    const err = await saveCampaign(effectivePricePerScreen, isTrial ? 'trial' : 'pending_payment', totalRupees, couponCode);
     if (err) return err;
     setPaymentId('');
     setChargedTotal(totalRupees);
@@ -1743,7 +1780,7 @@ function BrandOnboardingInner() {
                 <StepAgreement data={form} onChange={update} onNext={next} onBack={back} isTrial={isTrial} />
               )}
               {step === 5 && (
-                <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onBack={back} isTrial={isTrial} />
+                <StepPayment data={form} onSuccess={handlePaymentSuccess} onConfirm={handleConfirmBooking} onCouponChange={setPayCoupon} onBack={back} isTrial={isTrial} />
               )}
               {step === 6 && <StepDone data={form} paymentId={paymentId} chargedTotal={chargedTotal} isTrial={isTrial} />}
             </motion.div>

@@ -22,7 +22,7 @@ import {
 import { SLOT_WINDOWS, type WindowId } from '@/lib/slot-windows';
 import { toast } from 'sonner';
 import { Drawer } from 'vaul';
-import { asTier, campaignBaseForCount, campaignBaseForStores, storeMonthlyPrice } from '@/lib/brand-pricing';
+import { asTier, campaignBaseForCount, campaignBaseForStores, campaignTotal, storeMonthlyPrice } from '@/lib/brand-pricing';
 import {
   BRAND_AGREEMENT_EXECUTION_NOTE, BRAND_AGREEMENT_TITLE, BRAND_AGREEMENT_VERSION,
   acceptBrandAgreement, brandAgreementClauses,
@@ -38,6 +38,9 @@ type Campaign = {
   creativeUrls?: string[];
   /** Stores this campaign booked — the basis its charge is computed from. */
   preferredStoreIds?: string[];
+  /** Promo stored on a pay-later row — must ride along to create-order when
+   *  the campaign is eventually charged, or the discount silently vanishes. */
+  couponCode?: string | null;
 };
 
 type Analytics = {
@@ -125,6 +128,10 @@ function deriveCampaignStatus(c: Campaign): Campaign['status'] {
   const end   = addMonths(start, c.months);
   const now   = new Date();
   if (now > end)   return 'completed';
+  // An unpaid booking is not live whatever its dates say — deriving from the
+  // window alone showed pay-later campaigns as active, counted their screens
+  // into the summary, and left the amber pending chip below unreachable.
+  if (c.status === 'pending_payment') return 'pending_payment';
   if (c.status === 'trial') return 'trial';
   if (now < start) return 'upcoming';
   return 'active';
@@ -239,7 +246,7 @@ function CampaignCard({ c, sheetsConnected, analytics }: { c: Campaign; sheetsCo
           <p className="text-xs text-muted-foreground mt-0.5">{startFormatted} → {endFormatted}</p>
         </div>
         <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shrink-0 ${STATUS_STYLES[status]}`}>
-          {STATUS_ICONS[status]} {status}
+          {STATUS_ICONS[status]} {status.replace('_', ' ')}
         </span>
       </div>
 
@@ -1429,6 +1436,9 @@ type PendingForm = {
    *  persists its whole form here — so this card can price the booking the same
    *  way the server will, instead of guessing from the screen count. */
   preferredStoreTiers?: Record<string, string>;
+  /** Promo applied on the payment step, carried beside the form in the draft —
+   *  it was quoted there, so this card must honour it (or loudly drop it). */
+  couponCode?: string;
 };
 
 // Pricing comes from the shared lib — no local price tables (see brand-pricing.ts).
@@ -1452,19 +1462,56 @@ function PendingPaymentCard({
 }) {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
+  // The draft's promo, re-resolved against the live coupon list below. A dead
+  // code flips couponDropped and the card re-prices at full rate — surfaced
+  // here, never as a silent jump inside the Razorpay modal.
+  const [discount,      setDiscount]      = useState(0);
+  const [couponDropped, setCouponDropped] = useState(false);
+  // Set when create-order's recomputed charge disagrees with the total shown.
+  // The card corrects itself to the server's figure and asks for another tap —
+  // checkout never opens on a number the buyer hasn't seen.
+  const [serverTotal,   setServerTotal]   = useState<number | null>(null);
 
-  // Price the booking exactly as create-order will: from the tiers of the stores
-  // that were picked. Deriving it from the screen count alone would understate
-  // every Growth/Flagship booking — a 3-Flagship campaign would read ₹3,000 and
-  // then be charged ₹9,000. Legacy entries saved before tiers were captured fall
-  // back to the Standard count rate, which is what they were quoted anyway.
+  const couponCode = couponDropped ? undefined : pending.couponCode;
+
+  // Price the booking exactly as create-order will: from the tiers of the
+  // stores that were picked (deriving from the screen count alone would
+  // understate every Growth/Flagship booking — a 3-Flagship campaign would
+  // read ₹3,000 and then be charged ₹9,000; legacy entries saved before tiers
+  // were captured fall back to the Standard count rate they were quoted at),
+  // minus the promo, plus GST — the same recipe the accepted quote was built
+  // with. The server's own figure wins once it has spoken.
   const pickedTiers    = (pending.preferredStoreIds ?? [])
     .map((id) => asTier(pending.preferredStoreTiers?.[id]));
-  const total          = pickedTiers.length > 0
+  const baseSubtotal   = pickedTiers.length > 0
     ? campaignBaseForStores(pickedTiers, pending.months)
     : campaignBaseForCount(pending.screens, pending.months);
-  const pricePerScreen = Math.round(total / Math.max(1, pending.screens) / Math.max(1, pending.months));
+  const pricePerScreen = Math.round(baseSubtotal / Math.max(1, pending.screens) / Math.max(1, pending.months));
+  const total          = serverTotal
+    ?? campaignTotal({ screens: pending.screens, months: pending.months, tiers: pickedTiers, discount, applyGst: true });
   const fmtLocal       = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+  // Re-resolve the draft's promo for the displayed price. Validity can change
+  // between booking and payment (expiry, redemption cap), and pricing from the
+  // code's remembered value would quote a discount create-order no longer
+  // grants. create-order re-validates regardless; this keeps the card's number
+  // and the charge in step, and says so when the code has died.
+  useEffect(() => {
+    if (!pending.couponCode) return;
+    let live = true;
+    fetch('/api/coupons/validate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: pending.couponCode, subtotal: baseSubtotal }),
+    })
+      .then((r) => r.json() as Promise<{ valid: boolean; discount?: number }>)
+      .then((v) => {
+        if (!live) return;
+        if (v.valid) setDiscount(v.discount ?? 0);
+        else { setCouponDropped(true); setDiscount(0); }
+      })
+      .catch(() => { /* undiscounted display; the pre-checkout reconcile still guards the charge */ });
+    return () => { live = false; };
+  }, [pending.couponCode, baseSubtotal]);
 
   const handlePay = async () => {
     setLoading(true); setError(null);
@@ -1472,19 +1519,39 @@ function PendingPaymentCard({
       await loadRazorpay();
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // Server recomputes the charge from screens/months (no GST on this
-        // pay-later flow, preserving existing behaviour).
-        // The booked stores set the price — without them create-order falls back
-        // to the Standard count rate and a Flagship campaign settles at a third
-        // of what it agreed to.
+        // Server recomputes the charge. The booked stores set the price —
+        // without them create-order falls back to the Standard count rate and
+        // a Flagship campaign settles at a third of what it agreed to. The
+        // draft's promo rides along to be re-validated there, and GST is
+        // always applied — the recipe the accepted quote was built with.
         body: JSON.stringify({
           screens: pending.screens, months: pending.months,
           storeIds: pending.preferredStoreIds?.length ? pending.preferredStoreIds : undefined,
-          applyGst: false, receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName },
+          couponCode: couponCode || undefined,
+          receipt: `alive_${Date.now()}`, notes: { brand: pending.brandName },
         }),
       });
-      const body = await res.json() as { id?: string; amount?: number; error?: string };
+      const body = await res.json() as { id?: string; amount?: number; error?: string; notes?: Record<string, string> };
       if (!res.ok) throw new Error(body.error ?? 'Could not create order');
+
+      // Reconcile before anything opens: the figure on the button must be the
+      // figure Razorpay takes. They drift when the promo died since this card
+      // rendered, a store's tier changed, or a stale draft was priced under
+      // older rules — correct the card, say so, and let the buyer tap again on
+      // the honest number.
+      const chargedRupees = Math.round((body.amount ?? 0) / 100);
+      if (chargedRupees !== total) {
+        const promoDied = !!couponCode && !body.notes?.alive_coupon;
+        if (promoDied) { setCouponDropped(true); setDiscount(0); }
+        setServerTotal(chargedRupees);
+        setError(
+          promoDied
+            ? `Promo code ${couponCode} is no longer valid — the total is now ${fmtLocal(chargedRupees)}. Tap again to continue.`
+            : `The total for this booking is now ${fmtLocal(chargedRupees)}. Tap again to continue.`,
+        );
+        setLoading(false);
+        return;
+      }
 
       type RzpC = new (o: Record<string, unknown>) => { open: () => void; on: (e: string, cb: (r: { error: { description: string } }) => void) => void };
       const options = {
@@ -1497,7 +1564,7 @@ function PendingPaymentCard({
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ...response,
-              campaign: { ...pending, pricePerScreen, totalAmount: total },
+              campaign: { ...pending, pricePerScreen, totalAmount: chargedRupees },
             }),
           });
           const result = await verify.json() as { success: boolean };
@@ -1505,7 +1572,7 @@ function PendingPaymentCard({
           localStorage.removeItem(PENDING_KEY);
           const newCampaign: Campaign = {
             id: `campaign_${Date.now()}`, ...pending, brandName: pending.brandName,
-            pricePerScreen, totalAmount: total,
+            pricePerScreen, totalAmount: chargedRupees,
             paymentId: response.razorpay_payment_id,
             orderId:   response.razorpay_order_id,
             status:    'active',
@@ -1559,6 +1626,17 @@ function PendingPaymentCard({
           </div>
         ))}
       </div>
+
+      {discount > 0 && !couponDropped && (
+        <p className="text-xs font-semibold text-green-700">
+          Promo {pending.couponCode} applied — {fmtLocal(discount)} off, included in the total.
+        </p>
+      )}
+      {couponDropped && pending.couponCode && (
+        <p className="text-xs font-semibold text-amber-600">
+          Promo code {pending.couponCode} is no longer valid — the total shows the full price.
+        </p>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -1660,10 +1738,9 @@ function NewCampaignModal({
       const res  = await fetch('/api/razorpay/create-order', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // Server recomputes the charge from screens/months (+18% GST, as today).
+          // Server recomputes the charge from screens/months (+18% GST, always).
           screens:  modalForm.screens,
           months:   modalForm.months,
-          applyGst: true,
           receipt:  `alive_${Date.now()}`,
           notes:    { brand: prefill.brandName, email: prefill.email, screens: modalForm.screens, months: modalForm.months },
         }),
@@ -2177,7 +2254,12 @@ export default function DashboardPage() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(PENDING_KEY);
-      if (saved) setPending((JSON.parse(saved) as { form: PendingForm }).form);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as { form: PendingForm; couponCode?: string };
+      // The promo travels beside the form in the draft (see the payment-step
+      // save in brand-onboarding) — fold it in so this card quotes exactly
+      // what the payment step quoted.
+      setPending({ ...parsed.form, couponCode: parsed.couponCode });
     } catch { /* ignore */ }
   }, []);
 
