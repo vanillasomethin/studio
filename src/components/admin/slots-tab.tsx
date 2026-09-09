@@ -15,8 +15,11 @@ import {
   type SlotStore, type SlotBookingRow, type SlotLoopEntry, type BulkAssignResult, type Playlist,
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { toast } from '@/hooks/use-toast';
 import { SLOT_TIERS, SLOT_TIER_RATE_RUPEES, type SlotTier } from '@/lib/slot-pricing';
+import { ContentThumb, ContentPickerField, type ContentLike } from './content-picker';
+import { PlaylistPickerField } from './playlist-picker';
 
 const TIER_LABEL: Record<SlotTier, string> = { standard: 'Standard', growth: 'Growth', flagship: 'Flagship' };
 
@@ -40,6 +43,7 @@ type FillerRow = {
   name: string;
   active: boolean;
   contentId: string | null;
+  content: ContentLike | null;
   playlist: { id: string; name: string; itemCount: number } | null;
   isDefault: boolean;
 };
@@ -48,6 +52,56 @@ type FillerRow = {
 const spanOf = (c: AdminCampaign | undefined) => c?.slotSpan ?? 1;
 const spanLabel = (c: AdminCampaign) =>
   c.slotSpan == null ? 'mixed lengths' : `${c.slotSpan * 10}s${c.slotSpan > 1 ? ` · ${c.slotSpan} slots/play` : ''}`;
+
+/** Radio-list campaign picker, shared by the per-slot assign popover and the
+ *  bulk-booking wizard's step 1 — same status badges either way (colour and
+ *  shape, not a name buried in <option> text). */
+function CampaignPickerList({ campaigns, value, onChange, clearLabel }: {
+  campaigns: AdminCampaign[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+  /** Shown as a dismiss row above the list — omit where a pick is required (bulk wizard step 1). */
+  clearLabel?: string;
+}) {
+  if (campaigns.length === 0) return <p className="text-[11px] text-muted-foreground">No campaigns yet.</p>;
+  return (
+    <div className="max-h-56 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+      {clearLabel && (
+        <button
+          onClick={() => onChange(null)}
+          className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${!value ? 'bg-primary/5' : 'hover:bg-muted/20'}`}
+        >
+          <span className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${!value ? 'border-primary bg-primary' : 'border-border bg-background'}`} />
+          <span className="flex-1 text-[11px] text-muted-foreground">{clearLabel}</span>
+        </button>
+      )}
+      {campaigns.map((c) => {
+        const on = value === c.id;
+        return (
+          <button key={c.id} onClick={() => onChange(c.id)}
+            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${on ? 'bg-primary/5' : 'hover:bg-muted/20'}`}>
+            <span className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${on ? 'border-primary bg-primary' : 'border-border bg-background'}`} />
+            <span className="flex-1 min-w-0">
+              <span className="block truncate text-[11px] font-semibold text-foreground">{c.brandName}</span>
+              <span className="block text-[9px] text-muted-foreground capitalize">{c.status}{c.preferredStores?.length ? ` · ${c.preferredStores.length} brand-picked store${c.preferredStores.length === 1 ? '' : 's'}` : ''}</span>
+            </span>
+            {c.slotSpan == null && hasSlotCreative(c) ? (
+              <span className="shrink-0 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-700" title={c.slotSpanError ?? undefined}>mixed lengths</span>
+            ) : c.slotPlaylist && c.slotPlaylist.mediaItems > 0 ? (
+              <span className="flex shrink-0 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                <ListVideo className="h-3 w-3" />{c.slotPlaylist.mediaItems} rotating · {spanLabel(c)}
+              </span>
+            ) : c.slotContentId ? (
+              <span className="shrink-0 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[9px] font-bold text-green-800">{spanLabel(c)} creative</span>
+            ) : (
+              <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">no creative</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 const DAY_MS = 86_400_000;
 const WINDOW_DAYS = 14;
@@ -283,6 +337,7 @@ function SlotEditor({ store, date, campaigns, slotStores, onClose, onChanged }: 
   const [loading,  setLoading]  = useState(true);
   const [busy,     setBusy]     = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const load = useCallback(() => {
     getSlotBookings(store.id, date)
@@ -422,17 +477,29 @@ function SlotEditor({ store, date, campaigns, slotStores, onClose, onChanged }: 
                 )}
 
                 <div className="flex items-center gap-2">
-                  <select
-                    value={selBooking?.campaignId ?? ''}
-                    disabled={busy === selected}
-                    onChange={(e) => e.target.value ? assign(selected, e.target.value) : selBooking && unassign(selBooking)}
-                    className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] text-foreground focus:border-primary focus:outline-none"
-                  >
-                    <option value="">— leave open —</option>
-                    {sellable.map((c) => (
-                      <option key={c.id} value={c.id}>{c.brandName}{hasSlotCreative(c) ? '' : ' (no creative)'}</option>
-                    ))}
-                  </select>
+                  <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={busy === selected}
+                        className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-left text-[11px] text-foreground transition-colors hover:border-primary/40 disabled:opacity-50"
+                      >
+                        {selBooking ? campaignName(selBooking.campaignId) : '— leave open —'}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80 p-2" align="start">
+                      <CampaignPickerList
+                        campaigns={sellable}
+                        value={selBooking?.campaignId ?? null}
+                        clearLabel="— leave open —"
+                        onChange={(id) => {
+                          setPickerOpen(false);
+                          if (id) assign(selected, id);
+                          else if (selBooking) unassign(selBooking);
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
                   {busy === selected && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                 </div>
               </div>
@@ -616,6 +683,7 @@ function StoreSlotSettings({ store, campaigns, fillers, defaultFiller, onClose, 
   const [filler,   setFiller]   = useState(store.fillerCreativeId ?? '');
   const [tier,     setTier]     = useState(store.slotPricingTier || 'standard');
   const [saving,   setSaving]   = useState(false);
+  const [fillerPickerOpen, setFillerPickerOpen] = useState(false);
 
   // Mirrors resolveFillerCampaign on the server: per-store override, else the
   // fleet default, and the filler must be active with a playable creative.
@@ -732,17 +800,51 @@ function StoreSlotSettings({ store, campaigns, fillers, defaultFiller, onClose, 
 
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">House filler</label>
-                <select value={filler} onChange={(e) => setFiller(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary">
-                  <option value="">Use the fleet default{defaultFiller ? '' : ' (none set)'}</option>
-                  {fillers.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                      {f.active ? '' : ' (off)'}
-                      {f.contentId || (f.playlist?.itemCount ?? 0) > 0 ? '' : ' (no creative)'}
-                    </option>
-                  ))}
-                </select>
+                <Popover open={fillerPickerOpen} onOpenChange={setFillerPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:border-primary/40"
+                    >
+                      {filler ? (
+                        <ContentThumb content={fillers.find((f) => f.id === filler)?.content ?? null} className="h-6 w-9" />
+                      ) : null}
+                      <span className="flex-1 truncate">
+                        {filler ? fillers.find((f) => f.id === filler)?.name ?? filler : `Use the fleet default${defaultFiller ? '' : ' (none set)'}`}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 p-2" align="start">
+                    <button
+                      onClick={() => { setFiller(''); setFillerPickerOpen(false); }}
+                      className={`mb-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${!filler ? 'bg-primary/5' : 'hover:bg-muted/20'}`}
+                    >
+                      <span className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${!filler ? 'border-primary bg-primary' : 'border-border bg-background'}`} />
+                      <span className="text-[11px] text-muted-foreground">Use the fleet default{defaultFiller ? '' : ' (none set)'}</span>
+                    </button>
+                    <div className="max-h-56 space-y-1 overflow-y-auto">
+                      {fillers.map((f) => {
+                        const on = filler === f.id;
+                        const playable = !!f.contentId || (f.playlist?.itemCount ?? 0) > 0;
+                        return (
+                          <button
+                            key={f.id}
+                            onClick={() => { setFiller(f.id); setFillerPickerOpen(false); }}
+                            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${on ? 'bg-primary/5' : 'hover:bg-muted/20'}`}
+                          >
+                            <ContentThumb content={f.content} className="h-8 w-12" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-semibold text-foreground">{f.name}{!f.active ? ' (off)' : ''}</span>
+                              <span className="block text-[9px] text-muted-foreground">
+                                {playable ? (f.playlist ? `${f.playlist.itemCount} item playlist` : 'single creative') : 'no creative'}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <p className="mt-1 text-[10px] text-muted-foreground">Plays only when nothing is sold for the day.</p>
                 {enabled && !fillerPlayable && (
                   <div className="mt-1.5 flex gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 px-2.5 py-2">
@@ -1000,44 +1102,18 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
             <>
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Campaign</label>
-                {sellable.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">No campaigns yet.</p>
-                ) : (
-                  <div className="rounded-xl border border-border max-h-56 overflow-y-auto divide-y divide-border">
-                    {sellable.map((c) => {
-                      const on = campaignId === c.id;
-                      return (
-                        <button key={c.id}
-                          onClick={() => {
-                            if (campaignId === c.id) return;
-                            setCampaignId(c.id);
-                            // A different campaign means a different booking: drop the
-                            // old selection so ITS brand picks pre-tick on step 2.
-                            setSel(new Set());
-                            setPreselectedFor(null);
-                          }}
-                          className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${on ? 'bg-primary/5' : 'hover:bg-muted/20'}`}>
-                          <span className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${on ? 'border-primary bg-primary' : 'border-border bg-background'}`} />
-                          <span className="flex-1 min-w-0">
-                            <span className="block truncate text-[11px] font-semibold text-foreground">{c.brandName}</span>
-                            <span className="block text-[9px] text-muted-foreground capitalize">{c.status}{c.preferredStores?.length ? ` · ${c.preferredStores.length} brand-picked store${c.preferredStores.length === 1 ? '' : 's'}` : ''}</span>
-                          </span>
-                          {c.slotSpan == null && hasSlotCreative(c) ? (
-                            <span className="shrink-0 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-700" title={c.slotSpanError ?? undefined}>mixed lengths</span>
-                          ) : c.slotPlaylist && c.slotPlaylist.mediaItems > 0 ? (
-                            <span className="flex shrink-0 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
-                              <ListVideo className="h-3 w-3" />{c.slotPlaylist.mediaItems} rotating · {spanLabel(c)}
-                            </span>
-                          ) : c.slotContentId ? (
-                            <span className="shrink-0 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[9px] font-bold text-green-800">{spanLabel(c)} creative</span>
-                          ) : (
-                            <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">no creative</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <CampaignPickerList
+                  campaigns={sellable}
+                  value={campaignId}
+                  onChange={(id) => {
+                    if (!id || campaignId === id) return;
+                    setCampaignId(id);
+                    // A different campaign means a different booking: drop the
+                    // old selection so ITS brand picks pre-tick on step 2.
+                    setSel(new Set());
+                    setPreselectedFor(null);
+                  }}
+                />
               </div>
 
               {campaign && (
@@ -1063,15 +1139,14 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                           : <span className="text-amber-600">No creative yet — its slots would book as sold but play as bonus/house fill. Attach a playlist now, or set a 10s creative later:</span>}
                       </p>
                       <div className="flex items-center gap-2">
-                        <select value={attachSel} onChange={(e) => setAttachSel(e.target.value)}
-                          className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:border-primary">
-                          <option value="">— pick a playlist —</option>
-                          {playlists.map((p) => (
-                            <option key={p.id} value={p.id} disabled={mediaCount(p) === 0}>
-                              {p.name} · {mediaCount(p)} media item{mediaCount(p) === 1 ? '' : 's'}{mediaCount(p) === 0 ? ' (unplayable)' : ''}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex-1">
+                          <PlaylistPickerField
+                            playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: mediaCount(p) }))}
+                            value={attachSel || null}
+                            onChange={(id) => setAttachSel(id ?? '')}
+                            unplayable={(p) => p.itemCount === 0}
+                          />
+                        </div>
                         <button onClick={() => attachSel && attach(attachSel)} disabled={attachBusy || !attachSel}
                           className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
                           {attachBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListVideo className="h-3 w-3" />}Attach

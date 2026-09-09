@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 import { db } from '@/lib/db';
+import { publicUrl } from '@/lib/r2';
 
 type Body = {
   id?: string;
@@ -57,7 +58,14 @@ export async function GET(req: NextRequest) {
       createdAt: f.createdAt.toISOString(),
       contentId: f.contentId,
       playlistId: f.playlistId,
-      content: f.content,
+      // The card face and the picker both show a thumbnail, not just a name —
+      // publicUrl() and the lowercase type are the same conversion /api/content
+      // does for the same fields; Prisma's ContentType enum is IMAGE/VIDEO.
+      content: f.content ? {
+        ...f.content,
+        type: f.content.type.toLowerCase() as 'image' | 'video',
+        url: publicUrl(f.content.objectKey),
+      } : null,
       playlist: f.playlist ? { id: f.playlist.id, name: f.playlist.name, itemCount: f.playlist._count.items } : null,
       /** Stores that override the fleet default with this one. */
       storeCount: f._count.forStores,

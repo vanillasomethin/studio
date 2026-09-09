@@ -49,6 +49,7 @@ const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-pan
 const MapPicker        = dynamic(() => import('@/components/map-picker'),                { ssr: false });
 import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
+import { AdminTour } from '@/components/admin/admin-tour';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
 import { STORE_CATEGORIES } from '@/lib/store-categories';
 import { SLOT_TIERS, SLOT_TIER_LABEL, SLOT_TIER_RATE_RUPEES } from '@/lib/slot-pricing';
@@ -163,7 +164,7 @@ const PAGE_META: Record<Tab, { eyebrow: string; title: string }> = {
   content:    { eyebrow: 'Media library',      title: 'Content'            },
   programming:  { eyebrow: 'Screen programming', title: 'Programming'        },
   compositions: { eyebrow: 'Content delivery',   title: 'Compositions'       },
-  layouts:    { eyebrow: 'On-screen overlays', title: 'Layouts & tickers'  },
+  layouts:    { eyebrow: 'On-screen overlays', title: 'Overlays & tickers' },
   reports:    { eyebrow: 'Proof of play',      title: 'Play reports'       },
   pop:        { eyebrow: 'Proof of play',      title: 'Proof of Play'      },
   monitoring: { eyebrow: 'Live network',       title: 'Monitoring'         },
@@ -1994,47 +1995,86 @@ const NAV_DESIGN: { group: string | null; items: { id: Tab; label: string; icon:
     group: null,
     items: [
       { id: 'overview' as Tab,   label: 'Overview',         icon: LayoutDashboard, count: null },
-      { id: 'campaigns' as Tab,  label: 'Campaigns',        icon: Megaphone,       count: null },
-      { id: 'enquiries' as Tab,  label: 'Enquiries',        icon: Inbox,           count: null },
-      { id: 'compositions' as Tab, label: 'Compositions',     icon: CalendarClock,   count: null },
     ],
   },
   {
+    // Revenue pipeline + the growth levers around it: new brands, discounts to
+    // win them, new locations to expand into, and the shopper-facing QR scans
+    // that measure whether any of it is working.
+    group: 'Growth',
+    items: [
+      { id: 'campaigns' as Tab,  label: 'Campaigns',        icon: Megaphone,       count: null },
+      { id: 'enquiries' as Tab,  label: 'Enquiries',        icon: Inbox,           count: null },
+      { id: 'coupons' as Tab,    label: 'Coupons',          icon: Ticket,          count: null },
+      { id: 'prospects' as Tab,  label: 'Prospects',        icon: MapPinned,       count: null },
+      { id: 'qr' as Tab,         label: 'QR codes',         icon: QrCode,          count: null },
+    ],
+  },
+  {
+    // The physical fleet: who's hosting a screen, what's on it, and whether
+    // it's actually running.
     group: 'Network',
     items: [
       { id: 'stores' as Tab,     label: 'Store partners',  icon: Store,           count: null },
       { id: 'screens' as Tab,    label: 'Screens',          icon: Tv2,             count: null },
       { id: 'programming' as Tab, label: 'Programming',      icon: LayoutGrid,      count: null },
+      { id: 'compositions' as Tab, label: 'Compositions',     icon: CalendarClock,   count: null },
       { id: 'power' as Tab,      label: 'Power',            icon: Zap,             count: null },
       { id: 'monitoring' as Tab, label: 'Monitoring',       icon: Activity,        count: null },
-      { id: 'footfall' as Tab,   label: 'Footfall',         icon: Radar,           count: null },
-      { id: 'qr' as Tab,         label: 'QR codes',         icon: QrCode,          count: null },
     ],
   },
   {
+    // Everything that visually appears somewhere — the site, a screen, or a
+    // shopper's hand.
+    group: 'Content',
+    items: [
+      { id: 'content' as Tab,    label: 'Content',          icon: ImageIcon,       count: null },
+      { id: 'fillers' as Tab,    label: 'House content',    icon: Film,            count: null },
+      { id: 'layouts' as Tab,    label: 'Overlays',         icon: Layers,          count: null },
+      { id: 'flyers' as Tab,     label: 'Flyers',           icon: FileImage,       count: null },
+      { id: 'media' as Tab,      label: 'Media',            icon: Images,          count: null },
+    ],
+  },
+  {
+    // Money and the measurements that back it up.
     group: 'Finance',
     items: [
       { id: 'payments' as Tab,   label: 'Payouts',          icon: IndianRupee,     count: null },
-      { id: 'coupons' as Tab,    label: 'Coupons',          icon: Ticket,          count: null },
       { id: 'reports' as Tab,    label: 'Reports',          icon: FileBarChart2,   count: null },
       { id: 'pop' as Tab,        label: 'Proof of Play',    icon: MonitorPlay,     count: null },
+      { id: 'footfall' as Tab,   label: 'Footfall',         icon: Radar,           count: null },
     ],
   },
   {
+    // Settings and reference — not opened daily.
     group: 'Admin',
     items: [
-      { id: 'flyers' as Tab,     label: 'Flyers',           icon: FileImage,       count: null },
-      { id: 'layouts' as Tab,    label: 'Layouts',          icon: Layers,          count: null },
-      { id: 'media' as Tab,      label: 'Media',            icon: Images,          count: null },
-      { id: 'products' as Tab,   label: 'Products',         icon: Package,         count: null },
       { id: 'team' as Tab,       label: 'Team',             icon: Users,           count: null },
       { id: 'alerts' as Tab,     label: 'Alerts',           icon: Bell,            count: null },
-      { id: 'fillers' as Tab,    label: 'House content',    icon: Film,            count: null },
-      { id: 'prospects' as Tab,  label: 'Prospects',        icon: MapPinned,       count: null },
+      { id: 'products' as Tab,   label: 'Products',         icon: Package,         count: null },
       { id: 'roadmap' as Tab,    label: 'Platform',         icon: Map,             count: null },
     ],
   },
 ];
+
+// A few PAGE_META pairs read fine as prose on their own ("Store partners —
+// Registered stores"); a handful don't (all-caps eyebrows, or an eyebrow and
+// title that just repeat each other), so those get a hand-written line instead.
+// Everything else is generated from PAGE_META rather than duplicating 25 blurbs.
+const TOUR_OVERRIDES: Partial<Record<Tab, string>> = {
+  overview: 'Your daily snapshot — sales, fleet health, and what needs attention.',
+  pop:      'Raw proof-of-play records: every play event, exportable and auto-archived monthly.',
+  alerts:   'System status — offline screens, failed jobs, and anything else that needs eyes.',
+  roadmap:  'The ELEVATE grant roadmap, and a live map of the whole network.',
+};
+
+const TOUR_STEPS = NAV_DESIGN.flatMap((section) =>
+  section.items.map((item) => ({
+    tab: item.id,
+    group: section.group,
+    blurb: TOUR_OVERRIDES[item.id] ?? `${PAGE_META[item.id].eyebrow} — ${PAGE_META[item.id].title}.`,
+  })),
+);
 
 function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
   tab: Tab; onTab: (t: Tab) => void; onSignOut: () => void; liveCount: number; email: string | null;
@@ -2054,6 +2094,7 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
             return (
               <button
                 key={item.id}
+                data-tour-id={item.id}
                 className={`sb__item${active ? ' sb__item--active' : ''}`}
                 onClick={() => onTab(item.id)}
               >
@@ -2143,9 +2184,9 @@ const TAB_EXPORTS: Partial<Record<Tab, () => Promise<void>>> = {
   },
 };
 
-function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread, stats }: {
+function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, onOpenTour, unread, stats }: {
   tab: Tab; section: string; liveCount: number; onOpenCmd: () => void; onOpenNotif: () => void;
-  onNav: (t: Tab) => void; unread: number; stats: OpsStats | null;
+  onNav: (t: Tab) => void; onOpenTour: () => void; unread: number; stats: OpsStats | null;
 }) {
   const [exporting, setExporting] = useState(false);
   const tabExport = TAB_EXPORTS[tab];
@@ -2187,7 +2228,7 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread
       >
         <Bell className="h-4 w-4" />
       </button>
-      <button className="tb__icon-btn" title="Help" onClick={() => onNav('roadmap')}><LifeBuoy className="h-4 w-4" /></button>
+      <button className="tb__icon-btn" title="Take the tour" onClick={onOpenTour}><LifeBuoy className="h-4 w-4" /></button>
       <div className="tb__divider"></div>
       {tabExport && (
         <button className="btn btn--outline btn--sm" onClick={runExport} disabled={exporting}>
@@ -2211,7 +2252,7 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, unread
 
 // ─── Overview Panel ───────────────────────────────────────────────────────────
 
-function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
+function OverviewPanel({ onNav, onOpenTour }: { onNav: (t: Tab) => void; onOpenTour: () => void }) {
   const [stats,   setStats]   = useState<OpsStats | null>(null);
   const [devices, setDevices] = useState<DeviceRow2[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2267,6 +2308,12 @@ function OverviewPanel({ onNav }: { onNav: (t: Tab) => void }) {
               : 'ALIVE network · Mangaluru'}
           </p>
         </div>
+        <button
+          onClick={onOpenTour}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+        >
+          <LifeBuoy className="h-3.5 w-3.5" /> Take the tour
+        </button>
       </div>
 
       <SectionLabel n={1} label="Performance" />
@@ -2612,6 +2659,7 @@ function Dashboard({ email }: { email: string | null }) {
   const [refreshKey,  setRefreshKey]  = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cmdOpen,     setCmdOpen]     = useState(false);
+  const [tourOpen,    setTourOpen]    = useState(false);
   const [adminPw,     setAdminPw]     = useState('');
   const [liveCount,   setLiveCount]   = useState(0);
   const [alertCount,  setAlertCount]  = useState(0);
@@ -2713,7 +2761,7 @@ function Dashboard({ email }: { email: string | null }) {
     qr:         'QR codes',
     prospects:  'Prospect locations',
     fillers:    'House content',
-    content:    'Creatives',
+    content:    'Content',
     compositions: 'Compositions',
     stores:       'Store Partners',
     screens:      'Screens',
@@ -2725,7 +2773,7 @@ function Dashboard({ email }: { email: string | null }) {
     reports:    'Reports',
     pop:        'Proof of Play',
     flyers:     'Flyers',
-    layouts:    'Layouts',
+    layouts:    'Overlays',
     media:      'Media',
     products:   'Products',
     alerts:     'Alerts',
@@ -2744,6 +2792,7 @@ function Dashboard({ email }: { email: string | null }) {
         onOpenAlerts={openAlertsTab}
       />
       <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} email={email} />
+      <AdminTour steps={TOUR_STEPS} open={tourOpen} onOpenChange={setTourOpen} onNav={handleNav} />
 
       <main className="main">
         <Topbar
@@ -2753,6 +2802,7 @@ function Dashboard({ email }: { email: string | null }) {
           onOpenCmd={() => setCmdOpen(true)}
           onOpenNotif={() => handleNav('alerts')}
           onNav={handleNav}
+          onOpenTour={() => setTourOpen(true)}
           unread={alertCount + offlineAlertCount}
           stats={tickerStats}
         />
@@ -2769,7 +2819,7 @@ function Dashboard({ email }: { email: string | null }) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18 }}
             >
-              {tab === 'overview'   && <OverviewPanel onNav={handleNav} />}
+              {tab === 'overview'   && <OverviewPanel onNav={handleNav} onOpenTour={() => setTourOpen(true)} />}
               {tab === 'flyers'     && (
                 <div className="grid-2">
                   <div className="space-y-4">

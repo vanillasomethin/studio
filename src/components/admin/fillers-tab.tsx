@@ -15,10 +15,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Loader2, AlertCircle, Plus, Trash2, Star, Check, X, Film, ListVideo, Power,
 } from 'lucide-react';
+import { ContentThumb, ContentPickerField, type ContentLike } from './content-picker';
+import { PlaylistPickerField } from './playlist-picker';
 
-type FillerContent = {
-  id: string; name: string; type: string; durationMs: number | null; objectKey: string;
-};
+type FillerContent = ContentLike & { durationMs: number | null };
 
 type Filler = {
   id: string;
@@ -33,8 +33,8 @@ type Filler = {
   isDefault: boolean;
 };
 
-type ContentRow = { id: string; name: string; type: string; durationMs?: number };
-type PlaylistRow = { id: string; name: string; items?: { contentId: string | null }[] };
+type ContentRow = ContentLike & { durationMs?: number };
+type PlaylistRow = { id: string; name: string; itemCount: number };
 
 const SLOT_MS = 10_000;
 
@@ -65,7 +65,8 @@ export default function FillersTab() {
       setFillers(f.fillers ?? []);
       setDefaultId(f.defaultFillerId ?? null);
       setContent(Array.isArray(c) ? c : (c.content ?? []));
-      setPlaylists(Array.isArray(p) ? p : (p.playlists ?? []));
+      const rawPlaylists: { id: string; name: string; items?: unknown[] }[] = Array.isArray(p) ? p : (p.playlists ?? []);
+      setPlaylists(rawPlaylists.map((pl) => ({ id: pl.id, name: pl.name, itemCount: pl.items?.length ?? 0 })));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -212,7 +213,8 @@ export default function FillersTab() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      {f.content && <ContentThumb content={f.content} className="h-6 w-9" />}
                       {f.content
                         ? <>Single creative · <span className="text-foreground">{f.content.name}</span>
                             {!isOneSlot(f.content.durationMs) && <span className="ml-1 text-amber-600">(longer than one slot)</span>}</>
@@ -261,31 +263,22 @@ export default function FillersTab() {
                     <span className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                       <Film className="h-3 w-3" /> Single creative
                     </span>
-                    <select
-                      value={f.contentId ?? ''}
-                      onChange={(e) => patch(f.id, { contentId: e.target.value || null })}
-                      className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-xs"
-                    >
-                      <option value="">— none —</option>
-                      {content.filter((c) => isOneSlot(c.durationMs)).map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                    <ContentPickerField
+                      content={content}
+                      value={f.contentId}
+                      onChange={(id) => patch(f.id, { contentId: id })}
+                      filter={(c) => isOneSlot(c.durationMs)}
+                    />
                   </label>
                   <label className="block">
                     <span className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                       <ListVideo className="h-3 w-3" /> …or a rotating playlist
                     </span>
-                    <select
-                      value={f.playlistId ?? ''}
-                      onChange={(e) => patch(f.id, { playlistId: e.target.value || null })}
-                      className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-xs"
-                    >
-                      <option value="">— none —</option>
-                      {playlists.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
+                    <PlaylistPickerField
+                      playlists={playlists}
+                      value={f.playlistId}
+                      onChange={(id) => patch(f.id, { playlistId: id })}
+                    />
                   </label>
                 </div>
               </div>

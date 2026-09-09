@@ -18,6 +18,7 @@ import ScreenTestButton from './screen-test-button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import { PlaylistPickerField } from './playlist-picker';
 
 // ─── Diagnostic panel (unchanged) ────────────────────────────────────────────
 type DiagIssue = { level: 'ok' | 'warn' | 'error'; message: string };
@@ -312,11 +313,11 @@ function PushScheduleDialog({
           <p className="text-xs text-muted-foreground">Creates a priority-9 takeover schedule for <span className="font-bold text-foreground">{deviceIds.length} screen{deviceIds.length > 1 ? 's' : ''}</span>.</p>
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Playlist</label>
-            <select value={playlistId} onChange={(e) => setPlaylistId(e.target.value)}
-              className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all">
-              <option value="">Select a playlist…</option>
-              {playlists.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <PlaylistPickerField
+              playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items.length }))}
+              value={playlistId || null}
+              onChange={(id) => setPlaylistId(id ?? '')}
+            />
           </div>
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Duration (minutes)</label>

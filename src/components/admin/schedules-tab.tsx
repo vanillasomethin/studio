@@ -16,6 +16,7 @@ import { willLetterbox, SUGGESTED_RESOLUTION, type ScreenOrientation } from '@/l
 import { toast } from '@/hooks/use-toast';
 import ScheduleCalendar from './schedule-calendar';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PlaylistPickerField } from './playlist-picker';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
@@ -563,13 +564,11 @@ export default function SchedulesTab() {
               </div>
               <div>
                 <label className={lbl}>Playlist</label>
-                <select required value={form.playlistId}
-                  onChange={(e) => set('playlistId', e.target.value)} className={inp}>
-                  <option value="">Select a playlist</option>
-                  {playlists.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.items.length} items)</option>
-                  ))}
-                </select>
+                <PlaylistPickerField
+                  playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items.length }))}
+                  value={form.playlistId || null}
+                  onChange={(id) => set('playlistId', id ?? '')}
+                />
               </div>
             </div>
 
