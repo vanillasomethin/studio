@@ -74,12 +74,11 @@ export default function Hero() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
+                {/* Static pill, not a shared-layout one: a `layoutId` pill is
+                    placed by a framer transform that only unwinds on rAF, so a
+                    frame-starved renderer strands it off its tab. See CLAUDE.md. */}
                 {activeTab === key && (
-                  <motion.div
-                    layoutId="hero-tab"
-                    className="absolute inset-0 rounded-lg bg-white shadow-sm"
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  />
+                  <div className="absolute inset-0 rounded-lg bg-white shadow-sm" />
                 )}
                 <span className="relative">{label}</span>
               </button>

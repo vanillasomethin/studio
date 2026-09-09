@@ -328,7 +328,14 @@ When a generic control and a graphical one both work, use the graphical one.
 - Cards: white + `border border-border` — no shadow stacks
 - Headings: `tracking-tight`, `font-black` for hero numbers
 - Positive/savings: `text-green-700` on `bg-green-50`
-- Framer Motion: enter animations only (`fadeUp`, `stagger`)
+- Framer Motion: enter animations only (`fadeUp`, `stagger`). **Never `layoutId`
+  or the `layout` prop.** Shared-layout transitions place the element with a
+  transform that only unwinds on the rAF frameloop, so a frame-starved renderer
+  (backgrounded tab, suspended webview) strands the element hundreds of px from
+  where it belongs and paints it over unrelated content — the sliding selection
+  ring on brand-onboarding did exactly this. `useAnimationStallGuard` cannot
+  save these: it only clears nodes stuck *transparent*, and a stranded layout
+  element is fully opaque. An active/selected indicator is a plain `<div>`.
 
 ---
 
