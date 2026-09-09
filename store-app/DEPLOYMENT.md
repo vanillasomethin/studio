@@ -128,8 +128,13 @@ You only need this when you:
 
 ```json
 "version": "1.1.0",     ← bump for a new runtimeVersion (native change)
-"versionCode": 5         ← always increment for every Play Store upload
 ```
+
+`versionCode` is **not** in `app.json` — `eas.json` sets
+`cli.appVersionSource: "remote"`, so EAS stores the counter server-side and the
+`production` profile's `autoIncrement` bumps it on every build (5 → 6 on the
+SDK 54 upgrade). Don't hand-edit it; a local value is ignored at best and
+collides with an already-uploaded Play version at worst.
 
 Then rebuild + submit:
 
