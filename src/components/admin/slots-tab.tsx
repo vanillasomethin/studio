@@ -150,7 +150,12 @@ export default function SlotsTab() {
   const load = useCallback(() => {
     setLoading(true);
     getSlotAvailability(from, addDays(from, WINDOW_DAYS - 1))
-      .then((r) => { setStores(r.stores); setDates(r.dates); setDefaultFiller(r.defaultFillerCreativeId); setError(null); })
+      .then((r) => {
+        setStores(Array.isArray(r?.stores) ? r.stores : []);
+        setDates(Array.isArray(r?.dates) ? r.dates : []);
+        setDefaultFiller(r?.defaultFillerCreativeId ?? null);
+        setError(null);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [from]);
