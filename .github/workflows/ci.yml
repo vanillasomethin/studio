@@ -13,8 +13,17 @@
 # include is ["**/*.ts", "**/*.tsx"], so they sit outside the type-checked set
 # regardless of allowJs. Executing them is the only thing that proves they work.
 #
-# Node 22 is required: the suites import TypeScript directly (../src/lib/*.ts)
-# via --experimental-strip-types, which does not exist on Node 20.
+# Runner: tsx, not `node --experimental-strip-types`. src/lib imports its
+# siblings without file extensions (`import { db } from './db'`) — fine for the
+# Next bundler, unresolvable by Node's own ESM loader, which fails
+# verify-pop-periods and verify-tier-links with ERR_MODULE_NOT_FOUND. tsx
+# resolves them and runs on Node 20 and 22 alike.
+#
+# NOTE: this job deliberately has NO DATABASE_URL, and must not be given one.
+# verify-store-ids sweeps live Store rows when one is set and skips that section
+# when it is not (scripts/verify-store-ids.mjs). A real URL would point CI at
+# production; a dummy one only makes the sweep fail to connect. Unset is correct
+# — the suite still runs all of its pure shape checks.
 
 name: CI
 
@@ -32,13 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    env:
-      # No suite talks to a database — they are pure math. But src/lib/db.ts
-      # constructs a PrismaClient at import time and some suites reach it
-      # transitively (verify-pop-periods -> pop-export -> db), so the datasource
-      # URL merely has to parse. Nothing ever connects to this.
-      DATABASE_URL: 'postgresql://ci:ci@127.0.0.1:5432/ci'
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,21 +48,20 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      # @prisma/client is a generated package. The suites that transitively
-      # import src/lib/db.ts need it to exist; generating explicitly beats
-      # relying on an install hook. Reads prisma/schema.prisma only — no DB.
+      # @prisma/client is a generated package and verify-pop-periods reaches it
+      # transitively (pop-export -> db). Constructing a PrismaClient needs the
+      # generated code to exist; it opens no connection. Reads the schema only.
       - name: Generate Prisma client
         run: npx prisma generate
 
-      # Globbed rather than enumerated as `npm run verify:*` on purpose: two
-      # suites (verify-brand-billing, verify-store-payout) have no package.json
-      # script, so an enumerated list would silently skip 2 of 12 — the same
+      # Globbed rather than enumerated from package.json on purpose: a hardcoded
+      # list would silently skip any suite someone forgets to add — the same
       # "guard exists but never runs" failure this workflow prevents. A glob
       # cannot drift out of sync with the directory.
       #
@@ -79,7 +80,7 @@ jobs:
           failed=()
           for f in "${suites[@]}"; do
             echo "::group::$f"
-            if node --experimental-strip-types "$f"; then
+            if ./node_modules/.bin/tsx "$f"; then
               echo "--- ok"
             else
               echo "--- FAILED"
