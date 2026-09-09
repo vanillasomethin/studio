@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useAnimationStallGuard } from '@/hooks/use-animation-stall-guard';
 import { Logo } from '@/components/icons/logo';
 import type { Flyer } from '@/app/api/flyers/save/route';
 
@@ -128,6 +129,11 @@ export default function DealsPage() {
   const [error,   setError]   = useState<string | null>(null);
   const [modal,   setModal]   = useState<string | null>(null);
 
+  // rAF-starved renderers (suspended tabs, embedded webviews) freeze the enter
+  // animations at opacity 0 and blank the page. Deps: the fetch resolving
+  // mounts the grid / empty state as fresh animated nodes.
+  const stallGuard = useAnimationStallGuard<HTMLElement>([loading, error, flyers.length]);
+
   useEffect(() => {
     let cancelled = false;
     fetch('/api/flyers/save')
@@ -160,7 +166,7 @@ export default function DealsPage() {
 
       {modal && <ImageModal src={modal} onClose={() => setModal(null)} />}
 
-      <main className="flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-10 sm:py-14">
+      <main ref={stallGuard} className="flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 py-10 sm:py-14">
 
         {/* Hero heading */}
         <motion.div
