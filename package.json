@@ -11,16 +11,18 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "verify:slots": "node --experimental-strip-types scripts/verify-slots.mjs",
-    "verify:power": "node --experimental-strip-types scripts/verify-power.mjs",
-    "verify:reach": "node --experimental-strip-types scripts/verify-reach.mjs",
-    "verify:sla": "node --experimental-strip-types scripts/verify-sla.mjs",
-    "verify:addons": "node --experimental-strip-types scripts/verify-addons.mjs",
-    "verify:slot-pricing": "node --experimental-strip-types scripts/verify-slot-pricing.mjs",
-    "verify:slot-windows": "node --experimental-strip-types scripts/verify-slot-windows.mjs",
-    "verify:tier-links": "node --experimental-strip-types scripts/verify-tier-links.mjs",
-    "verify:store-ids": "node --experimental-strip-types scripts/verify-store-ids.mjs",
-    "verify:pop-periods": "node --experimental-strip-types scripts/verify-pop-periods.mjs",
+    "verify:slots": "tsx scripts/verify-slots.mjs",
+    "verify:power": "tsx scripts/verify-power.mjs",
+    "verify:reach": "tsx scripts/verify-reach.mjs",
+    "verify:sla": "tsx scripts/verify-sla.mjs",
+    "verify:addons": "tsx scripts/verify-addons.mjs",
+    "verify:slot-pricing": "tsx scripts/verify-slot-pricing.mjs",
+    "verify:slot-windows": "tsx scripts/verify-slot-windows.mjs",
+    "verify:tier-links": "tsx scripts/verify-tier-links.mjs",
+    "verify:store-ids": "tsx scripts/verify-store-ids.mjs",
+    "verify:pop-periods": "tsx scripts/verify-pop-periods.mjs",
+    "verify:brand-billing": "tsx scripts/verify-brand-billing.mjs",
+    "verify:store-payout": "tsx scripts/verify-store-payout.mjs",
     "icons:pwa": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
@@ -107,6 +109,7 @@
     "genkit-cli": "^1.14.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   }
 }
