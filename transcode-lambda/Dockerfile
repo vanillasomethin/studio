@@ -27,6 +27,8 @@ RUN npm install --omit=dev --prefix ${LAMBDA_TASK_ROOT}
 RUN chmod -R +x ${LAMBDA_TASK_ROOT}/node_modules/@ffmpeg-installer \
                 ${LAMBDA_TASK_ROOT}/node_modules/@ffprobe-installer
 
-COPY index.mjs ${LAMBDA_TASK_ROOT}/
+# Both files, not just index.mjs — index.mjs imports ./conformance.mjs at load time, so
+# omitting it would fail the whole function at init with ERR_MODULE_NOT_FOUND.
+COPY index.mjs conformance.mjs ${LAMBDA_TASK_ROOT}/
 
 CMD ["index.handler"]

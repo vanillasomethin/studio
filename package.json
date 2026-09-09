@@ -23,6 +23,7 @@
     "verify:pop-periods": "tsx scripts/verify-pop-periods.mjs",
     "verify:brand-billing": "tsx scripts/verify-brand-billing.mjs",
     "verify:store-payout": "tsx scripts/verify-store-payout.mjs",
+    "verify:transcode-skip": "tsx scripts/verify-transcode-skip.mjs",
     "icons:pwa": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
