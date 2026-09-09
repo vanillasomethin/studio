@@ -605,12 +605,12 @@ function StepCampaign({
                     Popular
                   </span>
                 )}
+                {/* Static ring, not a shared-layout one: a `layoutId` ring is
+                    placed by a framer transform that only unwinds on rAF, so a
+                    frame-starved renderer strands it hundreds of px away, on top
+                    of unrelated content. See the note in CLAUDE.md. */}
                 {active && (
-                  <motion.div
-                    layoutId="tier-ring"
-                    className="absolute inset-0 rounded-xl border-2 border-primary bg-primary/5"
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                  />
+                  <div className="absolute inset-0 rounded-xl border-2 border-primary bg-primary/5" />
                 )}
                 <div className="relative space-y-3">
                   <div>
@@ -705,12 +705,9 @@ function StepCampaign({
                   : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
               }`}
             >
+              {/* Static fill — same rAF-stall reason as the tier ring above. */}
               {data.months === months && (
-                <motion.div
-                  layoutId="duration-fill"
-                  className="absolute inset-0 bg-primary"
-                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                />
+                <div className="absolute inset-0 bg-primary" />
               )}
               <span className="relative">{label}</span>
             </motion.button>
