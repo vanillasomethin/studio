@@ -21,6 +21,7 @@ Cloudflare dashboard → **R2** → your bucket → **Settings** → **CORS poli
 [
   {
     "AllowedOrigins": [
+      "https://www.wearealive.in",
       "https://wearealive.in",
       "http://localhost:3000"
     ],
@@ -36,13 +37,18 @@ Notes:
 
 - `AllowedHeaders` must include `Content-Type`. The presigned signature covers that header,
   so the browser sends it and the preflight must permit it.
-- Add any Vercel preview domain you upload from; origins are matched exactly, and a preview
-  deployment on a different hostname will fail preflight otherwise.
+- Origins are matched **exactly**: `https://wearealive.in` does not cover
+  `https://www.wearealive.in`. The production admin console is served on the `www` host, so
+  that entry is the one doing the work in prod — without it, admin uploads fail preflight.
+- Add any Vercel preview domain you upload from; a preview deployment on a different
+  hostname will fail preflight otherwise.
 - Keep `localhost:3000` only if you upload from a local dev server.
 
 ## Verifying
 
-Upload a >5 MB video in admin → Content. Previously this failed at ~4.5 MB with a 413
+Upload a >5 MB video in admin → Content from `https://www.wearealive.in` (the production
+origin — verifying from a different origin proves nothing about it). Previously this
+failed at ~4.5 MB with a 413
 regardless of the client-side limit. If it now fails with a network error and no status,
 CORS is still not applied — re-check the origin list matches the URL in your address bar.
 
