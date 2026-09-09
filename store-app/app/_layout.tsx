@@ -8,7 +8,9 @@ import '../lib/notifications';
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" backgroundColor="#ffffff" />
+      {/* No backgroundColor: SDK 54 targets API 36, where edge-to-edge is
+          always on and the status bar is transparent over app content. */}
+      <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }} />
     </SafeAreaProvider>
   );

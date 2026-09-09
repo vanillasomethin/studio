@@ -22,7 +22,8 @@ import { registerPushToken, unregisterPushToken, type StoreSession } from './api
 // dashboard should still see "your screen is offline" land.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert:  true,
+    shouldShowBanner: true,
+    shouldShowList:   true,
     shouldPlaySound:  true,
     shouldSetBadge:   false,
   }),
