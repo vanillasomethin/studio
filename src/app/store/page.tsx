@@ -521,6 +521,12 @@ export default function StorePage() {
 
   const monthlyLabel = (tierMonthly ?? premiumMonthly).toLocaleString('en-IN');
 
+  // Both page-level cards enter at opacity 0, and a rAF-starved renderer
+  // freezes them there — blanking the whole page between header and footer.
+  // The step guards inside never sweep ancestors, so the shared grid
+  // container needs its own guard to reveal both cards.
+  const stallGuard = useAnimationStallGuard<HTMLDivElement>([]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-md">
@@ -530,7 +536,7 @@ export default function StorePage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-14 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
+      <div ref={stallGuard} className="mx-auto max-w-6xl px-4 sm:px-6 py-10 sm:py-14 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
 
         {/* Left: pitch */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="lg:sticky lg:top-24 space-y-6">
