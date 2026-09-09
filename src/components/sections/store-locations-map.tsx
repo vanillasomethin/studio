@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
-import { BASEMAP } from '@/lib/map-tiles';
-import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
+import { ALIVE_MAP_CSS, createAliveMap, fitToPins } from '@/lib/alive-map';
+import { LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 
 type StoreStatus = 'live' | 'in_progress';
 
@@ -216,37 +216,20 @@ export default function StoreLocationsMap() {
       const L = (await import('leaflet')).default;
       if (cancelled || mapInstanceRef.current) return;
 
-      if (!document.querySelector('link[data-leaflet-css]')) {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        link.setAttribute('data-leaflet-css', '1');
-        document.head.appendChild(link);
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = (L as any).map(mapRef.current!, {
-        center: [12.9377, 74.8543],
-        zoom: 12,
-        zoomControl: false,
-        attributionControl: false,
-        scrollWheelZoom: false,
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).tileLayer(BASEMAP.url, { maxZoom: BASEMAP.maxZoom }).addTo(map);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).control.zoom({ position: 'bottomright' }).addTo(map);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).control.attribution({ position: 'bottomleft', prefix: BASEMAP.attribution }).addTo(map);
+      // Basemap, ward hairlines and controls come from createAliveMap, so this
+      // map and the three others stay the same city. (Leaflet's CSS ships with
+      // globals.css — no CDN <link>, which used to load a second copy here.)
+      // The red coverage rings are (re)added later in the marker effect, so
+      // they always draw above the boundaries.
+      const map = createAliveMap(
+        L,
+        mapRef.current!,
+        { center: [12.9377, 74.8543], zoom: 12 },
+        () => mapInstanceRef.current === map,
+      );
 
       mapInstanceRef.current = map;
       setMapReady(true);
-
-      // Locality hairlines under everything; the red coverage rings are
-      // (re)added later in the marker effect, so they always draw above.
-      void addLocalityBoundaries(L, map, () => mapInstanceRef.current === map);
     }
 
     init();
@@ -344,11 +327,7 @@ export default function StoreLocationsMap() {
         zonesRef.current = zones;
       }
 
-      if (stores.length > 1) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const group = (L as any).featureGroup(Array.from(markersRef.current.values()));
-        map.fitBounds(group.getBounds().pad(0.3), { maxZoom: 14 });
-      }
+      fitToPins(L, map, Array.from(markersRef.current.values()));
     }
 
     addMarkers();
@@ -448,9 +427,7 @@ export default function StoreLocationsMap() {
         .alive-shop-card .since{font-family:var(--font-dm-mono),monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#9ca3af;}
         .alive-shop-card .dir{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 0;border-radius:9px;background:#dc2626;color:#fff;font-size:11.5px;font-weight:700;text-decoration:none;transition:background .15s;}
         .alive-shop-card .dir:hover{background:#b91c1c;}
-        .leaflet-control-zoom{border:1px solid #e5e5e5 !important;border-radius:8px !important;overflow:hidden;box-shadow:none !important;}
-        .leaflet-control-zoom a{width:30px !important;height:30px !important;line-height:30px !important;font-size:16px !important;color:#333 !important;}
-        .leaflet-control-attribution{font-size:10px !important;background:rgba(255,255,255,.7) !important;}
+        ${ALIVE_MAP_CSS}
       `}</style>
     </div>
   );

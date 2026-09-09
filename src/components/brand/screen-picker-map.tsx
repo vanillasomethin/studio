@@ -22,8 +22,8 @@
 //   vanishes can't re-init. We overlay a notice instead.
 
 import { useEffect, useRef, useState } from 'react';
-import { BASEMAP } from '@/lib/map-tiles';
-import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
+import { ALIVE_MAP_CSS, createAliveMap, fitToPins } from '@/lib/alive-map';
+import { LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 import { coreColor, SHOP_PIN_CSS, shopPinHtml, swatchStyle, TIER } from '@/components/sections/store-locations-map';
 import type { SlotTier } from '@/lib/slot-pricing';
 import { X } from 'lucide-react';
@@ -101,6 +101,8 @@ export default function ScreenPickerMap({
   const mapRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<Map<string, any>>(new Map());
+  // The map is framed on the pins once; see the marker effect.
+  const framedRef = useRef(false);
   const [pins, setPins]       = useState<ScreenPin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(false);
@@ -138,21 +140,23 @@ export default function ScreenPickerMap({
           pins.reduce((s, p) => s + p.lat, 0) / pins.length,
           pins.reduce((s, p) => s + p.lng, 0) / pins.length,
         ];
-        mapRef.current = L.map(containerRef.current, {
-          zoomControl: true,
-          scrollWheelZoom: false,
-          // One-finger drag over a mid-form map is a scroll trap on phones;
-          // pinch-zoom still works for positioning.
-          dragging: !L.Browser.mobile,
-        }).setView(pins.length ? center : MANGALURU, 13);
-        L.tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(mapRef.current);
-
-        // Locality hairlines under the pins — same reference layer as the
-        // homepage map, so a brand picking screens sees the same city. Guarded
-        // by the ref, not `cancelled`: this effect re-runs per pins change and
-        // the map outlives those runs — only unmount nulls the ref.
-        const map = mapRef.current;
-        void addLocalityBoundaries(L, map, () => mapRef.current === map);
+        // The shared ALIVE map — same basemap, same ward hairlines, same
+        // controls as the homepage network map a brand just came from. The
+        // guard is the ref, not `cancelled`: this effect re-runs per pins
+        // change and the map outlives those runs — only unmount nulls the ref.
+        const map = createAliveMap(
+          L,
+          containerRef.current,
+          {
+            center: pins.length ? center : MANGALURU,
+            zoom: 13,
+            // One-finger drag over a mid-form map is a scroll trap on phones;
+            // pinch-zoom still works for positioning.
+            dragging: !L.Browser.mobile,
+          },
+          () => mapRef.current === map,
+        );
+        mapRef.current = map;
       }
 
       // Rebuild markers from the current pins.
@@ -177,6 +181,14 @@ export default function ScreenPickerMap({
           onToggleRef.current(pin.id, current?.storeName ?? pin.storeName);
         });
         markersRef.current.set(pin.id, marker);
+      }
+
+      // Frame the network the way the homepage map frames it — once. A later
+      // pins change (the brand moved the start date) must not yank the view
+      // back from wherever they had panned to.
+      if (!framedRef.current && markersRef.current.size > 0) {
+        framedRef.current = true;
+        fitToPins(L, mapRef.current, Array.from(markersRef.current.values()));
       }
     })();
     return () => { cancelled = true; };
@@ -271,7 +283,7 @@ export default function ScreenPickerMap({
 
       {/* The homepage map owns this CSS string, so the mark behaves identically
           on both pages (entry pop, hover and active scaling). */}
-      <style>{SHOP_PIN_CSS + LOCALITY_TIP_CSS}</style>
+      <style>{SHOP_PIN_CSS + LOCALITY_TIP_CSS + ALIVE_MAP_CSS}</style>
     </div>
   );
 }

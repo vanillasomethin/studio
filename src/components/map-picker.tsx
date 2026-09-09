@@ -76,7 +76,12 @@ export default function MapPicker({ lat, lng, onLocation, error }: Props) {
     loadLeaflet().then((L) => {
       if (cancelled || !containerRef.current || mapRef.current) return;
 
-      const map = L.map(containerRef.current, { zoomControl: true }).setView([initLat, initLng], lat ? 17 : 13);
+      // This map keeps its own basemap (see the import note) but not Leaflet's
+      // rAF tile fade: a stalled renderer would leave someone dragging a pin
+      // over a blank white square. Same reason as createAliveMap — read the
+      // note at the top of src/lib/alive-map.ts.
+      const map = L.map(containerRef.current, { zoomControl: true, fadeAnimation: false })
+        .setView([initLat, initLng], lat ? 17 : 13);
       L.tileLayer(PINNING_BASEMAP.url, { attribution: PINNING_BASEMAP.attribution, maxZoom: PINNING_BASEMAP.maxZoom }).addTo(map);
 
       const marker = L.marker([initLat, initLng], { draggable: true, icon: pinIcon(L) }).addTo(map);

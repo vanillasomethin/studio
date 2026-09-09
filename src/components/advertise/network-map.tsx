@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BASEMAP } from '@/lib/map-tiles';
-import { addLocalityBoundaries, LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
+import { ALIVE_MAP_CSS, createAliveMap, fitToPins } from '@/lib/alive-map';
+import { LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 import { brand, brandType } from '@/lib/brand';
 import {
   NETWORK_STORES,
@@ -102,23 +102,16 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       const L = (await import('leaflet')).default;
       if (cancelled || mapRef.current || !containerRef.current) return;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = (L as any).map(containerRef.current, {
-        // Only the first frame — fitBounds below, and again when the surveyed
-        // pins land, decides what the map actually shows.
-        center: [12.8797, 74.8465],
-        zoom: 13,
-        zoomControl: false,
-        attributionControl: true,
-        // A map that eats the page scroll is unusable on a phone.
-        scrollWheelZoom: false,
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).tileLayer(BASEMAP.url, { attribution: BASEMAP.attribution, maxZoom: BASEMAP.maxZoom }).addTo(map);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any).control.zoom({ position: 'bottomright' }).addTo(map);
+      // The shared ALIVE map: same basemap, ward boundaries and controls as the
+      // homepage and the onboarding picker. Only the first frame is set here —
+      // fitToPins below, and again when the surveyed pins land, decides what
+      // the map actually shows.
+      const map = createAliveMap(
+        L,
+        containerRef.current,
+        { center: [12.8797, 74.8465], zoom: 13 },
+        () => mapRef.current === map,
+      );
 
       NETWORK_STORES.forEach(store => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,16 +141,11 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
         markersRef.current.set(store.id, marker);
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const group = (L as any).featureGroup(Array.from(markersRef.current.values()));
-      map.fitBounds(group.getBounds().pad(0.15));
+      fitToPins(L, map, Array.from(markersRef.current.values()));
 
       leafletRef.current = L;
       mapRef.current = map;
       setReady(true);
-
-      // Locality hairlines under the pins, so tiers read against real areas.
-      void addLocalityBoundaries(L, map, () => mapRef.current === map);
     }
 
     void init();
@@ -181,9 +169,7 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
       const pin = pins[store.id];
       if (pin) markersRef.current.get(store.id)?.setLatLng([pin.lat, pin.lng]);
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const group = (L as any).featureGroup(Array.from(markersRef.current.values()));
-    map.fitBounds(group.getBounds().pad(0.15));
+    fitToPins(L, map, Array.from(markersRef.current.values()));
   }, [pins, ready]);
 
   // Repaint the pins whenever the estimator selection changes.
@@ -266,8 +252,7 @@ export default function NetworkMap({ selectedIds, onToggle }: Props) {
         .adv-popup-name{font-size:13px;font-weight:700;margin:0;color:#141414;}
         .adv-popup-tier{font-size:11px;margin:2px 0 0;color:#5A5A5A;text-transform:uppercase;letter-spacing:.08em;}
         .adv-popup-hint{font-size:11px;margin:6px 0 0;color:#5A5A5A;}
-        .leaflet-control-attribution{font-size:10px !important;}
-        .leaflet-control-zoom a{color:#141414 !important;}
+        ${ALIVE_MAP_CSS}
       `}</style>
     </div>
   );
