@@ -183,6 +183,11 @@ export async function GET(req: NextRequest) {
         upiId:           ex?.upiId           ?? null,
         payoutMethod:    ex?.payoutMethod    ?? null,
         tier:            ex?.tier ?? 'standard',
+        // Slot pricing tier — already read above for the payout maths; also
+        // returned so Admin → Stores → Edit can show and change it. Falls back
+        // to 'standard' exactly like the NOT NULL column's own default, so a
+        // pre-migration environment reads as standard rather than blank.
+        slotPricingTier: ex?.slotPricingTier ?? 'standard',
         category:        ex?.category ?? null,
         monthlyCompensationPaise: payoutByStore.get(s.id) ?? Number(ex?.monthlyCompensationPaise ?? 50000),
         deviceCount:     Number(s.deviceCount),

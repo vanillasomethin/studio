@@ -6,6 +6,7 @@ import { deleteObject, deletePrivateObject, publicUrl } from '@/lib/r2';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 import { STORE_CATEGORIES, isStoreCategory } from '@/lib/store-categories';
+import { SLOT_TIERS, isSlotTier, type SlotTier } from '@/lib/slot-pricing';
 
 /**
  * R2 object key for a stored verification-photo value, and which bucket holds it.
@@ -112,6 +113,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       installNotes?: string | null;
       // Shop category slug — see src/lib/store-categories.ts.
       category?: string | null;
+      // Slot pricing tier slug — see src/lib/slot-pricing.ts.
+      slotPricingTier?: string | null;
       // Map pin — set or moved from Admin → Stores → Edit → Map pin.
       lat?: unknown;
       lng?: unknown;
@@ -172,6 +175,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         { error: `Unknown shop category "${bodyCategory}". Use one of: ${STORE_CATEGORIES.map((c) => c.value).join(', ')}.` },
         { status: 400 },
       );
+    }
+
+    // Slot pricing tier. Deliberately NOT a TEXT_COL: those are read through
+    // textCol(), which turns a blank into NULL, and this column is NOT NULL
+    // DEFAULT 'standard' — so unlike category there is no clearing path, and a
+    // blank has to be refused rather than written. It decides what brands pay
+    // per slot here AND the partner's guaranteed monthly base, so an unknown
+    // slug is a 400 rather than a silent fallback to standard.
+    let bodyTier: SlotTier | null = null;
+    if ('slotPricingTier' in body) {
+      const raw = typeof body.slotPricingTier === 'string' ? body.slotPricingTier.trim() : '';
+      if (!isSlotTier(raw)) {
+        return NextResponse.json(
+          { error: `Unknown pricing tier "${String(body.slotPricingTier ?? '')}". Use one of: ${SLOT_TIERS.join(', ')}.` },
+          { status: 400 },
+        );
+      }
+      bodyTier = raw;
     }
 
     // Only the six stages the admin panel offers may be stored. An unknown one
@@ -322,6 +343,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       setClauses.push(`"payoutNotes" = $${values.length + 1}`);
       values.push(body.payoutNotes ?? null);
     }
+    // Validated above; written from the narrowed value, never from the body.
+    if (bodyTier) {
+      setClauses.push(`"slotPricingTier" = $${values.length + 1}`);
+      values.push(bodyTier);
+    }
 
     // ── Installation & hardware ──────────────────────────────────────────────
     // Same textCol() the gate above read these through, so the row ends up
@@ -394,6 +420,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       meta: {
         onboardingStage: body.onboardingStage ?? null,
         payoutStatus:    body.payoutStatus ?? null,
+        // Value, not just the field name: this one moves money on both sides,
+        // and the four prod flagships were assigned by hand with no trail.
+        slotPricingTier: bodyTier,
         fields:          Object.keys(body),
         locationSource:  pin ? 'body' : null,
         ...(pin ? { coords: { lat: pin.lat, lng: pin.lng } } : {}),
