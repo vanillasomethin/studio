@@ -24,6 +24,17 @@ export type StoreSession = {
   liveAt?:          string;
   onboardingStage?: string;
   deviceCount?:     number;
+  // Payout figures resolved by /api/stores/me. The mobile app hardcoded ₹500 for
+  // all three until it carried these, which paid a Standard partner's numbers to
+  // every tier. Absent on a stale cached payload — callers must degrade to naming
+  // the payout structure, never to a guessed figure.
+  tier?:                     string;
+  // Current dynamic total: base + bonus for a slot store, the flat figure otherwise.
+  // Moves with slot fill, so it is NOT a contract figure — see agreementMonthlyRupees.
+  monthlyCompensationPaise?: number;
+  // Clause 3.3's guaranteed base for THIS partner. Fixed; safe to quote as contract.
+  agreementTier?:            string | null;
+  agreementMonthlyRupees?:   number | null;
   // GPS-verified onboarding photos (shop front gates Team verification,
   // installed TV gates Site visit & install — see /api/stores/verification-photo)
   shopPhotoUrl?:     string | null;

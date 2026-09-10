@@ -247,8 +247,21 @@ export default function Overview() {
   const displayName = store.ownerName?.split(' ')[0] ?? 'Partner';
   const code = store.referralCode ?? '—';
 
+  // Clause 3.3 as it reads for THIS partner. Deliberately agreementMonthlyRupees,
+  // not monthlyCompensationPaise: the latter is base + bonus and drifts with slot
+  // fill, so quoting it here would state a contract figure the partner never signed.
+  // Absent (stale cached session) degrades to generic rather than guessing — the
+  // same rule the web AgreementCard follows.
+  const agreementRupees = store.agreementMonthlyRupees ?? null;
+  const remuneration = agreementRupees == null
+    ? 'Per your signed agreement, paid within 10 working days.'
+    : `₹${agreementRupees.toLocaleString('en-IN')}/month per screen ${store.agreementTier ? 'guaranteed' : 'base rent'}, plus electricity and a performance bonus. Paid within 10 working days.`;
+
   const shareCode = async () => {
-    await Share.share({ message: `Join ALIVE as a store partner and earn ₹500/month! Use my referral code: ${code}. Register at https://wearealive.in/store` });
+    // Names the structure, not a figure: this message is forwarded to shop owners
+    // who have no tier yet, and the ₹500 it used to quote was both the wrong number
+    // for most partners and a referral reward the agreement no longer pays.
+    await Share.share({ message: `Join ALIVE as a store partner — a free screen in your shop earns you base rent, electricity and a bonus every month. Use my referral code: ${code}. Register at https://wearealive.in/store` });
   };
 
   const copyCode = async () => {
@@ -281,8 +294,11 @@ export default function Overview() {
           )}
         </View>
         <View style={s.bannerBadges}>
+          {/* This partner's own current total, matching the web dashboard's header
+              badge. It was the literal ₹500 — a Standard partner's base shown to
+              every tier, and wrong for anyone earning a bonus. */}
           <View style={s.badge}>
-            <Text style={s.badgeVal}>₹500</Text>
+            <Text style={s.badgeVal}>₹{Math.round((store.monthlyCompensationPaise ?? 50000) / 100).toLocaleString('en-IN')}</Text>
             <Text style={s.badgeLbl}>/month</Text>
           </View>
           {store.liveAt ? (
@@ -333,7 +349,7 @@ export default function Overview() {
           </View>
           <Text style={s.cardSub}>
             Your screen has used {(power.monthKwh ?? 0).toFixed(2)} units (≈ ₹{Math.round((power.estMonthCostPaise ?? 0) / 100)}) this month.
-            Electricity is reimbursed separately from your ₹500 remuneration.
+            Electricity is reimbursed on top of your base rent and bonus.
           </Text>
         </View>
       )}
@@ -378,9 +394,11 @@ export default function Overview() {
         <View style={s.cardRow}>
           <View>
             <Text style={s.cardTitle}>Your referral code</Text>
-            <Text style={s.cardSub}>Earn ₹500 for every partner who joins using your code.</Text>
+            <Text style={s.cardSub}>Share it with another shop owner so we know the introduction came from you.</Text>
           </View>
-          <Ionicons name="gift-outline" size={20} color={C.textMuted} />
+          {/* Was gift-outline. The code is attribution now, not a reward — a gift box
+              next to it is the same promise drawn instead of written. */}
+          <Ionicons name="people-outline" size={20} color={C.textMuted} />
         </View>
         <View style={s.codeRow}>
           <Text style={s.code}>{code}</Text>
@@ -423,7 +441,7 @@ export default function Overview() {
           <Text style={s.cardSub}>Signed on {new Date(store.agreedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}</Text>
         )}
         {[
-          { t: 'Remuneration', d: '₹500/month per screen, paid within 10 working days.' },
+          { t: 'Remuneration', d: remuneration },
           { t: 'Equipment', d: 'Screen installed free. Remains ALIVE property.' },
           { t: 'Exit', d: '30 days notice by either party.' },
         ].map(({ t, d }) => (

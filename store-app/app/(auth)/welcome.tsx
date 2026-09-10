@@ -8,11 +8,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../lib/colors';
 
+// This screen is the mobile twin of the ungated /store pitch, and it is shown
+// before anyone signs in — there is no partner and therefore no tier to resolve.
+// So it names the payout STRUCTURE and never a figure. A flat rupee number here
+// only ever described a Standard partner with zero slots filled.
 const FEATURES = [
   {
     icon: 'cash-outline' as const,
-    title: '₹500 + electricity/month',
-    sub: 'Fixed payout via UPI within 10 working days of month end.',
+    title: 'Base rent + electricity + bonus',
+    sub: 'Base rent every month via UPI, plus a bonus for the ads your screen runs.',
   },
   {
     icon: 'tv-outline' as const,
@@ -34,17 +38,14 @@ const FEATURES = [
     title: 'Exclusive per area',
     sub: 'Only 1–2 stores selected per locality — limited spots.',
   },
-  {
-    icon: 'gift-outline' as const,
-    title: 'Referral rewards',
-    sub: 'Earn ₹500 for every new partner you refer.',
-  },
+  // The "Referral rewards / Earn ₹500 for every new partner you refer" row is
+  // gone: clause 3.6 that owed that money was removed from the agreement.
 ];
 
 const HOW = [
   { n: '01', t: 'Register below',     d: 'Takes 2 minutes on your phone.' },
   { n: '02', t: 'We visit & install', d: 'Free screen within 48 hours.' },
-  { n: '03', t: 'Earn every month',   d: '₹500 + electricity to your account.' },
+  { n: '03', t: 'Earn every month',   d: 'Base rent + electricity + bonus to your account.' },
 ];
 
 export default function Welcome() {
@@ -73,7 +74,7 @@ export default function Welcome() {
           <Text style={s.heroTitle}>Extra income.{'\n'}<Text style={s.heroRed}>Zero effort.</Text></Text>
           <Text style={s.heroSub}>
             Alive installs a free digital screen in your store. Brands pay to advertise.{'\n'}
-            You earn <Text style={s.bold}>₹500 + electricity every month</Text> — without lifting a finger.
+            You earn <Text style={s.bold}>a base rent + electricity + a performance bonus every month</Text> — without lifting a finger.
           </Text>
         </View>
 
@@ -110,7 +111,7 @@ export default function Welcome() {
         <View style={s.payoutBox}>
           {[
             { label: 'Security deposit', value: '₹0',        note: 'No deposit ever.' },
-            { label: 'Monthly payout',   value: '₹500+',     note: 'Credited within 10 working days.' },
+            { label: 'Monthly payout',   value: 'Base + bonus', note: 'Credited within 10 working days.' },
             { label: 'Electricity',      value: 'Paid',       note: 'Reimbursed at metered rate.' },
           ].map(({ label, value, note }) => (
             <View key={label} style={s.payoutRow}>

@@ -17,12 +17,16 @@ function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function proRateFirstMonth(onboardedAt: Date, monthStart: Date): number {
+// monthlyPaise is a parameter, not the 500 this used to hardcode. The old
+// `500 * fraction * 100` pro-rated a Standard partner's base for EVERY tier, so a
+// Flagship partner's first month showed a third of what they were actually owed.
+// Mirrors the web dashboard's proRateFirstMonth, which has always taken it.
+function proRateFirstMonth(onboardedAt: Date, monthStart: Date, monthlyPaise: number): number {
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
   const totalDays = (monthEnd.getTime() - monthStart.getTime()) / 86400000;
   const daysActive = (monthEnd.getTime() - onboardedAt.getTime()) / 86400000;
   const fraction = Math.min(1, Math.max(0, daysActive / totalDays));
-  return Math.round(500 * fraction * 100);
+  return Math.round(monthlyPaise * fraction);
 }
 
 export default function Earnings() {
@@ -49,6 +53,14 @@ export default function Earnings() {
   if (!store) return <View style={s.center}><Text style={s.empty}>No session found.</Text></View>;
 
   const now = new Date();
+  // The partner's own dynamic total (base + bonus for a slot store). Falls back to
+  // the Standard base only when /api/stores/me has not answered yet, same as web.
+  const monthlyPaise = store.monthlyCompensationPaise ?? 50000;
+  // Summed from the payment rows this screen already fetches, so it reflects what
+  // was actually transferred. The tile used to be the literal string '₹0'.
+  const totalPaidPaise = records
+    .filter((r) => r.status === 'paid')
+    .reduce((sum, r) => sum + (r.amountPaise ?? 0), 0);
   const claimableBefore = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const onboardDate = store.liveAt ?? store.agreedAt;
   const onboardedAt = onboardDate ? new Date(onboardDate) : null;
@@ -68,7 +80,7 @@ export default function Earnings() {
     const isPast = start.getTime() < claimableBefore;
     const isCur = start.getMonth() === now.getMonth() && start.getFullYear() === now.getFullYear();
     const isFirst = !firstDone;
-    const amountPaise = isFirst && onboardedAt ? proRateFirstMonth(onboardedAt, start) : 50000;
+    const amountPaise = isFirst && onboardedAt ? proRateFirstMonth(onboardedAt, start, monthlyPaise) : monthlyPaise;
     if (isFirst) firstDone = true;
     months.push({ label: start.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), isPast, isCur, amountPaise, mk: monthKey(start), isFirst });
     cur.setMonth(cur.getMonth() + 1);
@@ -95,9 +107,14 @@ export default function Earnings() {
   return (
     <ScrollView style={s.bg} contentContainerStyle={s.scroll}>
 
-      {/* Stats */}
+      {/* Stats — mirrors the web dashboard's strip. Two tiles, not three: the old
+          third read "Per referral ₹500", a reward the agreement no longer owes, and
+          "Total earned ₹0" was a literal that never counted anything. */}
       <View style={s.statsRow}>
-        {[{ label: 'This month', value: '₹500', accent: true }, { label: 'Per referral', value: '₹500', accent: false }, { label: 'Total earned', value: '₹0', accent: false }].map((st) => (
+        {[
+          { label: 'Total earned', value: `₹${Math.round(totalPaidPaise / 100).toLocaleString('en-IN')}`, accent: false },
+          { label: 'This month',   value: `₹${Math.round(monthlyPaise / 100).toLocaleString('en-IN')}`,   accent: true  },
+        ].map((st) => (
           <View key={st.label} style={s.stat}>
             <Text style={[s.statVal, st.accent && { color: C.primary }]}>{st.value}</Text>
             <Text style={s.statLbl}>{st.label}</Text>
@@ -111,7 +128,7 @@ export default function Earnings() {
           <Text style={s.cardTitle}>Payment timeline</Text>
           <Ionicons name="calendar-outline" size={16} color={C.textMuted} />
         </View>
-        <Text style={s.cardSub}>₹500 + electricity per month · paid by 10th of following month</Text>
+        <Text style={s.cardSub}>Base rent + electricity + bonus · paid by 10th of following month</Text>
         {months.map((m) => {
           const rec = records.find((r) => r.month === m.mk);
           const isPaid = rec?.status === 'paid';
