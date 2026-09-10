@@ -37,13 +37,16 @@ const addDays = (d: string, n: number) =>
 /** Why a position is playing what it is. `sold` is a booked, guaranteed play;
  *  `bonus` is an unsold position redistributed to a paying campaign; `house` is
  *  ALIVE's own filler, which is what stops the screen going dark. */
-type Source = 'sold' | 'bonus' | 'house';
+type Source = 'sold' | 'plan' | 'bonus' | 'house';
 const SOURCE_STYLE: Record<Source, string> = {
   sold:  'bg-primary/10 border-primary/40 text-primary',
+  plan:  'bg-indigo-500/10 border-indigo-500/40 text-indigo-700',
   bonus: 'bg-amber-500/10 border-amber-500/40 text-amber-700',
   house: 'bg-muted border-border text-muted-foreground',
 };
-const SOURCE_LABEL: Record<Source, string> = { sold: 'Booked', bonus: 'Bonus', house: 'House' };
+const SOURCE_LABEL: Record<Source, string> = {
+  sold: 'Booked', plan: 'Standing', bonus: 'Bonus', house: 'House',
+};
 
 type CampaignLike = {
   id: string; brandName: string; status: string;
@@ -117,7 +120,12 @@ export default function StoreSlotLoop({
   const cells: ({ entry: SlotLoopEntry; source: Source } | null)[] =
     Array.from({ length: loopCount }, () => null);
   for (const e of loop) {
-    const source: Source = !e.isFiller ? 'sold' : soldCampaignIds.has(e.campaignId) ? 'bonus' : 'house';
+    // Prefer the builder's own answer. The fallback below is only correct while
+    // standing assignments do not exist: a plan play is isFiller=true with no
+    // booking here, so it would read as house content belonging to nobody.
+    const source: Source = e.source
+      ? (e.source === 'filler' ? 'house' : e.source)
+      : !e.isFiller ? 'sold' : soldCampaignIds.has(e.campaignId) ? 'bonus' : 'house';
     for (let i = 0; i < e.spanSlots; i++) {
       if (e.slotPosition + i < loopCount) cells[e.slotPosition + i] = { entry: e, source };
     }

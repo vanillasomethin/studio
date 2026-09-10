@@ -592,6 +592,11 @@ export type SlotBookingRow = {
 export type SlotLoopEntry = {
   slotPosition: number; campaignId: string; contentId: string; isFiller: boolean;
   spanSlots: number;    // >1 = one play covering this many consecutive positions
+  /** Why this position is playing what it is, straight from the loop builder.
+   *  Optional because a deploy can serve this UI before the API that sets it —
+   *  callers fall back to deriving it, which is correct until standing
+   *  assignments (SlotPlan) exist and wrong the moment they do. */
+  source?: 'sold' | 'plan' | 'bonus' | 'filler';
 };
 
 export const getSlotAvailability = (from: string, to: string) =>
