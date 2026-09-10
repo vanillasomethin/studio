@@ -7,7 +7,7 @@ import {
   Phone, MapPin, CheckCircle2, Clock, X, MessageCircle, ExternalLink,
   IndianRupee, Eye, EyeOff, Package, Ticket, Star, Copy,
   Tv2, CalendarClock, FileBarChart2, Activity,
-  ChevronRight, LogOut, LayoutDashboard, LayoutGrid, Images, Inbox, Map, Layers,
+  ChevronRight, ChevronLeft, LogOut, LayoutDashboard, LayoutGrid, Images, Inbox, Map, Layers,
   // New icons for the redesign
   MonitorPlay,
   Search, Bell, LifeBuoy, Download, Plus,
@@ -2076,36 +2076,49 @@ const TOUR_STEPS = NAV_DESIGN.flatMap((section) =>
   })),
 );
 
-function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
+function SidebarNav({ tab, onTab, onSignOut, liveCount, email, collapsed, onToggleCollapsed }: {
   tab: Tab; onTab: (t: Tab) => void; onSignOut: () => void; liveCount: number; email: string | null;
+  collapsed: boolean; onToggleCollapsed: () => void;
 }) {
   return (
-    <aside className="sb">
+    <aside className={`sb${collapsed ? ' sb--collapsed' : ''}`}>
       <div className="sb__logo">
-        <Logo />
+        {!collapsed && <Logo />}
+        <button
+          className="sb__collapse-btn"
+          onClick={onToggleCollapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
-      {NAV_DESIGN.map((section, si) => (
-        <React.Fragment key={si}>
-          {section.group && <div className="sb__group">{section.group}</div>}
-          {section.items.map((item) => {
-            const IconComp = item.icon;
-            const active = tab === item.id;
-            return (
-              <button
-                key={item.id}
-                data-tour-id={item.id}
-                className={`sb__item${active ? ' sb__item--active' : ''}`}
-                onClick={() => onTab(item.id)}
-              >
-                <IconComp className="h-4 w-4" />
-                <span>{item.label}</span>
-                {item.count != null && <span className="sb__count">{item.count.toLocaleString()}</span>}
-              </button>
-            );
-          })}
-        </React.Fragment>
-      ))}
+      {/* Its own scroll region — the header and account block above/below stay
+          put, and five groups' worth of items no longer clip on a short screen. */}
+      <nav className="sb__nav">
+        {NAV_DESIGN.map((section, si) => (
+          <React.Fragment key={si}>
+            {section.group && !collapsed && <div className="sb__group">{section.group}</div>}
+            {section.items.map((item) => {
+              const IconComp = item.icon;
+              const active = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  data-tour-id={item.id}
+                  className={`sb__item${active ? ' sb__item--active' : ''}`}
+                  onClick={() => onTab(item.id)}
+                  title={collapsed ? item.label : undefined}
+                >
+                  <IconComp className="h-4 w-4" />
+                  {!collapsed && <span>{item.label}</span>}
+                  {!collapsed && item.count != null && <span className="sb__count">{item.count.toLocaleString()}</span>}
+                </button>
+              );
+            })}
+          </React.Fragment>
+        ))}
+      </nav>
 
       <div className="sb__bottom">
         {/* Named logins are the point of the current auth model, so this says who
@@ -2113,11 +2126,15 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount, email }: {
             notice they are signed in as a colleague. */}
         <button className="sb__user" onClick={onSignOut} title={email ? `Sign out ${email}` : 'Sign out'}>
           <div className="sb__avatar">{(email?.[0] ?? 'A').toUpperCase()}</div>
-          <div className="sb__user-meta">
-            <div className="sb__user-name">{email?.split('@')[0] ?? 'ALIVE Admin'}</div>
-            <div className="sb__user-role">{email ? 'Sign out' : 'Network Admin'}</div>
-          </div>
-          <LogOut className="h-3.5 w-3.5" style={{ color: 'var(--neutral-400)', marginLeft: 'auto' }} />
+          {!collapsed && (
+            <>
+              <div className="sb__user-meta">
+                <div className="sb__user-name">{email?.split('@')[0] ?? 'ALIVE Admin'}</div>
+                <div className="sb__user-role">{email ? 'Sign out' : 'Network Admin'}</div>
+              </div>
+              <LogOut className="h-3.5 w-3.5" style={{ color: 'var(--neutral-400)', marginLeft: 'auto' }} />
+            </>
+          )}
         </button>
       </div>
     </aside>
@@ -2660,6 +2677,14 @@ function Dashboard({ email }: { email: string | null }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cmdOpen,     setCmdOpen]     = useState(false);
   const [tourOpen,    setTourOpen]    = useState(false);
+  // Remembered per browser, not per account — collapsing is a screen-size
+  // preference, not something that should follow an admin between devices.
+  const [sbCollapsed, setSbCollapsed] = useState(false);
+  useEffect(() => { setSbCollapsed(localStorage.getItem('alive_admin_sb_collapsed') === '1'); }, []);
+  const toggleSbCollapsed = () => setSbCollapsed((v) => {
+    localStorage.setItem('alive_admin_sb_collapsed', v ? '0' : '1');
+    return !v;
+  });
   const [adminPw,     setAdminPw]     = useState('');
   const [liveCount,   setLiveCount]   = useState(0);
   const [alertCount,  setAlertCount]  = useState(0);
@@ -2791,7 +2816,10 @@ function Dashboard({ email }: { email: string | null }) {
         onUnreadChange={setOfflineAlertCount}
         onOpenAlerts={openAlertsTab}
       />
-      <SidebarNav tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} email={email} />
+      <SidebarNav
+        tab={tab} onTab={handleNav} onSignOut={signOut} liveCount={liveCount} email={email}
+        collapsed={sbCollapsed} onToggleCollapsed={toggleSbCollapsed}
+      />
       <AdminTour steps={TOUR_STEPS} open={tourOpen} onOpenChange={setTourOpen} onNav={handleNav} />
 
       <main className="main">
