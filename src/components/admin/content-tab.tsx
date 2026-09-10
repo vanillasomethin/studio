@@ -100,7 +100,7 @@ export default function ContentTab() {
   const reload = () => {
     setLoading(true);
     getContent()
-      .then((r) => { setContent(r.content); setTotalBytes(r.totalBytes); })
+      .then((r) => { setContent(Array.isArray(r?.content) ? r.content : []); setTotalBytes(r?.totalBytes ?? 0); })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -116,7 +116,7 @@ export default function ContentTab() {
   useEffect(() => {
     if (!content.some((c) => c.transcodeStatus === 'pending')) return;
     const t = setInterval(() => {
-      getContent().then((r) => { setContent(r.content); setTotalBytes(r.totalBytes); }).catch(() => {});
+      getContent().then((r) => { setContent(Array.isArray(r?.content) ? r.content : []); setTotalBytes(r?.totalBytes ?? 0); }).catch(() => {});
     }, 5_000);
     return () => clearInterval(t);
   }, [content]);

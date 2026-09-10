@@ -17,7 +17,7 @@ export default function PlayerConfigPanel() {
   useEffect(() => {
     Promise.all([
       getPlayerConfig().then(setConfig),
-      getPlaylists().then(setPlaylists).catch(() => {}),
+      getPlaylists().then((r) => setPlaylists(Array.isArray(r) ? r : [])).catch(() => {}),
     ]).catch(() => {}).finally(() => setLoading(false));
   }, []);
 

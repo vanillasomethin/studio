@@ -50,7 +50,21 @@ export default function PowerTab() {
   const load = useCallback(() => {
     fetch('/api/admin/power', { headers: adminPw() })
       .then((r) => r.ok ? r.json() as Promise<PowerResponse> : Promise.reject(new Error('Could not load')))
-      .then((d) => { setData(d); setError(null); })
+      .then((d) => {
+        // A 200 missing `settings` or `stores` — a short body from the plug
+        // upstream, say — must read as an empty fleet, not take the whole admin
+        // down: data.stores.reduce and data.settings.paisePerKwh both throw into
+        // the error boundary, which blanks the console rather than this panel.
+        setData({
+          since:    d?.since ?? '',
+          settings: {
+            defaultWatts: d?.settings?.defaultWatts ?? 0,
+            paisePerKwh:  d?.settings?.paisePerKwh  ?? 0,
+          },
+          stores:   Array.isArray(d?.stores) ? d.stores : [],
+        });
+        setError(null);
+      })
       .catch((e: Error) => setError(e.message));
   }, []);
 
@@ -65,10 +79,12 @@ export default function PowerTab() {
   );
   if (!data) return <div className="space-y-3">{[0,1,2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>;
 
-  const totalPaise   = data.stores.reduce((s, x) => s + x.estimate.costPaise, 0);
-  const totalUnits   = data.stores.reduce((s, x) => s + x.estimate.units, 0);
+  // A store row that arrives without its estimate must count as nothing, not
+  // turn the fleet total into NaN or throw on the missing reading.
+  const totalPaise   = data.stores.reduce((s, x) => s + (x.estimate?.costPaise ?? 0), 0);
+  const totalUnits   = data.stores.reduce((s, x) => s + (x.estimate?.units ?? 0), 0);
   // Metered stores don't need a survey — the plug already measured the draw.
-  const unsurveyed   = data.stores.filter((s) => s.estimate.usingDefaultWatts).length;
+  const unsurveyed   = data.stores.filter((s) => s.estimate?.usingDefaultWatts).length;
 
   return (
     <div className="space-y-4">
@@ -114,7 +130,7 @@ export default function PowerTab() {
           </thead>
           <tbody>
             {data.stores.map((s) => {
-              const d = s.devices[0];
+              const d = s.devices?.[0];
               return (
                 <tr key={s.id} className="border-b border-border/60 last:border-0">
                   <td className="px-3 py-2">
@@ -122,14 +138,14 @@ export default function PowerTab() {
                     <p className="text-[10px] text-muted-foreground">{s.city ?? '—'}</p>
                   </td>
                   <td className="px-3 py-2">
-                    <p className="text-foreground">{s.screen.model ?? <span className="text-muted-foreground/60">Not surveyed</span>}</p>
+                    <p className="text-foreground">{s.screen?.model ?? <span className="text-muted-foreground/60">Not surveyed</span>}</p>
                     <p className={`text-[10px] ${
-                      s.estimate.source === 'metered' ? 'text-green-700'
-                        : s.estimate.usingDefaultWatts ? 'text-amber-600' : 'text-muted-foreground'
+                      s.estimate?.source === 'metered' ? 'text-green-700'
+                        : s.estimate?.usingDefaultWatts ? 'text-amber-600' : 'text-muted-foreground'
                     }`}>
-                      {s.estimate.source === 'metered' && <Zap className="mr-0.5 inline h-2.5 w-2.5" />}
-                      {s.estimate.watts}W {s.estimate.source === 'metered' ? '(metered)'
-                        : s.estimate.usingDefaultWatts ? '(fleet default)' : ''}
+                      {s.estimate?.source === 'metered' && <Zap className="mr-0.5 inline h-2.5 w-2.5" />}
+                      {s.estimate?.watts ?? 0}W {s.estimate?.source === 'metered' ? '(metered)'
+                        : s.estimate?.usingDefaultWatts ? '(fleet default)' : ''}
                     </p>
                   </td>
                   <td className="px-3 py-2">
@@ -150,9 +166,9 @@ export default function PowerTab() {
                       </>
                     ) : <span className="text-muted-foreground/60">No player</span>}
                   </td>
-                  <td className="px-3 py-2 text-right text-foreground">{s.estimate.onHours.toFixed(0)}</td>
-                  <td className="px-3 py-2 text-right text-foreground">{s.estimate.units.toFixed(1)}</td>
-                  <td className="px-3 py-2 text-right font-semibold text-foreground">{rupees(s.estimate.costPaise)}</td>
+                  <td className="px-3 py-2 text-right text-foreground">{(s.estimate?.onHours ?? 0).toFixed(0)}</td>
+                  <td className="px-3 py-2 text-right text-foreground">{(s.estimate?.units ?? 0).toFixed(1)}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-foreground">{rupees(s.estimate?.costPaise ?? 0)}</td>
                   <td className="px-3 py-2">
                     <button onClick={() => setEditing(s)}
                       className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
@@ -232,10 +248,10 @@ function FleetSettings({ settings, onSaved }: {
 function SurveyDialog({ store, onClose, onSaved }: {
   store: PowerStore; onClose: () => void; onSaved: () => void;
 }) {
-  const [model, setModel] = useState(store.screen.model ?? '');
-  const [watts, setWatts] = useState(store.screen.watts?.toString() ?? '');
-  const [plateUrl,  setPlateUrl]  = useState(store.screen.platePhotoUrl ?? '');
-  const [ratingUrl, setRatingUrl] = useState(store.screen.ratingPhotoUrl ?? '');
+  const [model, setModel] = useState(store.screen?.model ?? '');
+  const [watts, setWatts] = useState(store.screen?.watts?.toString() ?? '');
+  const [plateUrl,  setPlateUrl]  = useState(store.screen?.platePhotoUrl ?? '');
+  const [ratingUrl, setRatingUrl] = useState(store.screen?.ratingPhotoUrl ?? '');
   const [busy,   setBusy]   = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 

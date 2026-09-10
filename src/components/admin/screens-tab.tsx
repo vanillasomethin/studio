@@ -62,8 +62,8 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
           <div className="flex items-center gap-2 min-w-0">
             <Stethoscope className="h-4 w-4 text-primary shrink-0" />
             <div className="min-w-0">
-              <p className="text-sm font-bold text-foreground truncate">{data?.device.storeName ? `${data.device.storeName}` : 'Screen detail'}</p>
-              {data?.device && <p className="text-[10px] text-muted-foreground">{data.device.city ?? '—'} · Screen #{(data.device.hardwareKey ?? data.device.id).slice(-4).toUpperCase()}</p>}
+              <p className="text-sm font-bold text-foreground truncate">{data?.device?.storeName ? `${data.device.storeName}` : 'Screen detail'}</p>
+              {data?.device && <p className="text-[10px] text-muted-foreground">{data.device.city ?? '—'} · Screen #{(data.device.hardwareKey ?? data.device.id ?? '').slice(-4).toUpperCase()}</p>}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -79,7 +79,7 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Checklist</p>
                 <div className="space-y-2">
-                  {data.diagnostics.issues.map((issue, i) => (
+                  {(Array.isArray(data.diagnostics?.issues) ? data.diagnostics.issues : []).map((issue, i) => (
                     <div key={i} className={`flex gap-2 rounded-xl px-3 py-2.5 text-xs ${issue.level === 'ok' ? 'bg-green-500/5 border border-green-500/15 text-green-800' : issue.level === 'warn' ? 'bg-yellow-500/5 border border-yellow-500/20 text-yellow-800' : 'bg-red-500/5 border border-red-500/20 text-red-700'}`}>
                       {levelIcon(issue.level)}<span>{issue.message}</span>
                     </div>
@@ -92,7 +92,7 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Performance · last 7 days</p>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded-xl border border-border bg-background p-3">
-                      <p className="text-base font-bold text-foreground">{data.performance.plays7d.toLocaleString('en-IN')}</p>
+                      <p className="text-base font-bold text-foreground">{(data.performance.plays7d ?? 0).toLocaleString('en-IN')}</p>
                       <p className="text-[10px] text-muted-foreground">Plays</p>
                     </div>
                     <div className="rounded-xl border border-border bg-background p-3">
@@ -137,16 +137,16 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">What this device receives now</p>
                 <div className="rounded-xl border border-border bg-background p-3 space-y-1.5">
-                  {[['Schedule', data.plan.scheduleName], ['Playlist', data.plan.playlistName], ['Content items', data.plan.items.length], ['Schedules in window', data.plan.scheduleCount]].map(([k, v]) => (
+                  {[['Schedule', data.plan?.scheduleName], ['Playlist', data.plan?.playlistName], ['Content items', data.plan?.items?.length ?? 0], ['Schedules in window', data.plan?.scheduleCount ?? 0]].map(([k, v]) => (
                     <div key={String(k)} className="flex justify-between text-xs">
                       <span className="text-muted-foreground">{k}</span>
                       <span className="font-semibold text-foreground">{v ?? <span className="text-muted-foreground/50 font-normal italic">none</span>}</span>
                     </div>
                   ))}
-                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Plan hash</span><span className="font-mono text-[10px] text-muted-foreground/60">{data.plan.planHash.slice(0, 12)}…</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Plan hash</span><span className="font-mono text-[10px] text-muted-foreground/60">{(data.plan?.planHash ?? '').slice(0, 12)}…</span></div>
                 </div>
               </div>
-              {data.plan.items.length > 0 && (
+              {Array.isArray(data.plan?.items) && data.plan.items.length > 0 && (
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Content in active playlist</p>
                   <div className="space-y-1.5">
@@ -155,7 +155,7 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${item.type === 'VIDEO' ? 'bg-purple-500/10' : 'bg-blue-500/10'}`}>
                           {item.type === 'VIDEO' ? <Film className="h-3.5 w-3.5 text-purple-600" /> : <ImageIcon className="h-3.5 w-3.5 text-blue-600" />}
                         </div>
-                        <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-foreground truncate">{item.name}</p><p className="text-[10px] text-muted-foreground">{(item.durationMs / 1000).toFixed(0)}s · {item.type.toLowerCase()}</p></div>
+                        <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-foreground truncate">{item.name}</p><p className="text-[10px] text-muted-foreground">{(item.durationMs / 1000).toFixed(0)}s · {(item.type ?? '').toLowerCase()}</p></div>
                         <a href={item.url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"><ExternalLink className="h-3 w-3" /></a>
                       </div>
                     ))}
@@ -197,7 +197,7 @@ function LinkStoreDialog({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      try { const r = await searchStores({ q: val }); setResults(r.stores); }
+      try { const r = await searchStores({ q: val }); setResults(Array.isArray(r?.stores) ? r.stores : []); }
       finally { setLoading(false); }
     }, 300);
   }, []);
@@ -287,7 +287,7 @@ function PushScheduleDialog({
   const [saving,       setSaving]       = useState(false);
 
   useEffect(() => {
-    getPlaylists().then(setPlaylists).catch(() => {});
+    getPlaylists().then((r) => setPlaylists(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
 
   const push = async () => {
@@ -314,7 +314,7 @@ function PushScheduleDialog({
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Playlist</label>
             <PlaylistPickerField
-              playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items.length }))}
+              playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items?.length ?? 0 }))}
               value={playlistId || null}
               onChange={(id) => setPlaylistId(id ?? '')}
             />
@@ -340,7 +340,7 @@ function GroupPanel({ onClose, onFilterGroup }: { onClose: () => void; onFilterG
   const [groups,  setGroups]  = useState<DeviceGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { getDeviceGroups().then(setGroups).catch(() => {}).finally(() => setLoading(false)); }, []);
+  useEffect(() => { getDeviceGroups().then((r) => setGroups(Array.isArray(r) ? r : [])).catch(() => {}).finally(() => setLoading(false)); }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -693,7 +693,7 @@ function friendlyDeviceLabel(d: Device): string {
 // Short hardware tag ("Screen #B434") — shown in the muted subtitle so two
 // screens at the same store stay distinguishable.
 function screenIdTag(d: Device): string {
-  return `Screen #${(d.hardwareKey ?? d.id).slice(-4).toUpperCase()}`;
+  return `Screen #${(d.hardwareKey ?? d.id ?? '').slice(-4).toUpperCase()}`;
 }
 
 function fmtDate(iso: string) {
@@ -857,7 +857,7 @@ export default function ScreensTab() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadGroups = useCallback(() => {
-    getDeviceGroups().then(setAllGroups).catch(() => {});
+    getDeviceGroups().then((r) => setAllGroups(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
 
   useEffect(() => { loadGroups(); }, [loadGroups]);
@@ -873,9 +873,9 @@ export default function ScreensTab() {
 
     getDevices(params)
       .then((r) => {
-        setDevices(r.devices);
-        setTotal(r.total);
-        setNextCursor(r.nextCursor);
+        setDevices(Array.isArray(r?.devices) ? r.devices : []);
+        setTotal(r?.total ?? 0);
+        setNextCursor(r?.nextCursor ?? null);
         if (!isPrev) setPrevStack((p) => cursor ? [...p, cursor] : []);
       })
       .catch((e: Error) => setError(e.message))
@@ -1224,7 +1224,7 @@ export default function ScreensTab() {
                 </thead>
                 <tbody>
                   {sortedDevices.map((d) => {
-                    const StatusIcon = STATUS_ICONS[d.status];
+                    const StatusIcon = STATUS_ICONS[d.status] ?? AlertCircle;
                     return (
                       <tr key={d.id} className={`border-b border-border/60 last:border-0 transition-colors hover:bg-muted/20 ${selected.has(d.id) ? 'bg-primary/5' : ''}`}>
                         <td className="relative px-3 py-2">
@@ -1273,7 +1273,7 @@ export default function ScreensTab() {
             /* Face carries identity + status only; everything else is behind a click. */
             <motion.div className="space-y-2" variants={listStagger} initial="hidden" animate="show">
               {sortedDevices.map((d) => {
-                const StatusIcon = STATUS_ICONS[d.status];
+                const StatusIcon = STATUS_ICONS[d.status] ?? AlertCircle;
                 const sched = d.currentSchedule;
                 const open  = expanded.has(d.id);
                 return (

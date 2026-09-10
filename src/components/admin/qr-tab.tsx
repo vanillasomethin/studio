@@ -45,12 +45,13 @@ const timeSince = (iso: string | null) => {
 };
 
 /** Daily scans as bars — the shape of the week matters more than the digits. */
-function ScanSparkline({ daily }: { daily: { date: string; scans: number }[] }) {
-  const peak = Math.max(1, ...daily.map((d) => d.scans));
+function ScanSparkline({ daily }: { daily?: { date: string; scans: number }[] }) {
+  const rows = Array.isArray(daily) ? daily : [];
+  const peak = Math.max(1, ...rows.map((d) => d.scans));
   return (
     <div className="flex h-12 items-end gap-[2px]" role="img"
       aria-label={`Daily scans, peak ${peak} on a single day`}>
-      {daily.map((d) => (
+      {rows.map((d) => (
         <div
           key={d.date}
           title={`${dayLabel(d.date)} · ${d.scans} scan${d.scans === 1 ? '' : 's'}`}
@@ -129,7 +130,21 @@ export default function QrTab() {
   const load = useCallback(() => {
     setLoading(true);
     adminGetObject<QrResponse>(`/api/admin/qr?days=${days}`)
-      .then((d) => { setData(d); setError(null); })
+      .then((d) => {
+        // A 200 that is missing `totals` or `destinations` should read as an empty
+        // tab, not take the whole admin down through the error boundary.
+        setData({
+          days:  d?.days ?? days,
+          dates: Array.isArray(d?.dates) ? d.dates : [],
+          totals: {
+            destinations: d?.totals?.destinations ?? 0,
+            scans:        d?.totals?.scans ?? 0,
+            windowScans:  d?.totals?.windowScans ?? 0,
+          },
+          destinations: Array.isArray(d?.destinations) ? d.destinations : [],
+        });
+        setError(null);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [days]);
@@ -231,7 +246,7 @@ export default function QrTab() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="text-right">
-                    <p className="text-lg font-bold text-foreground">{dest.totalScans.toLocaleString('en-IN')}</p>
+                    <p className="text-lg font-bold text-foreground">{(dest.totalScans ?? 0).toLocaleString('en-IN')}</p>
                     <p className="text-[10px] text-muted-foreground">all time · last {timeSince(dest.lastScanAt)}</p>
                   </div>
                   <button
@@ -249,14 +264,16 @@ export default function QrTab() {
                 <div className="mb-1 flex items-baseline justify-between">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Daily scans</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {dest.windowScans.toLocaleString('en-IN')} in {d.days} days
+                    {(dest.windowScans ?? 0).toLocaleString('en-IN')} in {d.days} days
                   </p>
                 </div>
                 <ScanSparkline daily={dest.daily} />
-                <div className="mt-1 flex justify-between text-[9px] text-muted-foreground/60">
-                  <span>{dayLabel(d.dates[0])}</span>
-                  <span>{dayLabel(d.dates[d.dates.length - 1])}</span>
-                </div>
+                {d.dates.length > 0 && (
+                  <div className="mt-1 flex justify-between text-[9px] text-muted-foreground/60">
+                    <span>{dayLabel(d.dates[0])}</span>
+                    <span>{dayLabel(d.dates[d.dates.length - 1])}</span>
+                  </div>
+                )}
               </div>
             </div>
           ))}
