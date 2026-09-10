@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { buildSlotLoop, slotDayIndex, slotSpanForDuration, uniformSlotSpan } from '@/lib/slots';
-import { resolveFillerCampaign, campaignCreatives, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
+import { resolveFillerCampaign, campaignCreatives, activeSlotPlans, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
@@ -69,6 +69,8 @@ export async function GET(req: NextRequest) {
       }),
       filler,
       slotDayIndex(date),
+      new Map(),
+      await activeSlotPlans(storeId, date),
     );
 
     // Span metadata per row so the grid can render merged windows: every row of a

@@ -97,11 +97,22 @@ export function loopRepeatsPerDay(store: {
 
 // ── Loop assembly ─────────────────────────────────────────────────────────────
 
+/** Why a position is playing what it is.
+ *
+ *  Callers used to re-derive this from `isFiller` plus "is this campaign booked
+ *  here", which stopped working the moment standing assignments existed: a plan
+ *  play is isFiller=true with no booking, so that test reported it as house
+ *  content belonging to nobody. The builder knows the real reason — it says so. */
+export type SlotSource = 'sold' | 'plan' | 'bonus' | 'filler';
+
 export type SlotAssignment = {
   slotPosition: number;
   campaignId:   string;
   contentId:    string;      // the creative chosen for this position on this date
   isFiller:     boolean;     // true = bonus/house play in an unsold (or unplayable) position
+  /** Fill reason. `isFiller` stays the coarse flag the player and PlayEvent use
+   *  (plan, bonus and filler are all true); this is the precise one. */
+  source:       SlotSource;
   // How many consecutive positions this play occupies (1 = a plain 10s slot).
   // The wire durationMs is spanSlots × 10s; covered positions get no assignment.
   spanSlots:    number;
@@ -118,6 +129,18 @@ type BookingRow = {
   creativeIds:  string[];
   spanId?:      string | null;
   creativeSpan?: number;
+};
+
+/** A standing assignment (SlotPlan) as the loop builder needs it: which campaign,
+ *  what it can play, and how many positions a day it aims for.
+ *
+ *  `slotsPerDay` is a TARGET, not a guarantee. A plan only ever receives positions
+ *  left over after sold bookings, so a fully-sold day yields it nothing — which is
+ *  exactly why a plan never has to be reconciled against availability. */
+export type PlanRow = {
+  campaignId:  string;
+  creativeIds: string[];
+  slotsPerDay: number;
 };
 
 /** Stable day number for a 'YYYY-MM-DD' date — the rotation offset that makes a
@@ -173,6 +196,7 @@ export function buildSlotLoop(
   filler: { campaignId: string; creativeIds: string[] } | null,
   dayIndex = 0,
   poolWeights: Map<string, number> = new Map(),
+  plans: PlanRow[] = [],
 ): SlotAssignment[] {
   const inRange = bookings.filter((b) => b.slotPosition >= 0 && b.slotPosition < loopSlotCount);
 
@@ -252,6 +276,35 @@ export function buildSlotLoop(
     }
   }
 
+  // Standing assignments, taken BEFORE the bonus round-robin: a plan is a booking
+  // the store owner agreed to, a bonus play is a consolation prize for an unsold
+  // position, so a plan outranks it. Each plan draws down its own daily quota, and
+  // they take turns so one greedy plan cannot eat the whole tail of the loop.
+  //
+  // Single-slot only, exactly like bonus fill — a multi-slot creative cannot fill
+  // one scattered 10s position. Callers must not pass a spanned campaign here.
+  const planQuota = new Map<string, number>();
+  const planRows  = new Map<string, PlanRow>();
+  for (const p of plans) {
+    if (p.creativeIds.length === 0 || p.slotsPerDay < 1) continue;
+    planQuota.set(p.campaignId, (planQuota.get(p.campaignId) ?? 0) + Math.floor(p.slotsPerDay));
+    planRows.set(p.campaignId, p);
+  }
+  const planOrder = [...planQuota.keys()];
+  let planRr = 0;
+  const takePlan = (): PlanRow | null => {
+    for (let i = 0; i < planOrder.length; i++) {
+      const id   = planOrder[(planRr + i) % planOrder.length];
+      const left = planQuota.get(id) ?? 0;
+      if (left > 0) {
+        planQuota.set(id, left - 1);
+        planRr = (planRr + i + 1) % planOrder.length;
+        return planRows.get(id)!;
+      }
+    }
+    return null;
+  };
+
   const out: SlotAssignment[] = [];
   let rr = 0;
   for (let pos = 0; pos < loopSlotCount; pos++) {
@@ -262,19 +315,26 @@ export function buildSlotLoop(
         campaignId:   g.row.campaignId,
         contentId:    nextCreative(g.row.campaignId, g.row.creativeIds),
         isFiller:     false,
+        source:       'sold',
         spanSlots:    g.span,
       });
     } else if (consumed.has(pos)) {
       // A member of a multi-slot placement (or an unplayable head) — the window
       // belongs to that placement; never redistribute it.
       continue;
-    } else if (pool.length > 0) {
-      const p = pool[rr++ % pool.length]; // bonus play for a sold campaign
-      out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true, spanSlots: 1 });
-    } else if (playableFiller) {
-      out.push({ slotPosition: pos, campaignId: playableFiller.campaignId, contentId: nextCreative(playableFiller.campaignId, playableFiller.creativeIds), isFiller: true, spanSlots: 1 });
+    } else {
+      // Free position. Fill order: plan → bonus → house filler.
+      const plan = takePlan();
+      if (plan) {
+        out.push({ slotPosition: pos, campaignId: plan.campaignId, contentId: nextCreative(plan.campaignId, plan.creativeIds), isFiller: true, source: 'plan', spanSlots: 1 });
+      } else if (pool.length > 0) {
+        const p = pool[rr++ % pool.length]; // bonus play for a sold campaign
+        out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true, source: 'bonus', spanSlots: 1 });
+      } else if (playableFiller) {
+        out.push({ slotPosition: pos, campaignId: playableFiller.campaignId, contentId: nextCreative(playableFiller.campaignId, playableFiller.creativeIds), isFiller: true, source: 'filler', spanSlots: 1 });
+      }
+      // else: nothing playable exists — position omitted
     }
-    // else: nothing playable exists — position omitted
   }
   return out;
 }

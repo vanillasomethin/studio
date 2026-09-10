@@ -39,6 +39,58 @@ export function campaignCreatives(c: CampaignCreativeSource): SlotCreativeMeta[]
     : [];
 }
 
+// ── Standing assignments (SlotPlan) ───────────────────────────────────────────
+
+/**
+ * Active standing assignments for one store on one date, ready for buildSlotLoop.
+ *
+ * Every caller that builds a loop must use this, or the same store renders
+ * differently depending on which route asked — the admin grid, the device plan and
+ * the partner card would disagree about what is on the screen.
+ *
+ * Filters on the date window here rather than in the loop builder, because "is this
+ * plan live today" is a database question and buildSlotLoop is deliberately pure.
+ *
+ * Multi-slot campaigns are dropped: a plan fills ONE scattered position at a time,
+ * so a 30s creative can only render as a truncated window nobody agreed to. Dropping
+ * it is visible (the brand gets no plan plays) where truncating it would be silent.
+ */
+export async function activeSlotPlans(storeId: string, date: string): Promise<SlotCreativePlan[]> {
+  const day = new Date(`${date}T00:00:00Z`);
+  const rows = await db.slotPlan.findMany({
+    where: {
+      storeId,
+      active:    true,
+      startDate: { lte: day },
+      OR: [{ endDate: null }, { endDate: { gte: day } }],
+    },
+    select: {
+      slotsPerDay: true,
+      campaignId:  true,
+      campaign: { select: { status: true, ...CAMPAIGN_SLOT_CREATIVES_SELECT } },
+    },
+    orderBy: { createdAt: 'asc' },
+  }).catch(() => []);
+
+  const out: SlotCreativePlan[] = [];
+  for (const r of rows) {
+    // A cancelled campaign stops playing everywhere; the plan row survives so the
+    // assignment can be resumed by reactivating the campaign rather than rebuilt.
+    if (r.campaign.status === 'cancelled') continue;
+    const creatives = campaignCreatives(r.campaign);
+    if (creatives.length === 0) continue;
+    if (Math.max(...creatives.map((c) => slotSpanForDuration(c.durationMs))) > 1) continue;
+    out.push({
+      campaignId:  r.campaignId,
+      creativeIds: creatives.map((c) => c.contentId),
+      slotsPerDay: r.slotsPerDay,
+    });
+  }
+  return out;
+}
+
+type SlotCreativePlan = { campaignId: string; creativeIds: string[]; slotsPerDay: number };
+
 // ── Loop resizing ─────────────────────────────────────────────────────────────
 
 export type SlotMove = {

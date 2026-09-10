@@ -15,7 +15,7 @@ import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { resolvePlaylistTree, pickRendition, type PlanMediaItem, type PlanNestedNode } from '@/lib/playlist-nesting';
 import { istToday, isOpenOn, buildSlotLoop, slotCreativeIds, slotDayIndex, slotSpanForDuration, SLOT_DURATION_MS } from '@/lib/slots';
-import { resolveFillerCampaign } from '@/lib/slots-db';
+import { resolveFillerCampaign, activeSlotPlans } from '@/lib/slots-db';
 import { getMakegoodWeights } from '@/lib/sla-db';
 import { getPeakBoostedCampaignIds, getSoundAdCampaignId } from '@/lib/addons-db';
 import { isPeakWindowNow, peakBoostPoolWeights } from '@/lib/addons';
@@ -290,6 +290,9 @@ export async function GET(req: NextRequest) {
           filler,
           slotDayIndex(today),
           poolWeights,
+          // Standing assignments. This is the path that actually reaches the screen,
+          // so a plan missing here plays nowhere no matter what the admin UI shows.
+          await activeSlotPlans(store.id, today),
         );
 
         const contentIds = [...new Set(loop.map((a) => a.contentId))];
