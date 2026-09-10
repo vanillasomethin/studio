@@ -201,9 +201,9 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
   };
 
   const filtered = stores.filter(s =>
-    !search || s.storeName.toLowerCase().includes(search.toLowerCase()) ||
+    !search || (s.storeName ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (s.city ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    s.ownerName.toLowerCase().includes(search.toLowerCase())
+    (s.ownerName ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
   const byStore = useMemo(() => new Map(preview.map(p => [p.id, p])), [preview]);
@@ -328,9 +328,9 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
                     {/* The three terms, so an operator never has to ask where the number came from */}
                     <div className="flex items-center gap-3 text-[10px]">
                       {[
-                        { label: bd.mode === 'slot' ? `${bd.tier} base` : 'monthly', value: bd.basePaise },
-                        { label: 'ad incentive', value: bd.incentivePaise },
-                        { label: 'electricity', value: bd.electricityPaise },
+                        { label: bd.mode === 'slot' ? `${bd.tier} base` : 'monthly', value: bd.basePaise ?? 0 },
+                        { label: 'ad incentive', value: bd.incentivePaise ?? 0 },
+                        { label: 'electricity', value: bd.electricityPaise ?? 0 },
                       ].map(t => (
                         <div key={t.label}>
                           <p className="font-bold text-foreground">{rupees(t.value)}</p>
@@ -370,7 +370,7 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
                         : 'Estimated from screen wattage × playback hours — no plug linked'}
                     >
                       {bd.kwhSource === 'metered' ? <Zap className="h-2.5 w-2.5" /> : <Gauge className="h-2.5 w-2.5" />}
-                      {bd.kwh.toFixed(1)} kWh {bd.kwhSource}
+                      {(bd.kwh ?? 0).toFixed(1)} kWh {bd.kwhSource}
                     </span>
 
                     {/* Pay this one shop — the shop-wise action */}
@@ -422,8 +422,8 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
                               month shows the computed figure. Other open months
                               are not computed here — one preview fetch, one month. */}
                           <span className="text-xs text-muted-foreground">
-                            {payment ? rupees(payment.amountPaise)
-                              : isSelected && bd ? rupees(bd.totalPaise)
+                            {payment ? rupees(payment.amountPaise ?? 0)
+                              : isSelected && bd ? rupees(bd.totalPaise ?? 0)
                               : '—'}
                           </span>
                           {/* Payment details */}
@@ -448,7 +448,7 @@ export default function StorePaymentsTab({ adminPassword }: { adminPassword: str
                               >
                                 {paying === `${store.id}-${mo}`
                                   ? <><Loader2 className="h-2.5 w-2.5 animate-spin" />Paying…</>
-                                  : isSelected && bd ? `Pay ${rupees(bd.totalPaise)}` : 'Pay'
+                                  : isSelected && bd ? `Pay ${rupees(bd.totalPaise ?? 0)}` : 'Pay'
                                 }
                               </button>
                             )}
