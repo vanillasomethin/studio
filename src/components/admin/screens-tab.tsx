@@ -1224,7 +1224,7 @@ export default function ScreensTab() {
                 </thead>
                 <tbody>
                   {sortedDevices.map((d) => {
-                    const StatusIcon = STATUS_ICONS[d.status];
+                    const StatusIcon = STATUS_ICONS[d.status] ?? AlertCircle;
                     return (
                       <tr key={d.id} className={`border-b border-border/60 last:border-0 transition-colors hover:bg-muted/20 ${selected.has(d.id) ? 'bg-primary/5' : ''}`}>
                         <td className="relative px-3 py-2">
@@ -1273,7 +1273,7 @@ export default function ScreensTab() {
             /* Face carries identity + status only; everything else is behind a click. */
             <motion.div className="space-y-2" variants={listStagger} initial="hidden" animate="show">
               {sortedDevices.map((d) => {
-                const StatusIcon = STATUS_ICONS[d.status];
+                const StatusIcon = STATUS_ICONS[d.status] ?? AlertCircle;
                 const sched = d.currentSchedule;
                 const open  = expanded.has(d.id);
                 return (
