@@ -188,6 +188,25 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/**
+ * Unwrap a single-object envelope like `{ device: ... }` or `{ playlist: ... }`.
+ *
+ * A write that answered 200 without the row it claims to have saved is an
+ * error, not an empty result. Returning undefined here only moves the crash:
+ * callers seat the value straight into list state, and the next render throws
+ * on `x.id` — into the admin error boundary, which blanks the whole console.
+ * Every caller of these already runs inside a try/catch that toasts, so a throw
+ * lands as "save failed" on the panel that asked for it.
+ *
+ * Lists take the opposite default (`[]`, in the getters below): an empty list
+ * is a truthful, renderable answer, whereas an absent row is not.
+ */
+function unwrap<T, K extends keyof T>(r: T, key: K): NonNullable<T[K]> {
+  const value = r?.[key];
+  if (value === null || value === undefined) throw new Error('Unexpected response shape');
+  return value as NonNullable<T[K]>;
+}
+
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
 export type DevicesResponse = { devices: Device[]; nextCursor: string | null; total: number };
@@ -199,12 +218,12 @@ export const getDevices = (params?: Record<string, string>) => {
 
 export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string; playsOriginal?: boolean }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-  .then((r) => r.device);
+  .then((r) => unwrap(r, 'device'));
 
 export const confirmPairing = (code: string) =>
   apiFetch<{ device: { id: string; name: string; hardwareKey: string } }>('/api/admin/confirm-pairing', {
     method: 'POST', body: JSON.stringify({ code }),
-  }).then((r) => r.device);
+  }).then((r) => unwrap(r, 'device'));
 
 export const bulkUpdateDevices = (body: { ids: string[]; action: 'group' | 'delete'; groupName?: string }) =>
   apiFetch<{ updated?: number; deleted?: number }>('/api/devices/bulk', { method: 'POST', body: JSON.stringify(body) });
@@ -251,11 +270,11 @@ export const checkScreenTest = (deviceId: string, since: string) =>
   apiFetch<TestPlayStatus>(`/api/devices/${deviceId}/test-play?since=${encodeURIComponent(since)}`);
 
 export const getPlayerConfig = () =>
-  apiFetch<{ config: PlayerConfig }>('/api/admin/player-config').then((r) => r.config);
+  apiFetch<{ config: PlayerConfig }>('/api/admin/player-config').then((r) => unwrap(r, 'config'));
 
 export const updatePlayerConfig = (body: Partial<Omit<PlayerConfig, 'updatedAt'>>) =>
   apiFetch<{ config: PlayerConfig }>('/api/admin/player-config', { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.config);
+    .then((r) => unwrap(r, 'config'));
 
 // ─── Proof-of-play archive (monthly export → R2, optional pruning) ───────────
 
@@ -304,7 +323,7 @@ export const getPopExportStatus = () =>
 
 export const updatePopExportConfig = (body: Partial<Pick<PopExportConfig, 'enabled' | 'frequency' | 'deleteAfterExport'>>) =>
   apiFetch<{ config: PopExportConfig }>('/api/admin/pop-export', { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.config);
+    .then((r) => unwrap(r, 'config'));
 
 export const runPopExportNow = () =>
   apiFetch<PopSweepResult>('/api/admin/pop-export/run', { method: 'POST' });
@@ -470,11 +489,11 @@ export type PlaylistItemWrite = { contentId?: string; childPlaylistId?: string; 
 
 export const createPlaylist = (body: { name: string; items?: PlaylistItemWrite[]; transition?: Playlist['transition'] }) =>
   apiFetch<{ playlist: Playlist }>('/api/playlists', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.playlist);
+    .then((r) => unwrap(r, 'playlist'));
 
 export const updatePlaylist = (id: string, body: { name?: string; items?: PlaylistItemWrite[]; transition?: Playlist['transition'] }) =>
   apiFetch<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.playlist);
+    .then((r) => unwrap(r, 'playlist'));
 
 export const deletePlaylist = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/playlists/${id}`, { method: 'DELETE' });
@@ -489,7 +508,7 @@ export const createSchedule = (
     { priority?: number; replaceScheduleIds?: string[] },
 ) =>
   apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.schedule);
+    .then((r) => unwrap(r, 'schedule'));
 
 // An existing schedule whose window + screens overlap one being created — shown
 // in the Schedules tab's "replace the old playlist?" confirmation. Confirmed ids
@@ -520,7 +539,7 @@ export const getScheduleConflicts = (body: {
 
 export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | 'createdAt' | 'playlist'>>) =>
   apiFetch<{ schedule: Schedule }>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.schedule);
+    .then((r) => unwrap(r, 'schedule'));
 
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });
@@ -696,11 +715,11 @@ export const getOverlays = () =>
 
 export const createOverlay = (body: Partial<Overlay> & { name: string; type: OverlayType }) =>
   apiFetch<{ overlay: Overlay }>('/api/overlays', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.overlay);
+    .then((r) => unwrap(r, 'overlay'));
 
 export const updateOverlay = (id: string, body: Partial<Overlay>) =>
   apiFetch<{ overlay: Overlay }>(`/api/overlays/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.overlay);
+    .then((r) => unwrap(r, 'overlay'));
 
 export const deleteOverlay = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/overlays/${id}`, { method: 'DELETE' });
@@ -715,11 +734,11 @@ export const getCompositions = () =>
 
 export const createComposition = (body: { name: string; description?: string; zones: ZoneDefinition[]; isPreset?: boolean }) =>
   apiFetch<{ composition: Composition }>('/api/compositions', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.composition);
+    .then((r) => unwrap(r, 'composition'));
 
 export const updateComposition = (id: string, body: { name?: string; description?: string; zones?: ZoneDefinition[] }) =>
   apiFetch<{ composition: Composition }>(`/api/compositions/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.composition);
+    .then((r) => unwrap(r, 'composition'));
 
 export const deleteComposition = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/compositions/${id}`, { method: 'DELETE' });
