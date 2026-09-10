@@ -432,6 +432,7 @@ model Brand {
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns Campaign[]
+  creatives Content[]
 }
 
 model Campaign {
@@ -902,12 +903,25 @@ model Content {
   hevcMd5       String?
   hevcSizeBytes BigInt?
 
+  // The brand this creative belongs to. Nullable on purpose and never backfilled:
+  // ALIVE's own house media — fillers, product shots, store-offer and flyer
+  // templates — belongs to no brand, and inventing an owner for it would be a lie.
+  // An empty column means "house content", which is the truth.
+  //
+  // This is what lets a slot-mode creative picker show a short per-brand list
+  // instead of the whole library. Deleting a brand nulls it rather than cascading:
+  // the file may still be booked and playing, and taking it with the brand would
+  // blank a live screen.
+  brandId      String?
+  brand        Brand?      @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
   items             PlaylistItem[]
   slotCreativeFor   Campaign[]     @relation("CampaignSlotCreative")
   fillerCreativeFor FillerCreative[] @relation("FillerContent")
 
   @@index([uploadedById])
   @@index([folder])
+  @@index([brandId])
 }
 
 /// ALIVE's own house content, used to fill loop positions nobody bought.

@@ -87,7 +87,10 @@ export default function ProspectsTab() {
       const res = await fetch('/api/admin/prospects');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { prospects: Prospect[] };
-      setRows(d.prospects);
+      // A 200 without `prospects` (or carrying the wrong type) would land a
+      // non-array in state, and the next rows.filter throws into the admin
+      // error boundary — blanking the whole console, not just this panel.
+      setRows(Array.isArray(d?.prospects) ? d.prospects : []);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -320,7 +323,7 @@ export default function ProspectsTab() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold text-foreground">{p.label}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      {p.locality ?? p.city ?? `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`}
+                      {p.locality ?? p.city ?? `${(p.lat ?? 0).toFixed(4)}, ${(p.lng ?? 0).toFixed(4)}`}
                       {p.createdBy && ` · ${p.createdBy}`}
                     </p>
                     {p.notes && <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{p.notes}</p>}

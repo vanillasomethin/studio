@@ -110,6 +110,17 @@ export type Content = {
   folder?:     string;
   transcodeStatus?: 'pending' | 'done' | 'error' | null;
   transcodeError?:  string | null;
+  // Owning brand. null = ALIVE house content (filler, product shots, templates) —
+  // a real state, not missing data. brandName is denormalised for display so the
+  // library table needs no second lookup.
+  brandId?:    string | null;
+  brandName?:  string | null;
+};
+
+export type AdminBrand = {
+  id:            string;
+  brandName:     string;
+  creativeCount: number;
 };
 
 export type PlaylistItem = {
@@ -175,7 +186,36 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });
   }
-  return res.json() as Promise<T>;
+  const body = await res.json();
+  // A 200 whose body is null carries nothing a caller can use, and `null.field`
+  // throws inside whichever panel unwrapped it — which reaches the admin error
+  // boundary and blanks the whole console rather than the one panel. Fail loudly
+  // and locally here instead, the same contract lib/admin-fetch.ts states.
+  //
+  // Note this guarantees only that the body EXISTS. It cannot guarantee any
+  // field is present, so the envelope unwrappers below still check their own
+  // shape before handing a value to a caller.
+  if (body === null || body === undefined) throw new Error('Unexpected response shape');
+  return body as T;
+}
+
+/**
+ * Unwrap a single-object envelope like `{ device: ... }` or `{ playlist: ... }`.
+ *
+ * A write that answered 200 without the row it claims to have saved is an
+ * error, not an empty result. Returning undefined here only moves the crash:
+ * callers seat the value straight into list state, and the next render throws
+ * on `x.id` — into the admin error boundary, which blanks the whole console.
+ * Every caller of these already runs inside a try/catch that toasts, so a throw
+ * lands as "save failed" on the panel that asked for it.
+ *
+ * Lists take the opposite default (`[]`, in the getters below): an empty list
+ * is a truthful, renderable answer, whereas an absent row is not.
+ */
+function unwrap<T, K extends keyof T>(r: T, key: K): NonNullable<T[K]> {
+  const value = r?.[key];
+  if (value === null || value === undefined) throw new Error('Unexpected response shape');
+  return value as NonNullable<T[K]>;
 }
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
@@ -189,12 +229,12 @@ export const getDevices = (params?: Record<string, string>) => {
 
 export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string; playsOriginal?: boolean }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-  .then((r) => r.device);
+  .then((r) => unwrap(r, 'device'));
 
 export const confirmPairing = (code: string) =>
   apiFetch<{ device: { id: string; name: string; hardwareKey: string } }>('/api/admin/confirm-pairing', {
     method: 'POST', body: JSON.stringify({ code }),
-  }).then((r) => r.device);
+  }).then((r) => unwrap(r, 'device'));
 
 export const bulkUpdateDevices = (body: { ids: string[]; action: 'group' | 'delete'; groupName?: string }) =>
   apiFetch<{ updated?: number; deleted?: number }>('/api/devices/bulk', { method: 'POST', body: JSON.stringify(body) });
@@ -203,7 +243,7 @@ export const bulkPushSchedule = (body: { deviceIds: string[]; playlistId: string
   apiFetch<{ schedule: { id: string; name: string; endsAt: string } }>('/api/devices/bulk-schedule', { method: 'POST', body: JSON.stringify(body) });
 
 export const getDeviceGroups = () =>
-  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => r.groups);
+  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => Array.isArray(r?.groups) ? r.groups : []);
 
 // ─── Player config (fleet-wide behavior knobs, no APK rebuild required) ──────
 
@@ -241,11 +281,11 @@ export const checkScreenTest = (deviceId: string, since: string) =>
   apiFetch<TestPlayStatus>(`/api/devices/${deviceId}/test-play?since=${encodeURIComponent(since)}`);
 
 export const getPlayerConfig = () =>
-  apiFetch<{ config: PlayerConfig }>('/api/admin/player-config').then((r) => r.config);
+  apiFetch<{ config: PlayerConfig }>('/api/admin/player-config').then((r) => unwrap(r, 'config'));
 
 export const updatePlayerConfig = (body: Partial<Omit<PlayerConfig, 'updatedAt'>>) =>
   apiFetch<{ config: PlayerConfig }>('/api/admin/player-config', { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.config);
+    .then((r) => unwrap(r, 'config'));
 
 // ─── Proof-of-play archive (monthly export → R2, optional pruning) ───────────
 
@@ -294,7 +334,7 @@ export const getPopExportStatus = () =>
 
 export const updatePopExportConfig = (body: Partial<Pick<PopExportConfig, 'enabled' | 'frequency' | 'deleteAfterExport'>>) =>
   apiFetch<{ config: PopExportConfig }>('/api/admin/pop-export', { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.config);
+    .then((r) => unwrap(r, 'config'));
 
 export const runPopExportNow = () =>
   apiFetch<PopSweepResult>('/api/admin/pop-export/run', { method: 'POST' });
@@ -427,15 +467,20 @@ export const getContent = () =>
 export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
 
-export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: string | null }) =>
-  apiFetch<{ id: string; tags: string[]; folder?: string | null }>('/api/content', {
+export const getBrands = () =>
+  apiFetch<{ brands: AdminBrand[] }>('/api/admin/brands').then((r) => r.brands);
+
+// brandId: pass null to unassign a creative back to house content; omit it to
+// leave the current owner untouched. undefined and null mean different things here.
+export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: string | null; brandId?: string | null }) =>
+  apiFetch<{ id: string; tags: string[]; folder?: string | null; brandId?: string | null }>('/api/content', {
     method: 'PATCH',
     body:   JSON.stringify({ id, ...body }),
   });
 
 export const initiateUpload = (body: {
   name: string; type: 'image' | 'video'; sizeBytes: number; md5: string; mimeType?: string; durationMs?: number;
-  width?: number; height?: number;
+  width?: number; height?: number; brandId?: string | null;
 }) =>
   apiFetch<{ id: string; uploadUrl: string; objectKey: string }>('/api/content', {
     method: 'POST',
@@ -453,18 +498,18 @@ export const transcodeVideo = (contentId: string) =>
 // ─── Playlists ────────────────────────────────────────────────────────────────
 
 export const getPlaylists = () =>
-  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => r.playlists);
+  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => Array.isArray(r?.playlists) ? r.playlists : []);
 
 // An item targets either content (media) or another playlist (nested — see PlaylistItem).
 export type PlaylistItemWrite = { contentId?: string; childPlaylistId?: string; durationMs: number };
 
 export const createPlaylist = (body: { name: string; items?: PlaylistItemWrite[]; transition?: Playlist['transition'] }) =>
   apiFetch<{ playlist: Playlist }>('/api/playlists', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.playlist);
+    .then((r) => unwrap(r, 'playlist'));
 
 export const updatePlaylist = (id: string, body: { name?: string; items?: PlaylistItemWrite[]; transition?: Playlist['transition'] }) =>
   apiFetch<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.playlist);
+    .then((r) => unwrap(r, 'playlist'));
 
 export const deletePlaylist = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/playlists/${id}`, { method: 'DELETE' });
@@ -472,14 +517,14 @@ export const deletePlaylist = (id: string) =>
 // ─── Schedules ────────────────────────────────────────────────────────────────
 
 export const getSchedules = () =>
-  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => r.schedules);
+  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => Array.isArray(r?.schedules) ? r.schedules : []);
 
 export const createSchedule = (
   body: Omit<Schedule, 'id' | 'createdAt' | 'playlist' | 'priority'> &
     { priority?: number; replaceScheduleIds?: string[] },
 ) =>
   apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.schedule);
+    .then((r) => unwrap(r, 'schedule'));
 
 // An existing schedule whose window + screens overlap one being created — shown
 // in the Schedules tab's "replace the old playlist?" confirmation. Confirmed ids
@@ -500,11 +545,17 @@ export const getScheduleConflicts = (body: {
   startAt: string; endAt: string; excludeId?: string;
 }) =>
   apiFetch<{ conflicts: ScheduleConflict[] }>('/api/schedules/conflicts', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.conflicts);
+    // Deliberately NOT defaulted to []: an empty list here reads as "this
+    // schedule clashes with nothing", so a malformed body would wave a genuinely
+    // conflicting schedule through. Callers already surface a thrown error.
+    .then((r) => {
+      if (!Array.isArray(r?.conflicts)) throw new Error('Unexpected response shape');
+      return r.conflicts;
+    });
 
 export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | 'createdAt' | 'playlist'>>) =>
   apiFetch<{ schedule: Schedule }>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.schedule);
+    .then((r) => unwrap(r, 'schedule'));
 
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });
@@ -676,15 +727,15 @@ export type Overlay = {
 };
 
 export const getOverlays = () =>
-  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => r.overlays);
+  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => Array.isArray(r?.overlays) ? r.overlays : []);
 
 export const createOverlay = (body: Partial<Overlay> & { name: string; type: OverlayType }) =>
   apiFetch<{ overlay: Overlay }>('/api/overlays', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.overlay);
+    .then((r) => unwrap(r, 'overlay'));
 
 export const updateOverlay = (id: string, body: Partial<Overlay>) =>
   apiFetch<{ overlay: Overlay }>(`/api/overlays/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.overlay);
+    .then((r) => unwrap(r, 'overlay'));
 
 export const deleteOverlay = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/overlays/${id}`, { method: 'DELETE' });
@@ -695,15 +746,15 @@ export const previewFeed = (url: string) =>
 // ─── Compositions ─────────────────────────────────────────────────────────────
 
 export const getCompositions = () =>
-  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => r.compositions);
+  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => Array.isArray(r?.compositions) ? r.compositions : []);
 
 export const createComposition = (body: { name: string; description?: string; zones: ZoneDefinition[]; isPreset?: boolean }) =>
   apiFetch<{ composition: Composition }>('/api/compositions', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.composition);
+    .then((r) => unwrap(r, 'composition'));
 
 export const updateComposition = (id: string, body: { name?: string; description?: string; zones?: ZoneDefinition[] }) =>
   apiFetch<{ composition: Composition }>(`/api/compositions/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.composition);
+    .then((r) => unwrap(r, 'composition'));
 
 export const deleteComposition = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/compositions/${id}`, { method: 'DELETE' });

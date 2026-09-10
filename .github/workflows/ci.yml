@@ -60,6 +60,18 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # verify-transcode-skip encodes real fixtures and reads them back through the exact
+      # ffprobe argument list transcode-lambda/index.mjs uses. That half is the only thing
+      # proving the conformance predicate matches real ffprobe output (level as a number,
+      # profile spelled "Constrained Baseline") and pinning the scale filter's output
+      # dimensions — the filter that was silently squashing 1080x1920 masters to 608x1080.
+      # The runner image does not ship ffmpeg, so without this step that half self-skips
+      # and a scale regression lands green. Installed unconditionally, and allowed to fail
+      # the job if apt does: a soft failure here is indistinguishable from the guard rot
+      # this workflow exists to prevent.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       # Globbed rather than enumerated from package.json on purpose: a hardcoded
       # list would silently skip any suite someone forgets to add — the same
       # "guard exists but never runs" failure this workflow prevents. A glob

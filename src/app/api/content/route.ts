@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
   try {
     const folder = req.nextUrl.searchParams.get('folder');
     const tag    = req.nextUrl.searchParams.get('tag');
+    // '' (the literal) selects house content — the rows with no brand — which is a
+    // real filter, not "no filter". Hence the null check rather than a truthy one.
+    const brand  = req.nextUrl.searchParams.get('brand');
 
     // Fetch base rows without tags/folder (columns may not exist yet in DB)
     const rows = await db.content.findMany({
@@ -29,21 +32,33 @@ export async function GET(req: NextRequest) {
       orderBy: { uploadedAt: 'desc' },
     });
 
-    // Attempt to fetch tags/folder/transcodeStatus separately — safe to fail
-    type TagRow = { id: string; tags: string[]; folder: string | null; transcodeStatus: string | null; transcodeError: string | null };
+    // Attempt to fetch tags/folder/transcodeStatus/brand separately — safe to fail.
+    // brandId rides along in this same fail-open query rather than BASE_CONTENT_SELECT
+    // on purpose: if the column is ever missing (a deploy that outran its migration),
+    // the library still lists, minus the brand labels. Putting it in the main select
+    // would 500 the whole Content tab instead.
+    type TagRow = {
+      id: string; tags: string[]; folder: string | null;
+      transcodeStatus: string | null; transcodeError: string | null;
+      brandId: string | null; brandName: string | null;
+    };
     let tagMap = new Map<string, TagRow>();
     try {
       const tagRows = await db.$queryRaw<TagRow[]>`
-        SELECT id, tags, folder, "transcodeStatus", "transcodeError" FROM "Content"
+        SELECT c.id, c.tags, c.folder, c."transcodeStatus", c."transcodeError",
+               c."brandId", b."brandName"
+        FROM "Content" c
+        LEFT JOIN "Brand" b ON b.id = c."brandId"
       `;
       tagMap = new Map(tagRows.map((r) => [r.id, r]));
-    } catch { /* columns not yet migrated — tags/folder/transcodeStatus will be empty */ }
+    } catch { /* columns not yet migrated — tags/folder/transcode/brand stay empty */ }
 
     // Filter by folder/tag if requested (post-query, since WHERE may fail without columns)
     const filtered = rows.filter((c) => {
       const extra = tagMap.get(c.id);
       if (folder && extra?.folder !== folder) return false;
       if (tag    && !(extra?.tags ?? []).includes(tag)) return false;
+      if (brand !== null && (extra?.brandId ?? '') !== brand) return false;
       return true;
     });
 
@@ -64,6 +79,8 @@ export async function GET(req: NextRequest) {
         createdAt:  c.uploadedAt.toISOString(),
         tags:       extra?.tags ?? [],
         folder:     extra?.folder ?? undefined,
+        brandId:    extra?.brandId ?? null,
+        brandName:  extra?.brandName ?? null,
         transcodeStatus: (extra?.transcodeStatus as 'pending' | 'done' | 'error' | null) ?? undefined,
         transcodeError:  extra?.transcodeError ?? undefined,
       };
@@ -78,7 +95,7 @@ export async function POST(req: NextRequest) {
   const actor = await requireAdmin(req);
   if (!actor) return adminUnauthorized();
   try {
-    const { name, type, sizeBytes, md5, durationMs, mimeType, width, height } = await req.json() as {
+    const { name, type, sizeBytes, md5, durationMs, mimeType, width, height, brandId } = await req.json() as {
       name: string;
       type: 'image' | 'video';
       sizeBytes: number;
@@ -87,9 +104,18 @@ export async function POST(req: NextRequest) {
       mimeType?: string;
       width?: number;
       height?: number;
+      brandId?: string | null;
     };
     if (!name || !type || !sizeBytes || !md5) {
       return NextResponse.json({ error: 'name, type, sizeBytes, md5 required' }, { status: 400 });
+    }
+
+    // Check the brand up front so a bad id fails as a 400 naming the problem rather
+    // than an FK violation surfacing as an opaque 500 — this runs before the R2
+    // presign, so a rejected upload leaves no orphaned object key behind either.
+    if (brandId) {
+      const brand = await db.brand.findUnique({ where: { id: brandId }, select: { id: true } });
+      if (!brand) return NextResponse.json({ error: 'Unknown brand' }, { status: 400 });
     }
 
     // Intrinsic pixel size, measured client-side before upload (images). Both or
@@ -110,7 +136,7 @@ export async function POST(req: NextRequest) {
     const uploadUrl = await signedUploadUrl(objectKey, contentType, 900);
 
     const content = await db.content.create({
-      data: { name, type: dbType, objectKey, md5, sizeBytes, durationMs: durationMs ?? null, ...dims },
+      data: { name, type: dbType, objectKey, md5, sizeBytes, durationMs: durationMs ?? null, brandId: brandId ?? null, ...dims },
     });
 
     // This hands back a presigned R2 PUT URL — the point where new media enters
@@ -133,18 +159,36 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireAdmin(req);
   if (!actor) return adminUnauthorized();
   try {
-    const { id, tags, folder } = await req.json() as { id: string; tags?: string[]; folder?: string | null };
+    const { id, tags, folder, brandId } = await req.json() as {
+      id: string; tags?: string[]; folder?: string | null; brandId?: string | null;
+    };
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+    // Validate before the write. The raw-SQL fallback below exists to survive a
+    // missing COLUMN, but it cannot tell that apart from a bad brand id — without
+    // this check an unknown brand would fall through it and surface as a 500.
+    // null is a legitimate value here: it unassigns the creative back to house.
+    if (brandId) {
+      const brand = await db.brand.findUnique({ where: { id: brandId }, select: { id: true } });
+      if (!brand) return NextResponse.json({ error: 'Unknown brand' }, { status: 400 });
+    }
+
     try {
       const updated = await db.content.update({
         where: { id },
         data: {
-          ...(tags   !== undefined ? { tags }   : {}),
-          ...(folder !== undefined ? { folder } : {}),
+          ...(tags    !== undefined ? { tags }    : {}),
+          ...(folder  !== undefined ? { folder }  : {}),
+          ...(brandId !== undefined ? { brandId } : {}),
         },
       });
-      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder } });
-      return NextResponse.json({ id: updated.id, tags: (updated as { tags?: string[] }).tags ?? [], folder: (updated as { folder?: string | null }).folder ?? null });
+      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder, brandId } });
+      return NextResponse.json({
+        id:      updated.id,
+        tags:    (updated as { tags?: string[] }).tags ?? [],
+        folder:  (updated as { folder?: string | null }).folder ?? null,
+        brandId: (updated as { brandId?: string | null }).brandId ?? null,
+      });
     } catch {
       // Fallback: update via raw SQL if ORM fails on missing column
       if (tags !== undefined) {
@@ -153,8 +197,11 @@ export async function PATCH(req: NextRequest) {
       if (folder !== undefined) {
         await db.$executeRaw`UPDATE "Content" SET folder = ${folder} WHERE id = ${id}`;
       }
-      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder, viaRawSql: true } });
-      return NextResponse.json({ id, tags: tags ?? [], folder: folder ?? null });
+      if (brandId !== undefined) {
+        await db.$executeRaw`UPDATE "Content" SET "brandId" = ${brandId} WHERE id = ${id}`;
+      }
+      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder, brandId, viaRawSql: true } });
+      return NextResponse.json({ id, tags: tags ?? [], folder: folder ?? null, brandId: brandId ?? null });
     }
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
