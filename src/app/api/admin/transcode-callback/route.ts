@@ -32,7 +32,16 @@ const RENDITION_KEY = /^content\/[A-Za-z0-9]+-transcoded(?:-hevc)?-\d+\.mp4$/;
 
 type Body =
   | {
-      contentId: string; status: 'done'; objectKey: string; md5: string; sizeBytes: number;
+      contentId: string; status: 'done'; skipped?: false;
+      objectKey: string; md5: string; sizeBytes: number;
+      durationMs?: number; width?: number; height?: number;
+      hevcObjectKey?: string; hevcMd5?: string; hevcSizeBytes?: number;
+    }
+  // The Lambda probed the upload, found it already conformant, and ran no H.264 encode.
+  // There is no rendition to point at, so this arm deliberately carries no
+  // objectKey/md5/sizeBytes — they must survive untouched.
+  | {
+      contentId: string; status: 'done'; skipped: true;
       durationMs?: number; width?: number; height?: number;
       hevcObjectKey?: string; hevcMd5?: string; hevcSizeBytes?: number;
     }
@@ -57,7 +66,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!RENDITION_KEY.test(body.objectKey) || (body.hevcObjectKey && !RENDITION_KEY.test(body.hevcObjectKey))) {
+    if (body.hevcObjectKey && !RENDITION_KEY.test(body.hevcObjectKey)) {
+      return NextResponse.json({ error: 'hevcObjectKey must be a transcode rendition key' }, { status: 400 });
+    }
+
+    // Skip path: the source was already the rendition, so the only things that changed
+    // are the probed dimensions and (maybe) the HEVC companion. objectKey/md5/sizeBytes
+    // are left alone, and original* stays NULL on purpose — pickRendition falls back to
+    // objectKey when there is no original, which here IS the original, so playsOriginal
+    // screens and everyone else correctly converge on the same file.
+    if (body.skipped) {
+      await db.$executeRaw`
+        UPDATE "Content"
+        SET "durationMs" = ${body.durationMs ?? null}, width = ${body.width ?? null}, height = ${body.height ?? null},
+            "transcodeStatus" = 'done', "transcodeError" = NULL,
+            "hevcObjectKey" = ${body.hevcObjectKey ?? null}, "hevcMd5" = ${body.hevcMd5 ?? null},
+            "hevcSizeBytes" = ${body.hevcSizeBytes ?? null}
+        WHERE id = ${body.contentId}
+      `;
+      // objectKey didn't move, but hevcObjectKey may have — that's still a plan change
+      // for any HEVC-preferring panel, so push for the same reason as below.
+      pushPlanUpdated([]).catch(() => {});
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+
+    if (!RENDITION_KEY.test(body.objectKey)) {
       return NextResponse.json({ error: 'objectKey must be a transcode rendition key' }, { status: 400 });
     }
 

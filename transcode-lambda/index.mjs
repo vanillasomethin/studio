@@ -7,22 +7,31 @@
 //
 // What it does:
 //   1. Downloads the original video from its public R2 URL.
-//   2. Re-encodes to H.264 Main Profile / Level 4.1, yuv420p, <=1920x1080, 30fps,
+//   2. Probes it. If the upload is ALREADY H.264 Main-or-lower @<=4.1, yuv420p, <=1080p,
+//      <=30fps, <=8 Mbps with AAC-or-no audio, the re-encode below would reproduce the
+//      file it started from, so it is skipped: the row keeps pointing at the upload and
+//      transcodeStatus goes straight to 'done'. This is the only path on which a screen
+//      plays bytes that were never through ffmpeg — worth it, because the re-encode is
+//      lossy and `-r 30` in particular introduces frame-duplication judder on the 24/25fps
+//      masters that agencies actually deliver. Step 4 still runs on this path.
+//   3. Otherwise re-encodes to H.264 Main Profile / Level 4.1, yuv420p, 1080p in the
+//      source's own orientation (1920x1080 landscape, 1080x1920 portrait), 30fps,
 //      AAC audio — a profile/level virtually every Android TV hardware decoder
 //      (Realtek, Amlogic, Allwinner, MediaTek) supports. Budget Realtek SoCs in the
 //      field have been observed rejecting High Profile / Level 5.0 sources at
 //      MediaCodec init time even though ExoPlayer's format-support pre-check reports
 //      them as supported (OMX capability reporting quirk) — that's the failure this
 //      exists to prevent.
-//   3. Uploads the re-encoded file to R2 under a NEW object key (so any device that
+//      Uploads the re-encoded file to R2 under a NEW object key (so any device that
 //      already cached the original under its old hash is unaffected — it'll pick up
 //      the new key on its next plan fetch, verify against the new hash, and download
 //      fresh, exactly like any other content update).
-//   4. Best-effort: also re-encodes to HEVC/H.265 at ~half the H.264 bitrate and
-//      uploads it as a second rendition. Some fleet devices have a broken hardware
-//      AVC decoder (falls back to CPU-bound software decode) but a working hardware
-//      HEVC decoder — the player prefers this rendition on those devices. Failure here
-//      doesn't fail the job; the H.264 rendition is always the required baseline.
+//   4. Best-effort, on BOTH paths: also re-encodes to HEVC/H.265 at ~half the H.264
+//      bitrate and uploads it as a second rendition. Some fleet devices have a broken
+//      hardware AVC decoder (falls back to CPU-bound software decode) but a working
+//      hardware HEVC decoder — the player prefers this rendition on those devices, and
+//      it is the ONLY thing they can play, so a conformant H.264 source does not excuse
+//      skipping it. Failure here doesn't fail the job.
 //   5. Calls back to the studio app with the result(s) so it can update the Content row.
 //
 // Required Lambda configuration (see ../TRANSCODE_LAMBDA.md for full deploy steps):
@@ -46,6 +55,7 @@ import { promisify } from 'util';
 import { writeFile, readFile, unlink } from 'fs/promises';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import ffprobePath from '@ffprobe-installer/ffprobe';
+import { isAlreadySafe, parseFps, SCALE_FILTER } from './conformance.mjs';
 
 const run = promisify(execFile);
 
@@ -68,6 +78,38 @@ async function uploadViaPresign(objectKey, bytes, contentType) {
   // The presign signature covers Content-Type — the PUT must send the same value.
   const put = await fetch(uploadUrl, { method: 'PUT', headers: { 'content-type': contentType }, body: bytes });
   if (!put.ok) throw new Error(`R2 PUT failed: HTTP ${put.status} ${await put.text().catch(() => '')}`);
+}
+
+// Best-effort second rendition: the same source re-encoded as HEVC/H.265, at roughly
+// half the H.264 bitrate (HEVC is ~2x more efficient at equivalent quality). Some fleet
+// devices have a broken hardware AVC decoder but a working hardware HEVC one — this
+// rendition lets those play HD content in hardware instead of falling back to a
+// CPU-bound software AVC decoder. Never blocks the H.264 side: on failure, log and move
+// on, returning nothing to spread into the callback body.
+//
+// Always encodes from the ORIGINAL, never from the H.264 rendition, so the two are
+// independent single-generation encodes rather than a chain. That is also why it runs on
+// the skip path: a source can be perfectly conformant H.264 and still be undecodable on
+// the HiSilicon panels, which need this file to play anything at all.
+async function encodeHevc(contentId, tmpIn, tmpOutHevc) {
+  try {
+    await run(ffmpegPath.path, [
+      '-y', '-i', tmpIn,
+      '-c:v', 'libx265', '-tag:v', 'hvc1', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
+      '-vf', SCALE_FILTER,
+      '-r', '30', '-b:v', '3M', '-maxrate', '4M', '-bufsize', '6M',
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
+      tmpOutHevc,
+    ]);
+    const hevcBytes = await readFile(tmpOutHevc);
+    const hevcMd5 = createHash('md5').update(hevcBytes).digest('hex');
+    const hevcObjectKey = `content/${contentId}-transcoded-hevc-${Date.now()}.mp4`;
+    await uploadViaPresign(hevcObjectKey, hevcBytes, 'video/mp4');
+    return { hevcObjectKey, hevcMd5, hevcSizeBytes: hevcBytes.length };
+  } catch (err) {
+    console.error('HEVC transcode failed (non-fatal, H.264 side still used):', err);
+    return undefined;
+  }
 }
 
 async function callback(body) {
@@ -99,27 +141,61 @@ export const handler = async (event) => {
     // 1. Download original
     const resp = await fetch(inputUrl);
     if (!resp.ok) throw new Error(`Failed to download source (HTTP ${resp.status})`);
-    await writeFile(tmpIn, Buffer.from(await resp.arrayBuffer()));
+    const inBytes = Buffer.from(await resp.arrayBuffer());
+    await writeFile(tmpIn, inBytes);
 
-    // 2. Re-encode to a broadly hardware-decodable profile/level.
+    // 2. Probe the SOURCE before touching it. A creative exported straight to H.264
+    // Main@4.1 1080p30 is already the file step 3 would produce, and re-encoding it buys
+    // nothing but generation loss (and, for the 24/25fps masters agencies actually
+    // deliver, the frame-duplication judder `-r 30` introduces). Skip steps 3-5 in that
+    // case and keep serving the upload itself. Step 6 still runs either way — the
+    // HiSilicon panels can't decode AVC at all, so a conformant H.264 source is exactly
+    // as unplayable to them as a non-conformant one and they still need the HEVC file.
+    const srcProbe = JSON.parse((await run(ffprobePath.path, [
+      '-v', 'error',
+      '-show_entries', 'stream=codec_type,codec_name,profile,level,pix_fmt,width,height,r_frame_rate:format=duration,bit_rate',
+      '-of', 'json', tmpIn,
+    ])).stdout);
+    const srcVideo = srcProbe.streams?.find((s) => s.codec_type === 'video');
+    const srcAudio = srcProbe.streams?.find((s) => s.codec_type === 'audio');
+    const srcDurationSec = srcProbe.format?.duration ? parseFloat(srcProbe.format.duration) : null;
+    // format.bit_rate is absent on some containers — fall back to the bytes we just
+    // downloaded, since an unknown bitrate would otherwise fail the conformance check.
+    const srcBitrate = srcProbe.format?.bit_rate
+      ? Number(srcProbe.format.bit_rate)
+      : (srcDurationSec ? Math.round((inBytes.length * 8) / srcDurationSec) : null);
+
+    if (isAlreadySafe(srcVideo, srcAudio, srcBitrate)) {
+      console.log(
+        `Source already conformant (h264 ${srcVideo.profile}@${srcVideo.level} ` +
+        `${srcVideo.width}x${srcVideo.height} ${parseFps(srcVideo.r_frame_rate)?.toFixed(2)}fps ` +
+        `${Math.round(srcBitrate / 1000)}kbps) — skipping H.264 re-encode`,
+      );
+      const hevcOnly = await encodeHevc(contentId, tmpIn, tmpOutHevc);
+      await callback({
+        contentId, status: 'done', skipped: true,
+        durationMs: srcDurationSec ? Math.round(srcDurationSec * 1000) : undefined,
+        width: srcVideo.width, height: srcVideo.height,
+        ...hevcOnly,
+      });
+      return;
+    }
+
+    // 3. Re-encode to a broadly hardware-decodable profile/level.
     // -profile:v main -level 4.1: the actual fix — covers up to 1920x1080(or portrait
     //   equivalent)@30fps and is what budget Realtek/Amlogic/Allwinner decoders expect.
-    // -vf scale=...:force_original_aspect_ratio=decrease: never upscale, cap at 1080p.
-    //   The trailing crop rounds both dimensions down to even — aspect-fit can yield an
-    //   odd width on portrait sources (e.g. 1440x2732 → 569x1080) and libx264/x265
-    //   reject odd dimensions in yuv420p. (force_divisible_by needs a newer ffmpeg than
-    //   the pinned static build.)
+    // -vf SCALE_FILTER: never upscale, cap at 1080p in the source's own orientation.
     // -pix_fmt yuv420p: 8-bit only — 10-bit/HDR isn't supported on these chips.
     await run(ffmpegPath.path, [
       '-y', '-i', tmpIn,
       '-c:v', 'libx264', '-profile:v', 'main', '-level', '4.1', '-pix_fmt', 'yuv420p',
-      '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,crop=trunc(iw/2)*2:trunc(ih/2)*2",
+      '-vf', SCALE_FILTER,
       '-r', '30', '-b:v', '6M', '-maxrate', '8M', '-bufsize', '12M',
       '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
       tmpOut,
     ]);
 
-    // 3. Probe the output for the real duration/dimensions to store on Content.
+    // 4. Probe the output for the real duration/dimensions to store on Content.
     const { stdout } = await run(ffprobePath.path, [
       '-v', 'error', '-select_streams', 'v:0',
       '-show_entries', 'stream=width,height:format=duration',
@@ -130,36 +206,14 @@ export const handler = async (event) => {
     const height = probe.streams?.[0]?.height;
     const durationMs = probe.format?.duration ? Math.round(parseFloat(probe.format.duration) * 1000) : undefined;
 
-    // 4. Upload under a NEW key + hash so devices treat it as a content update.
+    // 5. Upload under a NEW key + hash so devices treat it as a content update.
     const outBytes = await readFile(tmpOut);
     const md5 = createHash('md5').update(outBytes).digest('hex');
     const objectKey = `content/${contentId}-transcoded-${Date.now()}.mp4`;
     await uploadViaPresign(objectKey, outBytes, 'video/mp4');
 
-    // 5. Best-effort second rendition: same content re-encoded as HEVC/H.265, at
-    //    roughly half the H.264 bitrate (HEVC is ~2x more efficient at equivalent
-    //    quality). Some fleet devices have a broken hardware AVC decoder but a working
-    //    hardware HEVC one — this rendition lets those play HD content in hardware
-    //    instead of falling back to a CPU-bound software AVC decoder. Never blocks the
-    //    required H.264 rendition above: on failure, just log and move on.
-    let hevcResult;
-    try {
-      await run(ffmpegPath.path, [
-        '-y', '-i', tmpIn,
-        '-c:v', 'libx265', '-tag:v', 'hvc1', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
-        '-vf', "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,crop=trunc(iw/2)*2:trunc(ih/2)*2",
-        '-r', '30', '-b:v', '3M', '-maxrate', '4M', '-bufsize', '6M',
-        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
-        tmpOutHevc,
-      ]);
-      const hevcBytes = await readFile(tmpOutHevc);
-      const hevcMd5 = createHash('md5').update(hevcBytes).digest('hex');
-      const hevcObjectKey = `content/${contentId}-transcoded-hevc-${Date.now()}.mp4`;
-      await uploadViaPresign(hevcObjectKey, hevcBytes, 'video/mp4');
-      hevcResult = { hevcObjectKey, hevcMd5, hevcSizeBytes: hevcBytes.length };
-    } catch (err) {
-      console.error('HEVC transcode failed (non-fatal, H.264 rendition still used):', err);
-    }
+    // 6. Second rendition — see encodeHevc().
+    const hevcResult = await encodeHevc(contentId, tmpIn, tmpOutHevc);
 
     await callback({
       contentId, status: 'done', objectKey, md5,
