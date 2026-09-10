@@ -141,22 +141,148 @@ Use this for almost everything: screens, styles, copy, business logic, bug fixes
 API calls — anything that doesn't touch native code, permissions, or app.json's
 native config.
 
+This is the **same mechanism Expo Go / CodePush use** and is fully allowed by Google
+Play policy — you are not bypassing review, just updating your own app's JS bundle,
+the same way a web page updates its JS.
+
+> #### ⚠️ Read this before every publish
+>
+> `runtimeVersion` policy is **`appVersion`** (`= app.json`'s `version`), *not*
+> `fingerprint`. Expo does **not** check whether the JS bundle matches the installed
+> binary's native modules — it only compares that one version string. So an OTA
+> published while `version` stays put is served to the installed build **regardless of
+> native drift**, and adding or removing a native module without bumping `version`
+> ships a bundle the binary cannot satisfy → **crash on launch, every partner**, with
+> no recovery except a Play release.
+>
+> The gate, run against whatever you are about to publish:
+>
+> ```bash
+> git diff --name-only <last-published-commit>..HEAD | \
+>   grep -E 'package(-lock)?\.json|app\.json|app\.config|eas\.json|android/|ios/|google-services'
+> ```
+>
+> No output ⟹ JS-only, safe to OTA. Any output ⟹ **stop**, go to section B.
+
+#### 1. Stage from a clean checkout
+
+Publish from `origin/main`, never from a feature branch. `npm ci` is not optional —
+every `eas` command dies with *"Failed to resolve plugin for module expo-router"*
+without it (~389 MB, ~2 min).
+
 ```bash
-eas update --branch production --message "Fix KYC upload bug"
+git worktree add /tmp/ota origin/main
+cd /tmp/ota/store-app
+npm ci --include=dev
 ```
 
-- Already-installed apps check for an update on launch and download the new JS bundle
-  in the background, then apply it on the next restart.
-- This is the **same mechanism Expo Go / CodePush use** and is fully allowed by
-  Google Play policy — you are not bypassing review, just updating your own app's
-  JS bundle (same as a web page updating its JS).
-- Each build profile maps to a channel (see `eas.json` → `build.<profile>.channel`):
-  `production` AABs use the `production` channel, `preview` APKs use `preview`, etc.
-  Always push updates to the channel matching the build your users have installed.
-- OTA can only reach builds that shipped **with `expo-updates` compiled in**
-  (wired 2026-09-07). Builds up to versionCode 4 predate it and can never
-  receive an OTA update — replace them once with a fresh APK/AAB, then OTA
-  works from there on.
+#### 2. Pre-flight — export and grep the real artifact
+
+Export locally first: it catches a broken bundle before you spend a publish, and
+produces the `.hbc` you are about to prove things about.
+
+```bash
+npx expo export --platform android
+```
+
+Hermes keeps string literals in a plain string table, so `strings` on the bytecode
+proves the **shipping artifact** carries your change. This is the one check that beats
+reading the diff:
+
+```bash
+strings dist/_expo/static/js/android/*.hbc | grep -cF "some copy you added"    # expect >= 1
+strings dist/_expo/static/js/android/*.hbc | grep -cF "some copy you removed"  # expect 0
+```
+
+Two things that make this misleading if you don't know them:
+
+- **Grep the `.hbc`, not the source**, for anything that should be *gone*. Comments are
+  stripped from bytecode, so a commit that explains a removal in a comment still
+  matches in the source and looks like the change never applied.
+- **Use ASCII-only fragments.** `strings` emits runs of printable ASCII, so `₹`, `·`
+  or any other multibyte character splits a literal in two. Grep the ASCII part.
+  (Adjacent literals also run together in the output — that's the string table, not
+  corruption.)
+
+#### 3. Publish
+
+`preview` is the free place to rehearse: the only build on that channel is the
+sideloaded internal-test APK, while partners install from Play, which is `production`.
+
+```bash
+eas update --channel preview    --platform android --non-interactive --message "…"   # rehearsal
+eas update --channel production --platform android --non-interactive --message "…"   # the real one
+```
+
+Prefer **`--channel`** over `--branch`. Channels are what `eas.json` build profiles
+bind to (`build.<profile>.channel`), so `--channel` targets the installed builds
+directly; `--branch` targets a branch and only reaches devices via whichever channel
+happens to point at it. The `--channel` form is the one that has been verified
+end-to-end here.
+
+Note the update id and group id it prints — the group id is your rollback handle.
+
+#### 4. Verify delivery, not just publication
+
+A successful publish is not the same as the update being served.
+
+**Fetch the manifest exactly as a device does:**
+
+```bash
+curl -s -D- -H "expo-platform: android" -H "expo-runtime-version: 1.1.0" \
+     -H "expo-channel-name: production" -H "expo-protocol-version: 1" \
+     -H "accept: multipart/mixed" \
+     https://u.expo.dev/c71c9af8-9f0f-479e-b267-8a767b053692
+```
+
+Expect `200` and your new update id in the body.
+
+**Prove the served bundle is the one you grepped.** `launchAsset.hash` in the manifest
+is the sha256 of the bundle in base64url, unpadded:
+
+```bash
+openssl dgst -sha256 -binary dist/_expo/static/js/android/<entry-…>.hbc \
+  | openssl base64 -A | tr '+/' '-_' | tr -d '='
+```
+
+A match upgrades the step-2 grep from "our export" to "the served update".
+(`eas update` re-exports, but deterministically — same source ⟹ same hash.)
+
+**Confirm channels didn't cross:** curl both channels; two different `expo-update-id`
+values prove a preview publish didn't leak into production. The response also carries
+`expo-manifest-filters: branchname="…"`.
+
+**On device, expect a delay.** No `checkAutomatically` / `fallbackToCacheTimeout` is
+configured, so expo-updates takes the default: download in background on launch N,
+apply on launch **N+1**. Partners see it on their **second** app open. Don't debug a
+"missing" update before that.
+
+#### 5. Rollback
+
+Republish the previous update group to the channel:
+
+```bash
+eas update:republish --group <previous-group-id>
+```
+
+Confirm the flags with `--help` — they have moved between CLI versions. Rollback lands
+on the same second-open delay as a forward publish.
+
+#### Traps
+
+- **Never download the bundle from the asset CDN to verify it.**
+  `assets.eascdn.net/<hash>?project=…` returns an HTML *"Unauthorized asset request"*
+  page (~1.7 KB, HTTP 403). Piping that into `strings | grep -c` returns a confident
+  **0** for both the old and the new string — which reads exactly like "the change is
+  missing" when it really means "you fetched an error page". Size is the tell: a real
+  bundle is MBs, not KB. Use the hash compare above; it needs no download.
+- **`eas build:list --json` field names.** A build's target lives at `runtime.version`
+  and `updateChannel.name`. The flat `runtimeVersion` / `channel` keys read `None` —
+  don't conclude the build is unchannelled.
+- **OTA can only reach builds that shipped with `expo-updates` compiled in** (wired
+  2026-09-07). Builds up to versionCode 4 predate it and can never receive an OTA —
+  replace them once with a fresh APK/AAB, then OTA works from there on.
+- Clean up: `git worktree remove /tmp/ota` — that `node_modules` is 389 MB.
 
 ### B. Native changes → new build + Play Store submission (versionCode bump required)
 
