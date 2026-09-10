@@ -399,7 +399,7 @@ export default function Overview() {
       <View style={s.card}>
         <Text style={s.cardTitle}>Quick actions</Text>
         {[
-          { icon: 'logo-whatsapp', label: 'WhatsApp support', sub: 'Chat with our team', color: '#25D366', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.' },
+          { icon: 'logo-whatsapp', label: 'WhatsApp support', sub: 'Chat with our team', color: '#25D366', href: 'https://wa.me/919606072227?text=Hi+Alive+team,+I+am+a+registered+store+partner.' },
           { icon: 'call-outline', label: 'Call us', sub: '+91 96060 72227', color: C.primary, href: 'tel:+919606072227' },
         ].map((a) => (
           <TouchableOpacity key={a.label} style={s.actionRow} onPress={() => Linking.openURL(a.href)}>

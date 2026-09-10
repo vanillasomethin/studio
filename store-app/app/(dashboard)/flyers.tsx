@@ -112,7 +112,7 @@ export default function Flyers() {
 
       <TouchableOpacity
         style={s.waRow}
-        onPress={() => Linking.openURL('https://wa.me/919741324448?text=Hi+Alive,+I+want+to+publish+a+flyer+for+my+store.')}
+        onPress={() => Linking.openURL('https://wa.me/919606072227?text=Hi+Alive,+I+want+to+publish+a+flyer+for+my+store.')}
       >
         <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
         <Text style={s.waText}>Request a flyer via WhatsApp</Text>

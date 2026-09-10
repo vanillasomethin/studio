@@ -1411,7 +1411,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
                 <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Quick actions</h2>
                 {[
-                  { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919741324448?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
+                  { icon: MessageCircle, label: 'WhatsApp support', desc: 'Chat with our team', href: 'https://wa.me/919606072227?text=Hi+Alive+team,+I+am+a+registered+store+partner.', color: 'text-[#25D366]' },
                   { icon: Phone,         label: 'Call us',           desc: '+91 96060 72227',   href: 'tel:+919606072227', color: 'text-blue-500' },
                 ].map((a) => (
                   <a key={a.label} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
@@ -1495,7 +1495,7 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                   Our design team can help create the flyer too.
                 </p>
                 <a
-                  href="https://wa.me/919741324448?text=Hi+Alive,+I+want+to+publish+a+flyer+for+my+store."
+                  href="https://wa.me/919606072227?text=Hi+Alive,+I+want+to+publish+a+flyer+for+my+store."
                   target="_blank" rel="noreferrer"
                   className="inline-flex items-center gap-2 rounded-xl border border-[#25D366]/30 bg-[#25D366]/8 px-4 py-2.5 text-xs font-semibold text-[#25D366] hover:bg-[#25D366]/15 transition-colors"
                 >
