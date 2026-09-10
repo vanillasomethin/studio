@@ -15,8 +15,8 @@ import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
-import { buildSlotLoop, slotDayIndex, slotSpanForDuration, uniformSlotSpan, SlotCreativeMeta } from '@/lib/slots';
-import { resolveFillerCampaign } from '@/lib/slots-db';
+import { buildSlotLoop, slotDayIndex, slotSpanForDuration, uniformSlotSpan } from '@/lib/slots';
+import { resolveFillerCampaign, campaignCreatives, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
@@ -26,26 +26,12 @@ async function pushStoreDevices(storeId: string) {
   await pushPlanUpdated(devices.map((d) => d.id));
 }
 
-// Shared campaign-creative select: ids + durations, so the span can be derived.
+// This route's own campaign fields, on top of the shared slot-creative select
+// (lib/slots-db.ts) that every slot-loop caller needs.
 const CAMPAIGN_CREATIVES_SELECT = {
   id: true, name: true, status: true, slotContentId: true,
-  slotContent: { select: { id: true, durationMs: true, type: true } },
-  slotPlaylist: { select: { items: {
-    where: { contentId: { not: null } }, orderBy: { order: 'asc' as const },
-    select: { content: { select: { id: true, durationMs: true, type: true } } },
-  } } },
+  ...CAMPAIGN_SLOT_CREATIVES_SELECT,
 } satisfies Prisma.CampaignSelect;
-
-type CampaignWithCreatives = Prisma.CampaignGetPayload<{ select: typeof CAMPAIGN_CREATIVES_SELECT }>;
-
-function campaignCreatives(c: CampaignWithCreatives): SlotCreativeMeta[] {
-  const fromPlaylist = (c.slotPlaylist?.items ?? [])
-    .map((i) => i.content)
-    .filter((x): x is NonNullable<typeof x> => x != null)
-    .map((x) => ({ contentId: x.id, durationMs: x.durationMs, type: x.type }));
-  if (fromPlaylist.length > 0) return fromPlaylist;
-  return c.slotContent ? [{ contentId: c.slotContent.id, durationMs: c.slotContent.durationMs, type: c.slotContent.type }] : [];
-}
 
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return adminUnauthorized();
