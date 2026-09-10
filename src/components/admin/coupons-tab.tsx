@@ -36,7 +36,7 @@ export default function CouponsTab() {
     try {
       const res = await fetch('/api/coupons', { headers: authHeaders() });
       const body = await res.json() as { coupons?: Coupon[] };
-      setCoupons(body.coupons ?? []);
+      setCoupons(Array.isArray(body?.coupons) ? body.coupons : []);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
 

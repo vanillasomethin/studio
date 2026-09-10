@@ -52,7 +52,7 @@ export default function MonitoringTab() {
   const load = useCallback(() => {
     setLoading(true); setError(null);
     getDevices()
-      .then((r) => { setDevices(r.devices); setLastFetch(new Date()); })
+      .then((r) => { setDevices(Array.isArray(r?.devices) ? r.devices : []); setLastFetch(new Date()); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -212,7 +212,7 @@ export default function MonitoringTab() {
                     </p>
                   )}
                   {d.locality && <p className="text-[10px] text-muted-foreground/60">{d.locality}</p>}
-                  <p className="text-[10px] font-mono text-muted-foreground/40">{d.id.slice(0, 8)}…</p>
+                  <p className="text-[10px] font-mono text-muted-foreground/40">{(d.id ?? '').slice(0, 8)}…</p>
                 </div>
               </div>
             );
