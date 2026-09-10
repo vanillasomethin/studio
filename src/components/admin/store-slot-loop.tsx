@@ -6,33 +6,30 @@
 // This replaces a five-surface procedure (brand onboarding funnel → Content tab →
 // Playlists tab → booking wizard → a separate settings modal). Loop settings are
 // edited inline rather than behind a modal, and "Add brand" creates the campaign,
-// attaches the creative and books the slots in one submit.
+// attaches the creative and starts it playing in one submit.
 //
 // Deliberately self-contained: it takes a store and a campaign list as props and owns
 // nothing else, so it can be mounted anywhere a store is in scope.
 //
-// Bookings are written through the EXISTING bulk endpoint over a 60-day horizon (its
-// hard cap). That is a known seam, not an oversight: when SlotPlan standing
-// assignments land, only the write path behind this form changes and the UI does not.
+// "Add brand" writes a SlotPlan — one standing row that runs until stopped — rather
+// than materialising dated SlotBooking rows over a horizon. The roster therefore
+// shows two lanes: dated bookings (sold, guaranteed, expire on their own) and
+// standing assignments (best-effort, never expire, never block a sale).
 
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, Loader2, Plus, Settings2, Trash2, Tv2 } from 'lucide-react';
+import { ChevronLeft, Loader2, Pause, Play, Plus, Settings2, Trash2, Tv2 } from 'lucide-react';
 import {
-  getSlotBookings, bulkAssignSlots, createCampaign, updateSlotSettings, getContent,
-  type SlotStore, type SlotBookingRow, type SlotLoopEntry,
+  getSlotBookings, createCampaign, updateSlotSettings, getContent,
+  getSlotPlans, createSlotPlan, updateSlotPlan, deleteSlotPlan,
+  type SlotStore, type SlotBookingRow, type SlotLoopEntry, type SlotPlanRow,
 } from '@/lib/backend-api';
 import { ContentPickerField, type ContentLike } from './content-picker';
 import { toast } from '@/hooks/use-toast';
 
-// Horizon for a booking made here. The bulk endpoint caps a request at 60 days
-// (MAX_RANGE_DAYS), so this is the longest a single submit can reach.
-const HORIZON_DAYS = 60;
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 const istTodayStr = () =>
   new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
-const addDays = (d: string, n: number) =>
-  new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 /** Why a position is playing what it is. `sold` is a booked, guaranteed play;
  *  `bonus` is an unsold position redistributed to a paying campaign; `house` is
@@ -67,6 +64,7 @@ export default function StoreSlotLoop({
 }) {
   const [date]        = useState(istTodayStr());
   const [bookings,    setBookings]    = useState<SlotBookingRow[]>([]);
+  const [plans,       setPlans]       = useState<SlotPlanRow[]>([]);
   const [loop,        setLoop]        = useState<SlotLoopEntry[]>([]);
   const [loopCount,   setLoopCount]   = useState<number>(store.loopSlotCount ?? 0);
   const [loading,     setLoading]     = useState(true);
@@ -82,11 +80,18 @@ export default function StoreSlotLoop({
 
   const load = useCallback(() => {
     setLoading(true);
-    getSlotBookings(store.id, date)
-      .then((r) => {
+    // Standing assignments are a separate read: they have no per-date rows, so the
+    // bookings endpoint cannot report them. A brand on a plan would otherwise play
+    // in the loop below while being absent from "who's playing" above it.
+    Promise.all([
+      getSlotBookings(store.id, date),
+      getSlotPlans(store.id).catch(() => [] as SlotPlanRow[]),
+    ])
+      .then(([r, p]) => {
         setBookings(Array.isArray(r.bookings) ? r.bookings : []);
         setLoop(Array.isArray(r.playableLoop) ? r.playableLoop : []);
         setLoopCount(r.loopSlotCount ?? 0);
+        setPlans(p);
       })
       .catch((e: Error) => toast({ variant: 'destructive', title: 'Could not load the loop', description: e.message }))
       .finally(() => setLoading(false));
@@ -131,9 +136,25 @@ export default function StoreSlotLoop({
     }
   }
 
-  // Who is playing — one row per campaign, counted in PLAYS (a 30s ad booked twice is
-  // 2 plays over 6 positions), which is the unit the booking form asks for.
-  const roster = (() => {
+  // Who is playing, across BOTH lanes — dated bookings and standing assignments.
+  //
+  // Dated rows are counted in PLAYS (a 30s ad booked twice is 2 plays over 6
+  // positions), which is the unit the booking form asks for. A standing row states
+  // its own target rate; it has no per-date rows to count, and what it actually
+  // gets today depends on what is left after the sold bookings above it.
+  type RosterRow = {
+    key: string;
+    campaignId: string;
+    name: string;
+    plays: number;
+    detail: string;
+    lane: 'dated' | 'standing';
+    meta: string;
+    planId?: string;
+    inactive?: boolean;
+  };
+
+  const roster: RosterRow[] = (() => {
     const seenSpans = new Set<string>();
     const byCampaign = new Map<string, { campaignId: string; name: string; plays: number; positions: number }>();
     for (const b of bookings) {
@@ -148,24 +169,80 @@ export default function StoreSlotLoop({
       }
       byCampaign.set(b.campaignId, row);
     }
-    return [...byCampaign.values()].sort((a, b) => b.positions - a.positions);
+
+    const dated: RosterRow[] = [...byCampaign.values()]
+      .sort((a, b) => b.positions - a.positions)
+      .map((r) => {
+        const c = campaignById.get(r.campaignId);
+        const span = c?.slotSpan ?? 1;
+        return {
+          key: `booking:${r.campaignId}`,
+          campaignId: r.campaignId,
+          name: r.name,
+          plays: r.plays,
+          detail: span > 1 ? `${span * 10}s · ${span} slots per play` : '10s',
+          lane: 'dated' as const,
+          meta: `${r.positions} slot${r.positions === 1 ? '' : 's'} today`,
+        };
+      });
+
+    // A campaign can hold both a dated booking and a standing plan here; they are
+    // separate commitments and each gets its own row rather than being merged into
+    // a single misleading number.
+    const standing: RosterRow[] = plans
+      .slice()
+      .sort((a, b) => b.slotsPerDay - a.slotsPerDay)
+      .map((p) => ({
+        key: `plan:${p.id}`,
+        campaignId: p.campaignId,
+        name: p.brandName,
+        plays: p.slotsPerDay,
+        detail: p.active ? 'Standing — runs until stopped' : 'Paused',
+        lane: 'standing' as const,
+        meta: p.endDate ? `until ${p.endDate}` : `since ${p.startDate}`,
+        planId: p.id,
+        inactive: !p.active,
+      }));
+
+    return [...dated, ...standing];
   })();
 
   const housePositions = cells.filter((c) => c?.source === 'house').length;
   const sel = selected == null ? null : cells[selected];
 
-  const removeCampaign = async (campaignId: string, name: string) => {
-    if (!confirm(`Remove ${name} from today's loop at ${store.storeName}?`)) return;
-    const ids = bookings.filter((b) => b.campaignId === campaignId).map((b) => b.id);
+  const removeRow = async (row: RosterRow) => {
+    if (row.lane === 'standing') {
+      if (!confirm(`Stop ${row.name} playing at ${store.storeName}? This ends the standing assignment.`)) return;
+      try {
+        await deleteSlotPlan(row.planId!);
+        toast({ title: `${row.name} stopped` });
+        load(); onChanged();
+      } catch (e) {
+        toast({ variant: 'destructive', title: 'Could not stop it', description: (e as Error).message });
+      }
+      return;
+    }
+    if (!confirm(`Remove ${row.name} from today's loop at ${store.storeName}?`)) return;
+    const ids = bookings.filter((b) => b.campaignId === row.campaignId).map((b) => b.id);
     try {
       // Deleting any row of a placement removes the whole placement server-side, so
       // duplicate ids in one span are expected to 404 — tolerate that rather than
       // reporting a failure for work that actually succeeded.
       await Promise.allSettled(ids.map((id) => fetch(`/api/slots/bookings?id=${id}`, { method: 'DELETE' })));
-      toast({ title: `${name} removed from today` });
+      toast({ title: `${row.name} removed from today` });
       load(); onChanged();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Remove failed', description: (e as Error).message });
+    }
+  };
+
+  const togglePlan = async (row: RosterRow) => {
+    try {
+      await updateSlotPlan({ id: row.planId!, active: !!row.inactive });
+      toast({ title: row.inactive ? `${row.name} resumed` : `${row.name} paused` });
+      load(); onChanged();
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Could not change it', description: (e as Error).message });
     }
   };
 
@@ -254,21 +331,34 @@ export default function StoreSlotLoop({
           <div className="rounded-xl border border-border overflow-hidden">
             {roster.map((r) => {
               const c = campaignById.get(r.campaignId);
-              const span = c?.slotSpan ?? 1;
               return (
-                <div key={r.campaignId} className="flex items-center gap-3 border-b border-border/60 bg-card px-3 py-2 last:border-0">
+                <div key={r.key} className={`flex items-center gap-3 border-b border-border/60 bg-card px-3 py-2 last:border-0 ${r.inactive ? 'opacity-55' : ''}`}>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[12px] font-semibold text-foreground">{r.name}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      {span > 1 ? `${span * 10}s · ${span} slots per play` : '10s'}
+                      {r.detail}
                       {c?.slotPlaylist ? ` · ${c.slotPlaylist.mediaItems} creatives rotating` : ''}
                     </p>
                   </div>
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                    r.lane === 'standing'
+                      ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-700'
+                      : 'border-border text-muted-foreground'
+                  }`}>
+                    {r.lane === 'standing' ? 'Standing' : 'Dated'}
+                  </span>
                   <div className="shrink-0 text-right">
                     <p className="text-[12px] font-bold tabular-nums text-foreground">{r.plays} / day</p>
-                    <p className="text-[9px] text-muted-foreground tabular-nums">{r.positions} slots</p>
+                    <p className="text-[9px] text-muted-foreground tabular-nums">{r.meta}</p>
                   </div>
-                  <button onClick={() => removeCampaign(r.campaignId, r.name)} title="Remove from today"
+                  {r.lane === 'standing' && (
+                    <button onClick={() => togglePlan(r)} title={r.inactive ? 'Resume' : 'Pause — keeps the row and its history'}
+                      className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground transition-colors">
+                      {r.inactive ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+                    </button>
+                  )}
+                  <button onClick={() => removeRow(r)}
+                    title={r.lane === 'standing' ? 'Stop this standing assignment' : 'Remove from today'}
                     className="shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-1.5 text-destructive hover:bg-destructive/15 transition-colors">
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -357,8 +447,6 @@ function AddBrandDialog({ store, campaigns, onClose, onDone }: {
   }, []);
 
   const picked = existing ? campaigns.find((c) => c.id === existing) ?? null : null;
-  const from = istTodayStr();
-  const to   = addDays(from, HORIZON_DAYS - 1);
 
   const submit = async () => {
     const plays = Number(perDay);
@@ -377,24 +465,22 @@ function AddBrandDialog({ store, campaigns, onClose, onDone }: {
         ? picked.id
         : (await createCampaign({ name: name.trim(), slotContentId: contentId })).id;
 
-      const res = await bulkAssignSlots({
-        campaignId, storeIds: [store.id], from, to,
-        daysOfWeek: store.openDays, slotsPerDay: plays,
-      });
+      // One row that runs until stopped, instead of 60 days of dated bookings.
+      // This is the seam the screen was built around: the form did not change, the
+      // write behind it did. A standing assignment cannot expire unnoticed, and it
+      // never consumes sellable inventory, so it does not need a horizon at all.
+      const plan = await createSlotPlan({ storeId: store.id, campaignId, slotsPerDay: plays });
 
-      // Book-what-fits is deliberate policy, so a partial result is a success with a
-      // caveat — never a silent one. Saying "booked" while days were skipped is the
-      // failure mode worth avoiding here.
-      const shortDays = res.gaps?.length ?? 0;
       toast({
-        title: `${picked?.brandName ?? name.trim()} booked`,
-        description: shortDays > 0
-          ? `${res.booked} plays booked · ${res.missed} short across ${shortDays} full store-day${shortDays === 1 ? '' : 's'}`
-          : `${res.booked} plays booked across the next ${HORIZON_DAYS} days`,
+        title: `${picked?.brandName ?? name.trim()} added`,
+        description: `${plan.slotsPerDay} play${plan.slotsPerDay === 1 ? '' : 's'} a day, every day, until you stop it.`,
       });
       onDone();
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Could not book', description: (e as Error).message });
+      // The API refuses a longer-than-10s creative here, because a plan fills one
+      // scattered position at a time. Pass that message through rather than a
+      // generic failure — it tells the admin to use a dated booking instead.
+      toast({ variant: 'destructive', title: 'Could not add the brand', description: (e as Error).message });
     } finally { setBusy(false); }
   };
 
@@ -403,7 +489,7 @@ function AddBrandDialog({ store, campaigns, onClose, onDone }: {
       <div className="w-full max-w-md rounded-2xl border border-border bg-background p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
         <div>
           <p className="text-sm font-bold text-foreground">Add a brand to this loop</p>
-          <p className="text-[11px] text-muted-foreground">{store.storeName} · books the next {HORIZON_DAYS} days</p>
+          <p className="text-[11px] text-muted-foreground">{store.storeName} · runs every day until you stop it</p>
         </div>
 
         <label className="flex flex-col gap-1">
@@ -438,7 +524,8 @@ function AddBrandDialog({ store, campaigns, onClose, onDone }: {
             onChange={(e) => setPerDay(e.target.value.replace(/[^0-9]/g, ''))}
             className="w-24 rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] tabular-nums text-foreground focus:border-primary focus:outline-none" />
           <span className="text-[10px] text-muted-foreground">
-            {from} → {to}, on this store&apos;s open days.
+            A target, not a guarantee — a standing assignment takes the positions left
+            after that day&apos;s sold bookings, so it never blocks a sale.
           </span>
         </label>
 

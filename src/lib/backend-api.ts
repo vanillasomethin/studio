@@ -701,6 +701,45 @@ export const createCampaign = (body: {
   '/api/admin/campaigns', { method: 'POST', body: JSON.stringify(body) },
 ).then((r) => r.campaign);
 
+// ─── Standing slot assignments (SlotPlan) ────────────────────────────────────
+// One row that runs until stopped, as opposed to SlotBooking's one-row-per-
+// store-per-date-per-position. See prisma/schema.prisma's SlotPlan block.
+
+export type SlotPlanRow = {
+  id: string;
+  storeId: string;
+  campaignId: string;
+  storeName: string;
+  brandName: string;
+  campaignStatus: string;
+  slotsPerDay: number;
+  startDate: string;
+  endDate: string | null;   // null = runs until stopped
+  active: boolean;
+};
+
+export const getSlotPlans = (storeId?: string) =>
+  apiFetch<{ plans: SlotPlanRow[] }>(`/api/admin/slot-plans${storeId ? `?storeId=${storeId}` : ''}`)
+    .then((r) => Array.isArray(r.plans) ? r.plans : []);
+
+/** Create or update the standing assignment for this store+campaign. The API
+ *  upserts on that pair, so raising the rate is an edit rather than a second row
+ *  that would silently double the brand's plays. */
+export const createSlotPlan = (body: {
+  storeId: string; campaignId: string; slotsPerDay: number;
+  startDate?: string; endDate?: string | null;
+}) => apiFetch<{ plan: { id: string; slotsPerDay: number; active: boolean; startDate: string; endDate: string | null } }>(
+  '/api/admin/slot-plans', { method: 'POST', body: JSON.stringify(body) },
+).then((r) => unwrap(r, 'plan'));
+
+export const updateSlotPlan = (body: { id: string; slotsPerDay?: number; active?: boolean; endDate?: string | null }) =>
+  apiFetch<{ plan: { id: string; slotsPerDay: number; active: boolean; endDate: string | null } }>(
+    '/api/admin/slot-plans', { method: 'PATCH', body: JSON.stringify(body) },
+  ).then((r) => unwrap(r, 'plan'));
+
+export const deleteSlotPlan = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/admin/slot-plans?id=${id}`, { method: 'DELETE' });
+
 export const copySlotDay = (body: {
   sourceStoreId: string; sourceDate: string; storeIds?: string[];
   from: string; to: string; daysOfWeek?: number;
