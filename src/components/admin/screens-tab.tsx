@@ -763,9 +763,10 @@ function sortDevices(list: Device[], key: SortKey): Device[] {
 /**
  * Storefront thumbnail on the card face. Doubles as the uploader once the screen
  * is linked to a store — the photo belongs to the Store, so an unlinked screen
- * has nothing to attach it to.
+ * has nothing to attach it to. `size="lg"` is the card-grid hero image (full
+ * width, top of card); `size="sm"` (default) is the compact-table inline thumb.
  */
-function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: string | null) => void }) {
+function StorePhoto({ device, onChanged, size = 'sm' }: { device: Device; onChanged: (url: string | null) => void; size?: 'sm' | 'lg' }) {
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -781,15 +782,23 @@ function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: st
   };
 
   const canUpload = !!device.storeId;
+  const lg = size === 'lg';
 
   return (
-    <div className="relative h-12 w-12 shrink-0">
+    <div className={lg ? 'relative w-full' : 'relative h-12 w-12 shrink-0'}>
       {device.storePhotoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={device.storePhotoUrl} alt="" className="h-12 w-12 rounded-lg border border-border object-cover" />
+        <img
+          src={device.storePhotoUrl}
+          alt=""
+          className={lg ? 'h-32 w-full object-cover' : 'h-12 w-12 rounded-lg border border-border object-cover'}
+        />
       ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40">
-          <Store className="h-4 w-4 text-muted-foreground/50" />
+        <div className={lg
+          ? 'flex h-32 w-full items-center justify-center bg-muted/40'
+          : 'flex h-12 w-12 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40'}
+        >
+          <Store className={lg ? 'h-8 w-8 text-muted-foreground/40' : 'h-4 w-4 text-muted-foreground/50'} />
         </div>
       )}
       {canUpload && (
@@ -798,9 +807,9 @@ function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: st
             onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
             disabled={busy}
             title={device.storePhotoUrl ? 'Replace store photo' : 'Add a store photo'}
-            className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:opacity-100 disabled:opacity-100"
+            className={`absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity hover:opacity-100 disabled:opacity-100 ${lg ? '' : 'rounded-lg'}`}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            {busy ? <Loader2 className={lg ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'} /> : <Camera className={lg ? 'h-5 w-5' : 'h-4 w-4'} />}
           </button>
           <input ref={inputRef} type="file" accept="image/*" onChange={pick} className="hidden" />
         </>
@@ -1269,9 +1278,10 @@ export default function ScreensTab() {
               </table>
             </div>
           ) : (
-            /* ── Comfortable card view ──────────────────────────────── */
-            /* Face carries identity + status only; everything else is behind a click. */
-            <motion.div className="space-y-2" variants={listStagger} initial="hidden" animate="show">
+            /* ── Card grid (default) ────────────────────────────────── */
+            /* Face carries a real photo + status only; everything else is behind a click —
+               matches every other identity card in the console (fillers, content). */
+            <motion.div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" variants={listStagger} initial="hidden" animate="show">
               {sortedDevices.map((d) => {
                 const StatusIcon = STATUS_ICONS[d.status];
                 const sched = d.currentSchedule;
@@ -1285,58 +1295,67 @@ export default function ScreensTab() {
                     }`}
                   >
                     {/* Status rail — the at-a-glance signal */}
-                    <span className={`absolute inset-y-0 left-0 w-1 ${RAIL_TONE[d.status]}`} aria-hidden="true" />
+                    <span className={`absolute inset-y-0 left-0 w-1 z-10 ${RAIL_TONE[d.status]}`} aria-hidden="true" />
 
                     {/* Face */}
-                    <div className="flex items-center gap-3 py-3 pl-5 pr-4">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(d.id)}
-                        onChange={() => toggleSelect(d.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded accent-primary"
-                      />
-                      <StorePhoto
-                        device={d}
-                        onChanged={(url) => setDevices((prev) => prev.map((x) => x.storeId === d.storeId ? { ...x, storePhotoUrl: url } : x))}
-                      />
-
-                      <button onClick={() => toggleExpand(d.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {d.linkedStoreName
-                              ? <>{d.city ? `${d.city} · ` : ''}{screenIdTag(d)}</>
-                              : <span className="text-amber-600">Not linked to a store{friendlyDeviceLabel(d) !== screenIdTag(d) && ` · ${screenIdTag(d)}`}</span>}
-                          </p>
+                    <button onClick={() => toggleExpand(d.id)} className="block w-full text-left">
+                      <div className="relative">
+                        <StorePhoto
+                          size="lg"
+                          device={d}
+                          onChanged={(url) => setDevices((prev) => prev.map((x) => x.storeId === d.storeId ? { ...x, storePhotoUrl: url } : x))}
+                        />
+                        <div className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-md bg-white/90 shadow">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(d.id)}
+                            onChange={() => toggleSelect(d.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-3.5 w-3.5 cursor-pointer rounded accent-primary"
+                          />
                         </div>
-                        {d.groupName && (
-                          <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground sm:inline">{d.groupName}</span>
-                        )}
-                        {d.slotMode && (
-                          <span
-                            title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
-                            className="hidden shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary sm:inline"
-                          >
-                            Slot loop
-                          </span>
-                        )}
-                        <Badge variant={STATUS_BADGE[d.status]} dot className="shrink-0 px-2 py-0.5 text-[10px] font-bold">
+                        <Badge variant={STATUS_BADGE[d.status]} dot className="absolute right-2 top-2 px-2 py-0.5 text-[10px] font-bold shadow">
                           <StatusIcon className="h-2.5 w-2.5" />{d.status}
                         </Badge>
-                        {d.status === 'OFFLINE' && (
-                          <span className="hidden shrink-0 text-[10px] font-semibold text-red-600 sm:inline">
-                            dark {d.lastSeen ? timeSince(d.lastSeen) : 'since never'}
-                          </span>
-                        )}
-                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
-                      </button>
-                    </div>
+                      </div>
+
+                      <div className="px-3.5 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
+                          <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          {d.linkedStoreName
+                            ? <>{d.city ? `${d.city} · ` : ''}{screenIdTag(d)}</>
+                            : <span className="text-amber-600">Not linked to a store{friendlyDeviceLabel(d) !== screenIdTag(d) && ` · ${screenIdTag(d)}`}</span>}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {d.groupName && (
+                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{d.groupName}</span>
+                          )}
+                          {d.slotMode && (
+                            <span
+                              title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
+                              className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary"
+                            >
+                              Slot loop
+                            </span>
+                          )}
+                          {d.status === 'OFFLINE' ? (
+                            <span className="shrink-0 text-[10px] font-semibold text-red-600">
+                              dark {d.lastSeen ? timeSince(d.lastSeen) : 'since never'}
+                            </span>
+                          ) : d.lastSeen ? (
+                            <span className="shrink-0 text-[10px] text-muted-foreground">seen {timeSince(d.lastSeen)}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
 
                     {/* Detail — only when opened */}
                     {open && (
                       <div className="border-t border-border/60">
-                        <div className="grid grid-cols-2 divide-x divide-border/60 sm:grid-cols-5">
+                        <div className="grid grid-cols-2 divide-x divide-y divide-border/60">
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
                             {d.slotMode ? (
@@ -1356,7 +1375,7 @@ export default function ScreensTab() {
                             <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
                             {d.uptimePct != null && <div className="mt-1"><UptimeBar pct={d.uptimePct} /></div>}
                           </div>
-                          <div className="px-4 py-2.5">
+                          <div className="col-span-2 px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Monitor className="h-2.5 w-2.5" />Orientation</p>
                             <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
                             <ScreenTestButton deviceId={d.id} />
@@ -1389,6 +1408,7 @@ export default function ScreensTab() {
               })}
             </motion.div>
           )}
+
 
           {/* Pagination */}
           {total > PAGE_SIZE && (
