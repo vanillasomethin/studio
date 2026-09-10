@@ -650,6 +650,17 @@ export const bulkAssignSlots = (body: {
   daysOfWeek?: number; slotsPerDay: number;
 }) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
 
+/** Creates a bookable campaign without the customer onboarding funnel. Omit brandId
+ *  for an internal booking — the name lives on the campaign and no customer account
+ *  is fabricated. See src/app/api/admin/campaigns/route.ts. */
+export const createCampaign = (body: {
+  name: string; brandId?: string | null;
+  slotContentId?: string | null; slotPlaylistId?: string | null;
+  slotPricingTier?: string; pricePerScreen?: number; startDate?: string;
+}) => apiFetch<{ campaign: { id: string; name: string; brandId: string | null; slotContentId: string | null; slotPlaylistId: string | null; status: string } }>(
+  '/api/admin/campaigns', { method: 'POST', body: JSON.stringify(body) },
+).then((r) => r.campaign);
+
 export const copySlotDay = (body: {
   sourceStoreId: string; sourceDate: string; storeIds?: string[];
   from: string; to: string; daysOfWeek?: number;
