@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus } from 'lucide-react';
+import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus, Building2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { getContent, deleteContent, initiateUpload, updateContentMeta, transcodeVideo, type Content } from '@/lib/backend-api';
+import { getContent, getBrands, deleteContent, initiateUpload, updateContentMeta, transcodeVideo, type Content, type AdminBrand } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 
 function fmtBytes(b: number): string {
@@ -88,6 +88,13 @@ export default function ContentTab() {
   const [editTagId,    setEditTagId]    = useState<string | null>(null);
   const [tagInput,     setTagInput]     = useState('');
   const [folderInput,  setFolderInput]  = useState('');
+  const [brands,       setBrands]       = useState<AdminBrand[]>([]);
+  // null = no brand filter. '' is a real selection — house content, the rows with no brand.
+  const [activeBrand,  setActiveBrand]  = useState<string | null>(null);
+  const [brandInput,   setBrandInput]   = useState('');
+  // Sticky across a multi-file drop: set it once, every file in the batch lands on
+  // that brand instead of needing to be tagged one by one afterwards.
+  const [uploadBrand,  setUploadBrand]  = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reload = () => {
@@ -99,6 +106,10 @@ export default function ContentTab() {
   };
 
   useEffect(() => { reload(); }, []);
+
+  // Brands are only needed for the picker labels — a failure here leaves the
+  // library fully usable, so it stays a silent catch like the reload above.
+  useEffect(() => { getBrands().then(setBrands).catch(() => setBrands([])); }, []);
 
   // Poll quietly (no loading flicker) while any video is mid-transcode, so the
   // "transcoding" badge clears on its own once the Lambda callback lands.
@@ -114,9 +125,27 @@ export default function ContentTab() {
   const allFolders = [...new Set(content.map((c) => c.folder).filter(Boolean))] as string[];
   const allTags    = [...new Set(content.flatMap((c) => c.tags ?? []))].sort();
 
+  // Filter chips are derived from the loaded rows, NOT from `brands` — a chip that
+  // always returns nothing is noise, and building them from content means the
+  // filters keep working even when /api/admin/brands fails and `brands` is empty.
+  // (`brands` is still needed for the pickers, which must offer brands that own
+  // nothing yet.) Rows carry brandName, so no second lookup is required.
+  const brandCounts = new Map<string, number>();
+  const brandNames  = new Map<string, string>();
+  for (const c of content) {
+    if (!c.brandId) continue;
+    brandCounts.set(c.brandId, (brandCounts.get(c.brandId) ?? 0) + 1);
+    brandNames.set(c.brandId, c.brandName ?? 'Unknown brand');
+  }
+  const brandsWithContent = [...brandCounts.keys()]
+    .map((id) => ({ id, brandName: brandNames.get(id)! }))
+    .sort((a, b) => a.brandName.localeCompare(b.brandName));
+  const houseCount = content.filter((c) => !c.brandId).length;
+
   const filtered = content.filter((c) => {
     if (activeFolder && c.folder !== activeFolder) return false;
     if (activeTag    && !(c.tags ?? []).includes(activeTag)) return false;
+    if (activeBrand !== null && (c.brandId ?? '') !== activeBrand) return false;
     return true;
   });
 
@@ -124,15 +153,18 @@ export default function ContentTab() {
     setEditTagId(c.id);
     setTagInput((c.tags ?? []).join(', '));
     setFolderInput(c.folder ?? '');
+    setBrandInput(c.brandId ?? '');
   };
 
   const saveTagEdit = async (id: string) => {
-    const tags   = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
-    const folder = folderInput.trim() || null;
+    const tags    = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
+    const folder  = folderInput.trim() || null;
+    const brandId = brandInput || null;
     try {
-      await updateContentMeta(id, { tags, folder });
-      setContent((prev) => prev.map((c) => c.id === id ? { ...c, tags, folder: folder ?? undefined } : c));
-      toast({ title: 'Tags saved ✓' });
+      await updateContentMeta(id, { tags, folder, brandId });
+      const brandName = brands.find((b) => b.id === brandId)?.brandName ?? null;
+      setContent((prev) => prev.map((c) => c.id === id ? { ...c, tags, folder: folder ?? undefined, brandId, brandName } : c));
+      toast({ title: 'Saved ✓' });
     } catch (e) {
       toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
     } finally { setEditTagId(null); }
@@ -200,6 +232,7 @@ export default function ContentTab() {
           durationMs,
           width:     dims?.width,
           height:    dims?.height,
+          brandId:   uploadBrand || null,
         });
 
         // Step 2: ask the server to presign a PUT for this exact key + content type.
@@ -300,6 +333,29 @@ export default function ContentTab() {
         </div>
       </div>
 
+      {/* Who the next upload belongs to. Sticky across a multi-file drop so a batch
+          of one brand's creatives is tagged once, not file by file afterwards. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+          <Building2 className="h-3 w-3" /> Upload as
+        </span>
+        <select
+          value={uploadBrand}
+          onChange={(e) => setUploadBrand(e.target.value)}
+          className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:border-primary focus:outline-none"
+        >
+          <option value="">ALIVE house content (no brand)</option>
+          {brands.map((b) => (
+            <option key={b.id} value={b.id}>{b.brandName}</option>
+          ))}
+        </select>
+        {uploadBrand && (
+          <span className="text-[10px] text-muted-foreground">
+            Every file dropped below is filed under this brand.
+          </span>
+        )}
+      </div>
+
       {/* Upload dropzone */}
       <div
         className="rounded-xl border-2 border-dashed border-border bg-muted/20 p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all group"
@@ -355,6 +411,26 @@ export default function ContentTab() {
         </div>
       )}
 
+      {/* Brand filter */}
+      {(brandsWithContent.length > 0 || houseCount > 0) && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+            <Building2 className="h-3 w-3" /> Brand:
+          </span>
+          {brandsWithContent.map((b) => (
+            <button key={b.id} onClick={() => setActiveBrand(activeBrand === b.id ? null : b.id)}
+              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors ${activeBrand === b.id ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            >{b.brandName} <span className="opacity-60">{brandCounts.get(b.id)}</span></button>
+          ))}
+          {houseCount > 0 && (
+            <button onClick={() => setActiveBrand(activeBrand === '' ? null : '')}
+              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition-colors ${activeBrand === '' ? 'bg-primary text-primary-foreground border-primary' : 'border-dashed border-border text-muted-foreground hover:text-foreground'}`}
+            >House <span className="opacity-60">{houseCount}</span></button>
+          )}
+          {activeBrand !== null && <button onClick={() => setActiveBrand(null)} className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors ml-1">Clear</button>}
+        </div>
+      )}
+
       {/* Folder / tag filters */}
       {(allFolders.length > 0 || allTags.length > 0) && (
         <div className="flex flex-wrap gap-2 items-center">
@@ -398,7 +474,7 @@ export default function ContentTab() {
           <table className="w-full text-xs">
             <thead className="bg-muted/50">
               <tr>
-                {['', 'Name', 'Type', 'Size', 'Added', 'Tags / Folder'].map((h) => (
+                {['', 'Name', 'Brand', 'Type', 'Size', 'Added', 'Tags / Folder'].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{h}</th>
                 ))}
                 <th className="px-4 py-2.5" />
@@ -418,6 +494,19 @@ export default function ContentTab() {
                     )}
                   </td>
                   <td className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate">{c.name}</td>
+                  <td className="px-4 py-3 max-w-[140px]">
+                    {c.brandId ? (
+                      <button
+                        onClick={() => setActiveBrand(activeBrand === c.brandId ? null : c.brandId!)}
+                        title="Filter to this brand"
+                        className="truncate rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-500/20 transition-colors max-w-full"
+                      >
+                        {c.brandName ?? 'Unknown brand'}
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground/50 italic">house</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       <Badge variant={c.type === 'video' ? 'purple' : 'info'} className="text-[10px] py-0.5 px-2 font-bold">
@@ -456,6 +545,16 @@ export default function ContentTab() {
                           placeholder="Folder (optional)"
                           className="w-full rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:border-primary focus:outline-none"
                         />
+                        <select
+                          value={brandInput}
+                          onChange={(e) => setBrandInput(e.target.value)}
+                          className="w-full rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:border-primary focus:outline-none"
+                        >
+                          <option value="">No brand (house content)</option>
+                          {brands.map((b) => (
+                            <option key={b.id} value={b.id}>{b.brandName}</option>
+                          ))}
+                        </select>
                         <div className="flex gap-1">
                           <button onClick={() => saveTagEdit(c.id)} className="rounded-lg bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">Save</button>
                           <button onClick={() => setEditTagId(null)} className="rounded-lg border border-border px-2 py-0.5 text-[10px] text-muted-foreground">Cancel</button>
@@ -467,8 +566,8 @@ export default function ContentTab() {
                           <span key={t} className="rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-semibold">{t}</span>
                         ))}
                         {c.folder && <span className="rounded-full bg-orange-500/10 text-orange-600 px-1.5 py-0.5 text-[10px] font-semibold flex items-center gap-0.5"><FolderOpen className="h-2.5 w-2.5" />{c.folder}</span>}
-                        <button onClick={() => openTagEdit(c)} className="rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-colors flex items-center gap-0.5">
-                          <Plus className="h-2 w-2" /> tag
+                        <button onClick={() => openTagEdit(c)} title="Edit tags, folder and brand" className="rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-colors flex items-center gap-0.5">
+                          <Plus className="h-2 w-2" /> edit
                         </button>
                       </div>
                     )}
