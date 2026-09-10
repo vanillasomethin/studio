@@ -109,7 +109,10 @@ function probe(file) {
   return { video, audio, bitrate, duration };
 }
 
-if (!haveFfmpeg()) {
+const ffmpegPresent = haveFfmpeg();
+const tableChecks = checks;
+
+if (!ffmpegPresent) {
   console.log('\nffmpeg/ffprobe not on PATH — skipping the real-file half.');
   console.log('The table above still ran; see the check count below.');
 } else {
@@ -159,7 +162,10 @@ if (!haveFfmpeg()) {
 
     const hevc = make('hevc.mp4', [
       ...src('1080x1920'),
-      '-c:v', 'libx265', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-b:v', '2M',
+      // x265 prints its own encode summary regardless of -loglevel, which buries the
+      // assertions in the CI group; it has a separate switch.
+      '-c:v', 'libx265', '-x265-params', 'log-level=error',
+      '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-b:v', '2M',
     ]);
     const v = probe(hevc);
     eq('real HEVC source is NOT skipped', isAlreadySafe(v.video, v.audio, v.bitrate), false);
@@ -224,10 +230,27 @@ if (!haveFfmpeg()) {
 
 // A suite that silently stops asserting still exits 0, so the count is itself an
 // invariant — see the "green check != a guard that ran" note in ci.yml.
-const MIN_CHECKS = 49;
-if (checks < MIN_CHECKS) {
-  console.error(`\nOnly ${checks} checks ran, expected at least ${MIN_CHECKS} — did a block get skipped?`);
+//
+// The floor is per-half rather than one total, because the two halves have different
+// preconditions. A single combined number cannot say "36 is complete without ffmpeg but
+// a silent failure with it" — the first CI run of this suite proved that by measuring 36
+// table checks against a 49 that had assumed ffmpeg was present. CI installs it now, so
+// the integration floor is live there; the suite still runs table-only on a machine
+// without it, and reports that as a skip rather than a pass.
+const EXPECT_TABLE = 36;
+const EXPECT_INTEGRATION = 20;
+const integrationChecks = checks - tableChecks;
+
+if (tableChecks < EXPECT_TABLE) {
+  console.error(`\nOnly ${tableChecks} table checks ran, expected ${EXPECT_TABLE} — did a block get skipped?`);
   failures++;
+}
+if (ffmpegPresent && integrationChecks < EXPECT_INTEGRATION) {
+  console.error(`\nOnly ${integrationChecks} integration checks ran, expected ${EXPECT_INTEGRATION} — did a fixture throw?`);
+  failures++;
+}
+if (!ffmpegPresent) {
+  console.log(`\nNOTE: ${EXPECT_INTEGRATION} integration checks did not run (no ffmpeg). CI installs it; this is a partial local run.`);
 }
 
 console.log(failures === 0
