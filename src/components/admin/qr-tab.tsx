@@ -246,7 +246,7 @@ export default function QrTab() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="text-right">
-                    <p className="text-lg font-bold text-foreground">{dest.totalScans.toLocaleString('en-IN')}</p>
+                    <p className="text-lg font-bold text-foreground">{(dest.totalScans ?? 0).toLocaleString('en-IN')}</p>
                     <p className="text-[10px] text-muted-foreground">all time · last {timeSince(dest.lastScanAt)}</p>
                   </div>
                   <button
@@ -264,7 +264,7 @@ export default function QrTab() {
                 <div className="mb-1 flex items-baseline justify-between">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Daily scans</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {dest.windowScans.toLocaleString('en-IN')} in {d.days} days
+                    {(dest.windowScans ?? 0).toLocaleString('en-IN')} in {d.days} days
                   </p>
                 </div>
                 <ScanSparkline daily={dest.daily} />

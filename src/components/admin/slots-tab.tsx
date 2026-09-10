@@ -346,7 +346,11 @@ function SlotEditor({ store, date, campaigns, slotStores, onClose, onChanged }: 
 
   const load = useCallback(() => {
     getSlotBookings(store.id, date)
-      .then((r) => { setBookings(r.bookings); setLoop(r.playableLoop); setLoopCount(r.loopSlotCount); })
+      .then((r) => {
+        setBookings(Array.isArray(r?.bookings) ? r.bookings : []);
+        setLoop(Array.isArray(r?.playableLoop) ? r.playableLoop : []);
+        setLoopCount(r?.loopSlotCount ?? 0);
+      })
       .catch((e: Error) => toast({ variant: 'destructive', title: 'Could not load slots', description: e.message }))
       .finally(() => setLoading(false));
   }, [store.id, date]);
@@ -541,7 +545,7 @@ function SlotRequestsPanel() {
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
     fetch('/api/admin/slot-requests?status=pending', { headers: { 'admin-password': pw } })
       .then((r) => r.ok ? r.json() as Promise<{ requests: SlotRequestRow[] }> : { requests: [] })
-      .then((d) => setRequests(d.requests))
+      .then((d) => setRequests(Array.isArray(d?.requests) ? d.requests : []))
       .catch(() => setRequests([]));
   }, []);
 
@@ -919,7 +923,7 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
   const rangeDays = from && to ? (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS + 1 : 0;
   const rangeTooLong = rangeDays > 60;
 
-  useEffect(() => { getPlaylists().then(setPlaylists).catch(() => setPlaylists([])); }, []);
+  useEffect(() => { getPlaylists().then((r) => setPlaylists(Array.isArray(r) ? r : [])).catch(() => setPlaylists([])); }, []);
 
   // Availability drives the store list's free counts AND the review matrix. The
   // stale flag drops out-of-order responses — otherwise a slow fetch for an old
