@@ -3,7 +3,7 @@
 
 export const API_BASE_URL = 'https://wearealive.in';
 
-export const SUPPORT_WHATSAPP = '+919741324448';
+export const SUPPORT_WHATSAPP = '+919606072227';
 export const SUPPORT_PHONE    = '+919606072227';
 
 export const COMPANY = {

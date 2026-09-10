@@ -233,7 +233,7 @@ export default function ScreenAlertBanner({ storeId, token }: { storeId?: string
                 several screens dropping together (one power cut, one router). */}
             {causePrompt(open[0], 'What happened? One tap helps us fix it faster:')}
             <a
-              href="https://wa.me/919741324448?text=Hi+Alive+team,+my+screen+is+offline."
+              href="https://wa.me/919606072227?text=Hi+Alive+team,+my+screen+is+offline."
               target="_blank" rel="noreferrer"
               className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-bold text-foreground hover:bg-muted transition-colors"
             >
