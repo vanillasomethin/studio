@@ -175,7 +175,17 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });
   }
-  return res.json() as Promise<T>;
+  const body = await res.json();
+  // A 200 whose body is null carries nothing a caller can use, and `null.field`
+  // throws inside whichever panel unwrapped it — which reaches the admin error
+  // boundary and blanks the whole console rather than the one panel. Fail loudly
+  // and locally here instead, the same contract lib/admin-fetch.ts states.
+  //
+  // Note this guarantees only that the body EXISTS. It cannot guarantee any
+  // field is present, so the envelope unwrappers below still check their own
+  // shape before handing a value to a caller.
+  if (body === null || body === undefined) throw new Error('Unexpected response shape');
+  return body as T;
 }
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
@@ -203,7 +213,7 @@ export const bulkPushSchedule = (body: { deviceIds: string[]; playlistId: string
   apiFetch<{ schedule: { id: string; name: string; endsAt: string } }>('/api/devices/bulk-schedule', { method: 'POST', body: JSON.stringify(body) });
 
 export const getDeviceGroups = () =>
-  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => r.groups);
+  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => Array.isArray(r?.groups) ? r.groups : []);
 
 // ─── Player config (fleet-wide behavior knobs, no APK rebuild required) ──────
 
@@ -453,7 +463,7 @@ export const transcodeVideo = (contentId: string) =>
 // ─── Playlists ────────────────────────────────────────────────────────────────
 
 export const getPlaylists = () =>
-  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => r.playlists);
+  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => Array.isArray(r?.playlists) ? r.playlists : []);
 
 // An item targets either content (media) or another playlist (nested — see PlaylistItem).
 export type PlaylistItemWrite = { contentId?: string; childPlaylistId?: string; durationMs: number };
@@ -472,7 +482,7 @@ export const deletePlaylist = (id: string) =>
 // ─── Schedules ────────────────────────────────────────────────────────────────
 
 export const getSchedules = () =>
-  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => r.schedules);
+  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => Array.isArray(r?.schedules) ? r.schedules : []);
 
 export const createSchedule = (
   body: Omit<Schedule, 'id' | 'createdAt' | 'playlist' | 'priority'> &
@@ -500,7 +510,13 @@ export const getScheduleConflicts = (body: {
   startAt: string; endAt: string; excludeId?: string;
 }) =>
   apiFetch<{ conflicts: ScheduleConflict[] }>('/api/schedules/conflicts', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.conflicts);
+    // Deliberately NOT defaulted to []: an empty list here reads as "this
+    // schedule clashes with nothing", so a malformed body would wave a genuinely
+    // conflicting schedule through. Callers already surface a thrown error.
+    .then((r) => {
+      if (!Array.isArray(r?.conflicts)) throw new Error('Unexpected response shape');
+      return r.conflicts;
+    });
 
 export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | 'createdAt' | 'playlist'>>) =>
   apiFetch<{ schedule: Schedule }>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -676,7 +692,7 @@ export type Overlay = {
 };
 
 export const getOverlays = () =>
-  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => r.overlays);
+  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => Array.isArray(r?.overlays) ? r.overlays : []);
 
 export const createOverlay = (body: Partial<Overlay> & { name: string; type: OverlayType }) =>
   apiFetch<{ overlay: Overlay }>('/api/overlays', { method: 'POST', body: JSON.stringify(body) })
@@ -695,7 +711,7 @@ export const previewFeed = (url: string) =>
 // ─── Compositions ─────────────────────────────────────────────────────────────
 
 export const getCompositions = () =>
-  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => r.compositions);
+  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => Array.isArray(r?.compositions) ? r.compositions : []);
 
 export const createComposition = (body: { name: string; description?: string; zones: ZoneDefinition[]; isPreset?: boolean }) =>
   apiFetch<{ composition: Composition }>('/api/compositions', { method: 'POST', body: JSON.stringify(body) })
