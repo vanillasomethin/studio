@@ -12,6 +12,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "verify:slots": "tsx scripts/verify-slots.mjs",
+    "verify:slot-plans": "tsx scripts/verify-slot-plans.mjs",
     "verify:power": "tsx scripts/verify-power.mjs",
     "verify:reach": "tsx scripts/verify-reach.mjs",
     "verify:sla": "tsx scripts/verify-sla.mjs",
