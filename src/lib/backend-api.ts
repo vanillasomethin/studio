@@ -627,6 +627,11 @@ export type SlotBookingRow = {
 export type SlotLoopEntry = {
   slotPosition: number; campaignId: string; contentId: string; isFiller: boolean;
   spanSlots: number;    // >1 = one play covering this many consecutive positions
+  /** Why this position is playing what it is, straight from the loop builder.
+   *  Optional because a deploy can serve this UI before the API that sets it —
+   *  callers fall back to deriving it, which is correct until standing
+   *  assignments (SlotPlan) exist and wrong the moment they do. */
+  source?: 'sold' | 'plan' | 'bonus' | 'filler';
 };
 
 export const getSlotAvailability = (from: string, to: string) =>
@@ -684,6 +689,17 @@ export const bulkAssignSlots = (body: {
   campaignId: string; storeIds: string[]; from: string; to: string;
   daysOfWeek?: number; slotsPerDay: number;
 }) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
+
+/** Creates a bookable campaign without the customer onboarding funnel. Omit brandId
+ *  for an internal booking — the name lives on the campaign and no customer account
+ *  is fabricated. See src/app/api/admin/campaigns/route.ts. */
+export const createCampaign = (body: {
+  name: string; brandId?: string | null;
+  slotContentId?: string | null; slotPlaylistId?: string | null;
+  slotPricingTier?: string; pricePerScreen?: number; startDate?: string;
+}) => apiFetch<{ campaign: { id: string; name: string; brandId: string | null; slotContentId: string | null; slotPlaylistId: string | null; status: string } }>(
+  '/api/admin/campaigns', { method: 'POST', body: JSON.stringify(body) },
+).then((r) => r.campaign);
 
 export const copySlotDay = (body: {
   sourceStoreId: string; sourceDate: string; storeIds?: string[];
