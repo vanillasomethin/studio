@@ -99,7 +99,9 @@ export default function EnquiriesTab() {
     setError(null);
     try {
       const body = await adminGetObject<{ enquiries: Enquiry[] }>('/api/admin/enquiries');
-      setRows(body.enquiries ?? []);
+      // `?? []` would still let a 200 of {enquiries:{}} through, and the next
+      // rows.filter throws into the error boundary — blanking the whole console.
+      setRows(Array.isArray(body?.enquiries) ? body.enquiries : []);
     } catch (e) {
       // AdminAuthError already bounced to the gate; anything else is this panel's
       // problem to show rather than swallow.
@@ -123,12 +125,12 @@ export default function EnquiriesTab() {
       if (filter !== 'all' && r.status !== filter) return false;
       if (!q) return true;
       return (
-        r.brandName.toLowerCase().includes(q) ||
-        r.contactPerson.toLowerCase().includes(q) ||
-        r.phone.includes(q) ||
-        r.reference.toLowerCase().includes(q) ||
+        (r.brandName ?? '').toLowerCase().includes(q) ||
+        (r.contactPerson ?? '').toLowerCase().includes(q) ||
+        (r.phone ?? '').includes(q) ||
+        (r.reference ?? '').toLowerCase().includes(q) ||
         (r.category ?? '').toLowerCase().includes(q) ||
-        r.storeNames.some(n => n.toLowerCase().includes(q))
+        (Array.isArray(r.storeNames) ? r.storeNames : []).some(n => n.toLowerCase().includes(q))
       );
     });
     return [...matched].sort((a, b) => {
@@ -277,9 +279,10 @@ function FilterChip({ label, count, active, onClick, dot }: {
 function EnquiryCard({ row, open, busy, onToggle, onStatus }: {
   row: Enquiry; open: boolean; busy: boolean; onToggle: () => void; onStatus: (s: Status) => void;
 }) {
-  const meta = STATUS_META[row.status];
+  const meta = STATUS_META[row.status] ?? STATUS_META.new;
   const StatusIcon = meta.icon;
   const waNumber = row.whatsapp ?? row.phone;
+  const storeNames = Array.isArray(row.storeNames) ? row.storeNames : [];
 
   return (
     <li className="rounded-2xl border border-border bg-card">
@@ -304,7 +307,7 @@ function EnquiryCard({ row, open, busy, onToggle, onStatus }: {
             {row.category ? ` · ${row.category}` : ''}
           </span>
           <span className="mt-1 block text-xs text-muted-foreground">
-            {row.storeNames.length} store{row.storeNames.length === 1 ? '' : 's'} · {row.slotsPerStore} slot
+            {storeNames.length} store{storeNames.length === 1 ? '' : 's'} · {row.slotsPerStore} slot
             {row.slotsPerStore === 1 ? '' : 's'} · {row.months} month{row.months === 1 ? '' : 's'} · {ago(row.createdAt)}
           </span>
         </span>
@@ -320,7 +323,7 @@ function EnquiryCard({ row, open, busy, onToggle, onStatus }: {
       {open && (
         <div className="border-t border-border p-4 space-y-4">
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-            <Detail k="Stores" v={row.storeNames.length ? row.storeNames.join(', ') : 'None picked — suggest stores for their category'} />
+            <Detail k="Stores" v={storeNames.length ? storeNames.join(', ') : 'None picked — suggest stores for their category'} />
             <Detail k="Estimate" v={`${rupees(row.estMonthlyPaise)} a month · ${rupees(row.estTotalPaise)} over ${row.months} month${row.months === 1 ? '' : 's'} (ex GST)`} />
             <Detail k="Budget band" v={row.budgetBand ?? '—'} />
             <Detail k="Creative" v={row.creativeStatus ? (CREATIVE_LABEL[row.creativeStatus] ?? row.creativeStatus) : '—'} />
