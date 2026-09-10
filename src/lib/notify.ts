@@ -166,16 +166,22 @@ export function brandEnquiryMsg(e: {
   ].filter(line => line !== null).join('\n');
 }
 
+// Ops reads this before transferring money, so the amount has to be the claim's
+// own computed figure. It used to be the string literal "₹500 + electricity" —
+// the flat Standard base — while the AuditLog row written by the same request
+// already carried the real total. A Flagship partner owed ₹1,500 plus bonus
+// showed up in WhatsApp as a ₹500 claim.
 export function payoutClaimMsg(store: {
-  storeName: string; ownerName: string; phone: string; month: string;
+  storeName: string; ownerName: string; phone: string; month: string; amountPaise: number;
 }) {
+  const rupees = Math.round(store.amountPaise / 100).toLocaleString('en-IN');
   return [
     `💰 *Payout Claim Received*`,
     `Store: ${store.storeName}`,
     `Owner: ${store.ownerName}`,
     `Phone: ${store.phone}`,
     `Month: ${store.month}`,
-    `Amount: ₹500 + electricity`,
+    `Amount: ₹${rupees} (base + bonus) + electricity`,
   ].join('\n');
 }
 

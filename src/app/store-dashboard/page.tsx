@@ -7,7 +7,7 @@ import {
   IndianRupee, CheckCircle2, Clock, BarChart3, Phone,
   MapPin, MessageCircle, ChevronRight,
   TrendingUp, Calendar, Shield, Loader2, ArrowRight,
-  Mail, AlertCircle, X, FileImage, Download, Gift, Copy, Check, ShoppingCart, Tag, ImageIcon,
+  Mail, AlertCircle, X, FileImage, Download, Gift, Users, Copy, Check, ShoppingCart, Tag, ImageIcon,
   KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck, Camera,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
@@ -823,7 +823,11 @@ function PaymentTimeline({ store, onClaim }: { store: StoreInfo; onClaim: (month
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-bold text-foreground">Payment timeline</h2>
-          <p className="text-[10px] text-muted-foreground mt-0.5">₹{monthlyRupees.toLocaleString('en-IN')} + electricity per month · paid by 10th of following month</p>
+          {/* Structure, not a figure. monthlyRupees here is monthlyCompensationPaise,
+              which for a slot store is already base + bonus and moves with slot fill —
+              printing it as "₹X + electricity per month" billed a varying total as a
+              fixed one. The per-month rows below carry the actual numbers. */}
+          <p className="text-[10px] text-muted-foreground mt-0.5">Base rent + electricity + bonus · paid by 10th of following month</p>
         </div>
         <Calendar className="h-4 w-4 text-muted-foreground/40" />
       </div>
@@ -914,10 +918,10 @@ function ReferralCard({ store }: { store: StoreInfo }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
       <div className="flex items-start gap-3">
-        <Gift className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+        <Users className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
         <div>
           <h2 className="text-sm font-bold text-foreground">Your referral code</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Earn ₹500 for every new store partner who joins using your code.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Share it with another shop owner so we know the introduction came from you.</p>
         </div>
       </div>
 
@@ -929,7 +933,7 @@ function ReferralCard({ store }: { store: StoreInfo }) {
       </div>
 
       <div className="text-[10px] text-muted-foreground/50 leading-relaxed">
-        Share on WhatsApp · Referral bonus credited once the referred store goes live · No limit on referrals
+        Share on WhatsApp · Used to credit your introduction · No limit on referrals
       </div>
     </div>
   );
@@ -1047,8 +1051,8 @@ function AgreementCard({ store }: { store: StoreInfo }) {
   const remuneration = monthlyRupees == null
     ? `Per your signed agreement. ${paidWhen}`
     : slotMode
-      ? `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen guaranteed, plus a performance-linked incentive. ${paidWhen}`
-      : `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen, fixed. ${paidWhen}`;
+      ? `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen guaranteed, plus electricity and a performance bonus. ${paidWhen}`
+      : `₹${monthlyRupees.toLocaleString('en-IN')}/month per screen base rent, plus electricity and a performance bonus. ${paidWhen}`;
   // Params match the link /store builds at signup, so a partner reopening their
   // contract sees their OWN tier's clause rather than the ₹500 default.
   const agreementHref = monthlyRupees == null
@@ -1453,7 +1457,12 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
                 {[
                   { label: 'Total earned', value: totalPaidPaise == null ? '—' : `₹${Math.round(totalPaidPaise / 100).toLocaleString('en-IN')}`, accent: false },
                   { label: 'This month',   value: `₹${monthlyRupees.toLocaleString('en-IN')}`, accent: true  },
-                  { label: 'Per referral', value: '₹500', accent: false },
+                  // No third tile. It used to read "Per referral ₹500" — a reward the
+                  // agreement no longer owes. Restating the bonus here instead would
+                  // both duplicate PayoutStatementCard's "Brands on your screen" line
+                  // directly below and, as a standalone per-slot rate, disclose the
+                  // per-slot economics that shared/agreement-terms.ts deliberately
+                  // withholds from partners.
                 ].map((s) => (
                   <div key={s.label} className="flex-1 text-center px-3 py-1">
                     <p className={`text-base font-black ${s.accent ? 'text-primary' : 'text-foreground'}`}>{s.value}</p>

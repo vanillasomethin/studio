@@ -35,10 +35,12 @@ export const POST = withApiHandler('/api/payout-claim', 'user', async (req: Next
   });
 
   void notifyAdminWA(payoutClaimMsg({
-    storeName: store.storeName,
-    ownerName: store.ownerName,
-    phone:     store.user?.phone ?? store.whatsapp,
-    month:     claimMonth,
+    storeName:  store.storeName,
+    ownerName:  store.ownerName,
+    phone:      store.user?.phone ?? store.whatsapp,
+    month:      claimMonth,
+    // Same figure the AuditLog row above records; the message used to hardcode ₹500.
+    amountPaise: payoutPaise,
   }));
 
   return NextResponse.json({ ok: true, month: claimMonth });

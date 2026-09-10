@@ -200,7 +200,10 @@ export default function KycTab() {
           <div className="space-y-2">
             {[
               "Verify your identity under ALIVE's partner agreement",
-              'Unlock monthly payouts (₹500 + electricity per month per screen)',
+              // KycTab takes no props, so it cannot know this partner's tier — and the
+              // figure it hardcoded was the flat ₹500 that only ever described a
+              // Standard partner. Name the structure, as the ungated /store pitch does.
+              'Unlock monthly payouts (base rent + electricity + bonus, per screen)',
               'One-time submission — takes less than 2 minutes',
               'Your documents are only shared with the ALIVE team for verification',
             ].map((item, i) => (
