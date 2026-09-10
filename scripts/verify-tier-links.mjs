@@ -42,8 +42,22 @@ for (const t of ['standard','growth','flagship']) {
   eq(`${t} clause discloses no percentage`, /%|per cent|percent/.test(rem(t)), false);
   eq(`${t} clause references the target schedule`, rem(t).includes('target schedule'), true);
 }
-// other clauses untouched
-eq('referral clause unchanged', agreementTermsForTier('flagship').find(x=>x.heading==='Referral reward').body.includes('₹500'), true);
+// Every tier's clause must state all three components a partner is actually paid.
+// The old copy named only the base, which understated the payout and went stale
+// whenever a store changed tier.
+for (const t of ['standard','growth','flagship']) {
+  eq(`${t} clause states a base rent`,   /base monthly rent/i.test(rem(t)), true);
+  eq(`${t} clause covers electricity`,   /electricity/i.test(rem(t)),       true);
+  eq(`${t} clause covers the bonus`,     /performance bonus/i.test(rem(t)), true);
+}
+
+// The referral reward and the generator/UPS compensation were removed from the
+// agreement. Assert they stay gone: nothing in the payout engine ever credited
+// either one, and re-adding the clause would recreate the unbacked promise that
+// PR #215 had to delete from both onboarding surfaces.
+const headings = agreementTermsForTier('flagship').map(x=>x.heading);
+eq('no referral clause',  headings.includes('Referral reward'), false);
+eq('no generator clause', headings.includes('Generator / UPS'), false);
 
 console.log(f===0 ? '\nAll tier signup-link rules verified.' : `\n${f} failure(s).`);
 process.exit(f===0?0:1);

@@ -4,19 +4,11 @@
 export const AGREEMENT_TERMS: { heading: string; body: string }[] = [
   {
     heading: 'Remuneration',
-    body: 'VS Collective LLP shall pay a fixed monthly remuneration of ₹500 per screen, within 10 working days of month end via UPI/NEFT.',
+    body: 'VS Collective LLP shall pay a base monthly rent of ₹500 per screen, reimburse the electricity the screen consumes, and pay a performance bonus for the advertising it carries. The total is settled within 10 working days of month end via UPI/NEFT.',
   },
   {
     heading: 'Electricity',
     body: 'Electricity consumed by the screens is reimbursed at screen rated power × actual hours of operation × prevailing tariff. Submit monthly electricity bills for accurate settlement.',
-  },
-  {
-    heading: 'Generator / UPS',
-    body: 'If screens operate on your generator during outages, VS Collective LLP compensates proportionally (screen share of generator load × fuel cost/hr × hours run).',
-  },
-  {
-    heading: 'Referral reward',
-    body: '₹500 bonus for every new store partner who joins using your referral code, paid within 10 working days of their screen going live.',
   },
   {
     heading: 'Equipment',
