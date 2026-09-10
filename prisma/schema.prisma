@@ -363,6 +363,7 @@ model Store {
   smartPlug            SmartPlug?
   slotAddons           SlotAddon[]
   slotRequests         SlotRequest[]
+  slotPlans            SlotPlan[]
   pushSubscriptions    PushSubscription[]
 
   @@index([city])
@@ -500,6 +501,7 @@ model Campaign {
   playGuaranteeCycles  PlayGuaranteeCycle[]
   slotAddons           SlotAddon[]
   slotRequests         SlotRequest[]
+  slotPlans            SlotPlan[]
 
   @@index([brandId])
   @@index([status])
@@ -1060,6 +1062,50 @@ model Composition {
 // (house-ads) campaign; otherwise empties are round-robined across the sold
 // campaigns as bonus plays — logged with isFiller=true but attributed to the
 // campaign, and NEVER counted against brand-facing availability.
+
+/// A STANDING assignment: "this brand plays N times a day at this store, from D,
+/// until someone stops it". One row, no end date — as opposed to SlotBooking, which
+/// materialises one row per store per date per position (10 stores × 1 month × 2/day
+/// = 600 rows) and then expires silently when the range runs out.
+///
+/// Modelled as a TARGETED FILLER WITH PRIORITY, and that choice is load-bearing: a
+/// plan never consumes sellable inventory, so `Availability = loopSlotCount − sold
+/// bookings` stays exactly true and SLA, spans, add-ons and SlotRequest are all
+/// untouched. Plan plays land in positions that would otherwise have been bonus or
+/// house filler, which is why they are logged with isFiller=true — they are real,
+/// attributed plays, but NOT guaranteed inventory, so they must never count toward
+/// a PlayGuaranteeCycle's delivered total.
+///
+/// Fill order in buildSlotLoop is sold → plan → bonus → filler.
+///
+/// Single-slot only, the same constraint bonus fill has: a 30s creative cannot fill
+/// one scattered 10s position. The API rejects a plan whose campaign needs a span,
+/// rather than truncating it into a half-window nobody bought.
+model SlotPlan {
+  id          String    @id @default(cuid())
+  storeId     String
+  campaignId  String
+  /// Plays per day this plan aims for. Best-effort by construction — it only ever
+  /// gets the positions left after sold bookings, so a fully-sold day yields none.
+  slotsPerDay Int       @default(1)
+  startDate   DateTime  @db.Date
+  /// null = runs until someone stops it. That open end is the entire point: a dated
+  /// booking expiring unnoticed is the failure this model exists to remove.
+  endDate     DateTime? @db.Date
+  /// Off keeps the row (and its history) while taking it out of the loop.
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// One standing assignment per brand per store — changing the rate is an edit,
+  /// not a second row that would silently double the brand's plays.
+  @@unique([storeId, campaignId])
+  @@index([storeId, active])
+  @@index([campaignId])
+}
 
 model SlotBooking {
   id           String   @id @default(cuid())

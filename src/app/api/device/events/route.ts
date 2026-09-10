@@ -259,9 +259,23 @@ export async function POST(req: NextRequest) {
     )];
     let attributable = new Set<string>();
     if (claimedCampaignIds.length && device.storeId) {
-      const [booked, store] = await Promise.all([
+      const [booked, planned, store] = await Promise.all([
         db.slotBooking.findMany({
           where:  { storeId: device.storeId, campaignId: { in: claimedCampaignIds } },
+          select: { campaignId: true },
+          distinct: ['campaignId'],
+        }).catch(() => []),
+        // Standing assignments are the OTHER way a campaign legitimately plays here.
+        // Without this a SlotPlan play has no SlotBooking row, falls through to
+        // campaignId: null, and silently records as unattributed — no proof-of-play,
+        // no reporting, no billing evidence — while looking completely healthy.
+        //
+        // Deliberately not filtered by date, matching the booking check above: a
+        // device draining an offline backlog submits plays whose startedAt is days
+        // old, and rejecting those would punish the outage rather than the fraud
+        // this check exists to stop. `active` is the operator's own off switch.
+        db.slotPlan.findMany({
+          where:  { storeId: device.storeId, campaignId: { in: claimedCampaignIds }, active: true },
           select: { campaignId: true },
           distinct: ['campaignId'],
         }).catch(() => []),
@@ -269,7 +283,10 @@ export async function POST(req: NextRequest) {
           where: { id: device.storeId }, select: { fillerCreativeId: true },
         }).catch(() => null),
       ]);
-      attributable = new Set(booked.map((b) => b.campaignId));
+      attributable = new Set([
+        ...booked.map((b) => b.campaignId),
+        ...planned.map((p) => p.campaignId),
+      ]);
       // The effective filler is the store's override OR the fleet default, and
       // it has to be both here: checking only the override rejected every filler
       // play from the stores that simply use the default — which is most of them.
