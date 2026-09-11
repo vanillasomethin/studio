@@ -421,13 +421,26 @@ model StorePayment {
 
 // ─── Brands ──────────────────────────────────────────────────────────────────
 
+// An ADVERTISER. Most are sold to in person and never sign in, so a self-serve
+// login is an optional attachment — not what makes a brand a brand.
+//
+// userId used to be required, which meant the only way to get a Brand row was
+// /api/brands/register. Every advertiser sold face to face therefore existed only
+// as free text on Campaign.name: duplicated per campaign, un-joinable, and unable
+// to own a creative (Content.brandId points here). Nullable-unique is the same
+// trick Campaign.orderId uses — Postgres allows many NULLs in a unique index — so
+// login-less brands coexist with the one-login-one-brand rule for those that have one.
+//
+// contactName/email/phone follow for the same reason: an empty string would be a
+// lie about details we simply have not collected. Null says exactly that, and every
+// consumer already guards on falsy (see admin/brands/[brandId]/offer-trial).
 model Brand {
   id             String    @id @default(cuid())
-  userId         String    @unique
+  userId         String?   @unique
   brandName      String
-  contactName    String
-  email          String
-  phone          String
+  contactName    String?
+  email          String?
+  phone          String?
   gstin          String?
   walletPaise    BigInt    @default(0)
   trialOfferedAt DateTime?
@@ -435,7 +448,7 @@ model Brand {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns Campaign[]
   creatives Content[]
 }

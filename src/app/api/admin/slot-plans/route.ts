@@ -2,7 +2,10 @@
 // D, until stopped".
 //
 // GET    /api/admin/slot-plans?storeId=…      → { plans: [...] }
-// POST   /api/admin/slot-plans                → create or update (one per store+campaign)
+// GET    /api/admin/slot-plans?campaignId=…   → { plans: [...] }   where one brand plays
+// POST   /api/admin/slot-plans                → create or update (one per store+campaign);
+//                                               pass storeIds[] to roll one brand out
+//                                               across screens in a single request
 // PATCH  /api/admin/slot-plans                → { id, slotsPerDay?, active?, endDate? }
 // DELETE /api/admin/slot-plans?id=…           → remove
 //
@@ -17,6 +20,7 @@ import { db } from '@/lib/db';
 import { istToday, uniformSlotSpan } from '@/lib/slots';
 import { campaignCreatives, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
 import { pushPlanUpdated } from '@/lib/fcm';
+import { sanitizeStoreIds } from '@/lib/store-ids';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
 
@@ -31,9 +35,15 @@ async function pushStoreDevices(storeId: string) {
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return adminUnauthorized();
   try {
-    const storeId = req.nextUrl.searchParams.get('storeId');
+    // Filterable from either end: by store for "who plays on this screen", by
+    // campaign for "where does this brand play". Both, or neither, are valid.
+    const storeId    = req.nextUrl.searchParams.get('storeId');
+    const campaignId = req.nextUrl.searchParams.get('campaignId');
     const plans = await db.slotPlan.findMany({
-      where:   storeId ? { storeId } : {},
+      where: {
+        ...(storeId    ? { storeId }    : {}),
+        ...(campaignId ? { campaignId } : {}),
+      },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true, storeId: true, campaignId: true, slotsPerDay: true,
@@ -65,12 +75,25 @@ export async function POST(req: NextRequest) {
   if (!actor) return adminUnauthorized();
   try {
     const body = await req.json() as {
-      storeId?: string; campaignId?: string; slotsPerDay?: number;
+      storeId?: string; storeIds?: unknown; campaignId?: string; slotsPerDay?: number;
       startDate?: string; endDate?: string | null;
     };
-    const { storeId, campaignId } = body;
-    if (!storeId || !campaignId) {
-      return NextResponse.json({ error: 'storeId and campaignId required' }, { status: 400 });
+    const { campaignId } = body;
+
+    // One brand across many screens is what a standing assignment makes cheap: one
+    // row per store, no dated inventory to reconcile, so a network-wide rollout is
+    // a loop rather than a scheduling problem. `storeId` stays accepted unchanged.
+    //
+    // Passing storeIds also selects the RESPONSE SHAPE — { plans, skipped } instead
+    // of { plan } — so a bulk caller parses the same thing whether it selected one
+    // store or twelve.
+    const bulk = Array.isArray(body.storeIds);
+    const storeIds = bulk
+      ? [...new Set(sanitizeStoreIds(body.storeIds))]
+      : (body.storeId ? [body.storeId] : []);
+
+    if (storeIds.length === 0 || !campaignId) {
+      return NextResponse.json({ error: 'storeId (or storeIds) and campaignId required' }, { status: 400 });
     }
     const slotsPerDay = Math.floor(Number(body.slotsPerDay ?? 1));
     if (!Number.isFinite(slotsPerDay) || slotsPerDay < 1 || slotsPerDay > MAX_SLOTS_PER_DAY) {
@@ -84,12 +107,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'endDate is before startDate' }, { status: 400 });
     }
 
-    const store = await db.store.findUnique({
-      where: { id: storeId }, select: { id: true, loopSlotCount: true },
+    const stores = await db.store.findMany({
+      where: { id: { in: storeIds } }, select: { id: true, storeName: true, loopSlotCount: true },
     });
-    if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
-    if (store.loopSlotCount == null) {
-      return NextResponse.json({ error: 'Store is not in slot mode' }, { status: 400 });
+    const storeById = new Map(stores.map((s) => [s.id, s]));
+
+    // A single-store call keeps its precise 404/400 — callers rely on the message.
+    // A bulk call reports per-store reasons instead and carries on, because one
+    // store that is not in slot mode must not abandon the other eleven.
+    if (!bulk) {
+      const only = storeById.get(storeIds[0]);
+      if (!only) return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+      if (only.loopSlotCount == null) {
+        return NextResponse.json({ error: 'Store is not in slot mode' }, { status: 400 });
+      }
     }
 
     const campaign = await db.campaign.findUnique({
@@ -116,35 +147,64 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // Upsert on the unique (storeId, campaignId): raising the rate is an edit, not a
-    // second row that would silently double the brand's plays.
-    const plan = await db.slotPlan.upsert({
-      where:  { storeId_campaignId: { storeId, campaignId } },
-      create: {
-        storeId, campaignId, slotsPerDay,
-        startDate: new Date(`${startDate}T00:00:00Z`),
-        endDate:   body.endDate ? new Date(`${body.endDate}T00:00:00Z`) : null,
-        active:    true,
-      },
-      update: {
-        slotsPerDay,
-        startDate: new Date(`${startDate}T00:00:00Z`),
-        endDate:   body.endDate ? new Date(`${body.endDate}T00:00:00Z`) : null,
-        active:    true,
-      },
-      select: { id: true, slotsPerDay: true, startDate: true, endDate: true, active: true },
-    });
+    const startAt = new Date(`${startDate}T00:00:00Z`);
+    const endAt   = body.endDate ? new Date(`${body.endDate}T00:00:00Z`) : null;
+
+    const written: { id: string; storeId: string; storeName: string; slotsPerDay: number;
+                     startDate: string; endDate: string | null; active: boolean }[] = [];
+    const skipped: { storeId: string; storeName: string | null; reason: 'not-found' | 'not-slot-mode' | 'failed' }[] = [];
+
+    // Sequential, not Promise.all: this is at most a few dozen upserts against a
+    // pooled Neon connection, and a burst of parallel writes is how the pool gets
+    // exhausted for every other request in flight.
+    for (const id of storeIds) {
+      const store = storeById.get(id);
+      if (!store) { skipped.push({ storeId: id, storeName: null, reason: 'not-found' }); continue; }
+      if (store.loopSlotCount == null) {
+        skipped.push({ storeId: id, storeName: store.storeName, reason: 'not-slot-mode' }); continue;
+      }
+      try {
+        // Upsert on the unique (storeId, campaignId): raising the rate is an edit,
+        // not a second row that would silently double the brand's plays. It also
+        // makes re-running a rollout over a wider selection idempotent — the stores
+        // already covered are simply re-stated at the same rate.
+        const plan = await db.slotPlan.upsert({
+          where:  { storeId_campaignId: { storeId: id, campaignId } },
+          create: { storeId: id, campaignId, slotsPerDay, startDate: startAt, endDate: endAt, active: true },
+          update: { slotsPerDay, startDate: startAt, endDate: endAt, active: true },
+          select: { id: true, slotsPerDay: true, startDate: true, endDate: true, active: true },
+        });
+        written.push({
+          id: plan.id, storeId: id, storeName: store.storeName,
+          slotsPerDay: plan.slotsPerDay, active: plan.active,
+          startDate: plan.startDate.toISOString().slice(0, 10),
+          endDate:   plan.endDate ? plan.endDate.toISOString().slice(0, 10) : null,
+        });
+      } catch {
+        // One store's write failing must not discard the ones that succeeded — the
+        // admin gets a partial result naming the gap, and re-running fills it.
+        skipped.push({ storeId: id, storeName: store.storeName, reason: 'failed' });
+      }
+    }
+
+    if (written.length === 0) {
+      return NextResponse.json({ error: 'No plan could be written', skipped }, { status: 400 });
+    }
 
     await logAdminAction({
-      actor, req, action: 'slotPlan.upsert', target: plan.id,
-      meta: { storeId, campaignId, slotsPerDay, startDate, endDate: body.endDate ?? null },
+      actor, req, action: 'slotPlan.upsert',
+      target: written.length === 1 ? written[0].id : campaignId,
+      meta: { storeIds: written.map((w) => w.storeId), skipped, campaignId, slotsPerDay, startDate, endDate: body.endDate ?? null },
     });
-    await pushStoreDevices(storeId);
+    // After the writes, so a device that re-fetches immediately sees the new loop.
+    for (const w of written) await pushStoreDevices(w.storeId);
 
+    if (bulk) return NextResponse.json({ plans: written, skipped });
+
+    const [plan] = written;
     return NextResponse.json({ plan: {
       id: plan.id, slotsPerDay: plan.slotsPerDay, active: plan.active,
-      startDate: plan.startDate.toISOString().slice(0, 10),
-      endDate:   plan.endDate ? plan.endDate.toISOString().slice(0, 10) : null,
+      startDate: plan.startDate, endDate: plan.endDate,
     } });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

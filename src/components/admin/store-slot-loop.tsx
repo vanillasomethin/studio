@@ -19,11 +19,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, Loader2, Pause, Play, Plus, Settings2, Trash2, Tv2 } from 'lucide-react';
 import {
-  getSlotBookings, createCampaign, updateSlotSettings, getContent,
-  getSlotPlans, createSlotPlan, updateSlotPlan, deleteSlotPlan,
-  type SlotStore, type SlotBookingRow, type SlotLoopEntry, type SlotPlanRow,
+  getSlotBookings, createCampaign, updateSlotSettings, getContent, getBrands,
+  getSlotPlans, createSlotPlan, createSlotPlans, updateSlotPlan, deleteSlotPlan,
+  type SlotStore, type SlotBookingRow, type SlotLoopEntry, type SlotPlanRow, type AdminBrand,
+  type Content,
 } from '@/lib/backend-api';
-import { ContentPickerField, type ContentLike } from './content-picker';
+import { ContentPickerField } from './content-picker';
 import { toast } from '@/hooks/use-toast';
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -47,16 +48,22 @@ const SOURCE_LABEL: Record<Source, string> = {
 
 type CampaignLike = {
   id: string; brandName: string; status: string;
+  /** Null = booked before advertisers were first-class rows, so its brand name is
+   *  only free text on the campaign. */
+  brandId?: string | null;
   slotContentId: string | null;
   slotPlaylist: { id: string; name: string; mediaItems: number } | null;
   slotSpan?: number | null;
 };
 
 export default function StoreSlotLoop({
-  store, campaigns, onBack, onChanged, onReloadCampaigns,
+  store, campaigns, allStores = [], onBack, onChanged, onReloadCampaigns,
 }: {
   store: SlotStore;
   campaigns: CampaignLike[];
+  /** Every slot-mode store, so one brand can be rolled out across screens from
+   *  here. Defaults to empty: the panel is usable with just the store it is on. */
+  allStores?: SlotStore[];
   onBack: () => void;
   /** Availability changed — the caller's grid is now stale. */
   onChanged: () => void;
@@ -83,9 +90,13 @@ export default function StoreSlotLoop({
     // Standing assignments are a separate read: they have no per-date rows, so the
     // bookings endpoint cannot report them. A brand on a plan would otherwise play
     // in the loop below while being absent from "who's playing" above it.
+    //
+    // Unfiltered on purpose — the roster then also knows how many OTHER screens each
+    // standing brand runs on, which is the whole point of a plan. The network is a
+    // few dozen stores and a plan is one row per store+brand, so this is small.
     Promise.all([
       getSlotBookings(store.id, date),
-      getSlotPlans(store.id).catch(() => [] as SlotPlanRow[]),
+      getSlotPlans().catch(() => [] as SlotPlanRow[]),
     ])
       .then(([r, p]) => {
         setBookings(Array.isArray(r.bookings) ? r.bookings : []);
@@ -190,19 +201,27 @@ export default function StoreSlotLoop({
     // separate commitments and each gets its own row rather than being merged into
     // a single misleading number.
     const standing: RosterRow[] = plans
-      .slice()
+      .filter((p) => p.storeId === store.id)
       .sort((a, b) => b.slotsPerDay - a.slotsPerDay)
-      .map((p) => ({
-        key: `plan:${p.id}`,
-        campaignId: p.campaignId,
-        name: p.brandName,
-        plays: p.slotsPerDay,
-        detail: p.active ? 'Standing — runs until stopped' : 'Paused',
-        lane: 'standing' as const,
-        meta: p.endDate ? `until ${p.endDate}` : `since ${p.startDate}`,
-        planId: p.id,
-        inactive: !p.active,
-      }));
+      .map((p) => {
+        // How many OTHER screens this brand's standing assignment covers. A plan is
+        // one row per store, so a brand is only "network-wide" if it has a row on
+        // each — showing the count here is what makes a gap visible at all.
+        const elsewhere = plans.filter((q) => q.campaignId === p.campaignId && q.storeId !== store.id).length;
+        return {
+          key: `plan:${p.id}`,
+          campaignId: p.campaignId,
+          name: p.brandName,
+          plays: p.slotsPerDay,
+          detail: p.active ? 'Standing — runs until stopped' : 'Paused',
+          lane: 'standing' as const,
+          meta: elsewhere > 0
+            ? `+${elsewhere} more screen${elsewhere === 1 ? '' : 's'}`
+            : (p.endDate ? `until ${p.endDate}` : 'here only'),
+          planId: p.id,
+          inactive: !p.active,
+        };
+      });
 
     return [...dated, ...standing];
   })();
@@ -415,6 +434,7 @@ export default function StoreSlotLoop({
         <AddBrandDialog
           store={store}
           campaigns={campaigns}
+          allStores={allStores}
           onClose={() => setAddOpen(false)}
           onDone={() => { setAddOpen(false); load(); onChanged(); onReloadCampaigns(); }}
         />
@@ -423,58 +443,120 @@ export default function StoreSlotLoop({
   );
 }
 
-/** Create-or-pick a brand, attach a creative, book it — one submit.
- *  The whole point of the screen: no onboarding funnel, no separate wizard. */
-function AddBrandDialog({ store, campaigns, onClose, onDone }: {
+/** Create-or-pick a brand, attach a creative, put it on one or many screens — one
+ *  submit. The whole point of the screen: no onboarding funnel, no separate wizard.
+ *
+ *  The picker is BRAND-first, not campaign-first. A brand is the advertiser; a
+ *  campaign is one booking of it. Picking the advertiser lets the creative list
+ *  narrow to what that advertiser already plays, which is what makes adding the
+ *  same brand to a second screen quicker than the first instead of identical to it.
+ *  Campaigns with no brand attached stay reachable in their own group so nothing
+ *  booked before brands existed becomes unselectable. */
+function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
   store: SlotStore;
   campaigns: CampaignLike[];
+  allStores: SlotStore[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [name,      setName]      = useState('');
-  const [existing,  setExisting]  = useState<string>('');   // campaign id, '' = new
-  const [library,   setLibrary]   = useState<ContentLike[]>([]);
+  // 'brand:<id>' | 'campaign:<id>' | '' for a new advertiser.
+  const [existing,  setExisting]  = useState<string>('');
+  // Typed as the full Content row, not ContentLike, because the brand filter below
+  // needs brandId — the column Phase 1 added and nothing on this screen used yet.
+  const [library,   setLibrary]   = useState<Content[]>([]);
+  const [brands,    setBrands]    = useState<AdminBrand[]>([]);
   const [contentId, setContentId] = useState<string | null>(null);
   const [perDay,    setPerDay]    = useState('2');
+  const [showAll,   setShowAll]   = useState(false);
+  const [extraStores, setExtraStores] = useState<string[]>([]);
   const [busy,      setBusy]      = useState(false);
 
-  // The creative library, only needed once this dialog is open — the slots tab
-  // itself never lists content, so loading it here keeps the tab's cost unchanged.
+  // The creative library and the brand list, only needed once this dialog is open —
+  // the slots tab itself never lists either, so loading them here keeps the tab's
+  // cost unchanged. Both degrade to empty rather than blocking the form.
   useEffect(() => {
     getContent()
       .then((r) => setLibrary(Array.isArray(r.content) ? r.content : []))
       .catch(() => setLibrary([]));
+    getBrands().then(setBrands).catch(() => setBrands([]));
   }, []);
 
-  const picked = existing ? campaigns.find((c) => c.id === existing) ?? null : null;
+  const brand = existing.startsWith('brand:')
+    ? brands.find((b) => b.id === existing.slice(6)) ?? null : null;
+  const picked = existing.startsWith('campaign:')
+    ? campaigns.find((c) => c.id === existing.slice(9)) ?? null : null;
+  const chosenName = brand?.brandName ?? picked?.brandName ?? name.trim();
+
+  // A campaign that already points at a Brand is reachable through the Brands group
+  // above; listing it twice would let the same advertiser be picked two ways.
+  const unbranded = campaigns.filter((c) => c.brandId == null);
+
+  // Narrow the library to the selected advertiser's own creatives. `showAll` is the
+  // escape hatch — a brand's first booking, or a shared asset, is not tagged yet.
+  const owned = brand ? library.filter((c) => c.brandId === brand.id) : [];
+  const visible = !showAll && owned.length > 0 ? owned : library;
+
+  // Other slot-mode screens this brand could go on in the same submit. The current
+  // store is always included and is not listed — it is not an option to opt out of.
+  const otherStores = allStores.filter((s) => s.id !== store.id && s.loopSlotCount != null);
+  const toggleStore = (id: string) =>
+    setExtraStores((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
+  // A brand already has a campaign only if it has been booked before; its first
+  // booking still needs one created. A campaign picked directly is its own answer.
+  const needsCampaign = !picked && !brand?.campaignId;
 
   const submit = async () => {
     const plays = Number(perDay);
     if (!Number.isFinite(plays) || plays < 1) {
       toast({ variant: 'destructive', title: 'Slots per day must be at least 1' }); return;
     }
-    if (!picked && !name.trim()) {
+    if (!picked && !brand && !name.trim()) {
       toast({ variant: 'destructive', title: 'Enter a brand name' }); return;
     }
-    if (!picked && !contentId) {
-      toast({ variant: 'destructive', title: 'Pick a creative', description: 'A new brand needs one to play.' }); return;
+    if (needsCampaign && !contentId) {
+      toast({ variant: 'destructive', title: 'Pick a creative', description: 'A brand needs one to play.' }); return;
     }
     setBusy(true);
     try {
-      const campaignId = picked
-        ? picked.id
-        : (await createCampaign({ name: name.trim(), slotContentId: contentId })).id;
+      const campaignId = picked?.id ?? brand?.campaignId ?? (await createCampaign({
+        name: chosenName,
+        // brandId when the advertiser is known, brandName to find-or-create one.
+        // Either way the campaign ends up owned, so the Content tab and the next
+        // store's picker can both see it.
+        ...(brand ? { brandId: brand.id } : { brandName: chosenName }),
+        slotContentId: contentId,
+        // Claim the creative for this advertiser — ignored server-side if it already
+        // has an owner, so a shared asset is never quietly reassigned.
+        tagCreative: true,
+      })).id;
 
-      // One row that runs until stopped, instead of 60 days of dated bookings.
-      // This is the seam the screen was built around: the form did not change, the
-      // write behind it did. A standing assignment cannot expire unnoticed, and it
-      // never consumes sellable inventory, so it does not need a horizon at all.
-      const plan = await createSlotPlan({ storeId: store.id, campaignId, slotsPerDay: plays });
-
-      toast({
-        title: `${picked?.brandName ?? name.trim()} added`,
-        description: `${plan.slotsPerDay} play${plan.slotsPerDay === 1 ? '' : 's'} a day, every day, until you stop it.`,
-      });
+      // One row per store that runs until stopped, instead of 60 days of dated
+      // bookings per store. This is the seam the screen was built around: the form
+      // did not change, the write behind it did. A standing assignment cannot expire
+      // unnoticed and never consumes sellable inventory, so it needs no horizon —
+      // which is also what makes putting one brand on twelve screens a loop rather
+      // than a scheduling problem.
+      const storeIds = [store.id, ...extraStores];
+      if (storeIds.length === 1) {
+        // Single store keeps the precise API errors ("not in slot mode", "cancelled").
+        const plan = await createSlotPlan({ storeId: store.id, campaignId, slotsPerDay: plays });
+        toast({
+          title: `${chosenName} added`,
+          description: `${plan.slotsPerDay} play${plan.slotsPerDay === 1 ? '' : 's'} a day, every day, until you stop it.`,
+        });
+      } else {
+        const { plans, skipped } = await createSlotPlans({ storeIds, campaignId, slotsPerDay: plays });
+        toast({
+          title: `${chosenName} added to ${plans.length} screen${plans.length === 1 ? '' : 's'}`,
+          description: skipped.length
+            // Name the gap rather than reporting a clean success — the admin needs to
+            // know which screens did NOT get the brand, and re-running fills them.
+            ? `${plays} a day on each. Skipped ${skipped.map((s) => s.storeName ?? s.storeId).join(', ')}.`
+            : `${plays} play${plays === 1 ? '' : 's'} a day on each, until you stop it.`,
+        });
+      }
       onDone();
     } catch (e) {
       // The API refuses a longer-than-10s creative here, because a plan fills one
@@ -493,29 +575,59 @@ function AddBrandDialog({ store, campaigns, onClose, onDone }: {
         </div>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Existing brand</span>
-          <select value={existing} onChange={(e) => setExisting(e.target.value)}
+          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Brand</span>
+          <select value={existing} onChange={(e) => { setExisting(e.target.value); setShowAll(false); }}
             className="rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] text-foreground focus:border-primary focus:outline-none">
             <option value="">— New brand —</option>
-            {campaigns.map((c) => <option key={c.id} value={c.id}>{c.brandName}</option>)}
+            {brands.length > 0 && (
+              <optgroup label="Brands">
+                {brands.map((b) => (
+                  <option key={b.id} value={`brand:${b.id}`}>
+                    {b.brandName}{b.creativeCount ? ` · ${b.creativeCount} creative${b.creativeCount === 1 ? '' : 's'}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {/* Bookings made before advertisers were first-class rows. Kept reachable
+                so nothing already running becomes unselectable here. */}
+            {unbranded.length > 0 && (
+              <optgroup label="Campaigns without a brand">
+                {unbranded.map((c) => <option key={c.id} value={`campaign:${c.id}`}>{c.brandName}</option>)}
+              </optgroup>
+            )}
           </select>
         </label>
 
-        {!picked && (
-          <>
-            <label className="flex flex-col gap-1">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Brand name</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Anand Sweets"
-                className="rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] text-foreground focus:border-primary focus:outline-none" />
-              <span className="text-[10px] text-muted-foreground">
-                Creates a bookable campaign directly — no onboarding funnel, no payment step.
-              </span>
-            </label>
-            <div className="flex flex-col gap-1">
+        {!picked && !brand && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Brand name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Anand Sweets"
+              className="rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] text-foreground focus:border-primary focus:outline-none" />
+            <span className="text-[10px] text-muted-foreground">
+              Creates the advertiser and a bookable campaign — no onboarding funnel, no
+              payment step. An existing name is reused rather than duplicated.
+            </span>
+          </label>
+        )}
+
+        {needsCampaign && (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-baseline justify-between gap-2">
               <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Creative</span>
-              <ContentPickerField content={library} value={contentId} onChange={setContentId} />
+              {owned.length > 0 && (
+                <button type="button" onClick={() => setShowAll((v) => !v)}
+                  className="text-[10px] font-semibold text-primary hover:underline">
+                  {showAll ? `Just ${brand!.brandName}’s` : 'Show all creatives'}
+                </button>
+              )}
             </div>
-          </>
+            <ContentPickerField content={visible} value={contentId} onChange={setContentId} />
+            <span className="text-[10px] text-muted-foreground">
+              {owned.length > 0 && !showAll
+                ? `Showing the ${owned.length} creative${owned.length === 1 ? '' : 's'} already tagged to this brand.`
+                : 'An untagged creative becomes this brand’s, so it is one click next time.'}
+            </span>
+          </div>
         )}
 
         <label className="flex flex-col gap-1">
@@ -528,6 +640,40 @@ function AddBrandDialog({ store, campaigns, onClose, onDone }: {
             after that day&apos;s sold bookings, so it never blocks a sale.
           </span>
         </label>
+
+        {/* One brand across many screens. A standing assignment is one row per store
+            with no dated inventory behind it, so rolling out to the whole network is
+            the same act as adding it here — repeated. */}
+        {otherStores.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Also add to</span>
+              <button type="button"
+                onClick={() => setExtraStores(extraStores.length === otherStores.length ? [] : otherStores.map((s) => s.id))}
+                className="text-[10px] font-semibold text-primary hover:underline">
+                {extraStores.length === otherStores.length ? 'None' : `All ${otherStores.length}`}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+              {otherStores.map((s) => {
+                const on = extraStores.includes(s.id);
+                return (
+                  <button key={s.id} type="button" onClick={() => toggleStore(s.id)} aria-pressed={on}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                      on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                    }`}>
+                    {s.storeName}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              {extraStores.length === 0
+                ? `${store.storeName} only.`
+                : `${store.storeName} and ${extraStores.length} more — same rate on each.`}
+            </span>
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} disabled={busy}

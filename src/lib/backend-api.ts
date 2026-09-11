@@ -121,6 +121,13 @@ export type AdminBrand = {
   id:            string;
   brandName:     string;
   creativeCount: number;
+  /** False = an advertiser sold to in person, with no self-serve account.
+   *  Optional so a deploy can serve this UI before the API that reports it. */
+  hasLogin?:     boolean;
+  /** The brand's most recent non-cancelled campaign, if it has one. Slot plans hang
+   *  off a campaign, so this is what lets "add this brand to another screen" reuse
+   *  the booking instead of minting a duplicate. */
+  campaignId?:   string | null;
 };
 
 export type PlaylistItem = {
@@ -468,7 +475,15 @@ export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
 
 export const getBrands = () =>
-  apiFetch<{ brands: AdminBrand[] }>('/api/admin/brands').then((r) => r.brands);
+  apiFetch<{ brands: AdminBrand[] }>('/api/admin/brands')
+    .then((r) => Array.isArray(r.brands) ? r.brands : []);
+
+/** Find-or-create an advertiser by name. Returns the existing row when the name
+ *  already exists (case-insensitively), so callers never have to handle a 409. */
+export const createBrand = (body: { brandName: string; contactName?: string; email?: string; phone?: string }) =>
+  apiFetch<{ brand: { id: string; brandName: string; hasLogin: boolean; created: boolean } }>(
+    '/api/admin/brands', { method: 'POST', body: JSON.stringify(body) },
+  ).then((r) => unwrap(r, 'brand'));
 
 // brandId: pass null to unassign a creative back to house content; omit it to
 // leave the current owner untouched. undefined and null mean different things here.
@@ -690,16 +705,22 @@ export const bulkAssignSlots = (body: {
   daysOfWeek?: number; slotsPerDay: number;
 }) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
 
-/** Creates a bookable campaign without the customer onboarding funnel. Omit brandId
- *  for an internal booking — the name lives on the campaign and no customer account
- *  is fabricated. See src/app/api/admin/campaigns/route.ts. */
+/** Creates a bookable campaign without the customer onboarding funnel.
+ *
+ *  Pass `brandId` to attach a known advertiser, or `brandName` to find-or-create one
+ *  by name — the latter is what makes the same brand added at a second store land on
+ *  the same row rather than splitting in two. Omitting both still works and leaves
+ *  the campaign unbranded. See src/app/api/admin/campaigns/route.ts. */
 export const createCampaign = (body: {
-  name: string; brandId?: string | null;
+  name: string; brandId?: string | null; brandName?: string;
   slotContentId?: string | null; slotPlaylistId?: string | null;
   slotPricingTier?: string; pricePerScreen?: number; startDate?: string;
-}) => apiFetch<{ campaign: { id: string; name: string; brandId: string | null; slotContentId: string | null; slotPlaylistId: string | null; status: string } }>(
+  /** Claim the creative for this brand. The API ignores it for a creative that
+   *  already has an owner, so a shared asset is never silently reassigned. */
+  tagCreative?: boolean;
+}) => apiFetch<{ campaign: { id: string; name: string; brandId: string | null; slotContentId: string | null; slotPlaylistId: string | null; status: string; taggedCreative?: boolean } }>(
   '/api/admin/campaigns', { method: 'POST', body: JSON.stringify(body) },
-).then((r) => r.campaign);
+).then((r) => unwrap(r, 'campaign'));
 
 // ─── Standing slot assignments (SlotPlan) ────────────────────────────────────
 // One row that runs until stopped, as opposed to SlotBooking's one-row-per-
@@ -718,9 +739,17 @@ export type SlotPlanRow = {
   active: boolean;
 };
 
-export const getSlotPlans = (storeId?: string) =>
-  apiFetch<{ plans: SlotPlanRow[] }>(`/api/admin/slot-plans${storeId ? `?storeId=${storeId}` : ''}`)
+/** Filterable from either end: by store for "who plays on this screen", by campaign
+ *  for "where does this brand play". Pass neither for the whole network. */
+export const getSlotPlans = (filter?: string | { storeId?: string; campaignId?: string }) => {
+  const f = typeof filter === 'string' ? { storeId: filter } : (filter ?? {});
+  const qs = new URLSearchParams();
+  if (f.storeId)    qs.set('storeId', f.storeId);
+  if (f.campaignId) qs.set('campaignId', f.campaignId);
+  const q = qs.toString();
+  return apiFetch<{ plans: SlotPlanRow[] }>(`/api/admin/slot-plans${q ? `?${q}` : ''}`)
     .then((r) => Array.isArray(r.plans) ? r.plans : []);
+};
 
 /** Create or update the standing assignment for this store+campaign. The API
  *  upserts on that pair, so raising the rate is an edit rather than a second row
@@ -731,6 +760,21 @@ export const createSlotPlan = (body: {
 }) => apiFetch<{ plan: { id: string; slotsPerDay: number; active: boolean; startDate: string; endDate: string | null } }>(
   '/api/admin/slot-plans', { method: 'POST', body: JSON.stringify(body) },
 ).then((r) => unwrap(r, 'plan'));
+
+/** Roll one brand out across several screens in a single request.
+ *
+ *  Upserts per store, so re-running over a wider selection tops up the stores that
+ *  were missed rather than duplicating the ones already covered. Stores that are not
+ *  in slot mode (or vanished) come back in `skipped` instead of failing the batch —
+ *  one bad screen must not abandon the other eleven. */
+export const createSlotPlans = (body: {
+  storeIds: string[]; campaignId: string; slotsPerDay: number;
+  startDate?: string; endDate?: string | null;
+}) => apiFetch<{
+  plans:   { id: string; storeId: string; storeName: string; slotsPerDay: number; startDate: string; endDate: string | null; active: boolean }[];
+  skipped: { storeId: string; storeName: string | null; reason: 'not-found' | 'not-slot-mode' | 'failed' }[];
+}>('/api/admin/slot-plans', { method: 'POST', body: JSON.stringify(body) })
+  .then((r) => ({ plans: Array.isArray(r.plans) ? r.plans : [], skipped: Array.isArray(r.skipped) ? r.skipped : [] }));
 
 export const updateSlotPlan = (body: { id: string; slotsPerDay?: number; active?: boolean; endDate?: string | null }) =>
   apiFetch<{ plan: { id: string; slotsPerDay: number; active: boolean; endDate: string | null } }>(

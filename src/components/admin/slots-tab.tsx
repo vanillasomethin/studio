@@ -198,6 +198,9 @@ export default function SlotsTab() {
     <StoreSlotLoop
       store={loopStore}
       campaigns={campaigns}
+      // Every slot-mode store, so one brand can be rolled out across screens from
+      // the panel without going back to the grid and repeating the whole form.
+      allStores={slotStores}
       onBack={() => setLoopStore(null)}
       onChanged={load}
       onReloadCampaigns={loadCampaigns}

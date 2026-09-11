@@ -13,7 +13,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ camp
 
   const campaign = await db.campaign.findUnique({
     where: { id: campaignId },
-    select: { id: true, email: true, brand: { select: { userId: true } } },
+    // brand.userId used to be selected here and never read — ownership is decided
+    // by the campaign's own email below. It is dropped rather than carried along,
+    // because a brand may now have no user at all and a selected-but-unused id
+    // reads as if it were part of the check.
+    select: { id: true, email: true },
   });
   if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
