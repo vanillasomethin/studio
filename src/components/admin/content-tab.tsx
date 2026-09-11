@@ -526,20 +526,29 @@ export default function ContentTab() {
                       {/* The receipt for a retime. Without it, the only symptom is an ad
                           that plays marginally faster than the file the brand sent, with
                           nothing on screen to explain why. */}
-                      {c.speedFittedFromMs != null && c.durationMs != null && (
-                        <Badge
-                          variant="warning"
-                          className="text-[10px] py-0.5 px-2 font-bold"
-                          title={
-                            `Sped up ${(((c.speedFittedFromMs / c.durationMs) - 1) * 100).toFixed(0)}% so it fits ` +
-                            `${Math.round(c.durationMs / 1000)}s exactly. At ${(c.speedFittedFromMs / 1000).toFixed(1)}s it would ` +
-                            'have booked an extra 10s slot and held a frozen frame for most of it. ' +
-                            'The untouched original is kept.'
-                          }
-                        >
-                          {(c.speedFittedFromMs / 1000).toFixed(1)}s → {Math.round(c.durationMs / 1000)}s
-                        </Badge>
-                      )}
+                      {c.speedFittedFromMs != null && c.durationMs != null && (() => {
+                        // Stated in slots and seconds rather than "an extra slot", because
+                        // the waste is the same 9-odd seconds whether the ad went 1→2
+                        // slots or 3→4, and a vague claim reads as wrong on the longer one.
+                        const nowSlots  = Math.max(1, Math.round(c.durationMs! / 10_000));
+                        const wasSlots  = nowSlots + 1;
+                        const wasSec    = c.speedFittedFromMs! / 1000;
+                        const frozenSec = wasSlots * 10 - wasSec;
+                        const pct       = ((c.speedFittedFromMs! / c.durationMs!) - 1) * 100;
+                        return (
+                          <Badge
+                            variant="warning"
+                            className="text-[10px] py-0.5 px-2 font-bold"
+                            title={
+                              `Sped up ${pct.toFixed(0)}% to fit ${nowSlots * 10}s exactly. At ${wasSec.toFixed(1)}s it would ` +
+                              `have booked ${wasSlots} slots (${wasSlots * 10}s) instead of ${nowSlots}, holding a frozen ` +
+                              `frame for the spare ${frozenSec.toFixed(1)}s. The untouched original is kept.`
+                            }
+                          >
+                            {wasSec.toFixed(1)}s → {nowSlots * 10}s
+                          </Badge>
+                        );
+                      })()}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
