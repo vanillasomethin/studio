@@ -34,6 +34,65 @@ export function slotSpanForDuration(durationMs: number | null | undefined): numb
   return Math.max(1, Math.ceil((durationMs - SLOT_SNAP_GRACE_MS) / SLOT_DURATION_MS));
 }
 
+// ── Speed-fit (implemented in transcode-lambda/speed-fit.mjs) ─────────────────
+//
+// A clip overshooting a slot multiple by a hair is retimed onto that multiple during
+// transcode, rather than billed for a second slot it barely uses. THIS is the canonical
+// rule; transcode-lambda/speed-fit.mjs mirrors it, because the Lambda cannot import
+// TypeScript through a '@/' alias. scripts/verify-speed-fit.mjs imports both and sweeps
+// them against each other — do not change one without the other.
+
+/** The widest overshoot worth retiming. Above it the clip is not encoder drift but a
+ *  genuinely longer ad, which should honestly book the slots it needs. */
+export const MAX_SPEED_FIT_MS = 1_000;
+
+export type SpeedFitPlan =
+  | { fit: false; reason: 'unknown-duration' | 'already-one-slot' | 'overshoot-too-large' }
+  | { fit: true; targetMs: number; rate: number; overshootMs: number };
+
+/** Will the transcode retime this clip, and to what?
+ *  10.50s → 10.0s, 10.90s → 10.0s, 30.60s → 30.0s; 11.20s and 25.00s refused. */
+export function planSpeedFit(durationMs: number | null | undefined): SpeedFitPlan {
+  if (!durationMs || durationMs <= 0) return { fit: false, reason: 'unknown-duration' };
+  const span = slotSpanForDuration(durationMs);
+  if (span < 2) return { fit: false, reason: 'already-one-slot' };
+  const targetMs    = (span - 1) * SLOT_DURATION_MS;
+  const overshootMs = durationMs - targetMs;
+  if (overshootMs > MAX_SPEED_FIT_MS) return { fit: false, reason: 'overshoot-too-large' };
+  return { fit: true, targetMs, rate: durationMs / targetMs, overshootMs };
+}
+
+/** What an uploader should be told about a video's length, at UPLOAD — before they
+ *  discover it three screens later when a booking is refused.
+ *
+ *  `slots` is what the creative ends up occupying once the pipeline has finished with
+ *  it, so for a clip that will be speed-fitted it is the POST-fit count: the number the
+ *  brand actually gets billed for. */
+export type SlotFitVerdict =
+  /** Length unreadable. uniformSlotSpan() refuses these outright at attach time, so
+   *  this is the one verdict that is a real problem rather than information. */
+  | { kind: 'unknown' }
+  /** Fits a single 10s slot as delivered. */
+  | { kind: 'exact'; slots: 1 }
+  /** Just over — the transcode will speed it onto the boundary. */
+  | { kind: 'fitted'; slots: number; fromMs: number; toMs: number; pct: number }
+  /** Genuinely longer: it will occupy, and be billed for, this many slots. */
+  | { kind: 'spans'; slots: number; wastedMs: number };
+
+export function describeSlotFit(durationMs: number | null | undefined): SlotFitVerdict {
+  if (!durationMs || durationMs <= 0) return { kind: 'unknown' };
+  const plan = planSpeedFit(durationMs);
+  if (plan.fit) {
+    const slots = plan.targetMs / SLOT_DURATION_MS;
+    return { kind: 'fitted', slots, fromMs: durationMs, toMs: plan.targetMs, pct: (plan.rate - 1) * 100 };
+  }
+  const slots = slotSpanForDuration(durationMs);
+  if (slots === 1) return { kind: 'exact', slots: 1 };
+  // How much of the booked window holds a frozen final frame. This is the number that
+  // makes an 11.2s upload look like the mistake it usually is: 8.8s of a 20s window.
+  return { kind: 'spans', slots, wastedMs: slots * SLOT_DURATION_MS - durationMs };
+}
+
 export type SlotCreativeMeta = { contentId: string; durationMs: number | null; type?: string };
 
 /**

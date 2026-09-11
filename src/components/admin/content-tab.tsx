@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { getContent, getBrands, deleteContent, initiateUpload, updateContentMeta, transcodeVideo, type Content, type AdminBrand } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
+import { describeSlotFit } from '@/lib/slots';
 
 function fmtBytes(b: number): string {
   if (b < 1024)         return `${b} B`;
@@ -36,6 +37,29 @@ async function videoDurationMs(file: File): Promise<number | undefined> {
     };
     video.src = url;
   });
+}
+
+/** The upload-time slot verdict, in the uploader's words.
+ *
+ *  Deliberately never blocking. A 20s ad is a product ALIVE sells, not an error — the
+ *  failure this fixes is silence: a clip used to upload cleanly and only reveal that it
+ *  books two slots when a booking was refused, several screens away from the file picker.
+ *  So the counts are stated, and the judgement is left to the person uploading. */
+function slotNoteFor(durationMs: number | undefined): UploadState['slotNote'] {
+  const v = describeSlotFit(durationMs);
+  const sec = (ms: number) => (ms / 1000).toFixed(1).replace(/\.0$/, '');
+  switch (v.kind) {
+    case 'unknown':
+      // The one genuine problem: uniformSlotSpan() refuses an unreadable duration
+      // outright, so this clip cannot be attached to a slot campaign at all.
+      return { tone: 'warn', text: 'Length could not be read — this can’t be booked into a slot until it’s re-exported.' };
+    case 'exact':
+      return { tone: 'info', text: 'Fits one 10s slot.' };
+    case 'fitted':
+      return { tone: 'info', text: `${sec(v.fromMs)}s — will be sped up ${v.pct.toFixed(0)}% to ${sec(v.toMs)}s so it still books ${v.slots} slot${v.slots === 1 ? '' : 's'}. The original is kept.` };
+    case 'spans':
+      return { tone: 'warn', text: `${sec(durationMs!)}s — books ${v.slots} slots (${v.slots * 10}s) and pays for all of them, holding a frozen frame for the spare ${sec(v.wastedMs)}s. Trim to ${sec(v.slots * 10_000 - 10_000)}s to book one fewer.` };
+  }
 }
 
 async function imageDimensions(file: File): Promise<{ width: number; height: number } | undefined> {
@@ -75,7 +99,14 @@ async function md5Hex(file: File): Promise<string> {
   }
 }
 
-type UploadState = { name: string; progress: number; done: boolean; error?: string };
+type UploadState = {
+  name: string; progress: number; done: boolean; error?: string;
+  // What this clip's length means for slot mode, decided from the duration the browser
+  // measured before the bytes ever left. Purely informational — a multi-slot ad is a
+  // supported product, not a mistake, so nothing here blocks an upload. The point is
+  // that it is said HERE rather than three screens later when a booking is refused.
+  slotNote?: { tone: 'info' | 'warn'; text: string };
+};
 
 export default function ContentTab() {
   const [content,    setContent]    = useState<Content[]>([]);
@@ -221,6 +252,10 @@ export default function ContentTab() {
         const hash = await md5Hex(file);
         const durationMs = isVideo ? await videoDurationMs(file) : undefined;
         const dims = isImage ? await imageDimensions(file) : undefined;
+
+        // Say what this length means for slot mode NOW. The duration is already in hand;
+        // the only reason this used to surface at attach time was that nobody asked here.
+        if (isVideo) setUploads((u) => u.map((x, i) => i === idx ? { ...x, slotNote: slotNoteFor(durationMs) } : x));
 
         // Step 1: create DB record + get objectKey
         const { id: contentId, objectKey } = await initiateUpload({
@@ -396,6 +431,13 @@ export default function ContentTab() {
                   </div>
                 )}
                 {u.error && <p className="text-[10px] text-destructive mt-0.5">{u.error}</p>}
+                {/* Shown alongside progress, not instead of it — the upload is not
+                    blocked, so the note must not read like a failure. */}
+                {!u.error && u.slotNote && (
+                  <p className={`text-[10px] mt-0.5 ${u.slotNote.tone === 'warn' ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                    {u.slotNote.text}
+                  </p>
+                )}
               </div>
               <span className="text-[10px] text-muted-foreground shrink-0">
                 {u.done ? 'Done' : u.error ? 'Failed' : `${u.progress}%`}
@@ -526,6 +568,28 @@ export default function ContentTab() {
                       {/* The receipt for a retime. Without it, the only symptom is an ad
                           that plays marginally faster than the file the brand sent, with
                           nothing on screen to explain why. */}
+                      {/* A creative that occupies more than one slot, stated on the row
+                          itself. The upload note says this once; someone browsing the
+                          library a week later needs it too, and it is the answer to "why
+                          is this ad billed for 20 seconds". Suppressed when the speed-fit
+                          badge below is showing, since that already says 1 slot. */}
+                      {c.type === 'video' && c.speedFittedFromMs == null && (() => {
+                        const v = describeSlotFit(c.durationMs);
+                        if (v.kind !== 'spans') return null;
+                        return (
+                          <Badge
+                            variant="warning"
+                            className="text-[10px] py-0.5 px-2 font-bold"
+                            title={
+                              `${(c.durationMs! / 1000).toFixed(1)}s occupies ${v.slots} consecutive 10s slots ` +
+                              `(${v.slots * 10}s) and is billed for all of them, holding a frozen frame for the ` +
+                              `spare ${(v.wastedMs / 1000).toFixed(1)}s.`
+                            }
+                          >
+                            {v.slots} slots
+                          </Badge>
+                        );
+                      })()}
                       {c.speedFittedFromMs != null && c.durationMs != null && (() => {
                         // Stated in slots and seconds rather than "an extra slot", because
                         // the waste is the same 9-odd seconds whether the ad went 1→2

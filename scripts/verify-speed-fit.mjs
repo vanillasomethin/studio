@@ -20,9 +20,11 @@ import {
   SLOT_DURATION_MS, SLOT_SNAP_GRACE_MS, MAX_SPEED_FIT_MS,
 } from '../transcode-lambda/speed-fit.mjs';
 import {
-  slotSpanForDuration,
+  slotSpanForDuration, describeSlotFit,
+  planSpeedFit as tsPlanSpeedFit,
   SLOT_DURATION_MS as TS_SLOT_MS,
   SLOT_SNAP_GRACE_MS as TS_GRACE_MS,
+  MAX_SPEED_FIT_MS as TS_BAND_MS,
 } from '../src/lib/slots.ts';
 
 let failures = 0;
@@ -85,6 +87,62 @@ console.log('speed-fit.mjs vs src/lib/slots.ts — the duplicated span rule');
 
 eq('SLOT_DURATION_MS agrees',   SLOT_DURATION_MS,   TS_SLOT_MS);
 eq('SLOT_SNAP_GRACE_MS agrees', SLOT_SNAP_GRACE_MS, TS_GRACE_MS);
+eq('MAX_SPEED_FIT_MS agrees',   MAX_SPEED_FIT_MS,   TS_BAND_MS);
+
+// The WHOLE plan, not just the span it is derived from. The studio now shows an
+// uploader what the pipeline will do to their file, so a disagreement here means the
+// console promises one thing and the Lambda does another — silently, and only visible
+// once someone compares a badge against an invoice.
+{
+  let mismatch = null;
+  for (let ms = 0; ms <= 55_000; ms += 10) {
+    const a = JSON.stringify(planSpeedFit(ms));
+    const b = JSON.stringify(tsPlanSpeedFit(ms));
+    if (a !== b) { mismatch = { ms, lambda: a, studio: b }; break; }
+  }
+  eq('planSpeedFit matches at every 10 ms from 0 to 55 s', mismatch, null);
+  for (const ms of [null, undefined, 0, -1]) {
+    ok(`plan agrees on ${String(ms)}`, JSON.stringify(planSpeedFit(ms)) === JSON.stringify(tsPlanSpeedFit(ms)));
+  }
+}
+
+// ── The upload-time verdict ──────────────────────────────────────────────────
+console.log('describeSlotFit — what the uploader is told');
+
+const kindOf = (ms) => describeSlotFit(ms).kind;
+eq('9 800 ms reads as exact',       kindOf(9_800),  'exact');
+eq('10 490 ms reads as exact',      kindOf(10_490), 'exact');
+eq('10 500 ms reads as fitted',     kindOf(10_500), 'fitted');
+eq('10 900 ms reads as fitted',     kindOf(10_900), 'fitted');
+eq('11 200 ms reads as spans',      kindOf(11_200), 'spans');
+eq('20 000 ms reads as spans',      kindOf(20_000), 'spans');
+eq('25 000 ms reads as spans',      kindOf(25_000), 'spans');
+eq('30 600 ms reads as fitted',     kindOf(30_600), 'fitted');
+eq('null reads as unknown',         kindOf(null),   'unknown');
+eq('0 reads as unknown',            kindOf(0),      'unknown');
+
+// The counts shown to the uploader are what they get BILLED for, so they have to be the
+// post-pipeline truth, not the pre-transcode one.
+eq('10 600 ms is billed as 1 slot after the fit', describeSlotFit(10_600).slots, 1);
+eq('30 600 ms is billed as 3 slots after the fit', describeSlotFit(30_600).slots, 3);
+eq('11 200 ms is billed as 2 slots',              describeSlotFit(11_200).slots, 2);
+eq('25 000 ms is billed as 3 slots',              describeSlotFit(25_000).slots, 3);
+eq('11 200 ms wastes 8 800 ms of its window',     describeSlotFit(11_200).wastedMs, 8_800);
+
+// The verdict must never contradict the engine that does the billing: whatever the
+// uploader is told, that is the span the loop builder will charge for.
+{
+  let broke = null;
+  for (let ms = 1; ms <= 60_000; ms += 1) {
+    const v = describeSlotFit(ms);
+    if (v.kind === 'unknown') { broke ??= `${ms} unknown`; continue; }
+    const p = tsPlanSpeedFit(ms);
+    // After the pipeline the effective duration is the fitted target, or the original.
+    const effective = p.fit ? p.targetMs : ms;
+    if (slotSpanForDuration(effective) !== v.slots) broke ??= `${ms}: told ${v.slots}, engine says ${slotSpanForDuration(effective)}`;
+  }
+  eq('the slot count shown always matches what the engine will charge', broke, null);
+}
 
 // Sweep every 10 ms across five slots plus the boundaries either side. A single
 // disagreement anywhere means the Lambda would fit to a boundary the booking engine

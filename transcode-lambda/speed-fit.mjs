@@ -24,10 +24,13 @@
 // packages, exactly like conformance.mjs. Keep this file dependency-free — the
 // Dockerfile COPYs it alongside index.mjs and scripts/verify-speed-fit.mjs imports it.
 
-// Mirrors of src/lib/slots.ts. Duplicated because the Lambda cannot import TypeScript
-// through a '@/' alias, which is the same reason conformance.mjs and store-ids.ts stand
-// alone. scripts/verify-speed-fit.mjs imports BOTH this file and src/lib/slots.ts and
-// fails if they ever disagree, so the copy cannot drift silently.
+// MIRROR of src/lib/slots.ts, which is canonical — the studio uses the rule there to
+// tell an uploader what will happen to their file before they book it, so the two must
+// agree or the console promises one thing and the pipeline does another.
+//
+// Duplicated because the Lambda cannot import TypeScript through a '@/' alias, the same
+// reason conformance.mjs and store-ids.ts stand alone. scripts/verify-speed-fit.mjs
+// imports BOTH and sweeps them against each other, so the copy cannot drift silently.
 export const SLOT_DURATION_MS   = 10_000;
 export const SLOT_SNAP_GRACE_MS = 490;
 
