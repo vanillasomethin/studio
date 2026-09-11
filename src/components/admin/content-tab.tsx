@@ -523,6 +523,23 @@ export default function ContentTab() {
                           transcode failed
                         </Badge>
                       )}
+                      {/* The receipt for a retime. Without it, the only symptom is an ad
+                          that plays marginally faster than the file the brand sent, with
+                          nothing on screen to explain why. */}
+                      {c.speedFittedFromMs != null && c.durationMs != null && (
+                        <Badge
+                          variant="warning"
+                          className="text-[10px] py-0.5 px-2 font-bold"
+                          title={
+                            `Sped up ${(((c.speedFittedFromMs / c.durationMs) - 1) * 100).toFixed(0)}% so it fits ` +
+                            `${Math.round(c.durationMs / 1000)}s exactly. At ${(c.speedFittedFromMs / 1000).toFixed(1)}s it would ` +
+                            'have booked an extra 10s slot and held a frozen frame for most of it. ' +
+                            'The untouched original is kept.'
+                          }
+                        >
+                          {(c.speedFittedFromMs / 1000).toFixed(1)}s → {Math.round(c.durationMs / 1000)}s
+                        </Badge>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">

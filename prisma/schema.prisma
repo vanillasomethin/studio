@@ -931,6 +931,20 @@ model Content {
   // instead of the whole library. Deleting a brand nulls it rather than cascading:
   // the file may still be booked and playing, and taking it with the brand would
   // blank a live screen.
+  // What this clip measured BEFORE the transcode retimed it onto a slot boundary, in ms.
+  // Null = never retimed, which is the overwhelming majority.
+  //
+  // The slot cliff is 10.50 s (SLOT_SNAP_GRACE_MS absorbs drift below that), so a 10.6 s
+  // export used to book two 10 s slots — double the cost, with ~9.5 s of the window
+  // holding a frozen final frame. The Lambda now speeds such a clip up onto the multiple
+  // instead (band 1.0 s; see transcode-lambda/speed-fit.mjs). This column is the receipt:
+  // it is what lets the Content row say "10.6s → 10.0s" rather than leaving an operator
+  // to wonder why an ad looks marginally faster than the file they delivered.
+  //
+  // Not derivable after the fact — durationMs holds the retimed length, and the original
+  // is only recoverable by probing originalObjectKey.
+  speedFittedFromMs Int?
+
   brandId      String?
   brand        Brand?      @relation(fields: [brandId], references: [id], onDelete: SetNull)
 

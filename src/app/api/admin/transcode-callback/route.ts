@@ -4,7 +4,7 @@
 // endpoint can rewrite a Content row's rendition pointers.
 //
 // Body (success): { contentId, status: 'done', objectKey, md5, sizeBytes, durationMs, width?, height?,
-//                    hevcObjectKey?, hevcMd5?, hevcSizeBytes? }
+//                    speedFittedFromMs?, hevcObjectKey?, hevcMd5?, hevcSizeBytes? }
 // Body (failure): { contentId, status: 'error', message }
 //
 // The success body's objectKey/md5/sizeBytes describe the H.264 rendition. As the
@@ -35,6 +35,10 @@ type Body =
       contentId: string; status: 'done'; skipped?: false;
       objectKey: string; md5: string; sizeBytes: number;
       durationMs?: number; width?: number; height?: number;
+      /** Set only when the Lambda retimed the clip onto a slot boundary; the value is
+       *  what it measured BEFORE. Cannot appear on the skipped arm below — a retime
+       *  requires a re-encode, so needing one rules the skip path out. */
+      speedFittedFromMs?: number;
       hevcObjectKey?: string; hevcMd5?: string; hevcSizeBytes?: number;
     }
   // The Lambda probed the upload, found it already conformant, and ran no H.264 encode.
@@ -80,6 +84,9 @@ export async function POST(req: NextRequest) {
         UPDATE "Content"
         SET "durationMs" = ${body.durationMs ?? null}, width = ${body.width ?? null}, height = ${body.height ?? null},
             "transcodeStatus" = 'done', "transcodeError" = NULL,
+            -- Reaching the skip path means no retime happened, so any receipt from a
+            -- previous pass is stale and is cleared for the same reason as below.
+            "speedFittedFromMs" = NULL,
             "hevcObjectKey" = ${body.hevcObjectKey ?? null}, "hevcMd5" = ${body.hevcMd5 ?? null},
             "hevcSizeBytes" = ${body.hevcSizeBytes ?? null}
         WHERE id = ${body.contentId}
@@ -107,6 +114,10 @@ export async function POST(req: NextRequest) {
           "objectKey" = ${body.objectKey}, "md5" = ${body.md5}, "sizeBytes" = ${body.sizeBytes},
           "durationMs" = ${body.durationMs ?? null}, width = ${body.width ?? null}, height = ${body.height ?? null},
           "transcodeStatus" = 'done', "transcodeError" = NULL,
+          -- Absent means this pass did not retime, so it CLEARS a stale receipt from an
+          -- earlier one. Re-transcoding a clip that no longer needs fitting (a corrected
+          -- re-upload, a changed band) must not keep claiming it was sped up.
+          "speedFittedFromMs" = ${body.speedFittedFromMs ?? null},
           "hevcObjectKey" = ${body.hevcObjectKey ?? null}, "hevcMd5" = ${body.hevcMd5 ?? null},
           "hevcSizeBytes" = ${body.hevcSizeBytes ?? null}
       WHERE id = ${body.contentId}

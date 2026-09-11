@@ -115,6 +115,11 @@ export type Content = {
   // library table needs no second lookup.
   brandId?:    string | null;
   brandName?:  string | null;
+  // Non-null = the transcode retimed this clip onto a slot boundary, and this is what it
+  // measured BEFORE. durationMs holds the retimed length, so the original is not
+  // otherwise recoverable from this row. Optional: a deploy can serve this UI before the
+  // column exists, and the Content API returns it through its fail-open query.
+  speedFittedFromMs?: number;
 };
 
 export type AdminBrand = {
