@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
   const { token, expiresAt, isExistingUser } = await createInvite(email, role, actor.userId);
   const link = `${baseUrl()}/admin/setup?token=${encodeURIComponent(token)}`;
 
-  const sent = await sendEmail(
+  const mail = await sendEmail(
     email,
     'Set up your ALIVE admin account',
     inviteEmailHtml(link, role, actor.label, expiresAt),
@@ -84,9 +84,17 @@ export async function POST(req: NextRequest) {
 
   // The raw token is never logged — the audit trail records that an invite
   // happened and to whom, which is the accountability question, not the secret.
+  // The mail failure reason IS logged: "we invited her and she never got it" is
+  // answerable weeks later only if the reason was written down at the time.
   await logAdminAction({
     actor, action: 'admin.invite_created', target: email,
-    meta: { role, emailDelivered: sent, wasExistingUser: isExistingUser }, req,
+    meta: {
+      role,
+      emailDelivered: mail.ok,
+      ...(mail.ok ? { emailVia: mail.via } : { emailError: mail.reason }),
+      wasExistingUser: isExistingUser,
+    },
+    req,
   });
 
   return NextResponse.json({
@@ -94,14 +102,17 @@ export async function POST(req: NextRequest) {
     email,
     role,
     expiresAt,
-    emailSent: sent,
+    emailSent: mail.ok,
     // Surfaced so the console can show the link when mail is not configured,
     // instead of silently leaving the person stranded. Returned ONLY to the
     // admin who just created it, over their authenticated request.
-    setupLink: sent ? undefined : link,
-    warning: sent
+    setupLink: mail.ok ? undefined : link,
+    // The transport's own words, not a guess at them. Safe to show: this
+    // response only ever reaches the authenticated admin who just clicked
+    // invite, and sendEmail redacts credentials out of the reason.
+    warning: mail.ok
       ? undefined
-      : 'Email could not be sent (RESEND_API_KEY missing or rejected). Share the link below yourself — it works once and expires in 48 hours.',
+      : `Email could not be sent. ${mail.reason} Share the link below yourself — it works once and expires in 48 hours.`,
     // A re-invite for someone who already has a password will REPLACE it when
     // they accept, so the console can warn before that surprises anyone.
     replacesExistingPassword: isExistingUser,
