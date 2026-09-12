@@ -93,6 +93,32 @@ export function describeSlotFit(durationMs: number | null | undefined): SlotFitV
   return { kind: 'spans', slots, wastedMs: slots * SLOT_DURATION_MS - durationMs };
 }
 
+/** The upload-time verdict as the sentence an uploader reads.
+ *
+ *  Lives here rather than in the Content tab because it is product logic, not markup:
+ *  the numbers in it are what a brand gets billed, so they are worth asserting in
+ *  scripts/verify-speed-fit.mjs rather than only ever eyeballed in a browser.
+ *
+ *  Never blocking. A 20s ad is a product ALIVE sells, not an error — the failure being
+ *  fixed is silence, where a clip uploaded cleanly and only revealed that it books two
+ *  slots once a booking was refused, several screens from the file picker. */
+export function slotFitMessage(durationMs: number | null | undefined): { tone: 'info' | 'warn'; text: string } {
+  const v = describeSlotFit(durationMs);
+  const sec = (ms: number) => (ms / 1000).toFixed(1).replace(/\.0$/, '');
+  switch (v.kind) {
+    case 'unknown':
+      // The one genuine problem: uniformSlotSpan() refuses an unreadable duration
+      // outright, so this clip cannot be attached to a slot campaign at all.
+      return { tone: 'warn', text: 'Length could not be read — this can’t be booked into a slot until it’s re-exported.' };
+    case 'exact':
+      return { tone: 'info', text: 'Fits one 10s slot.' };
+    case 'fitted':
+      return { tone: 'info', text: `${sec(v.fromMs)}s — will be sped up ${v.pct.toFixed(0)}% to ${sec(v.toMs)}s so it still books ${v.slots} slot${v.slots === 1 ? '' : 's'}. The original is kept.` };
+    case 'spans':
+      return { tone: 'warn', text: `${sec(durationMs!)}s — books ${v.slots} slots (${v.slots * 10}s) and pays for all of them, holding a frozen frame for the spare ${sec(v.wastedMs)}s. Trim to ${sec((v.slots - 1) * SLOT_DURATION_MS)}s to book one fewer.` };
+  }
+}
+
 export type SlotCreativeMeta = { contentId: string; durationMs: number | null; type?: string };
 
 /**

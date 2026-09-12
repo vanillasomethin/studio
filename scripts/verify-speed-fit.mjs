@@ -20,7 +20,7 @@ import {
   SLOT_DURATION_MS, SLOT_SNAP_GRACE_MS, MAX_SPEED_FIT_MS,
 } from '../transcode-lambda/speed-fit.mjs';
 import {
-  slotSpanForDuration, describeSlotFit,
+  slotSpanForDuration, describeSlotFit, slotFitMessage,
   planSpeedFit as tsPlanSpeedFit,
   SLOT_DURATION_MS as TS_SLOT_MS,
   SLOT_SNAP_GRACE_MS as TS_GRACE_MS,
@@ -128,6 +128,38 @@ eq('30 600 ms is billed as 3 slots after the fit', describeSlotFit(30_600).slots
 eq('11 200 ms is billed as 2 slots',              describeSlotFit(11_200).slots, 2);
 eq('25 000 ms is billed as 3 slots',              describeSlotFit(25_000).slots, 3);
 eq('11 200 ms wastes 8 800 ms of its window',     describeSlotFit(11_200).wastedMs, 8_800);
+
+// The sentence itself, in full. These numbers are what a brand gets billed, so a typo
+// or an off-by-one in the copy is a wrong promise, not a cosmetic slip.
+eq('exact copy',
+  slotFitMessage(9_800),
+  { tone: 'info', text: 'Fits one 10s slot.' });
+eq('fitted copy',
+  slotFitMessage(10_600),
+  { tone: 'info', text: '10.6s — will be sped up 6% to 10s so it still books 1 slot. The original is kept.' });
+eq('fitted copy, multi-slot',
+  slotFitMessage(30_600),
+  { tone: 'info', text: '30.6s — will be sped up 2% to 30s so it still books 3 slots. The original is kept.' });
+eq('spans copy',
+  slotFitMessage(11_200),
+  { tone: 'warn', text: '11.2s — books 2 slots (20s) and pays for all of them, holding a frozen frame for the spare 8.8s. Trim to 10s to book one fewer.' });
+eq('spans copy, longer',
+  slotFitMessage(25_000),
+  { tone: 'warn', text: '25s — books 3 slots (30s) and pays for all of them, holding a frozen frame for the spare 5s. Trim to 20s to book one fewer.' });
+eq('unknown copy tone', slotFitMessage(null).tone, 'warn');
+
+// The advice has to be actionable: trimming to the suggested length must genuinely
+// drop a slot, for every spanning duration.
+{
+  let broke = null;
+  for (let ms = 10_501; ms <= 60_000; ms += 1) {
+    const v = describeSlotFit(ms);
+    if (v.kind !== 'spans') continue;
+    const suggested = (v.slots - 1) * 10_000;
+    if (slotSpanForDuration(suggested) !== v.slots - 1) broke ??= ms;
+  }
+  eq('the suggested trim length really does book one slot fewer', broke, null);
+}
 
 // The verdict must never contradict the engine that does the billing: whatever the
 // uploader is told, that is the span the loop builder will charge for.
