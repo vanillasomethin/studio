@@ -101,3 +101,86 @@ export const ALIVE_MAP_CSS =
   `.leaflet-control-zoom{border:1px solid #e5e5e5 !important;border-radius:8px !important;overflow:hidden;box-shadow:none !important;}
 .leaflet-control-zoom a{width:30px !important;height:30px !important;line-height:30px !important;font-size:16px !important;color:#333 !important;}
 .leaflet-control-attribution{font-size:10px !important;background:rgba(255,255,255,.7) !important;}`;
+
+// ─── "Areas covered" rings ──────────────────────────────────────────────────
+// The homepage's own coverage visualisation, lifted out so any other map
+// (Admin → Prospects, so ops can see scouting against what's already covered)
+// can draw the same dashed red pincode rings instead of re-deriving them.
+
+/** A pincode area from /geo/pincode-areas-mangaluru.json — official data.gov.in
+ *  boundaries, vendored and simplified (see the file's attribution key). */
+type AreaFeature = {
+  properties: { Pincode?: string; Office_Name?: string };
+  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] };
+};
+
+/** A point worth checking against the coverage areas — anything with a
+ *  location and, optionally, a claimed pincode. */
+export type CoveragePoint = { lat: number; lng: number; pincode?: string | null };
+
+// Ray-cast a point against the outer ring(s) of a polygon/multipolygon. Holes
+// are ignored — for "does this point sit inside this pincode area" that's plenty.
+function areaContains(geom: AreaFeature['geometry'], lat: number, lng: number): boolean {
+  const rings: number[][][] =
+    geom.type === 'Polygon'
+      ? [(geom.coordinates as number[][][])[0]]
+      : (geom.coordinates as number[][][][]).map((poly) => poly[0]);
+  return rings.some((ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  });
+}
+
+// "Kodiyalbail S.O" → "Kodiyalbail" — office-type suffixes are postal jargon,
+// not area names.
+function areaName(f: AreaFeature): string {
+  const office = (f.properties.Office_Name ?? '').replace(/\s+[HSB]\.O\.?$/i, '').trim();
+  return office || f.properties.Pincode || 'Area';
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * Build a Leaflet GeoJSON layer of dashed red rings around every pincode area
+ * that's covered — a pincode qualifies when a point claims it OR geometrically
+ * sits inside it, so a blank/mistyped pincode can't hide a covered area. Not
+ * added to the map — the caller does that (and removes the previous layer
+ * first), matching how it already manages its own marker layers.
+ *
+ * Returns null when there's nothing to draw (no area data, or no points).
+ */
+export function buildCoverageRings(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  L: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  areas: any,
+  points: CoveragePoint[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  if (!areas?.features?.length || points.length === 0) return null;
+  const claimed = new Set(
+    points.map((p) => (p.pincode ?? '').trim()).filter((p) => /^\d{6}$/.test(p)),
+  );
+  return L.geoJSON(areas, {
+    filter: (f: AreaFeature) =>
+      (!!f.properties.Pincode && claimed.has(f.properties.Pincode)) ||
+      points.some((p) => areaContains(f.geometry, p.lat, p.lng)),
+    style: {
+      color: '#dc2626', weight: 1, opacity: 0.5, dashArray: '4 4',
+      fillColor: '#dc2626', fillOpacity: 0.04,
+    },
+    onEachFeature: (f: AreaFeature, layer: { bindTooltip(content: string, options?: object): void }) => {
+      layer.bindTooltip(
+        `${escHtml(areaName(f))} · ${escHtml(f.properties.Pincode ?? '')}`,
+        { sticky: true, direction: 'top', className: 'alive-zone-tip' },
+      );
+    },
+  });
+}

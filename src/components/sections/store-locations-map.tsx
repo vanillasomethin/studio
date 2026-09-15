@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { ALIVE_MAP_CSS, createAliveMap, fitToPins } from '@/lib/alive-map';
+import { ALIVE_MAP_CSS, createAliveMap, fitToPins, buildCoverageRings } from '@/lib/alive-map';
 import { LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 
 type StoreStatus = 'live' | 'in_progress';
@@ -32,7 +32,7 @@ const PIN = {
 
 const RED = '#dc2626';
 
-type StoreTier = 'standard' | 'growth' | 'flagship';
+export type StoreTier = 'standard' | 'growth' | 'flagship';
 
 // Tier colours stay in the brand family: flagship is the red, growth warms to
 // amber, standard is ink. Grey means onboarded — signed up, screen on its way.
@@ -43,7 +43,7 @@ export const TIER: Record<StoreTier, { label: string; color: string; text: strin
   growth:   { label: 'Growth',   color: '#f59e0b', text: '#b45309', tint: 'rgba(245,158,11,.14)' },
   standard: { label: 'Standard', color: '#111827', text: '#111827', tint: 'rgba(17,24,39,.06)' },
 };
-const ONBOARDED = '#9ca3af';
+export const ONBOARDED = '#9ca3af';
 
 export function coreColor(status: StoreStatus, tier?: StoreTier): string {
   return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
@@ -137,37 +137,6 @@ function shopCardHtml(store: StorePin): string {
       '</div>' +
     '</div>'
   );
-}
-
-// A pincode area from /geo/pincode-areas-mangaluru.json — official data.gov.in
-// boundaries, vendored and simplified (see the file's attribution key).
-type AreaFeature = {
-  properties: { Pincode?: string; Office_Name?: string };
-  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] };
-};
-
-// Ray-cast a point against the outer ring(s) of a polygon/multipolygon. Holes
-// are ignored — for "does this shop sit inside this pincode area" that's plenty.
-function areaContains(geom: AreaFeature['geometry'], lat: number, lng: number): boolean {
-  const rings: number[][][] =
-    geom.type === 'Polygon'
-      ? [(geom.coordinates as number[][][])[0]]
-      : (geom.coordinates as number[][][][]).map((poly) => poly[0]);
-  return rings.some((ring) => {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i], [xj, yj] = ring[j];
-      if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  });
-}
-
-// "Kodiyalbail S.O" → "Kodiyalbail" — office-type suffixes are postal jargon,
-// not area names.
-function areaName(f: AreaFeature): string {
-  const office = (f.properties.Office_Name ?? '').replace(/\s+[HSB]\.O\.?$/i, '').trim();
-  return office || f.properties.Pincode || 'Area';
 }
 
 export default function StoreLocationsMap() {
@@ -314,28 +283,8 @@ export default function StoreLocationsMap() {
       // Rings live in the vector pane under the dots — markers stay clickable —
       // and hovering names the area, not the stores.
       if (zonesRef.current) { zonesRef.current.remove(); zonesRef.current = null; }
-      if (areas?.features?.length) {
-        const claimed = new Set(
-          stores.map((s) => (s.pincode ?? '').trim()).filter((p) => /^\d{6}$/.test(p)),
-        );
-        const zones = (L as any).geoJSON(areas, {
-          filter: (f: AreaFeature) =>
-            (!!f.properties.Pincode && claimed.has(f.properties.Pincode)) ||
-            stores.some((s) => areaContains(f.geometry, s.lat, s.lng)),
-          style: {
-            color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
-            fillColor: RED, fillOpacity: 0.04,
-          },
-          onEachFeature: (f: AreaFeature, layer: { bindTooltip(content: string, options?: object): void }) => {
-            layer.bindTooltip(
-              `${esc(areaName(f))} · ${esc(f.properties.Pincode ?? '')}`,
-              { sticky: true, direction: 'top', className: 'alive-zone-tip' },
-            );
-          },
-        });
-        zones.addTo(map);
-        zonesRef.current = zones;
-      }
+      const zones = buildCoverageRings(L, areas, stores);
+      if (zones) { zones.addTo(map); zonesRef.current = zones; }
 
       fitToPins(L, map, Array.from(markersRef.current.values()));
     }
