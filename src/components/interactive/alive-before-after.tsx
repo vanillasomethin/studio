@@ -3,13 +3,15 @@ import { PlaceHolderImages } from '@/lib/placeholder-images';
 import Image from 'next/image';
 import { useState, useRef, useCallback } from 'react';
 
-const beforeImage = PlaceHolderImages.find((p) => p.id === 'alive-tv-bg');
-const afterImage  = PlaceHolderImages.find((p) => p.id === 'alive-ad-in-store');
+const beforeFallback = PlaceHolderImages.find((p) => p.id === 'alive-tv-bg')?.imageUrl ?? '/alive_before.png';
+const afterFallback  = PlaceHolderImages.find((p) => p.id === 'alive-ad-in-store')?.imageUrl ?? '/alive_after.png';
 
-export default function AliveBeforeAfter() {
+export default function AliveBeforeAfter({ beforeUrl, afterUrl }: { beforeUrl?: string; afterUrl?: string } = {}) {
   const [pos, setPos]           = useState(48);
   const [dragging, setDragging] = useState(false);
   const containerRef            = useRef<HTMLDivElement>(null);
+  const before = beforeUrl || beforeFallback;
+  const after  = afterUrl || afterFallback;
 
   const updatePos = useCallback((clientX: number) => {
     if (!containerRef.current) return;
@@ -36,18 +38,14 @@ export default function AliveBeforeAfter() {
         onTouchEnd={() => setDragging(false)}
       >
         {/* Before */}
-        {beforeImage && (
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <Image src={beforeImage.imageUrl} alt="Before" fill style={{ objectFit: 'cover' }} priority />
-          </div>
-        )}
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Image src={before} alt="Before" fill style={{ objectFit: 'cover' }} priority />
+        </div>
 
         {/* After — clipped to the left of divider */}
-        {afterImage && (
-          <div style={{ position: 'absolute', inset: 0, clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
-            <Image src={afterImage.imageUrl} alt="After Alive" fill style={{ objectFit: 'cover' }} priority />
-          </div>
-        )}
+        <div style={{ position: 'absolute', inset: 0, clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+          <Image src={after} alt="After Alive" fill style={{ objectFit: 'cover' }} priority />
+        </div>
 
         {/* Divider line + handle */}
         <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.6)', left: `${pos}%` }}>

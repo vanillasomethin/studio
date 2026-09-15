@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
+import { Logo } from '@/components/icons/logo';
 
 const AliveBeforeAfter    = dynamic(() => import('@/components/interactive/alive-before-after'),    { ssr: false });
 const StoreLocationsMap   = dynamic(() => import('@/components/sections/store-locations-map'),   { ssr: false });
@@ -178,7 +179,7 @@ export default function Home() {
       {/* Loader */}
       <div className={`loader${loaded ? ' done' : ''}`} id="loader">
         <div className="loader-inner">
-          <div className="loader-mark">alive<span className="dot" /></div>
+          <div className="loader-mark"><Logo size="inherit" /></div>
           <div className="loader-num">In-store · {ROMAN_YEAR} · Network 027</div>
           <div className="loader-bar" />
         </div>
@@ -186,7 +187,7 @@ export default function Home() {
 
       {/* Nav */}
       <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
-        <a href="#" className="brand">alive<span className="dot" /></a>
+        <a href="#" className="brand"><Logo size="inherit" /></a>
         <ul>
           {/* '/advertise' is the one page link in this list of section anchors —
               the advertiser landing page has no section on the homepage. */}
@@ -391,7 +392,10 @@ export default function Home() {
               One screen above the counter. Drag to see what changes.
             </p>
           </div>
-          <AliveBeforeAfter />
+          <AliveBeforeAfter
+            beforeUrl={siteMedia['before-after-before']}
+            afterUrl={siteMedia['before-after-after']}
+          />
         </div>
       </section>
 
@@ -503,7 +507,7 @@ export default function Home() {
       <footer className="f" ref={footerRef}>
         <div className="top">
           <div className="lead">
-            <h3>alive<span className="dot" /></h3>
+            <h3><Logo size="inherit" /></h3>
             <div className="tagline">Turning kirana visits into discovery moments. Twelve million shelves. One network.</div>
             <a href="#join" className="footer-cta"><span className="dot" />Be Alive With Us</a>
           </div>

@@ -18,7 +18,7 @@ export default function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur-sm">
       <div className="container flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <a href="#" className="flex items-center gap-2">
-          <Logo />
+          <Logo size={22} />
         </a>
 
         <nav className="hidden items-center gap-8 md:flex">
@@ -62,7 +62,7 @@ export default function Header() {
             <SheetContent side="right">
               <div className="flex flex-col gap-6 p-6">
                 <a href="#" className="flex items-center gap-2">
-                  <Logo />
+                  <Logo size={22} />
                 </a>
                 <nav className="flex flex-col gap-4">
                   {navLinks.map((link) => (

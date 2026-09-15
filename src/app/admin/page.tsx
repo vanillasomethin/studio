@@ -2082,7 +2082,7 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount, email, collapsed, onTogg
   return (
     <aside className={`sb${collapsed ? ' sb--collapsed' : ''}`}>
       <div className="sb__logo">
-        {!collapsed && <Logo />}
+        {!collapsed && <Logo size={22} />}
         <button
           className="sb__collapse-btn"
           onClick={onToggleCollapsed}
@@ -2431,7 +2431,7 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo size={22} /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1">Admin</p>
           <h1 className="text-3xl font-bold text-foreground">
             {mode === 'account' ? 'Sign in' : 'Get a sign-in link'}
@@ -2557,7 +2557,7 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-sm space-y-6">
           <div>
-            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo size={22} /></a>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1 flex items-center gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5" /> Save your recovery codes
             </p>
@@ -2614,7 +2614,7 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo size={22} /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1 flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5" /> Set up 2FA
           </p>
