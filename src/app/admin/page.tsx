@@ -1791,7 +1791,7 @@ function KpiRow({ stats, onNav }: { stats: OpsStats | null; onNav: (t: Tab) => v
 
 type DeviceRow2 = { id: string; name?: string; storeName?: string; status: string; lastSeen?: string | null; locality?: string | null };
 
-function DeviceFeedCard({ devices }: { devices: DeviceRow2[] }) {
+function DeviceFeedCard({ devices, onSelect }: { devices: DeviceRow2[]; onSelect: (id: string) => void }) {
   const [filter, setFilter] = useState('all');
   const filtered = filter === 'all' ? devices : devices.filter((d) => d.status.toUpperCase() === filter.toUpperCase());
   const online  = devices.filter((d) => d.status === 'ONLINE').length;
@@ -1838,7 +1838,15 @@ function DeviceFeedCard({ devices }: { devices: DeviceRow2[] }) {
       </div>
       <div className="feed">
         {filtered.slice(0, 10).map((d) => (
-          <div key={d.id} className="feed-item">
+          <div
+            key={d.id}
+            className="feed-item"
+            role="button"
+            tabIndex={0}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onSelect(d.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(d.id); } }}
+          >
             <span className={statusDot(d.status)}></span>
             <div className="feed-item__main">
               <div className="feed-item__name">{d.storeName || d.name || d.id.slice(0, 8)}{d.locality ? <span className="feed-item__area"> · {d.locality}</span> : null}</div>
@@ -2260,7 +2268,7 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, onOpen
 
 // ─── Overview Panel ───────────────────────────────────────────────────────────
 
-function OverviewPanel({ onNav, onOpenTour }: { onNav: (t: Tab) => void; onOpenTour: () => void }) {
+function OverviewPanel({ onNav, onOpenTour, onSelectDevice }: { onNav: (t: Tab) => void; onOpenTour: () => void; onSelectDevice: (id: string) => void }) {
   const [stats,   setStats]   = useState<OpsStats | null>(null);
   const [devices, setDevices] = useState<DeviceRow2[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2328,7 +2336,7 @@ function OverviewPanel({ onNav, onOpenTour }: { onNav: (t: Tab) => void; onOpenT
       <KpiRow stats={stats} onNav={onNav} />
 
       <SectionLabel n={2} label="Network" />
-      <DeviceFeedCard devices={devices} />
+      <DeviceFeedCard devices={devices} onSelect={onSelectDevice} />
 
       <SectionLabel n={3} label="Store app" />
       <AppPreviewCard />
@@ -2684,6 +2692,8 @@ function Dashboard({ email }: { email: string | null }) {
   // same offline screen.
   const [offlineAlertCount, setOfflineAlertCount] = useState(0);
   const [tickerStats, setTickerStats] = useState<OpsStats | null>(null);
+  const [focusDeviceId, setFocusDeviceId] = useState<string | null>(null);
+  const [focusStoreId,  setFocusStoreId]  = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Prefetch alert count + live network stats for the ticker
@@ -2755,6 +2765,8 @@ function Dashboard({ email }: { email: string | null }) {
   }, []);
 
   const handleNav = (t: Tab) => { setTab(t); setSidebarOpen(false); };
+  const selectDevice = (id: string) => { setFocusDeviceId(id); handleNav('screens'); };
+  const viewSlotLoop = (storeId: string) => { setFocusStoreId(storeId); handleNav('slots'); };
   // Stable identity so OfflineAlertWatcher's effect doesn't re-subscribe (and
   // re-prime, losing its seen-set) on every render of this shell.
   const openAlertsTab = useCallback(() => { setTab('alerts'); setSidebarOpen(false); }, []);
@@ -2838,7 +2850,7 @@ function Dashboard({ email }: { email: string | null }) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18 }}
             >
-              {tab === 'overview'   && <OverviewPanel onNav={handleNav} onOpenTour={() => setTourOpen(true)} />}
+              {tab === 'overview'   && <OverviewPanel onNav={handleNav} onOpenTour={() => setTourOpen(true)} onSelectDevice={selectDevice} />}
               {tab === 'flyers'     && (
                 <div className="grid-2">
                   <div className="space-y-4">
@@ -2859,10 +2871,10 @@ function Dashboard({ email }: { email: string | null }) {
               {tab === 'coupons'    && <CouponsTab />}
               {tab === 'enquiries'  && <EnquiriesTab />}
               {tab === 'team'       && <TeamTab />}
-              {tab === 'screens'    && <ScreensTab />}
+              {tab === 'screens'    && <ScreensTab focusDeviceId={focusDeviceId} onFocusHandled={() => setFocusDeviceId(null)} onViewSlotLoop={viewSlotLoop} />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'programming'   && <ProgrammingTab />}
-              {tab === 'slots'      && <SlotsTab />}
+              {tab === 'slots'      && <SlotsTab focusStoreId={focusStoreId} onFocusHandled={() => setFocusStoreId(null)} />}
               {tab === 'power'      && <PowerTab />}
               {tab === 'qr'         && <QrTab />}
               {tab === 'prospects' && <ProspectsTab />}

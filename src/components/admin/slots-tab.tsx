@@ -134,7 +134,7 @@ function heat(sold: number, total: number): string {
   return 'bg-primary/10 text-primary border-primary/30 font-bold';
 }
 
-export default function SlotsTab() {
+export default function SlotsTab({ focusStoreId, onFocusHandled }: { focusStoreId?: string | null; onFocusHandled?: () => void } = {}) {
   const [from,     setFrom]     = useState(istTodayStr());
   const [stores,   setStores]   = useState<SlotStore[]>([]);
   const [dates,    setDates]    = useState<string[]>([]);
@@ -164,6 +164,16 @@ export default function SlotsTab() {
   }, [from]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Arriving from Screens tab's "view slot loop" link: open that store's loop
+  // directly instead of leaving the operator to find it in the inventory grid.
+  useEffect(() => {
+    if (!focusStoreId || !stores.length) return;
+    const match = stores.find((s) => s.id === focusStoreId && s.loopSlotCount != null);
+    if (match) setLoopStore(match);
+    onFocusHandled?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusStoreId, stores]);
 
   const loadCampaigns = useCallback(() => {
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
