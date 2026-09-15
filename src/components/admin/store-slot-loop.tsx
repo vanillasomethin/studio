@@ -16,15 +16,17 @@
 // shows two lanes: dated bookings (sold, guaranteed, expire on their own) and
 // standing assignments (best-effort, never expire, never block a sale).
 
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, Loader2, Pause, Play, Plus, Settings2, Trash2, Tv2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, Loader2, Pause, Play, Plus, Settings2, Trash2, Tv2, Upload, X } from 'lucide-react';
 import {
   getSlotBookings, createCampaign, updateSlotSettings, getContent, getBrands,
   getSlotPlans, createSlotPlan, createSlotPlans, updateSlotPlan, deleteSlotPlan,
+  createPlaylist, updateContentMeta,
   type SlotStore, type SlotBookingRow, type SlotLoopEntry, type SlotPlanRow, type AdminBrand,
   type Content,
 } from '@/lib/backend-api';
-import { ContentPickerField } from './content-picker';
+import { ContentThumb, ContentMultiPickerField } from './content-picker';
+import { uploadContentFile } from '@/lib/upload-video';
 import { toast } from '@/hooks/use-toast';
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -466,11 +468,25 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
   // needs brandId — the column Phase 1 added and nothing on this screen used yet.
   const [library,   setLibrary]   = useState<Content[]>([]);
   const [brands,    setBrands]    = useState<AdminBrand[]>([]);
-  const [contentId, setContentId] = useState<string | null>(null);
-  const [perDay,    setPerDay]    = useState('2');
+  // Every creative this booking will play — one video is the common case, but a
+  // brand that sends 2 ads gets both, each playing once a day, not a forced pick of
+  // just one. Order is the rotation order.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [perDay,    setPerDay]    = useState('');
+  // Once the admin types a number by hand, stop overwriting it from the creative
+  // count — see the effectivePerDay derivation below.
+  const [perDayTouched, setPerDayTouched] = useState(false);
   const [showAll,   setShowAll]   = useState(false);
   const [extraStores, setExtraStores] = useState<string[]>([]);
   const [busy,      setBusy]      = useState(false);
+
+  // Uploads started from inside this dialog — "send me the file, I'll put it on
+  // screen" in one place, instead of a trip to the Content tab first and back here
+  // to find it again. Each entry becomes a selected creative the moment it finishes.
+  type UploadRow = { uid: string; name: string; progress: number; error?: string };
+  const [uploads,  setUploads]  = useState<UploadRow[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uidRef = useRef(0);
 
   // The creative library and the brand list, only needed once this dialog is open —
   // the slots tab itself never lists either, so loading them here keeps the tab's
@@ -492,10 +508,9 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
   // above; listing it twice would let the same advertiser be picked two ways.
   const unbranded = campaigns.filter((c) => c.brandId == null);
 
-  // Narrow the library to the selected advertiser's own creatives. `showAll` is the
-  // escape hatch — a brand's first booking, or a shared asset, is not tagged yet.
+  // Narrow the library picker to the selected advertiser's own creatives. `showAll`
+  // is the escape hatch — a brand's first booking, or a shared asset, is not tagged yet.
   const owned = brand ? library.filter((c) => c.brandId === brand.id) : [];
-  const visible = !showAll && owned.length > 0 ? owned : library;
 
   // Other slot-mode screens this brand could go on in the same submit. The current
   // store is always included and is not listed — it is not an option to opt out of.
@@ -507,30 +522,110 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
   // booking still needs one created. A campaign picked directly is its own answer.
   const needsCampaign = !picked && !brand?.campaignId;
 
+  // "2 videos, 2 plays a day" without a separate decision — the count tracks the
+  // number of creatives chosen until the admin overrides it by typing, at which
+  // point their number wins even if they later add or remove a creative.
+  const effectivePerDay = perDayTouched ? perDay : String(Math.max(1, selectedIds.length));
+
+  const selectedContent = selectedIds
+    .map((id) => library.find((c) => c.id === id))
+    .filter((c): c is Content => c != null);
+
+  const startUpload = (files: FileList | null) => {
+    if (!files?.length) return;
+    for (const file of Array.from(files)) {
+      const uid = `ab-${++uidRef.current}`;
+      setUploads((u) => [...u, { uid, name: file.name, progress: 0 }]);
+      uploadContentFile(file, {
+        // Tagged directly to the brand when it already exists; a brand-new name has
+        // no row yet, so the upload lands untagged and submit() claims it below —
+        // same "claim only what's unowned" rule as every other path here.
+        brandId: brand?.id ?? null,
+        onProgress: (pct) => setUploads((u) => u.map((x) => x.uid === uid ? { ...x, progress: pct } : x)),
+      }).then(({ contentId }) => {
+        setUploads((u) => u.filter((x) => x.uid !== uid));
+        setSelectedIds((ids) => ids.includes(contentId) ? ids : [...ids, contentId]);
+        // The new row isn't in `library` (fetched once, before this upload happened),
+        // so selectedContent above would silently drop it. Append the minimal shape
+        // everything downstream reads — real durationMs would need a second fetch,
+        // and the playlist step below already tolerates it being unknown.
+        setLibrary((l) => [...l, {
+          id: contentId, name: file.name, type: file.type.startsWith('video/') ? 'video' : 'image',
+          objectKey: '', url: '', md5: '', sizeBytes: file.size, createdAt: new Date().toISOString(),
+          tags: [], brandId: brand?.id ?? null, brandName: brand?.brandName ?? null,
+        } as Content]);
+      }).catch((e: Error) => {
+        setUploads((u) => u.map((x) => x.uid === uid ? { ...x, error: e.message } : x));
+      });
+    }
+  };
+
   const submit = async () => {
-    const plays = Number(perDay);
+    const plays = Number(effectivePerDay);
     if (!Number.isFinite(plays) || plays < 1) {
       toast({ variant: 'destructive', title: 'Slots per day must be at least 1' }); return;
     }
     if (!picked && !brand && !name.trim()) {
       toast({ variant: 'destructive', title: 'Enter a brand name' }); return;
     }
-    if (needsCampaign && !contentId) {
-      toast({ variant: 'destructive', title: 'Pick a creative', description: 'A brand needs one to play.' }); return;
+    if (needsCampaign && selectedIds.length === 0) {
+      toast({ variant: 'destructive', title: 'Add at least one video', description: 'Upload one or pick from the library.' }); return;
+    }
+    if (uploads.some((u) => !u.error)) {
+      toast({ variant: 'destructive', title: 'Still uploading', description: 'Wait for every video to finish first.' }); return;
     }
     setBusy(true);
     try {
-      const campaignId = picked?.id ?? brand?.campaignId ?? (await createCampaign({
-        name: chosenName,
-        // brandId when the advertiser is known, brandName to find-or-create one.
-        // Either way the campaign ends up owned, so the Content tab and the next
-        // store's picker can both see it.
-        ...(brand ? { brandId: brand.id } : { brandName: chosenName }),
-        slotContentId: contentId,
-        // Claim the creative for this advertiser — ignored server-side if it already
-        // has an owner, so a shared asset is never quietly reassigned.
-        tagCreative: true,
-      })).id;
+      let campaignId = picked?.id ?? brand?.campaignId ?? null;
+      if (!campaignId) {
+        // One video is the common case and keeps the old single-creative path exactly
+        // — a playlist only enters the picture once there's something to rotate.
+        if (selectedIds.length === 1) {
+          campaignId = (await createCampaign({
+            name: chosenName,
+            // brandId when the advertiser is known, brandName to find-or-create one.
+            // Either way the campaign ends up owned, so the Content tab and the next
+            // store's picker can both see it.
+            ...(brand ? { brandId: brand.id } : { brandName: chosenName }),
+            slotContentId: selectedIds[0],
+            // Claim the creative for this advertiser — ignored server-side if it
+            // already has an owner, so a shared asset is never quietly reassigned.
+            tagCreative: true,
+          })).id;
+        } else {
+          // Several videos: a small playlist so each one plays, once, every day — a
+          // brand that sends 2 ads gets 2 ads, not a forced choice of one. The item's
+          // own durationMs is decorative for slot mode (the real span comes from the
+          // Content row itself), so an unknown one just falls back like elsewhere.
+          const playlist = await createPlaylist({
+            name: `${chosenName} — slot rotation`,
+            items: selectedContent.map((c, order) => ({
+              contentId: c.id, order,
+              durationMs: c.durationMs ?? (c.type === 'video' ? 30_000 : 10_000),
+            })),
+          });
+          const campaign = await createCampaign({
+            name: chosenName,
+            ...(brand ? { brandId: brand.id } : { brandName: chosenName }),
+            slotPlaylistId: playlist.id,
+          });
+          campaignId = campaign.id;
+          // Claim every creative that has no owner yet — the playlist-wide version of
+          // the single-creative tagCreative above. One already belonging to a DIFFERENT
+          // brand (reached via "show all creatives") is left alone on purpose.
+          const claimBrandId = campaign.brandId;
+          if (claimBrandId) {
+            await Promise.all(
+              selectedContent
+                .filter((c) => c.brandId == null)
+                .map((c) => updateContentMeta(c.id, { brandId: claimBrandId }).catch(() => {})),
+            );
+          }
+        }
+      }
+
+      // Set by every branch above — either reused or just created.
+      const finalCampaignId = campaignId!;
 
       // One row per store that runs until stopped, instead of 60 days of dated
       // bookings per store. This is the seam the screen was built around: the form
@@ -541,13 +636,13 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
       const storeIds = [store.id, ...extraStores];
       if (storeIds.length === 1) {
         // Single store keeps the precise API errors ("not in slot mode", "cancelled").
-        const plan = await createSlotPlan({ storeId: store.id, campaignId, slotsPerDay: plays });
+        const plan = await createSlotPlan({ storeId: store.id, campaignId: finalCampaignId, slotsPerDay: plays });
         toast({
           title: `${chosenName} added`,
           description: `${plan.slotsPerDay} play${plan.slotsPerDay === 1 ? '' : 's'} a day, every day, until you stop it.`,
         });
       } else {
-        const { plans, skipped } = await createSlotPlans({ storeIds, campaignId, slotsPerDay: plays });
+        const { plans, skipped } = await createSlotPlans({ storeIds, campaignId: finalCampaignId, slotsPerDay: plays });
         toast({
           title: `${chosenName} added to ${plans.length} screen${plans.length === 1 ? '' : 's'}`,
           description: skipped.length
@@ -576,7 +671,7 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
 
         <label className="flex flex-col gap-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Brand</span>
-          <select value={existing} onChange={(e) => { setExisting(e.target.value); setShowAll(false); }}
+          <select value={existing} onChange={(e) => { setExisting(e.target.value); setShowAll(false); setSelectedIds([]); setPerDayTouched(false); }}
             className="rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] text-foreground focus:border-primary focus:outline-none">
             <option value="">— New brand —</option>
             {brands.length > 0 && (
@@ -611,33 +706,72 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
         )}
 
         {needsCampaign && (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Creative</span>
-              {owned.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Videos</span>
+
+            {/* Every selected creative, however it got picked — uploaded here or
+                chosen from the library — as one strip. Order is play order. */}
+            {(selectedContent.length > 0 || uploads.length > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {selectedContent.map((c) => (
+                  <div key={c.id} className="relative">
+                    <ContentThumb content={c} className="h-14 w-20" />
+                    <button type="button" onClick={() => setSelectedIds((ids) => ids.filter((id) => id !== c.id))}
+                      title="Remove"
+                      className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-white">
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
+                {uploads.map((u) => (
+                  <div key={u.uid} className={`flex h-14 w-20 flex-col items-center justify-center rounded-lg border text-center ${u.error ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-muted/40'}`}>
+                    {u.error
+                      ? <span className="px-1 text-[8px] leading-tight text-destructive">{u.error}</span>
+                      : <><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /><span className="mt-0.5 text-[9px] tabular-nums text-muted-foreground">{u.progress}%</span></>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
+                <Upload className="h-3.5 w-3.5" />Upload video{selectedContent.length === 0 ? '(s)' : ''}
+              </button>
+              <input ref={fileInputRef} type="file" accept="video/*,image/*" multiple hidden
+                onChange={(e) => { startUpload(e.target.files); e.target.value = ''; }} />
+              {(owned.length > 0 || library.length > 0) && (
+                <ContentMultiPickerField
+                  content={showAll || owned.length === 0 ? library : owned}
+                  value={selectedIds} onChange={setSelectedIds}
+                  label={owned.length > 0 ? `From library (${owned.length})` : 'From library'}
+                />
+              )}
+              {brand && owned.length > 0 && (
                 <button type="button" onClick={() => setShowAll((v) => !v)}
                   className="text-[10px] font-semibold text-primary hover:underline">
-                  {showAll ? `Just ${brand!.brandName}’s` : 'Show all creatives'}
+                  {showAll ? 'just this brand' : 'show all'}
                 </button>
               )}
             </div>
-            <ContentPickerField content={visible} value={contentId} onChange={setContentId} />
+
             <span className="text-[10px] text-muted-foreground">
-              {owned.length > 0 && !showAll
-                ? `Showing the ${owned.length} creative${owned.length === 1 ? '' : 's'} already tagged to this brand.`
-                : 'An untagged creative becomes this brand’s, so it is one click next time.'}
+              {selectedContent.length > 1
+                ? `${selectedContent.length} videos — each plays once a day, every day.`
+                : 'An untagged video becomes this brand’s, so it is one click next time.'}
             </span>
           </div>
         )}
 
         <label className="flex flex-col gap-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Plays per day</span>
-          <input value={perDay} inputMode="numeric"
-            onChange={(e) => setPerDay(e.target.value.replace(/[^0-9]/g, ''))}
+          <input value={effectivePerDay} inputMode="numeric"
+            onChange={(e) => { setPerDayTouched(true); setPerDay(e.target.value.replace(/[^0-9]/g, '')); }}
             className="w-24 rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] tabular-nums text-foreground focus:border-primary focus:outline-none" />
           <span className="text-[10px] text-muted-foreground">
-            A target, not a guarantee — a standing assignment takes the positions left
-            after that day&apos;s sold bookings, so it never blocks a sale.
+            {!perDayTouched && selectedContent.length > 1
+              ? `Matches the ${selectedContent.length} videos above — each plays once. Edit to change.`
+              : 'A target, not a guarantee — a standing assignment takes the positions left after that day’s sold bookings, so it never blocks a sale.'}
           </span>
         </label>
 

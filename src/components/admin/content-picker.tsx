@@ -36,6 +36,64 @@ export function ContentThumb({ content, className = 'h-9 w-14' }: { content: Con
   );
 }
 
+/** Multi-select sibling of ContentPickerField, for the (rarer) case where several
+ *  creatives are one unit — e.g. a brand's slot rotation, where 2 videos means "both
+ *  play, once each, every day" rather than "pick one." Same visual grid, but the
+ *  trigger button is caller-labelled since there's no single thumbnail to show for
+ *  "3 selected". */
+export function ContentMultiPickerField<T extends ContentLike>({
+  content, value, onChange, label,
+}: {
+  content: T[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button"
+          className="rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-2" align="start">
+        {content.length === 0 ? (
+          <p className="py-4 text-center text-xs text-muted-foreground">Nothing to pick from.</p>
+        ) : (
+          <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto">
+            {content.map((c) => {
+              const on = value.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => toggle(c.id)}
+                  className={`relative overflow-hidden rounded-lg border text-left transition-all ${
+                    on ? 'border-primary ring-1 ring-primary/40' : 'border-border hover:border-primary/40'
+                  }`}
+                >
+                  <ContentThumb content={c} className="h-16 w-full" />
+                  <p className="truncate px-1.5 py-1 text-[10px] font-semibold text-foreground">{c.name}</p>
+                  {on && (
+                    <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                      <Check className="h-2.5 w-2.5 text-white" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ContentPickerField<T extends ContentLike>({
   content, value, onChange, filter, placeholder = '— none —',
 }: {
