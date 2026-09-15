@@ -63,14 +63,13 @@ export async function GET(req: NextRequest) {
       upiId: string | null; payoutMethod: string | null;
       tier: string | null; monthlyCompensationPaise: number | null;
       loopSlotCount: number | null; slotPricingTier: string | null;
-      category: string | null;
     };
     let extraMap = new Map<string, ExtraRow>();
     try {
       const extraRows = await db.$queryRaw<ExtraRow[]>`
         SELECT "id", "onboardingStage", "payoutStatus", "payoutNotes", "liveAt",
                "upiId", "payoutMethod", "tier", "monthlyCompensationPaise",
-               "loopSlotCount", "slotPricingTier", "category"
+               "loopSlotCount", "slotPricingTier"
         FROM "Store"
       `;
       extraMap = new Map(extraRows.map((r) => [r.id, r]));
@@ -188,7 +187,6 @@ export async function GET(req: NextRequest) {
         // to 'standard' exactly like the NOT NULL column's own default, so a
         // pre-migration environment reads as standard rather than blank.
         slotPricingTier: ex?.slotPricingTier ?? 'standard',
-        category:        ex?.category ?? null,
         monthlyCompensationPaise: payoutByStore.get(s.id) ?? Number(ex?.monthlyCompensationPaise ?? 50000),
         deviceCount:     Number(s.deviceCount),
       };

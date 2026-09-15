@@ -51,7 +51,6 @@ import { Logo } from '@/components/icons/logo';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { AdminTour } from '@/components/admin/admin-tour';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
-import { STORE_CATEGORIES } from '@/lib/store-categories';
 import { SLOT_TIERS, SLOT_TIER_LABEL, SLOT_TIER_RATE_RUPEES } from '@/lib/slot-pricing';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -65,7 +64,7 @@ type StoreReg = {
   whatsapp: string; address?: string; locality: string; city: string; pincode: string;
   lat?: number | null; lng?: number | null; gstin?: string; email?: string; createdAt: string;
   onboardingStage?: string | null; payoutStatus?: string | null; payoutMethod?: string | null; upiId?: string | null;
-  tier?: string | null; monthlyCompensationPaise?: number | null; category?: string | null;
+  tier?: string | null; monthlyCompensationPaise?: number | null;
   slotPricingTier?: string | null;
   bankAccountName?: string; bankAccountNo?: string; bankIfsc?: string; bankName?: string;
   payoutLastPaidAt?: string | null; payoutNotes?: string | null;
@@ -1021,7 +1020,6 @@ function StoresPanel() {
         onboardingStage: store.onboardingStage,
         payoutStatus: store.payoutStatus,
         payoutNotes: store.payoutNotes || null,
-        category: store.category ?? null,
         // Never null: the route 400s on a blank tier because the column is NOT
         // NULL, and 'standard' is the same default the DB and the ungated
         // signup link already agree on.
@@ -1399,7 +1397,7 @@ function StoresPanel() {
                         the ops-typed label fields above, which stay pure metadata. */}
                     <StorePlugPanel storeId={s.id} />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <select value={s.onboardingStage ?? 'new'} onChange={(e) => patchLocal(s.id, { onboardingStage: e.target.value })} className={inp}>
                         <option value="new">New</option>
                         <option value="contacted">Contacted / verified</option>
@@ -1414,21 +1412,14 @@ function StoresPanel() {
                         <option value="paid">Paid</option>
                         <option value="on_hold">On hold</option>
                       </select>
-                      {/* Empty = not categorised (the pre-feature fleet); picking
-                          the blank option again clears it on the next Save. */}
-                      <select value={s.category ?? ''} onChange={(e) => patchLocal(s.id, { category: e.target.value || null })} className={inp}>
-                        <option value="">Shop category — not set</option>
-                        {STORE_CATEGORIES.map((c) => (
-                          <option key={c.value} value={c.value}>{c.label}</option>
-                        ))}
-                      </select>
-                      {/* Slot pricing tier. No blank option, unlike the two
-                          above: the column is NOT NULL and every store is on a
-                          tier from the moment it registers — 'standard' is what
-                          an ungated /store signup falls back to. The rate is in
-                          the label because this is the one control here that
-                          changes what a brand is charged and what the partner
-                          is paid. Also editable in Slot inventory. */}
+                      {/* The store's category: Standard | Growth | Flagship, the
+                          only classification a store has. No blank option — the
+                          column is NOT NULL and every store is on a tier from
+                          the moment it registers, 'standard' being what an
+                          ungated /store signup falls back to. The rate is in the
+                          label because this is the one control here that changes
+                          what a brand is charged and what the partner is paid.
+                          Also editable in Slot inventory. */}
                       <select value={s.slotPricingTier ?? 'standard'} onChange={(e) => patchLocal(s.id, { slotPricingTier: e.target.value })} className={inp}>
                         {SLOT_TIERS.map((t) => (
                           <option key={t} value={t}>

@@ -422,8 +422,12 @@ NEXT_PUBLIC_CARTO_API_KEY       # CARTO basemap key — free, no account: https:
 
 ## Development Branch
 
-Active: `claude/build-alive-advertising-platform-tlG96`  
-Merge to `main` → auto-deploys to Vercel.
+Branch off `main`, and open pull requests against `main` — it is the trunk and
+the only long-lived branch. Merging to `main` auto-deploys to Vercel.
+
+(This used to name `claude/build-alive-advertising-platform-tlG96` as the active
+branch. It is long dead — hundreds of commits behind `main` — and PRs opened
+against it show a diff of the whole gap rather than the change under review.)
 
 ## graphify
 
