@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import {
   IndianRupee, Zap, Shield, CheckCircle2, AlertCircle,
-  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Gift, Tag, MapPin,
+  ChevronRight, ChevronLeft, Check, Loader2, Clock, Star, Tag, MapPin,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import { useAnimationStallGuard } from '@/hooks/use-animation-stall-guard';
@@ -457,7 +457,7 @@ function RegistrationForm({ premium, premiumMonthly, premiumKey, tierName, tierK
         <input type="text" value={form.referredBy} onChange={(e) => set('referredBy', e.target.value.toUpperCase())} placeholder="e.g. SHAR123"
           className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 transition-all tracking-widest font-mono"
         />
-        <p className="text-[10px] text-gray-400">Have a code from another store partner? Enter it to help them earn ₹500.</p>
+        <p className="text-[10px] text-gray-400">Have a code from another store partner? Enter it so we can credit their introduction.</p>
       </div>
 
       <button type="submit"
@@ -521,6 +521,20 @@ export default function StorePage() {
 
   const monthlyLabel = (tierMonthly ?? premiumMonthly).toLocaleString('en-IN');
 
+  // The ungated public pitch names the payout STRUCTURE rather than one figure.
+  // A flat number here only ever described a Standard partner with zero slots
+  // filled: the payout engine pays base rent + electricity + a per-filled-slot
+  // bonus (see lib/slot-pricing.ts), so a single rupee figure understated it and
+  // went stale the moment a store moved tier. Gated tier/premium invites keep
+  // showing that partner's own base — disclosing it is the point of the gate.
+  const gated    = tierName !== null || premium;
+  const earnLong = gated
+    ? `₹${monthlyLabel} base rent + electricity + a performance bonus every month`
+    : 'a base rent + electricity + a performance bonus every month';
+  const earnShort = gated
+    ? `₹${monthlyLabel} base + electricity + bonus`
+    : 'Base rent + electricity + bonus';
+
   // Both page-level cards enter at opacity 0, and a rAF-starved renderer
   // freezes them there — blanking the whole page between header and footer.
   // The step guards inside never sweep ancestors, so the shared grid
@@ -550,7 +564,7 @@ export default function StorePage() {
             </h1>
             <p className="text-base text-gray-600 leading-relaxed">
               Alive installs a free digital screen in your store. Brands pay to advertise on it.
-              You earn <span className="text-gray-900 font-semibold">₹{monthlyLabel} + electricity every month</span> — without lifting a finger.
+              You earn <span className="text-gray-900 font-semibold">{earnLong}</span> — without lifting a finger.
             </p>
             {premium && (
               <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1">
@@ -562,12 +576,11 @@ export default function StorePage() {
 
           <div className="space-y-3">
             {[
-              { icon: IndianRupee, label: `₹${monthlyLabel} + electricity/month`, sub: 'Fixed. Paid every month via UPI.' },
+              { icon: IndianRupee, label: earnShort, sub: 'Base rent every month via UPI, plus a bonus for the ads your screen runs.' },
               { icon: Zap,         label: 'Zero upfront cost',        sub: 'Screen installed free. We own it.' },
               { icon: Shield,      label: 'We manage everything',     sub: 'Content, tech, support — all on us.' },
               { icon: Clock,       label: 'Live in 48 hours',         sub: 'Our team visits and installs within 2 days.' },
               { icon: Star,        label: 'Exclusive per locality',   sub: 'Only 1–2 stores selected per area.' },
-              { icon: Gift,        label: 'Referral rewards',         sub: 'Earn ₹500 for every new partner you refer.' },
             ].map(({ icon: Icon, label, sub }) => (
               <div key={label} className="flex items-start gap-3">
                 <Icon className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
@@ -584,7 +597,7 @@ export default function StorePage() {
             {[
               { n: '01', t: 'Register below',     d: 'Takes 2 minutes.' },
               { n: '02', t: 'We visit & install', d: 'Free screen within 48 h.' },
-              { n: '03', t: 'Earn every month',   d: `₹${monthlyLabel} + electricity to your account.` },
+              { n: '03', t: 'Earn every month',   d: `${earnShort} to your account.` },
             ].map(({ n, t, d }) => (
               <div key={n} className="flex items-start gap-3">
                 <span className="text-[11px] font-black text-red-400 mt-0.5 w-5 shrink-0">{n}</span>
@@ -597,7 +610,7 @@ export default function StorePage() {
           </div>
 
           <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {['₹0 installation', `₹${monthlyLabel} + electricity/month`, 'UPI payout', '24/7 support'].map((t) => (
+            {['₹0 installation', earnShort, 'UPI payout', '24/7 support'].map((t) => (
               <span key={t} className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
                 <Check className="h-3 w-3 text-red-500" /> {t}
               </span>
@@ -618,7 +631,7 @@ export default function StorePage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Deposit &amp; payout</p>
             {[
               { label: 'Security deposit', value: '₹0',            note: 'No deposit ever. Equipment is fully free.' },
-              { label: 'Monthly payout',   value: `₹${monthlyLabel}+`,   note: 'Credited within 10 working days of month end.' },
+              { label: 'Monthly payout',   value: gated ? `₹${monthlyLabel}+` : 'Base + bonus', note: 'Credited within 10 working days of month end.' },
               { label: 'Electricity',      value: 'Reimbursed',     note: 'At rated power × hours × tariff rate.' },
               { label: 'Exit clause',      value: '30-day notice',  note: 'Cancel anytime with 30 days notice.' },
             ].map(({ label, value, note }) => (

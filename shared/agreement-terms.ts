@@ -3,19 +3,11 @@
 export const AGREEMENT_TERMS: { heading: string; body: string }[] = [
   {
     heading: 'Remuneration',
-    body: 'VS Collective LLP shall pay a fixed monthly remuneration of ₹500 per screen, within 10 working days of month end via UPI/NEFT.',
+    body: 'VS Collective LLP shall pay a base monthly rent of ₹500 per screen, reimburse the electricity the screen consumes, and pay a performance bonus for the advertising it carries. The total is settled within 10 working days of month end via UPI/NEFT.',
   },
   {
     heading: 'Electricity',
     body: 'Electricity consumed by the screens is reimbursed at screen rated power × actual hours of operation × prevailing tariff. Submit monthly electricity bills for accurate settlement.',
-  },
-  {
-    heading: 'Generator / UPS',
-    body: 'If screens operate on your generator during outages, VS Collective LLP compensates proportionally (screen share of generator load × fuel cost/hr × hours run).',
-  },
-  {
-    heading: 'Referral reward',
-    body: '₹500 bonus for every new store partner who joins using your referral code, paid within 10 working days of their screen going live.',
   },
   {
     heading: 'Equipment',
@@ -51,28 +43,28 @@ export const AGREEMENT_TERMS: { heading: string; body: string }[] = [
   },
 ];
 
-// Premium store partners are paid a higher monthly remuneration (e.g. ₹1000).
-// Returns the terms with the Remuneration clause amount substituted; all other
-// clauses (including the separate ₹500 referral reward) are unchanged.
+// Premium store partners are paid a higher base rent (e.g. ₹1000). Returns the
+// terms with the Remuneration clause's base figure substituted; all other
+// clauses are unchanged.
 export function agreementTermsFor(monthlyRupees: number): { heading: string; body: string }[] {
   return AGREEMENT_TERMS.map((t) =>
     t.heading === 'Remuneration'
-      ? { ...t, body: `VS Collective LLP shall pay a fixed monthly remuneration of ₹${monthlyRupees} per screen, within 10 working days of month end via UPI/NEFT.` }
+      ? { ...t, body: `VS Collective LLP shall pay a base monthly rent of ₹${monthlyRupees.toLocaleString('en-IN')} per screen, reimburse the electricity the screen consumes, and pay a performance bonus for the advertising it carries. The total is settled within 10 working days of month end via UPI/NEFT.` }
       : t,
   );
 }
 
 // ─── Tiered remuneration (slot-mode partners) ────────────────────────────────
 //
-// A slot-mode partner is paid a guaranteed monthly minimum for their tier, plus a
-// performance-linked incentive settled against the target schedule shared with
-// them separately. The incentive formula itself is deliberately NOT stated in the
-// agreement — partners see their tier's minimum and their actual payout total,
-// not the network's per-slot economics.
+// A slot-mode partner is paid a guaranteed base rent for their tier, plus
+// electricity, plus a performance bonus settled against the target schedule
+// shared with them separately. The bonus formula itself is deliberately NOT
+// stated in the agreement — partners see their tier's base and their actual
+// payout total, not the network's per-slot economics.
 
 export type AgreementTier = 'standard' | 'growth' | 'flagship';
 
-/** Guaranteed monthly minimum per screen, in rupees, by tier. */
+/** Guaranteed base monthly rent per screen, in rupees, by tier. */
 export const TIER_MONTHLY_MINIMUM_RUPEES: Record<AgreementTier, number> = {
   standard: 500,
   growth:   1000,
@@ -86,8 +78,9 @@ export function agreementTermsForTier(tier: AgreementTier): { heading: string; b
       ? {
           ...t,
           body:
-            `VS Collective LLP shall pay a guaranteed monthly remuneration of ₹${min.toLocaleString('en-IN')} per screen, ` +
-            `together with a performance-linked incentive settled against the monthly target schedule communicated to the Shop Owner. ` +
+            `VS Collective LLP shall pay a guaranteed base monthly rent of ₹${min.toLocaleString('en-IN')} per screen, ` +
+            `reimburse the electricity the screen consumes, and pay a performance bonus settled against the monthly ` +
+            `target schedule communicated to the Shop Owner. ` +
             `The total payable is settled within 10 working days of month end via UPI/NEFT.`,
         }
       : t,

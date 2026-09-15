@@ -479,7 +479,7 @@ export default function Home() {
           {/* Kiranas */}
           <div className="join-card">
             <div className="jc-tag">Audience 02 · Kiranas</div>
-            <div className="jc-title">Earn ₹500 every month from one screen.</div>
+            <div className="jc-title">Earn rent, electricity and a bonus from one screen.</div>
             <p className="jc-desc">Zero investment. We install, we maintain. You get paid — by the 10th of every month via UPI or NEFT.</p>
             <a href="/store" className="jc-btn">
               Register as a partner

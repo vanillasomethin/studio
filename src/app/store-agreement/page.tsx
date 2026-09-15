@@ -31,18 +31,17 @@ const clauses = [
     subsections: [
       { heading: '3.1', text: 'Install and maintain the Screens in proper working condition at its sole cost and expense, including periodic servicing, software updates, and hardware repairs.' },
       { heading: '3.2', text: 'Ensure that the Screens, cabling, and allied equipment comply with applicable electrical safety standards and do not cause physical damage or disruption to the Premises or the Shop Owner\'s operations.' },
-      { heading: '3.3', text: 'Pay the Shop Owner a fixed monthly remuneration of ₹500 (Rupees Five Hundred Only) per screen. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.' },
+      {
+        heading: '3.3',
+        text: 'Base Monthly Rent: Pay the Shop Owner a base monthly rent of ₹500 (Rupees Five Hundred Only) per screen. This rent is payable every month for as long as the Screens remain installed and operational, irrespective of the volume of advertising carried on them. The base rent may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.',
+      },
       {
         heading: '3.4',
         text: 'Electricity Reimbursement: Compensate the Shop Owner for electricity consumed by the Screens based on each screen\'s rated power consumption, the actual hours of operation during the month, and the prevailing electricity tariff applicable to the Premises. The Shop Owner shall submit actual electricity bills to facilitate accurate monthly reimbursement.',
       },
       {
         heading: '3.5',
-        text: 'Generator / Backup Power Compensation: If the Screens operate during power outages using the Shop\'s generator or UPS, VS COLLECTIVE LLP shall compensate the Shop Owner proportionally — calculated as the Screens\' share of total generator load, multiplied by the fuel cost per hour and the hours of generator operation during that period.',
-      },
-      {
-        heading: '3.6',
-        text: 'Referral Reward: For each new store partner who registers on the ALIVE platform using the Shop Owner\'s unique referral code, VS COLLECTIVE LLP shall pay the Shop Owner a one-time referral bonus of ₹500, settled within 10 working days of the referred partner\'s screen going live.',
+        text: 'Performance Bonus: In addition to the base rent and the electricity reimbursement, pay the Shop Owner a performance bonus for the advertising carried on the Screens during the month, settled against the monthly target schedule communicated to the Shop Owner. The bonus is payable in addition to, and is never set off against, the base monthly rent under clause 3.3.',
       },
     ],
   },
@@ -80,10 +79,9 @@ const clauses = [
     id: 'compensation',
     title: '7. Compensation and Payment Terms',
     subsections: [
-      { heading: '7.1', text: 'The monthly remuneration (Clause 3.3) and all reimbursements (Clauses 3.4, 3.5) shall be paid within ten (10) working days of the end of each calendar month, via UPI or NEFT to the bank account provided by the Shop Owner.' },
-      { heading: '7.2', text: 'Referral bonuses (Clause 3.6) shall be paid within ten (10) working days of the referred partner\'s screen going live.' },
-      { heading: '7.3', text: 'In the event of a dispute regarding reimbursement calculations, both parties agree to resolve the matter amicably within fifteen (15) days by reference to electricity bills, fuel purchase records, or load-sharing calculations.' },
-      { heading: '7.4', text: 'If unresolved, the dispute shall be referred to an independent Chartered Accountant or Electrical Consultant mutually appointed by both parties, whose determination shall be final and binding.' },
+      { heading: '7.1', text: 'The base monthly rent (Clause 3.3), the electricity reimbursement (Clause 3.4) and the performance bonus (Clause 3.5) shall be paid within ten (10) working days of the end of each calendar month, via UPI or NEFT to the bank account provided by the Shop Owner.' },
+      { heading: '7.2', text: 'In the event of a dispute regarding reimbursement or bonus calculations, both parties agree to resolve the matter amicably within fifteen (15) days by reference to electricity bills and the monthly payout statement issued to the Shop Owner.' },
+      { heading: '7.3', text: 'If unresolved, the dispute shall be referred to an independent Chartered Accountant or Electrical Consultant mutually appointed by both parties, whose determination shall be final and binding.' },
     ],
   },
   {
@@ -151,7 +149,7 @@ const clauses = [
     id: 'confidentiality',
     title: '12. Confidentiality and Data',
     subsections: [
-      { heading: '12.1', text: 'Both parties agree to keep the commercial terms of this Agreement (remuneration, reimbursement rates, referral bonuses) confidential and not disclose them to third parties without prior written consent, except as required by law.' },
+      { heading: '12.1', text: 'Both parties agree to keep the commercial terms of this Agreement (base rent, reimbursement rates, performance bonus) confidential and not disclose them to third parties without prior written consent, except as required by law.' },
       { heading: '12.2', text: 'VS COLLECTIVE LLP\'s digital signage system may collect anonymised audience analytics (impression counts, dwell time) for billing and campaign reporting purposes. No personally identifiable information of the Shop Owner\'s customers shall be collected or retained.' },
       { heading: '12.3', text: 'The Shop Owner\'s store details (name, location, contact) may be shared with brand partners of VS COLLECTIVE LLP solely for the purpose of campaign placement decisions.' },
     ],
@@ -214,16 +212,16 @@ function AgreementContent() {
   const monthly = Number(params.get('monthly')) || 500;
   const tier    = params.get('tier');
 
-  // Clause 3.3 carries the monthly remuneration. Slot-tier partners are paid a
-  // guaranteed base plus a performance-linked incentive settled against the target
-  // schedule shared with them — the incentive formula stays out of the agreement.
+  // Clause 3.3 carries the base monthly rent. Slot-tier partners are paid a
+  // guaranteed base plus electricity plus a performance bonus settled against the
+  // target schedule shared with them — the bonus formula stays out of the agreement.
   const clauseText = (sub: { heading: string; text?: string }): string | undefined => {
     if (sub.heading !== '3.3') return sub.text;
     if (tier) {
-      return `Pay the Shop Owner a guaranteed monthly remuneration of ₹${monthly.toLocaleString('en-IN')} (${rupeesInWords(monthly)}) per screen, together with a performance-linked incentive settled against the monthly target schedule communicated to the Shop Owner. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
+      return `Base Monthly Rent: Pay the Shop Owner a guaranteed base monthly rent of ₹${monthly.toLocaleString('en-IN')} (${rupeesInWords(monthly)}) per screen, together with reimbursement of electricity under clause 3.4 and a performance bonus under clause 3.5 settled against the monthly target schedule communicated to the Shop Owner. This rent is payable every month irrespective of the volume of advertising carried. The base rent may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
     }
     if (monthly !== 500) {
-      return `Pay the Shop Owner a fixed monthly remuneration of ₹${monthly.toLocaleString('en-IN')} (${rupeesInWords(monthly)}) per screen. This amount may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
+      return `Base Monthly Rent: Pay the Shop Owner a base monthly rent of ₹${monthly.toLocaleString('en-IN')} (${rupeesInWords(monthly)}) per screen, together with reimbursement of electricity under clause 3.4 and a performance bonus under clause 3.5. This rent is payable every month irrespective of the volume of advertising carried. The base rent may be revised upward after a review following the initial three (3) months of operation, based on network performance and brand partner revenue.`;
     }
     return sub.text;
   };
