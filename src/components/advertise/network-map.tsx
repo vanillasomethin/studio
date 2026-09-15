@@ -386,7 +386,7 @@ function ProspectRequestModal({ prospect, onClose }: { prospect: PotentialStore;
       >
         {done ? (
           <>
-            <p style={{ fontSize: 15, fontWeight: 700, color: '#141414', margin: 0 }}>Request sent ✓</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--brand-ink)', margin: 0 }}>Request sent ✓</p>
             <p style={{ fontSize: 13, color: 'var(--brand-ink-muted)', marginTop: 8 }}>
               We&apos;ll reach out about {prospect.label}. In the meantime you can book from the stores already live above.
             </p>
@@ -399,7 +399,7 @@ function ProspectRequestModal({ prospect, onClose }: { prospect: PotentialStore;
           </>
         ) : (
           <>
-            <p style={{ fontSize: 15, fontWeight: 700, color: '#141414', margin: 0 }}>Ask ALIVE to onboard {prospect.label}</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--brand-ink)', margin: 0 }}>Ask ALIVE to onboard {prospect.label}</p>
             <p style={{ fontSize: 12, color: 'var(--brand-ink-muted)', marginTop: 4 }}>
               {[prospect.locality, prospect.city].filter(Boolean).join(', ') || 'Potential location'} — not a partner yet. Tell us you&apos;re interested and we&apos;ll prioritise scouting it.
             </p>
@@ -413,7 +413,7 @@ function ProspectRequestModal({ prospect, onClose }: { prospect: PotentialStore;
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything else? (optional)" rows={2}
                 style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid var(--brand-line)', fontSize: 13, resize: 'vertical' }} />
             </div>
-            {error && <p style={{ fontSize: 12, color: '#b91c1c', marginTop: 8 }}>{error}</p>}
+            {error && <p style={{ fontSize: 12, color: 'var(--brand-accent-strong)', marginTop: 8 }}>{error}</p>}
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
               <button
                 onClick={submit}

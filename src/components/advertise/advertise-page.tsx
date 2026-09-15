@@ -64,23 +64,27 @@ export default function AdvertisePage() {
             }
           />
 
+          {/* Tier counts only — every store by name, with a price and a
+              checkbox, is one scroll away in Pricing. Listing them again here
+              said nothing the map's pins and popups hadn't already. */}
           <div className="mt-8 grid gap-6 sm:grid-cols-3">
             {STORES_BY_TIER.map(({ tier, stores }) => (
-              <div key={tier}>
+              <div key={tier} className="border-t pt-3" style={{ borderColor: 'var(--brand-line)' }}>
                 <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: 'var(--brand-accent-strong)' }}>
                   {TIER_META[tier].label}
-                  <span className="ml-2 font-normal normal-case tracking-normal" style={{ color: 'var(--brand-ink-muted)' }}>
-                    {stores.length} store{stores.length === 1 ? '' : 's'}
-                  </span>
                 </h3>
-                <ul className="mt-3 space-y-1.5 border-t pt-3 text-sm" style={{ borderColor: 'var(--brand-line)' }}>
-                  {stores.map(store => (
-                    <li key={store.id}>{store.name}</li>
-                  ))}
-                </ul>
+                <p className="mt-1 text-2xl font-black tracking-tight">
+                  {stores.length}
+                  <span className="ml-1.5 text-sm font-normal" style={{ color: 'var(--brand-ink-muted)' }}>
+                    store{stores.length === 1 ? '' : 's'}
+                  </span>
+                </p>
               </div>
             ))}
           </div>
+          <a href="#pricing" className="mt-6 inline-block text-sm font-bold hover:underline" style={{ color: 'var(--brand-accent-strong)' }}>
+            See every store and its price in Pricing ↓
+          </a>
         </Section>
 
         <Section
