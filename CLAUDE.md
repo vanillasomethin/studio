@@ -125,11 +125,29 @@ The only separate codebase is **ALIVE-Player** (Kotlin Android TV APK).
   "Coming soon") once `physically_onboarded`, and on the admin monitoring map at every
   stage. Nothing waits for `live` — don't build a "live only" filter on any map.
 - Somewhere ALIVE is only *considering* is a `ProspectLocation`, never a Store —
-  Admin → Prospects, click the map to drop one. A Store with a pin is public
-  immediately, so a prospect modelled as a Store would advertise a shop that has
-  agreed to nothing. Nothing in that table is read by any public route; it
-  carries a status (scouting → contacted → negotiating → rejected/converted) and
-  links to the Store id once it converts.
+  Admin → Prospects (`+ Add prospect` or click the map to drop one). A Store with
+  a pin is public immediately, so a prospect modelled as a Store would advertise
+  a shop that has agreed to nothing. It carries a status (scouting → contacted →
+  negotiating → rejected/converted) and links to the Store id once it converts.
+  Richer fields than the original label/lat/lng/notes: `pincode`, `address`,
+  `ownerName`, `phone` — optional, filled in as ops learns more, not required to
+  drop a pin.
+  EXCEPTION (2026-09-15, explicit product decision after being warned this
+  breaks the "never public" rule below): `GET /api/advertise/prospects` is a
+  deliberate public route exposing every non-`rejected`/non-`converted`
+  prospect's `id/label/lat/lng/locality/city` — same fidelity as a live store
+  pin — so `/advertise`'s network map can show them as a 4th, grey "Potential"
+  category. `notes`/`ownerName`/`phone`/`address` are NOT in that response —
+  stay admin-only. A brand clicking one posts to
+  `POST /api/advertise/prospect-request` (rate-limited, notifies admin over
+  WhatsApp), which lands in the `ProspectRequest` table — a lightweight "brand
+  wants this onboarded" lead, deliberately not `BrandEnquiry` (that model's
+  shape is a full campaign estimate: agreement version, slot math, a
+  `storeSlugs` allowlist — wrong shape for "we'd like a screen here"). Admin →
+  Prospects surfaces the request count and lets ops read the leads
+  (`GET /api/admin/prospects/requests?prospectId=`). Every OTHER admin route
+  under `/api/admin/prospects/*` stays admin-only and unaffected — this is one
+  narrowly-scoped public read, not a reversal of the rule.
 - Audit gotcha: `logAdminAction` scrubs any meta key containing the word "pin"
   (`SECRET_WORD` in `src/lib/admin-audit.ts`) — name pin-related meta keys
   `locationSource` / `coords`, never anything with "pin" in it.
@@ -187,6 +205,8 @@ ALIVE_PLAYER_API.md                       — Android player integration guide
 | `SmartPlug` | Tuya (Aziot) smart plug linked 1:1 to a Store, with latest-poll power snapshot. |
 | `PlugReading` | Per-poll power/energy time series (5-min cadence, 180-day retention). |
 | `BrandEnquiry` | Advertiser lead from `/advertise`. Store slugs are page config, NOT `Store.id`. Money recomputed server-side into paise. `status`: `new \| contacted \| won \| lost`, triaged in Admin → Enquiries. |
+| `ProspectLocation` | A shop/spot ALIVE is scouting, admin-only except for a trimmed public read (see Store map pin section). |
+| `ProspectRequest` | A brand's "onboard this potential spot" lead from `/advertise`'s Potential pins — lighter than `BrandEnquiry`, no agreement/slot math. |
 | `AuditLog` | T2 audit trail (reserved). |
 
 ---
