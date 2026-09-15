@@ -48,6 +48,7 @@ const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),   
 const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
 const MapPicker        = dynamic(() => import('@/components/map-picker'),                { ssr: false });
 import { Logo } from '@/components/icons/logo';
+import { StoreDealsQr, dealsUrl } from '@/components/store-deals-qr';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { AdminTour } from '@/components/admin/admin-tour';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
@@ -964,6 +965,7 @@ function StoresPanel() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [saving,   setSaving]   = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [qrFor, setQrFor] = useState<StoreReg | null>(null);
   // Rejected save, shown on the card it belongs to. The install gate answers 409
   // with the exact list of what ops still has to collect — far more actionable
   // than one sentence in an alert() they have to dismiss before they can act.
@@ -1284,6 +1286,14 @@ function StoresPanel() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => setQrFor(s)}
+                        title="This store's deals QR code — scan or click through to see its offers"
+                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                      >
+                        <QrCode className="h-3 w-3" /> Deals QR
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void deleteStore(s.id, s.storeName)}
                         disabled={deleting === s.id}
                         className="ml-auto flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/15"
@@ -1454,6 +1464,27 @@ function StoresPanel() {
             );
           })}
         </motion.div>
+      )}
+
+      {qrFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setQrFor(null)}>
+          <div className="w-full max-w-xs rounded-2xl border border-border bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-bold text-foreground">{qrFor.storeName}</p>
+              <button onClick={() => setQrFor(null)} className="rounded-lg border border-border p-1 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+            </div>
+            <p className="mb-3 text-[11px] text-muted-foreground">
+              Scan, or click through from the site, to see this store's deals and what ALIVE is.
+              Print it near the till — the same code works for every store, no per-store setup.
+            </p>
+            <div className="flex justify-center">
+              <StoreDealsQr storeId={qrFor.id} storeName={qrFor.storeName} size={160} />
+            </div>
+            <a href={dealsUrl(qrFor.id)} target="_blank" rel="noreferrer" className="mt-3 block truncate text-center text-[10px] text-muted-foreground hover:text-primary">
+              {dealsUrl(qrFor.id)}
+            </a>
+          </div>
+        </div>
       )}
     </div>
   );

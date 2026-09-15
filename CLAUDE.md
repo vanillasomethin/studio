@@ -251,7 +251,8 @@ one tab: Programming → Slots / Creatives / Playlists / Schedules / Calendar.
 | `/admin` | Admin panel (stores / flyers / campaigns / screens / content / playlists / schedules / reports / monitoring / payments / site-media / roadmap) |
 | `/bill/[billRef]` | Public receipt — customer can claim bill |
 | `/customer-dashboard` | Customer purchase history + local offers |
-| `/deals` | Shopper deals page |
+| `/deals` | Shopper deals page — every active flyer, network-wide |
+| `/deals/[storeId]` | One store's own deals — what its QR code (Admin → Stores, or the partner's own dashboard "My flyers" tab) points at. `Store.id` directly, no separate slug — see `StoreDealsQr` (`src/components/store-deals-qr.tsx`) and `GET /api/flyers/save?forStoreId=` (public, unauthenticated — distinct from the ownership-gated `?storeId=` the partner dashboard uses). |
 
 ---
 

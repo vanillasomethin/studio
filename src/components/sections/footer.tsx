@@ -4,7 +4,7 @@ import { Logo } from '../icons/logo';
 // page behind it exists.
 const footerLinks = [
     { title: "Company", links: [{ label: "About Us", href: "#" }, { label: "Team", href: "#" }, { label: "Careers", href: "#" }] },
-    { title: "Solutions", links: [{ label: "For Brands", href: "/advertise" }, { label: "For Kiranas", href: "#" }, { label: "For Consumers", href: "#" }] },
+    { title: "Solutions", links: [{ label: "For Brands", href: "/advertise" }, { label: "For Kiranas", href: "/store" }, { label: "For Consumers", href: "/deals" }] },
     { title: "Resources", links: [{ label: "Blog", href: "#" }, { label: "Case Studies", href: "#" }, { label: "Help Center", href: "#" }] },
 ];
 

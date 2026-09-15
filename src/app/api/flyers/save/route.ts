@@ -124,6 +124,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // ?forStoreId= is the read-only twin, for the public per-store deals page
+    // a store's QR code links to (/deals/[storeId]). No ownership proof needed —
+    // this endpoint already returns every flyer unfiltered to anyone who asks,
+    // so narrowing to one store's flyers reveals nothing the global list didn't
+    // already. Deliberately no name-fallback: a shopper's QR encodes the real
+    // store id, so every flyer worth showing already carries it.
+    const forStoreId = req.nextUrl.searchParams.get('forStoreId');
+    if (forStoreId) {
+      flyers = flyers.filter((f) => f.storeId === forStoreId);
+    }
+
     // Strip storeId: this endpoint is public (deals page + dashboards filter by
     // storeName). Store ids are no longer API credentials (writes require a
     // signed x-store-token — see resolveStoreId), but internal ids still don't

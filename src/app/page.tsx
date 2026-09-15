@@ -514,7 +514,7 @@ export default function Home() {
           <div className="col">
             <h4>Product</h4>
             <ul>
-              {([['For Brands','/advertise'],['For Kiranas','#'],['For Consumers','#'],['Measurement','#'],['How It Works','#']] as const).map(([l,h]) => <li key={l}><a href={h}>{l}</a></li>)}
+              {([['For Brands','/advertise'],['For Kiranas','/store'],['For Consumers','/deals'],['Measurement','#'],['How It Works','#']] as const).map(([l,h]) => <li key={l}><a href={h}>{l}</a></li>)}
             </ul>
           </div>
           <div className="col">

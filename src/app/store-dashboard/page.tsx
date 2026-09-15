@@ -11,6 +11,7 @@ import {
   KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck, Camera,
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
+import { StoreDealsQr } from '@/components/store-deals-qr';
 import { useAnimationStallGuard } from '@/hooks/use-animation-stall-guard';
 import { extractGpsFromFile } from '@/lib/exif-gps';
 import { storeFetch } from '@/lib/store-fetch';
@@ -1481,6 +1482,19 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
 
           {tab === 'flyers' && (
             <motion.div key="fly" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="space-y-4">
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex flex-wrap items-center gap-4">
+                  {storeData.id && <StoreDealsQr storeId={storeData.id} storeName={storeData.storeName} size={100} />}
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-sm font-bold text-foreground">Your deals QR code</h2>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Print it near your till. A shopper who scans it sees your active flyers below
+                      and finds out about ALIVE — the same code, always up to date, nothing to
+                      regenerate when a flyer changes.
+                    </p>
+                  </div>
+                </div>
+              </div>
               <div className="rounded-2xl border border-border bg-card p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-bold text-foreground">Active flyers</h2>
