@@ -45,24 +45,27 @@ function formatHourIST(iso: string, includeDay: boolean): string {
   });
 }
 
-function HourlyBarChart({ hourly, includeDay }: { hourly: FootfallResponse['hourly']; includeDay: boolean }) {
-  if (hourly.length === 0) {
+function HourlyBarChart({ hourly, includeDay }: { hourly?: FootfallResponse['hourly']; includeDay: boolean }) {
+  // A 200 whose `hourly` is missing or not an array must read as an empty chart:
+  // the .map below would otherwise throw into the admin error boundary.
+  const rows = Array.isArray(hourly) ? hourly : [];
+  if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground text-center py-10">No footfall data for this range yet.</p>;
   }
 
-  const maxVal = Math.max(1, ...hourly.map((h) => h.customerCount + h.unconfirmedCount));
-  const barW   = Math.max(6, Math.min(28, Math.floor(640 / hourly.length)));
+  const maxVal = Math.max(1, ...rows.map((h) => h.customerCount + h.unconfirmedCount));
+  const barW   = Math.max(6, Math.min(28, Math.floor(640 / rows.length)));
 
   return (
     <div className="overflow-x-auto">
       <svg
-        viewBox={`0 0 ${hourly.length * barW} 160`}
-        width={hourly.length * barW}
+        viewBox={`0 0 ${rows.length * barW} 160`}
+        width={rows.length * barW}
         height={160}
         className="block"
         preserveAspectRatio="none"
       >
-        {hourly.map((h, i) => {
+        {rows.map((h, i) => {
           const confirmedH   = Math.round((h.customerCount / maxVal) * 130);
           const unconfirmedH = Math.round((h.unconfirmedCount / maxVal) * 130);
           const x = i * barW;
@@ -73,11 +76,11 @@ function HourlyBarChart({ hourly, includeDay }: { hourly: FootfallResponse['hour
             </g>
           );
         })}
-        <line x1={0} y1={130} x2={hourly.length * barW} y2={130} stroke="var(--border)" strokeWidth={1} />
+        <line x1={0} y1={130} x2={rows.length * barW} y2={130} stroke="var(--border)" strokeWidth={1} />
       </svg>
       <div className="flex justify-between text-[9px] font-mono text-muted-foreground mt-1">
-        <span>{formatHourIST(hourly[0].hourBucket, includeDay)}</span>
-        <span>{formatHourIST(hourly[hourly.length - 1].hourBucket, includeDay)}</span>
+        <span>{formatHourIST(rows[0].hourBucket, includeDay)}</span>
+        <span>{formatHourIST(rows[rows.length - 1].hourBucket, includeDay)}</span>
       </div>
     </div>
   );
@@ -138,7 +141,13 @@ export default function FootfallTab() {
     </div>
   );
 
-  const totals = data?.totals ?? { customerCount: 0, unconfirmedCount: 0, excludedCount: 0 };
+  // `?? {…}` only covers a totals that is absent wholesale; a present-but-short
+  // one still crashes the .toLocaleString reads below, so take each field alone.
+  const totals = {
+    customerCount:    data?.totals?.customerCount    ?? 0,
+    unconfirmedCount: data?.totals?.unconfirmedCount ?? 0,
+    excludedCount:    data?.totals?.excludedCount    ?? 0,
+  };
 
   return (
     <div className="space-y-4 admin-font-display">

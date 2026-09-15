@@ -76,7 +76,7 @@ export default function StorePlugPanel({ storeId }: { storeId: string }) {
     setPicker({ loading: true, devices: [] }); setPickerErr(null);
     try {
       const body = await adminGetObject<{ devices: PickerDevice[] }>('/api/admin/tuya/devices');
-      setPicker({ loading: false, devices: body.devices });
+      setPicker({ loading: false, devices: Array.isArray(body?.devices) ? body.devices : [] });
       const firstFree = body.devices.find((d) => !d.linkedStoreId);
       if (firstFree) setChosen(firstFree.id);
     } catch {
@@ -121,7 +121,7 @@ export default function StorePlugPanel({ storeId }: { storeId: string }) {
     }
   };
 
-  const maxW = Math.max(1, ...(data?.hourly24 ?? []).map((h) => h.avgW ?? 0));
+  const maxW = Math.max(1, ...(Array.isArray(data?.hourly24) ? data.hourly24 : []).map((h) => h.avgW ?? 0));
 
   return (
     <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
@@ -225,7 +225,7 @@ export default function StorePlugPanel({ storeId }: { storeId: string }) {
             ))}
           </div>
 
-          {!!data.hourly24?.length && (
+          {Array.isArray(data.hourly24) && data.hourly24.length > 0 && (
             <div>
               <p className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Avg draw · last 24h</p>
               <div className="flex h-8 items-end gap-[2px]">

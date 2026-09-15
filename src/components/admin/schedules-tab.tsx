@@ -124,7 +124,7 @@ function letterboxCreatives(
   const visit = (id: string, path: Set<string>) => {
     if (path.has(id) || path.size >= 3) return;
     const pl = playlists.find((p) => p.id === id);
-    if (!pl) return;
+    if (!pl || !Array.isArray(pl.items)) return;
     for (const item of pl.items) {
       if (item.childPlaylistId) {
         visit(item.childPlaylistId, new Set([...path, id]));
@@ -266,11 +266,11 @@ export default function SchedulesTab() {
   useEffect(() => {
     Promise.all([getSchedules(), getPlaylists(), getDevices(), getDeviceGroups(), searchStores()])
       .then(([s, p, r, g, sr]) => {
-        setSchedules(s);
-        setPlaylists(p);
-        setDevices(r.devices);
-        setGroups(g);
-        setCities(sr.cities);
+        setSchedules(Array.isArray(s) ? s : []);
+        setPlaylists(Array.isArray(p) ? p : []);
+        setDevices(Array.isArray(r?.devices) ? r.devices : []);
+        setGroups(Array.isArray(g) ? g : []);
+        setCities(Array.isArray(sr?.cities) ? sr.cities : []);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -280,7 +280,7 @@ export default function SchedulesTab() {
   const doStoreSearch = useCallback((q: string) => {
     setStoreLoading(true);
     searchStores({ q })
-      .then((r) => { setStoreResults(r.stores); setCities(r.cities); })
+      .then((r) => { setStoreResults(Array.isArray(r?.stores) ? r.stores : []); setCities(Array.isArray(r?.cities) ? r.cities : []); })
       .catch(() => {})
       .finally(() => setStoreLoading(false));
   }, []);
@@ -437,7 +437,7 @@ export default function SchedulesTab() {
           // Distinguish from a failed create: nothing was saved yet.
           throw new Error(`Couldn't check for existing schedules — nothing was saved. ${(err as Error).message}`);
         }
-        if (found.length > 0) {
+        if (Array.isArray(found) && found.length > 0) {
           setConflicts(found);
           setPendingPayload(payload);
           return; // dialog takes over: replace / keep both / cancel
@@ -510,14 +510,14 @@ export default function SchedulesTab() {
 
   const filteredDevices = deviceSearch
     ? devices.filter((d) =>
-        d.storeName.toLowerCase().includes(deviceSearch.toLowerCase()) ||
-        d.id.toLowerCase().includes(deviceSearch.toLowerCase()) ||
+        (d.storeName ?? '').toLowerCase().includes(deviceSearch.toLowerCase()) ||
+        (d.id ?? '').toLowerCase().includes(deviceSearch.toLowerCase()) ||
         (d.locality ?? '').toLowerCase().includes(deviceSearch.toLowerCase())
       )
     : devices;
 
   const filteredGroups = groups.filter((g) =>
-    g.name.toLowerCase().includes(groupSearch.toLowerCase())
+    (g.name ?? '').toLowerCase().includes(groupSearch.toLowerCase())
   );
 
   // Letterbox warning for the form's playlist + orientation. 'any' targets a mixed
@@ -565,7 +565,7 @@ export default function SchedulesTab() {
               <div>
                 <label className={lbl}>Playlist</label>
                 <PlaylistPickerField
-                  playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items.length }))}
+                  playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items?.length ?? 0 }))}
                   value={form.playlistId || null}
                   onChange={(id) => set('playlistId', id ?? '')}
                 />
@@ -818,7 +818,7 @@ export default function SchedulesTab() {
                                 <span className={`h-1.5 w-1.5 rounded-full ${
                                   d.status === 'ONLINE' ? 'bg-green-500' : d.status === 'OFFLINE' ? 'bg-red-400' : 'bg-yellow-400'
                                 }`} />
-                                <span className="text-[10px] text-muted-foreground capitalize">{d.status.toLowerCase()}</span>
+                                <span className="text-[10px] text-muted-foreground capitalize">{(d.status ?? '').toLowerCase()}</span>
                                 {d.locality && <span className="text-[10px] text-muted-foreground/50">{d.locality}</span>}
                                 {d.slotMode && (
                                   <span title="Slot mode — this screen ignores schedules"
@@ -1175,7 +1175,7 @@ export default function SchedulesTab() {
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   <Monitor className="mr-1 inline h-3 w-3 align-[-1px]" />
-                  {c.overlapDeviceNames.join(', ')}{c.overlapCount > c.overlapDeviceNames.length ? ` +${c.overlapCount - c.overlapDeviceNames.length} more` : ''}
+                  {(Array.isArray(c.overlapDeviceNames) ? c.overlapDeviceNames : []).join(', ')}{c.overlapCount > (Array.isArray(c.overlapDeviceNames) ? c.overlapDeviceNames.length : 0) ? ` +${c.overlapCount - c.overlapDeviceNames.length} more` : ''}
                 </p>
                 {c.extraCount > 0 && (
                   <p className="mt-1 flex items-start gap-1 text-[11px] font-medium text-amber-600">

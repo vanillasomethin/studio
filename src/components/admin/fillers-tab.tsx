@@ -62,10 +62,10 @@ export default function FillersTab() {
         fetch('/api/content').then((r) => (r.ok ? r.json() : { content: [] })).catch(() => ({ content: [] })),
         fetch('/api/playlists').then((r) => (r.ok ? r.json() : { playlists: [] })).catch(() => ({ playlists: [] })),
       ]);
-      setFillers(f.fillers ?? []);
-      setDefaultId(f.defaultFillerId ?? null);
-      setContent(Array.isArray(c) ? c : (c.content ?? []));
-      const rawPlaylists: { id: string; name: string; items?: unknown[] }[] = Array.isArray(p) ? p : (p.playlists ?? []);
+      setFillers(Array.isArray(f?.fillers) ? f.fillers : []);
+      setDefaultId(f?.defaultFillerId ?? null);
+      setContent(Array.isArray(c) ? c : (Array.isArray(c?.content) ? c.content : []));
+      const rawPlaylists: { id: string; name: string; items?: unknown[] }[] = Array.isArray(p) ? p : (Array.isArray(p?.playlists) ? p.playlists : []);
       setPlaylists(rawPlaylists.map((pl) => ({ id: pl.id, name: pl.name, itemCount: pl.items?.length ?? 0 })));
       setError(null);
     } catch (e) {

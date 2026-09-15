@@ -115,12 +115,24 @@ export type Content = {
   // library table needs no second lookup.
   brandId?:    string | null;
   brandName?:  string | null;
+  // Non-null = the transcode retimed this clip onto a slot boundary, and this is what it
+  // measured BEFORE. durationMs holds the retimed length, so the original is not
+  // otherwise recoverable from this row. Optional: a deploy can serve this UI before the
+  // column exists, and the Content API returns it through its fail-open query.
+  speedFittedFromMs?: number;
 };
 
 export type AdminBrand = {
   id:            string;
   brandName:     string;
   creativeCount: number;
+  /** False = an advertiser sold to in person, with no self-serve account.
+   *  Optional so a deploy can serve this UI before the API that reports it. */
+  hasLogin?:     boolean;
+  /** The brand's most recent non-cancelled campaign, if it has one. Slot plans hang
+   *  off a campaign, so this is what lets "add this brand to another screen" reuse
+   *  the booking instead of minting a duplicate. */
+  campaignId?:   string | null;
 };
 
 export type PlaylistItem = {
@@ -186,7 +198,36 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });
   }
-  return res.json() as Promise<T>;
+  const body = await res.json();
+  // A 200 whose body is null carries nothing a caller can use, and `null.field`
+  // throws inside whichever panel unwrapped it — which reaches the admin error
+  // boundary and blanks the whole console rather than the one panel. Fail loudly
+  // and locally here instead, the same contract lib/admin-fetch.ts states.
+  //
+  // Note this guarantees only that the body EXISTS. It cannot guarantee any
+  // field is present, so the envelope unwrappers below still check their own
+  // shape before handing a value to a caller.
+  if (body === null || body === undefined) throw new Error('Unexpected response shape');
+  return body as T;
+}
+
+/**
+ * Unwrap a single-object envelope like `{ device: ... }` or `{ playlist: ... }`.
+ *
+ * A write that answered 200 without the row it claims to have saved is an
+ * error, not an empty result. Returning undefined here only moves the crash:
+ * callers seat the value straight into list state, and the next render throws
+ * on `x.id` — into the admin error boundary, which blanks the whole console.
+ * Every caller of these already runs inside a try/catch that toasts, so a throw
+ * lands as "save failed" on the panel that asked for it.
+ *
+ * Lists take the opposite default (`[]`, in the getters below): an empty list
+ * is a truthful, renderable answer, whereas an absent row is not.
+ */
+function unwrap<T, K extends keyof T>(r: T, key: K): NonNullable<T[K]> {
+  const value = r?.[key];
+  if (value === null || value === undefined) throw new Error('Unexpected response shape');
+  return value as NonNullable<T[K]>;
 }
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
@@ -200,12 +241,12 @@ export const getDevices = (params?: Record<string, string>) => {
 
 export const updateDevice = (id: string, body: { storeName?: string; groupName?: string; storeId?: string | null; orientation?: string; playsOriginal?: boolean }) =>
   apiFetch<{ device: Device }>(`/api/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-  .then((r) => r.device);
+  .then((r) => unwrap(r, 'device'));
 
 export const confirmPairing = (code: string) =>
   apiFetch<{ device: { id: string; name: string; hardwareKey: string } }>('/api/admin/confirm-pairing', {
     method: 'POST', body: JSON.stringify({ code }),
-  }).then((r) => r.device);
+  }).then((r) => unwrap(r, 'device'));
 
 export const bulkUpdateDevices = (body: { ids: string[]; action: 'group' | 'delete'; groupName?: string }) =>
   apiFetch<{ updated?: number; deleted?: number }>('/api/devices/bulk', { method: 'POST', body: JSON.stringify(body) });
@@ -214,7 +255,7 @@ export const bulkPushSchedule = (body: { deviceIds: string[]; playlistId: string
   apiFetch<{ schedule: { id: string; name: string; endsAt: string } }>('/api/devices/bulk-schedule', { method: 'POST', body: JSON.stringify(body) });
 
 export const getDeviceGroups = () =>
-  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => r.groups);
+  apiFetch<{ groups: DeviceGroup[] }>('/api/devices/groups').then((r) => Array.isArray(r?.groups) ? r.groups : []);
 
 // ─── Player config (fleet-wide behavior knobs, no APK rebuild required) ──────
 
@@ -252,11 +293,11 @@ export const checkScreenTest = (deviceId: string, since: string) =>
   apiFetch<TestPlayStatus>(`/api/devices/${deviceId}/test-play?since=${encodeURIComponent(since)}`);
 
 export const getPlayerConfig = () =>
-  apiFetch<{ config: PlayerConfig }>('/api/admin/player-config').then((r) => r.config);
+  apiFetch<{ config: PlayerConfig }>('/api/admin/player-config').then((r) => unwrap(r, 'config'));
 
 export const updatePlayerConfig = (body: Partial<Omit<PlayerConfig, 'updatedAt'>>) =>
   apiFetch<{ config: PlayerConfig }>('/api/admin/player-config', { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.config);
+    .then((r) => unwrap(r, 'config'));
 
 // ─── Proof-of-play archive (monthly export → R2, optional pruning) ───────────
 
@@ -305,7 +346,7 @@ export const getPopExportStatus = () =>
 
 export const updatePopExportConfig = (body: Partial<Pick<PopExportConfig, 'enabled' | 'frequency' | 'deleteAfterExport'>>) =>
   apiFetch<{ config: PopExportConfig }>('/api/admin/pop-export', { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.config);
+    .then((r) => unwrap(r, 'config'));
 
 export const runPopExportNow = () =>
   apiFetch<PopSweepResult>('/api/admin/pop-export/run', { method: 'POST' });
@@ -439,7 +480,15 @@ export const deleteContent = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/content/${id}`, { method: 'DELETE' });
 
 export const getBrands = () =>
-  apiFetch<{ brands: AdminBrand[] }>('/api/admin/brands').then((r) => r.brands);
+  apiFetch<{ brands: AdminBrand[] }>('/api/admin/brands')
+    .then((r) => Array.isArray(r.brands) ? r.brands : []);
+
+/** Find-or-create an advertiser by name. Returns the existing row when the name
+ *  already exists (case-insensitively), so callers never have to handle a 409. */
+export const createBrand = (body: { brandName: string; contactName?: string; email?: string; phone?: string }) =>
+  apiFetch<{ brand: { id: string; brandName: string; hasLogin: boolean; created: boolean } }>(
+    '/api/admin/brands', { method: 'POST', body: JSON.stringify(body) },
+  ).then((r) => unwrap(r, 'brand'));
 
 // brandId: pass null to unassign a creative back to house content; omit it to
 // leave the current owner untouched. undefined and null mean different things here.
@@ -469,18 +518,18 @@ export const transcodeVideo = (contentId: string) =>
 // ─── Playlists ────────────────────────────────────────────────────────────────
 
 export const getPlaylists = () =>
-  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => r.playlists);
+  apiFetch<{ playlists: Playlist[] }>('/api/playlists').then((r) => Array.isArray(r?.playlists) ? r.playlists : []);
 
 // An item targets either content (media) or another playlist (nested — see PlaylistItem).
 export type PlaylistItemWrite = { contentId?: string; childPlaylistId?: string; durationMs: number };
 
 export const createPlaylist = (body: { name: string; items?: PlaylistItemWrite[]; transition?: Playlist['transition'] }) =>
   apiFetch<{ playlist: Playlist }>('/api/playlists', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.playlist);
+    .then((r) => unwrap(r, 'playlist'));
 
 export const updatePlaylist = (id: string, body: { name?: string; items?: PlaylistItemWrite[]; transition?: Playlist['transition'] }) =>
   apiFetch<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.playlist);
+    .then((r) => unwrap(r, 'playlist'));
 
 export const deletePlaylist = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/playlists/${id}`, { method: 'DELETE' });
@@ -488,14 +537,14 @@ export const deletePlaylist = (id: string) =>
 // ─── Schedules ────────────────────────────────────────────────────────────────
 
 export const getSchedules = () =>
-  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => r.schedules);
+  apiFetch<{ schedules: Schedule[] }>('/api/schedules').then((r) => Array.isArray(r?.schedules) ? r.schedules : []);
 
 export const createSchedule = (
   body: Omit<Schedule, 'id' | 'createdAt' | 'playlist' | 'priority'> &
     { priority?: number; replaceScheduleIds?: string[] },
 ) =>
   apiFetch<{ schedule: Schedule }>('/api/schedules', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.schedule);
+    .then((r) => unwrap(r, 'schedule'));
 
 // An existing schedule whose window + screens overlap one being created — shown
 // in the Schedules tab's "replace the old playlist?" confirmation. Confirmed ids
@@ -516,11 +565,17 @@ export const getScheduleConflicts = (body: {
   startAt: string; endAt: string; excludeId?: string;
 }) =>
   apiFetch<{ conflicts: ScheduleConflict[] }>('/api/schedules/conflicts', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.conflicts);
+    // Deliberately NOT defaulted to []: an empty list here reads as "this
+    // schedule clashes with nothing", so a malformed body would wave a genuinely
+    // conflicting schedule through. Callers already surface a thrown error.
+    .then((r) => {
+      if (!Array.isArray(r?.conflicts)) throw new Error('Unexpected response shape');
+      return r.conflicts;
+    });
 
 export const updateSchedule = (id: string, body: Partial<Omit<Schedule, 'id' | 'createdAt' | 'playlist'>>) =>
   apiFetch<{ schedule: Schedule }>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.schedule);
+    .then((r) => unwrap(r, 'schedule'));
 
 export const deleteSchedule = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: 'DELETE' });
@@ -592,6 +647,11 @@ export type SlotBookingRow = {
 export type SlotLoopEntry = {
   slotPosition: number; campaignId: string; contentId: string; isFiller: boolean;
   spanSlots: number;    // >1 = one play covering this many consecutive positions
+  /** Why this position is playing what it is, straight from the loop builder.
+   *  Optional because a deploy can serve this UI before the API that sets it —
+   *  callers fall back to deriving it, which is correct until standing
+   *  assignments (SlotPlan) exist and wrong the moment they do. */
+  source?: 'sold' | 'plan' | 'bonus' | 'filler';
 };
 
 export const getSlotAvailability = (from: string, to: string) =>
@@ -650,6 +710,85 @@ export const bulkAssignSlots = (body: {
   daysOfWeek?: number; slotsPerDay: number;
 }) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
 
+/** Creates a bookable campaign without the customer onboarding funnel.
+ *
+ *  Pass `brandId` to attach a known advertiser, or `brandName` to find-or-create one
+ *  by name — the latter is what makes the same brand added at a second store land on
+ *  the same row rather than splitting in two. Omitting both still works and leaves
+ *  the campaign unbranded. See src/app/api/admin/campaigns/route.ts. */
+export const createCampaign = (body: {
+  name: string; brandId?: string | null; brandName?: string;
+  slotContentId?: string | null; slotPlaylistId?: string | null;
+  slotPricingTier?: string; pricePerScreen?: number; startDate?: string;
+  /** Claim the creative for this brand. The API ignores it for a creative that
+   *  already has an owner, so a shared asset is never silently reassigned. */
+  tagCreative?: boolean;
+}) => apiFetch<{ campaign: { id: string; name: string; brandId: string | null; slotContentId: string | null; slotPlaylistId: string | null; status: string; taggedCreative?: boolean } }>(
+  '/api/admin/campaigns', { method: 'POST', body: JSON.stringify(body) },
+).then((r) => unwrap(r, 'campaign'));
+
+// ─── Standing slot assignments (SlotPlan) ────────────────────────────────────
+// One row that runs until stopped, as opposed to SlotBooking's one-row-per-
+// store-per-date-per-position. See prisma/schema.prisma's SlotPlan block.
+
+export type SlotPlanRow = {
+  id: string;
+  storeId: string;
+  campaignId: string;
+  storeName: string;
+  brandName: string;
+  campaignStatus: string;
+  slotsPerDay: number;
+  startDate: string;
+  endDate: string | null;   // null = runs until stopped
+  active: boolean;
+};
+
+/** Filterable from either end: by store for "who plays on this screen", by campaign
+ *  for "where does this brand play". Pass neither for the whole network. */
+export const getSlotPlans = (filter?: string | { storeId?: string; campaignId?: string }) => {
+  const f = typeof filter === 'string' ? { storeId: filter } : (filter ?? {});
+  const qs = new URLSearchParams();
+  if (f.storeId)    qs.set('storeId', f.storeId);
+  if (f.campaignId) qs.set('campaignId', f.campaignId);
+  const q = qs.toString();
+  return apiFetch<{ plans: SlotPlanRow[] }>(`/api/admin/slot-plans${q ? `?${q}` : ''}`)
+    .then((r) => Array.isArray(r.plans) ? r.plans : []);
+};
+
+/** Create or update the standing assignment for this store+campaign. The API
+ *  upserts on that pair, so raising the rate is an edit rather than a second row
+ *  that would silently double the brand's plays. */
+export const createSlotPlan = (body: {
+  storeId: string; campaignId: string; slotsPerDay: number;
+  startDate?: string; endDate?: string | null;
+}) => apiFetch<{ plan: { id: string; slotsPerDay: number; active: boolean; startDate: string; endDate: string | null } }>(
+  '/api/admin/slot-plans', { method: 'POST', body: JSON.stringify(body) },
+).then((r) => unwrap(r, 'plan'));
+
+/** Roll one brand out across several screens in a single request.
+ *
+ *  Upserts per store, so re-running over a wider selection tops up the stores that
+ *  were missed rather than duplicating the ones already covered. Stores that are not
+ *  in slot mode (or vanished) come back in `skipped` instead of failing the batch —
+ *  one bad screen must not abandon the other eleven. */
+export const createSlotPlans = (body: {
+  storeIds: string[]; campaignId: string; slotsPerDay: number;
+  startDate?: string; endDate?: string | null;
+}) => apiFetch<{
+  plans:   { id: string; storeId: string; storeName: string; slotsPerDay: number; startDate: string; endDate: string | null; active: boolean }[];
+  skipped: { storeId: string; storeName: string | null; reason: 'not-found' | 'not-slot-mode' | 'failed' }[];
+}>('/api/admin/slot-plans', { method: 'POST', body: JSON.stringify(body) })
+  .then((r) => ({ plans: Array.isArray(r.plans) ? r.plans : [], skipped: Array.isArray(r.skipped) ? r.skipped : [] }));
+
+export const updateSlotPlan = (body: { id: string; slotsPerDay?: number; active?: boolean; endDate?: string | null }) =>
+  apiFetch<{ plan: { id: string; slotsPerDay: number; active: boolean; endDate: string | null } }>(
+    '/api/admin/slot-plans', { method: 'PATCH', body: JSON.stringify(body) },
+  ).then((r) => unwrap(r, 'plan'));
+
+export const deleteSlotPlan = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/api/admin/slot-plans?id=${id}`, { method: 'DELETE' });
+
 export const copySlotDay = (body: {
   sourceStoreId: string; sourceDate: string; storeIds?: string[];
   from: string; to: string; daysOfWeek?: number;
@@ -692,15 +831,15 @@ export type Overlay = {
 };
 
 export const getOverlays = () =>
-  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => r.overlays);
+  apiFetch<{ overlays: Overlay[] }>('/api/overlays').then((r) => Array.isArray(r?.overlays) ? r.overlays : []);
 
 export const createOverlay = (body: Partial<Overlay> & { name: string; type: OverlayType }) =>
   apiFetch<{ overlay: Overlay }>('/api/overlays', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.overlay);
+    .then((r) => unwrap(r, 'overlay'));
 
 export const updateOverlay = (id: string, body: Partial<Overlay>) =>
   apiFetch<{ overlay: Overlay }>(`/api/overlays/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.overlay);
+    .then((r) => unwrap(r, 'overlay'));
 
 export const deleteOverlay = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/overlays/${id}`, { method: 'DELETE' });
@@ -711,15 +850,15 @@ export const previewFeed = (url: string) =>
 // ─── Compositions ─────────────────────────────────────────────────────────────
 
 export const getCompositions = () =>
-  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => r.compositions);
+  apiFetch<{ compositions: Composition[] }>('/api/compositions').then((r) => Array.isArray(r?.compositions) ? r.compositions : []);
 
 export const createComposition = (body: { name: string; description?: string; zones: ZoneDefinition[]; isPreset?: boolean }) =>
   apiFetch<{ composition: Composition }>('/api/compositions', { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.composition);
+    .then((r) => unwrap(r, 'composition'));
 
 export const updateComposition = (id: string, body: { name?: string; description?: string; zones?: ZoneDefinition[] }) =>
   apiFetch<{ composition: Composition }>(`/api/compositions/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
-    .then((r) => r.composition);
+    .then((r) => unwrap(r, 'composition'));
 
 export const deleteComposition = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/compositions/${id}`, { method: 'DELETE' });

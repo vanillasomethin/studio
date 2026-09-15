@@ -21,7 +21,7 @@ const inp = 'rounded-xl border border-border bg-background px-3 py-2 text-sm tex
 
 function screenLabel(d?: Device | null): string {
   if (!d) return 'Unknown screen';
-  const tail = (d.hardwareKey ?? d.id).slice(-4).toUpperCase();
+  const tail = (d.hardwareKey ?? d.id ?? '').slice(-4).toUpperCase();
   return d.linkedStoreName ? `${d.linkedStoreName} · #${tail}` : `Screen #${tail}`;
 }
 
@@ -55,7 +55,7 @@ export default function ReportsTab() {
       getEvents(params),
       getDevices({ take: '500' }).then((r) => r.devices).catch(() => [] as Device[]),
     ])
-      .then(([ev, dv]) => { setEvents(ev); setDevices(dv); })
+      .then(([ev, dv]) => { setEvents(Array.isArray(ev) ? ev : []); setDevices(Array.isArray(dv) ? dv : []); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   };
@@ -70,7 +70,7 @@ export default function ReportsTab() {
   }, [devices]);
 
   const totalPlays    = events.length;
-  const totalMs       = events.reduce((s, e) => s + e.durationMs, 0);
+  const totalMs       = events.reduce((s, e) => s + (e.durationMs ?? 0), 0);
   const activeScreens = new Set(events.map((e) => e.deviceId)).size;
   const totalRevPaise = events.reduce((s, e) => s + (e.costPaise ?? 0), 0);
 
@@ -80,7 +80,7 @@ export default function ReportsTab() {
     for (const e of events) {
       const key = `${e.mediaId}|${e.tag ?? ''}`;
       const row = m.get(key) ?? { mediaId: e.mediaId, campaignTag: e.tag ?? null, plays: 0, durationMs: 0, screens: new Set<string>(), lastPlayedAt: e.startedAt };
-      row.plays += 1; row.durationMs += e.durationMs; row.screens.add(e.deviceId);
+      row.plays += 1; row.durationMs += e.durationMs ?? 0; row.screens.add(e.deviceId);
       if (e.startedAt > row.lastPlayedAt) row.lastPlayedAt = e.startedAt;
       m.set(key, row);
     }
@@ -92,7 +92,7 @@ export default function ReportsTab() {
     const m = new Map<string, ScreenRow>();
     for (const e of events) {
       const row = m.get(e.deviceId) ?? { deviceId: e.deviceId, plays: 0, durationMs: 0, lastPlayedAt: e.startedAt };
-      row.plays += 1; row.durationMs += e.durationMs;
+      row.plays += 1; row.durationMs += e.durationMs ?? 0;
       if (e.startedAt > row.lastPlayedAt) row.lastPlayedAt = e.startedAt;
       m.set(e.deviceId, row);
     }

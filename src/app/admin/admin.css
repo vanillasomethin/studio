@@ -100,7 +100,11 @@ input, select, textarea { font-family: inherit; }
   font-feature-settings: 'kern', 'ss01', 'cv11';
   font-size: 14px;
   line-height: 1.6;
+  transition: grid-template-columns 0.15s ease;
 }
+/* The grid track has to shrink too, not just the <aside> — otherwise a
+   collapsed rail leaves its old 240px reserved and empty. */
+.app:has(.sb--collapsed) { grid-template-columns: 64px 1fr; }
 
 /* ===== SIDEBAR ===== */
 .sb {
@@ -111,7 +115,29 @@ input, select, textarea { font-family: inherit; }
   display: flex; flex-direction: column;
   padding: 20px 14px;
   gap: 4px;
+  overflow: hidden;
 }
+.sb--collapsed { padding-left: 10px; padding-right: 10px; }
+.sb__collapse-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-left: auto; flex-shrink: 0;
+  border-radius: 6px; color: var(--adm-muted);
+  transition: background-color 0.12s, color 0.12s;
+}
+.sb__collapse-btn:hover { background: var(--neutral-100); color: var(--ink); }
+.sb--collapsed .sb__collapse-btn { margin-left: 0; }
+/* Its own scroll region between the fixed logo header and account footer —
+   five nav groups no longer clip on a short viewport with no way to reach
+   the rest, and the header/footer never scroll away with it. */
+.sb__nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+  margin: 0 -4px; padding: 0 4px;
+}
+.sb--collapsed .sb__item { justify-content: center; padding-left: 0; padding-right: 0; }
+.sb--collapsed .sb__user { justify-content: center; padding-left: 0; padding-right: 0; }
 .sb__logo {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 10px 18px;

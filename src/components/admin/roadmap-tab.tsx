@@ -1752,7 +1752,7 @@ export default function RoadmapTab() {
 
   useEffect(() => {
     Promise.all([getDevices(), getDevices({ all: 'true' })])
-      .then(([paired, all]) => { setPairedDevices(paired.devices); setDevicesEver(all.devices); })
+      .then(([paired, all]) => { setPairedDevices(Array.isArray(paired?.devices) ? paired.devices : []); setDevicesEver(Array.isArray(all?.devices) ? all.devices : []); })
       .catch(() => { setPairedDevices([]); setDevicesEver([]); });
   }, []);
 

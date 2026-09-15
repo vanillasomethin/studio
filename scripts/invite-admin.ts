@@ -59,7 +59,7 @@ try {
     console.log('        replaces it and signs them out everywhere. Their 2FA is untouched.\n');
   }
 
-  const sent = await sendEmail(
+  const mail = await sendEmail(
     email,
     'Set up your ALIVE admin account',
     `<div style="font-family:system-ui,sans-serif;max-width:520px">
@@ -69,14 +69,14 @@ try {
      </div>`,
   );
 
-  if (sent) {
-    console.log(`  ✔ Invitation emailed to ${email}`);
+  if (mail.ok) {
+    console.log(`  ✔ Invitation emailed to ${email} (via ${mail.via})`);
     console.log(`    Expires ${expiresAt.toUTCString()}\n`);
   } else {
     // Never silently "succeed": an unsent invite leaves a password-less account
-    // and a person waiting for mail that will never arrive.
-    console.log('  ⚠ EMAIL NOT SENT — no mail transport is configured.');
-    console.log('    Set RESEND_API_KEY, or EMAIL_SERVER_HOST/USER/PASSWORD for Gmail.');
+    // and a person waiting for mail that will never arrive. Print the transport's
+    // own reason — "no transport configured" was a guess, and usually the wrong one.
+    console.log(`  ⚠ EMAIL NOT SENT — ${mail.reason}`);
     console.log('    Send this one-time link to them yourself:\n');
     console.log(`    ${link}\n`);
     console.log(`    Expires ${expiresAt.toUTCString()}\n`);

@@ -281,9 +281,9 @@ export default function TeamTab() {
                   </td>
                   <td className="px-4 py-2.5 text-gray-700">{m.role}</td>
                   <td className="px-4 py-2.5">
-                    <span title={STATUS[m.status].hint}
-                          className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${STATUS[m.status].cls}`}>
-                      {STATUS[m.status].label}
+                    <span title={STATUS[m.status]?.hint}
+                          className={`inline-block rounded border px-2 py-0.5 text-xs font-medium ${STATUS[m.status]?.cls ?? ''}`}>
+                      {STATUS[m.status]?.label}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">

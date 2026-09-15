@@ -117,10 +117,10 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       if (catFilter) params.set('category', catFilter);
       const res  = await fetch(`/api/admin/products?${params}`, { headers });
       const data = await res.json() as { products: Product[]; total: number; page: number; pages: number };
-      setProducts(data.products ?? []);
-      setTotal(data.total ?? 0);
-      setPage(data.page ?? 1);
-      setPages(data.pages ?? 1);
+      setProducts(Array.isArray(data?.products) ? data.products : []);
+      setTotal(data?.total ?? 0);
+      setPage(data?.page ?? 1);
+      setPages(data?.pages ?? 1);
     } catch {
       toast({ variant: 'destructive', title: 'Failed to load products' });
     } finally { setLoading(false); }
@@ -241,7 +241,7 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       const res = await fetch('/api/playlists', { headers: { 'admin-password': adminPw } });
       if (res.ok) {
         const data = await res.json() as { playlists: { id: string; name: string }[] };
-        setPlaylists(data.playlists ?? []);
+        setPlaylists(Array.isArray(data?.playlists) ? data.playlists : []);
       }
     } catch { /* non-fatal */ }
   }, [adminPw]);
@@ -289,7 +289,7 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
         identity?: { productName?: string; brand?: string; quantity?: string };
       };
       if (!res.ok) throw new Error(data.error ?? 'Lookup failed');
-      setMrpCands(data.candidates ?? []);
+      setMrpCands(Array.isArray(data?.candidates) ? data.candidates : []);
       setMrpNote(data.note ?? null);
       if (!data.candidates?.length && !data.note) { setMrpFor(null); }
     } catch (e) {
@@ -316,7 +316,10 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
   const loadSuggestions = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/products/suggestions', { headers: { 'admin-password': adminPw } });
-      if (res.ok) setSuggestions((await res.json() as { suggestions: typeof suggestions }).suggestions ?? []);
+      if (res.ok) {
+        const body = await res.json() as { suggestions: typeof suggestions };
+        setSuggestions(Array.isArray(body?.suggestions) ? body.suggestions : []);
+      }
     } catch { /* non-fatal */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminPw]);
@@ -369,8 +372,8 @@ export default function ProductsTab({ adminPw }: { adminPw: string }) {
       });
       const data = await res.json() as { updated?: number; notFound?: string[]; total?: number; error?: string };
       if (!res.ok) throw new Error(data.error ?? 'Import failed');
-      setMrpImportResult({ updated: data.updated ?? 0, notFound: data.notFound ?? [], total: data.total ?? rows.length });
-      toast({ title: `Updated MRP on ${data.updated ?? 0} of ${data.total ?? rows.length} products` });
+      setMrpImportResult({ updated: data?.updated ?? 0, notFound: Array.isArray(data?.notFound) ? data.notFound : [], total: data?.total ?? rows.length });
+      toast({ title: `Updated MRP on ${data?.updated ?? 0} of ${data?.total ?? rows.length} products` });
       void load(page);
     } catch (e) {
       toast({ variant: 'destructive', title: 'MRP import failed', description: (e as Error).message });

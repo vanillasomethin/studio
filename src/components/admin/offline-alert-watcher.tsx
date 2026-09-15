@@ -94,7 +94,9 @@ export default function OfflineAlertWatcher({
         // means nobody is signed in and the poll is a silent no-op.
         const res = await fetch('/api/admin/alerts');
         if (!res.ok || cancelled) return;
-        const { alerts, unread } = await res.json() as { alerts: AlertRow[]; unread: number };
+        const body = await res.json() as { alerts?: AlertRow[]; unread?: number };
+        const alerts = Array.isArray(body?.alerts) ? body.alerts : [];
+        const unread = body?.unread ?? 0;
 
         onUnreadChange?.(unread);
 

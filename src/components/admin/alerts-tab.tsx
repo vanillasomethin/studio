@@ -207,7 +207,7 @@ function buildAlerts(
   );
   if (pendingCampaigns.length > 0) {
     const id = 'campaigns-pending-payment';
-    const total = pendingCampaigns.reduce((s, c) => s + c.totalAmount, 0);
+    const total = pendingCampaigns.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
     alerts.push({
       id, severity: 'warning', category: 'campaign',
       title: `${pendingCampaigns.length} campaign${pendingCampaigns.length > 1 ? 's' : ''} pending payment`,
@@ -225,7 +225,7 @@ function buildAlerts(
     alerts.push({
       id, severity: 'info', category: 'campaign',
       title: `${active.length} campaign${active.length > 1 ? 's' : ''} running`,
-      body: active.map((c) => c.brandName).join(', ') + ` · ${fmtAmount(active.reduce((s, c) => s + c.totalAmount, 0))} total`,
+      body: active.map((c) => c.brandName).join(', ') + ` · ${fmtAmount(active.reduce((s, c) => s + (c.totalAmount ?? 0), 0))} total`,
       timestamp: new Date().toISOString(),
       dismissed: dismissed.has(id),
     });
@@ -259,7 +259,7 @@ let teamPromise: Promise<TeamMember[]> | null = null;
 function fetchTeam(): Promise<TeamMember[]> {
   teamPromise ??= fetch('/api/admin/team')
     .then((r) => (r.ok ? r.json() : { members: [] }))
-    .then((d: { members?: TeamMember[] }) => d.members ?? [])
+    .then((d: { members?: TeamMember[] }) => Array.isArray(d?.members) ? d.members : [])
     // A failed lookup must not break assigning — the panel falls back to the
     // free-text field, which is what it always was.
     .catch(() => []);
@@ -319,7 +319,7 @@ function AlertActionsPanel({
     setComments(null);
     const res = await fetch(`/api/admin/alerts/comments?alertId=${encodeURIComponent(alertId)}`);
     const data = res.ok ? await res.json() as { comments: AlertCommentRow[] } : { comments: [] };
-    setComments(data.comments);
+    setComments(Array.isArray(data?.comments) ? data.comments : []);
   }
 
   async function addComment() {
@@ -348,7 +348,7 @@ function AlertActionsPanel({
       {(action?.team || action?.assignee || isClosed) && (
         <div className="flex items-center gap-1.5 flex-wrap mb-2">
           {action?.team && (
-            <span className={`admin-badge ${TEAM_CONFIG[action.team].badge}`}>{TEAM_CONFIG[action.team].label}</span>
+            <span className={`admin-badge ${TEAM_CONFIG[action.team]?.badge ?? ''}`}>{TEAM_CONFIG[action.team]?.label ?? action.team}</span>
           )}
           {action?.assignee && (
             <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
@@ -529,10 +529,10 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
         // Real DeviceAlert rows — carries the partner's "why is it off?" answer.
         fetch('/api/admin/alerts').then((r) => r.ok ? r.json() : { alerts: [] }),
       ]);
-      const devs = (devR.devices ?? []) as DeviceRow[];
-      const sts  = Array.isArray(stR) ? stR : (stR?.data ?? []) as StoreRow[];
+      const devs = (Array.isArray(devR?.devices) ? devR.devices : []) as DeviceRow[];
+      const sts  = Array.isArray(stR) ? stR : (Array.isArray(stR?.data) ? stR.data : []) as StoreRow[];
       const cms  = Array.isArray(cmR) ? cmR : [] as CampaignRow[];
-      const das  = (daR?.alerts ?? []) as DeviceAlertRow[];
+      const das  = (Array.isArray(daR?.alerts) ? daR.alerts : []) as DeviceAlertRow[];
       const dis  = loadDismissed();
       setDismissed(dis);
       setAlerts(buildAlerts(devs, sts, cms, das, dis));
@@ -547,7 +547,8 @@ export default function AlertsTab({ onNav }: { onNav?: (tab: string) => void }) 
     try {
       const res = await fetch('/api/admin/alert-actions');
       const data = res.ok ? await res.json() as { actions: AlertActionState[] } : { actions: [] };
-      setActions(new Map(data.actions.map((a) => [a.alertId, a])));
+      const rows: AlertActionState[] = Array.isArray(data?.actions) ? data.actions : [];
+      setActions(new Map(rows.map((a) => [a.alertId, a])));
     } catch { /* non-critical */ }
   }, []);
 

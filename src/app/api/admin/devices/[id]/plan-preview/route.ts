@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import crypto from 'crypto';
 import { buildSlotLoop, isOpenOn, istToday, slotCreativeIds, slotDayIndex, slotSpanForDuration } from '@/lib/slots';
-import { resolveFillerCampaign } from '@/lib/slots-db';
+import { resolveFillerCampaign, activeSlotPlans } from '@/lib/slots-db';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 export async function GET(
@@ -183,6 +183,10 @@ export async function GET(
           }),
           filler,
           slotDayIndex(today),
+          new Map(),
+          // Must match /api/device/plan exactly — a preview that omits plans would
+          // report a loop the device never receives, which is worse than no preview.
+          await activeSlotPlans(device.storeId, today),
         ).reduce((n, a) => n + a.spanSlots, 0);
       }
     }

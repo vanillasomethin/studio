@@ -49,8 +49,8 @@ const STORE_MARKER_HTML = '<div style="width:12px;height:12px;border-radius:50%;
 
 /** Pinned stores with no screen of their own — the screen-less half of the map. */
 function storesWithoutScreen(devices: Device[], stores: StoreLite[]): StoreLite[] {
-  const screened = new Set(devices.map((d) => d.storeId));
-  return stores.filter((s) =>
+  const screened = new Set((Array.isArray(devices) ? devices : []).map((d) => d.storeId));
+  return (Array.isArray(stores) ? stores : []).filter((s) =>
     !screened.has(s.id) && s.onboardingStage !== 'rejected'
     && Number.isFinite(s.lat) && Number.isFinite(s.lng)
     && Math.abs(s.lat!) <= 90 && Math.abs(s.lng!) <= 180);
@@ -98,7 +98,7 @@ export default function FleetMap({ devices, stores = [] }: Props) {
       // Leaflet CSS is loaded globally via app layout; no dynamic import needed.
       if (cancelled || !containerRef.current || mapRef.current) return;
 
-      const withGeo = devices.filter((d) => d.lat != null && d.lng != null);
+      const withGeo = (Array.isArray(devices) ? devices : []).filter((d) => d.lat != null && d.lng != null);
       const orphans = storesWithoutScreen(devices, stores);
       const pinned  = [...withGeo, ...orphans];
       const center: [number, number] = pinned.length

@@ -41,12 +41,13 @@ export async function GET(req: NextRequest) {
       id: string; tags: string[]; folder: string | null;
       transcodeStatus: string | null; transcodeError: string | null;
       brandId: string | null; brandName: string | null;
+      speedFittedFromMs: number | null;
     };
     let tagMap = new Map<string, TagRow>();
     try {
       const tagRows = await db.$queryRaw<TagRow[]>`
         SELECT c.id, c.tags, c.folder, c."transcodeStatus", c."transcodeError",
-               c."brandId", b."brandName"
+               c."brandId", c."speedFittedFromMs", b."brandName"
         FROM "Content" c
         LEFT JOIN "Brand" b ON b.id = c."brandId"
       `;
@@ -83,6 +84,10 @@ export async function GET(req: NextRequest) {
         brandName:  extra?.brandName ?? null,
         transcodeStatus: (extra?.transcodeStatus as 'pending' | 'done' | 'error' | null) ?? undefined,
         transcodeError:  extra?.transcodeError ?? undefined,
+        // Non-null = the transcode retimed this clip onto a slot boundary, and this is
+        // what it measured before. The Content row shows it so "why is my ad slightly
+        // faster than the file I sent" is answerable without reading CloudWatch.
+        speedFittedFromMs: extra?.speedFittedFromMs ?? undefined,
       };
     });
     return NextResponse.json({ content, totalBytes });

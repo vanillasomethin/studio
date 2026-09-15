@@ -95,7 +95,7 @@ function ZonePreview({
       className={`relative bg-gray-900 rounded-lg overflow-hidden border border-border ${small ? 'w-full' : 'w-full'}`}
       style={{ aspectRatio: '16/9' }}
     >
-      {zones.map((z, i) => {
+      {(Array.isArray(zones) ? zones : []).map((z, i) => {
         const c = zc(i);
         const isSelected = selected === z.id;
         return (
@@ -250,7 +250,7 @@ function EditorModal({
 }) {
   const [name,     setName]     = useState(initial?.name ?? '');
   const [desc,     setDesc]     = useState(initial?.description ?? '');
-  const [zones,    setZones]    = useState<ZoneDefinition[]>(initial?.zones ?? []);
+  const [zones,    setZones]    = useState<ZoneDefinition[]>(Array.isArray(initial?.zones) ? initial!.zones : []);
   const [selected, setSelected] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState(false);
   const [saving,   setSaving]   = useState(false);
@@ -469,7 +469,7 @@ export default function CompositionsTab() {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([getCompositions(), getPlaylists()])
-      .then(([comps, pls]) => { setCompositions(comps); setPlaylists(pls); })
+      .then(([comps, pls]) => { setCompositions(Array.isArray(comps) ? comps : []); setPlaylists(Array.isArray(pls) ? pls : []); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -602,7 +602,7 @@ export default function CompositionsTab() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {c.zones.map((z, i) => (
+                    {(Array.isArray(c.zones) ? c.zones : []).map((z, i) => (
                       <span key={z.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold" style={{ background: zc(i).bg, color: zc(i).border }}>
                         <GripVertical className="h-2.5 w-2.5" />{z.label}
                       </span>

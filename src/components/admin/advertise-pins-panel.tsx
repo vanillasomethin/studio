@@ -46,7 +46,7 @@ export default function AdvertisePinsPanel() {
     setFailed(false);
     try {
       const body = await adminGetObject<{ stores: PinRow[] }>('/api/admin/advertise-pins');
-      setRows(body.stores ?? []);
+      setRows(Array.isArray(body?.stores) ? body.stores : []);
     } catch (e) {
       if ((e as Error).name !== 'AdminAuthError') setFailed(true);
     } finally {
@@ -111,10 +111,10 @@ export default function AdvertisePinsPanel() {
                   <p className="text-sm font-bold text-foreground">
                     {row.name}
                     <span className="ml-2 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
-                      {meta.label}
+                      {meta?.label}
                     </span>
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{meta.fix}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{meta?.fix}</p>
                   {row.storeName && row.storeName !== row.name && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       Matched partner row: <span className="font-semibold text-foreground">{row.storeName}</span>

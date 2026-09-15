@@ -207,7 +207,7 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
           <p className="admin-font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-2 mt-2">{section}</p>
           <div className="grid grid-cols-3 gap-3">
           {MEDIA_SLOTS.filter(s => s.section === section).map(slot => {
-          const currentUrl = media[slot.key];
+          const currentUrl = typeof media[slot.key] === 'string' ? media[slot.key] : undefined;
           const isUploading = uploading === slot.key;
           const isVideo = currentUrl?.match(/\.mp4(\?|$)/);
           const isGif   = currentUrl?.match(/\.gif(\?|$)/);

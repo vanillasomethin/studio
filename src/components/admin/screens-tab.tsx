@@ -62,8 +62,8 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
           <div className="flex items-center gap-2 min-w-0">
             <Stethoscope className="h-4 w-4 text-primary shrink-0" />
             <div className="min-w-0">
-              <p className="text-sm font-bold text-foreground truncate">{data?.device.storeName ? `${data.device.storeName}` : 'Screen detail'}</p>
-              {data?.device && <p className="text-[10px] text-muted-foreground">{data.device.city ?? '—'} · Screen #{(data.device.hardwareKey ?? data.device.id).slice(-4).toUpperCase()}</p>}
+              <p className="text-sm font-bold text-foreground truncate">{data?.device?.storeName ? `${data.device.storeName}` : 'Screen detail'}</p>
+              {data?.device && <p className="text-[10px] text-muted-foreground">{data.device.city ?? '—'} · Screen #{(data.device.hardwareKey ?? data.device.id ?? '').slice(-4).toUpperCase()}</p>}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -79,7 +79,7 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Checklist</p>
                 <div className="space-y-2">
-                  {data.diagnostics.issues.map((issue, i) => (
+                  {(Array.isArray(data.diagnostics?.issues) ? data.diagnostics.issues : []).map((issue, i) => (
                     <div key={i} className={`flex gap-2 rounded-xl px-3 py-2.5 text-xs ${issue.level === 'ok' ? 'bg-green-500/5 border border-green-500/15 text-green-800' : issue.level === 'warn' ? 'bg-yellow-500/5 border border-yellow-500/20 text-yellow-800' : 'bg-red-500/5 border border-red-500/20 text-red-700'}`}>
                       {levelIcon(issue.level)}<span>{issue.message}</span>
                     </div>
@@ -92,7 +92,7 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Performance · last 7 days</p>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded-xl border border-border bg-background p-3">
-                      <p className="text-base font-bold text-foreground">{data.performance.plays7d.toLocaleString('en-IN')}</p>
+                      <p className="text-base font-bold text-foreground">{(data.performance.plays7d ?? 0).toLocaleString('en-IN')}</p>
                       <p className="text-[10px] text-muted-foreground">Plays</p>
                     </div>
                     <div className="rounded-xl border border-border bg-background p-3">
@@ -137,16 +137,16 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">What this device receives now</p>
                 <div className="rounded-xl border border-border bg-background p-3 space-y-1.5">
-                  {[['Schedule', data.plan.scheduleName], ['Playlist', data.plan.playlistName], ['Content items', data.plan.items.length], ['Schedules in window', data.plan.scheduleCount]].map(([k, v]) => (
+                  {[['Schedule', data.plan?.scheduleName], ['Playlist', data.plan?.playlistName], ['Content items', data.plan?.items?.length ?? 0], ['Schedules in window', data.plan?.scheduleCount ?? 0]].map(([k, v]) => (
                     <div key={String(k)} className="flex justify-between text-xs">
                       <span className="text-muted-foreground">{k}</span>
                       <span className="font-semibold text-foreground">{v ?? <span className="text-muted-foreground/50 font-normal italic">none</span>}</span>
                     </div>
                   ))}
-                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Plan hash</span><span className="font-mono text-[10px] text-muted-foreground/60">{data.plan.planHash.slice(0, 12)}…</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Plan hash</span><span className="font-mono text-[10px] text-muted-foreground/60">{(data.plan?.planHash ?? '').slice(0, 12)}…</span></div>
                 </div>
               </div>
-              {data.plan.items.length > 0 && (
+              {Array.isArray(data.plan?.items) && data.plan.items.length > 0 && (
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Content in active playlist</p>
                   <div className="space-y-1.5">
@@ -155,7 +155,7 @@ function DiagPanel({ deviceId, onClose }: { deviceId: string; onClose: () => voi
                         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${item.type === 'VIDEO' ? 'bg-purple-500/10' : 'bg-blue-500/10'}`}>
                           {item.type === 'VIDEO' ? <Film className="h-3.5 w-3.5 text-purple-600" /> : <ImageIcon className="h-3.5 w-3.5 text-blue-600" />}
                         </div>
-                        <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-foreground truncate">{item.name}</p><p className="text-[10px] text-muted-foreground">{(item.durationMs / 1000).toFixed(0)}s · {item.type.toLowerCase()}</p></div>
+                        <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-foreground truncate">{item.name}</p><p className="text-[10px] text-muted-foreground">{(item.durationMs / 1000).toFixed(0)}s · {(item.type ?? '').toLowerCase()}</p></div>
                         <a href={item.url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"><ExternalLink className="h-3 w-3" /></a>
                       </div>
                     ))}
@@ -197,7 +197,7 @@ function LinkStoreDialog({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      try { const r = await searchStores({ q: val }); setResults(r.stores); }
+      try { const r = await searchStores({ q: val }); setResults(Array.isArray(r?.stores) ? r.stores : []); }
       finally { setLoading(false); }
     }, 300);
   }, []);
@@ -287,7 +287,7 @@ function PushScheduleDialog({
   const [saving,       setSaving]       = useState(false);
 
   useEffect(() => {
-    getPlaylists().then(setPlaylists).catch(() => {});
+    getPlaylists().then((r) => setPlaylists(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
 
   const push = async () => {
@@ -314,7 +314,7 @@ function PushScheduleDialog({
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Playlist</label>
             <PlaylistPickerField
-              playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items.length }))}
+              playlists={playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.items?.length ?? 0 }))}
               value={playlistId || null}
               onChange={(id) => setPlaylistId(id ?? '')}
             />
@@ -340,7 +340,7 @@ function GroupPanel({ onClose, onFilterGroup }: { onClose: () => void; onFilterG
   const [groups,  setGroups]  = useState<DeviceGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { getDeviceGroups().then(setGroups).catch(() => {}).finally(() => setLoading(false)); }, []);
+  useEffect(() => { getDeviceGroups().then((r) => setGroups(Array.isArray(r) ? r : [])).catch(() => {}).finally(() => setLoading(false)); }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -693,7 +693,7 @@ function friendlyDeviceLabel(d: Device): string {
 // Short hardware tag ("Screen #B434") — shown in the muted subtitle so two
 // screens at the same store stay distinguishable.
 function screenIdTag(d: Device): string {
-  return `Screen #${(d.hardwareKey ?? d.id).slice(-4).toUpperCase()}`;
+  return `Screen #${(d.hardwareKey ?? d.id ?? '').slice(-4).toUpperCase()}`;
 }
 
 function fmtDate(iso: string) {
@@ -763,9 +763,10 @@ function sortDevices(list: Device[], key: SortKey): Device[] {
 /**
  * Storefront thumbnail on the card face. Doubles as the uploader once the screen
  * is linked to a store — the photo belongs to the Store, so an unlinked screen
- * has nothing to attach it to.
+ * has nothing to attach it to. `size="lg"` is the card-grid hero image (full
+ * width, top of card); `size="sm"` (default) is the compact-table inline thumb.
  */
-function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: string | null) => void }) {
+function StorePhoto({ device, onChanged, size = 'sm' }: { device: Device; onChanged: (url: string | null) => void; size?: 'sm' | 'lg' }) {
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -781,15 +782,23 @@ function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: st
   };
 
   const canUpload = !!device.storeId;
+  const lg = size === 'lg';
 
   return (
-    <div className="relative h-12 w-12 shrink-0">
+    <div className={lg ? 'relative w-full' : 'relative h-12 w-12 shrink-0'}>
       {device.storePhotoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={device.storePhotoUrl} alt="" className="h-12 w-12 rounded-lg border border-border object-cover" />
+        <img
+          src={device.storePhotoUrl}
+          alt=""
+          className={lg ? 'h-32 w-full object-cover' : 'h-12 w-12 rounded-lg border border-border object-cover'}
+        />
       ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40">
-          <Store className="h-4 w-4 text-muted-foreground/50" />
+        <div className={lg
+          ? 'flex h-32 w-full items-center justify-center bg-muted/40'
+          : 'flex h-12 w-12 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40'}
+        >
+          <Store className={lg ? 'h-8 w-8 text-muted-foreground/40' : 'h-4 w-4 text-muted-foreground/50'} />
         </div>
       )}
       {canUpload && (
@@ -798,9 +807,9 @@ function StorePhoto({ device, onChanged }: { device: Device; onChanged: (url: st
             onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
             disabled={busy}
             title={device.storePhotoUrl ? 'Replace store photo' : 'Add a store photo'}
-            className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:opacity-100 disabled:opacity-100"
+            className={`absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity hover:opacity-100 disabled:opacity-100 ${lg ? '' : 'rounded-lg'}`}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            {busy ? <Loader2 className={lg ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'} /> : <Camera className={lg ? 'h-5 w-5' : 'h-4 w-4'} />}
           </button>
           <input ref={inputRef} type="file" accept="image/*" onChange={pick} className="hidden" />
         </>
@@ -857,7 +866,7 @@ export default function ScreensTab() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadGroups = useCallback(() => {
-    getDeviceGroups().then(setAllGroups).catch(() => {});
+    getDeviceGroups().then((r) => setAllGroups(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
 
   useEffect(() => { loadGroups(); }, [loadGroups]);
@@ -873,9 +882,9 @@ export default function ScreensTab() {
 
     getDevices(params)
       .then((r) => {
-        setDevices(r.devices);
-        setTotal(r.total);
-        setNextCursor(r.nextCursor);
+        setDevices(Array.isArray(r?.devices) ? r.devices : []);
+        setTotal(r?.total ?? 0);
+        setNextCursor(r?.nextCursor ?? null);
         if (!isPrev) setPrevStack((p) => cursor ? [...p, cursor] : []);
       })
       .catch((e: Error) => setError(e.message))
@@ -1224,7 +1233,7 @@ export default function ScreensTab() {
                 </thead>
                 <tbody>
                   {sortedDevices.map((d) => {
-                    const StatusIcon = STATUS_ICONS[d.status];
+                    const StatusIcon = STATUS_ICONS[d.status] ?? AlertCircle;
                     return (
                       <tr key={d.id} className={`border-b border-border/60 last:border-0 transition-colors hover:bg-muted/20 ${selected.has(d.id) ? 'bg-primary/5' : ''}`}>
                         <td className="relative px-3 py-2">
@@ -1269,11 +1278,12 @@ export default function ScreensTab() {
               </table>
             </div>
           ) : (
-            /* ── Comfortable card view ──────────────────────────────── */
-            /* Face carries identity + status only; everything else is behind a click. */
-            <motion.div className="space-y-2" variants={listStagger} initial="hidden" animate="show">
+            /* ── Card grid (default) ────────────────────────────────── */
+            /* Face carries a real photo + status only; everything else is behind a click —
+               matches every other identity card in the console (fillers, content). */
+            <motion.div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" variants={listStagger} initial="hidden" animate="show">
               {sortedDevices.map((d) => {
-                const StatusIcon = STATUS_ICONS[d.status];
+                const StatusIcon = STATUS_ICONS[d.status] ?? AlertCircle;
                 const sched = d.currentSchedule;
                 const open  = expanded.has(d.id);
                 return (
@@ -1285,58 +1295,67 @@ export default function ScreensTab() {
                     }`}
                   >
                     {/* Status rail — the at-a-glance signal */}
-                    <span className={`absolute inset-y-0 left-0 w-1 ${RAIL_TONE[d.status]}`} aria-hidden="true" />
+                    <span className={`absolute inset-y-0 left-0 w-1 z-10 ${RAIL_TONE[d.status]}`} aria-hidden="true" />
 
                     {/* Face */}
-                    <div className="flex items-center gap-3 py-3 pl-5 pr-4">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(d.id)}
-                        onChange={() => toggleSelect(d.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded accent-primary"
-                      />
-                      <StorePhoto
-                        device={d}
-                        onChanged={(url) => setDevices((prev) => prev.map((x) => x.storeId === d.storeId ? { ...x, storePhotoUrl: url } : x))}
-                      />
-
-                      <button onClick={() => toggleExpand(d.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {d.linkedStoreName
-                              ? <>{d.city ? `${d.city} · ` : ''}{screenIdTag(d)}</>
-                              : <span className="text-amber-600">Not linked to a store{friendlyDeviceLabel(d) !== screenIdTag(d) && ` · ${screenIdTag(d)}`}</span>}
-                          </p>
+                    <button onClick={() => toggleExpand(d.id)} className="block w-full text-left">
+                      <div className="relative">
+                        <StorePhoto
+                          size="lg"
+                          device={d}
+                          onChanged={(url) => setDevices((prev) => prev.map((x) => x.storeId === d.storeId ? { ...x, storePhotoUrl: url } : x))}
+                        />
+                        <div className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-md bg-white/90 shadow">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(d.id)}
+                            onChange={() => toggleSelect(d.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-3.5 w-3.5 cursor-pointer rounded accent-primary"
+                          />
                         </div>
-                        {d.groupName && (
-                          <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground sm:inline">{d.groupName}</span>
-                        )}
-                        {d.slotMode && (
-                          <span
-                            title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
-                            className="hidden shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary sm:inline"
-                          >
-                            Slot loop
-                          </span>
-                        )}
-                        <Badge variant={STATUS_BADGE[d.status]} dot className="shrink-0 px-2 py-0.5 text-[10px] font-bold">
+                        <Badge variant={STATUS_BADGE[d.status]} dot className="absolute right-2 top-2 px-2 py-0.5 text-[10px] font-bold shadow">
                           <StatusIcon className="h-2.5 w-2.5" />{d.status}
                         </Badge>
-                        {d.status === 'OFFLINE' && (
-                          <span className="hidden shrink-0 text-[10px] font-semibold text-red-600 sm:inline">
-                            dark {d.lastSeen ? timeSince(d.lastSeen) : 'since never'}
-                          </span>
-                        )}
-                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
-                      </button>
-                    </div>
+                      </div>
+
+                      <div className="px-3.5 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
+                          <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          {d.linkedStoreName
+                            ? <>{d.city ? `${d.city} · ` : ''}{screenIdTag(d)}</>
+                            : <span className="text-amber-600">Not linked to a store{friendlyDeviceLabel(d) !== screenIdTag(d) && ` · ${screenIdTag(d)}`}</span>}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {d.groupName && (
+                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{d.groupName}</span>
+                          )}
+                          {d.slotMode && (
+                            <span
+                              title="This store sells fixed ad slots — the screen plays the slot loop and ignores schedules (they only play if a day's loop is empty)"
+                              className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary"
+                            >
+                              Slot loop
+                            </span>
+                          )}
+                          {d.status === 'OFFLINE' ? (
+                            <span className="shrink-0 text-[10px] font-semibold text-red-600">
+                              dark {d.lastSeen ? timeSince(d.lastSeen) : 'since never'}
+                            </span>
+                          ) : d.lastSeen ? (
+                            <span className="shrink-0 text-[10px] text-muted-foreground">seen {timeSince(d.lastSeen)}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
 
                     {/* Detail — only when opened */}
                     {open && (
                       <div className="border-t border-border/60">
-                        <div className="grid grid-cols-2 divide-x divide-border/60 sm:grid-cols-5">
+                        <div className="grid grid-cols-2 divide-x divide-y divide-border/60">
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
                             {d.slotMode ? (
@@ -1356,7 +1375,7 @@ export default function ScreensTab() {
                             <p className="text-[11px] text-foreground">{d.lastSeen ? timeSince(d.lastSeen) : 'Never'}</p>
                             {d.uptimePct != null && <div className="mt-1"><UptimeBar pct={d.uptimePct} /></div>}
                           </div>
-                          <div className="px-4 py-2.5">
+                          <div className="col-span-2 px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Monitor className="h-2.5 w-2.5" />Orientation</p>
                             <OrientationSelect device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, orientation: updated.orientation } : x))} />
                             <ScreenTestButton deviceId={d.id} />
@@ -1389,6 +1408,7 @@ export default function ScreensTab() {
               })}
             </motion.div>
           )}
+
 
           {/* Pagination */}
           {total > PAGE_SIZE && (

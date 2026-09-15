@@ -47,7 +47,7 @@ export default function PlaylistsTab() {
 
   const load = useCallback(() => {
     Promise.all([getPlaylists(), getContent()])
-      .then(([pl, ct]) => { setPlaylists(pl); setContent(ct.content); })
+      .then(([pl, ct]) => { setPlaylists(Array.isArray(pl) ? pl : []); setContent(Array.isArray(ct?.content) ? ct.content : []); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -56,7 +56,7 @@ export default function PlaylistsTab() {
 
   const selectPlaylist = (pl: Playlist) => {
     setSelected(pl.id);
-    setDraft(pl.items.flatMap((i): DraftItem[] => {
+    setDraft((Array.isArray(pl.items) ? pl.items : []).flatMap((i): DraftItem[] => {
       if (i.childPlaylistId != null) {
         return [{
           kind: 'playlist',
@@ -237,7 +237,7 @@ export default function PlaylistsTab() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-foreground truncate">{pl.name}</p>
-                  <p className="text-[10px] text-muted-foreground">{pl.items.length} items · {fmtDate(pl.createdAt)}</p>
+                  <p className="text-[10px] text-muted-foreground">{pl.items?.length ?? 0} items · {fmtDate(pl.createdAt)}</p>
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); del(pl.id); }}
@@ -442,7 +442,7 @@ export default function PlaylistsTab() {
                     >
                       {added ? <Check className="h-3 w-3" /> : <ListVideo className="h-3 w-3" />}
                       {pl.name}
-                      <span className="text-[9px] text-muted-foreground/60">{pl.items.length}</span>
+                      <span className="text-[9px] text-muted-foreground/60">{pl.items?.length ?? 0}</span>
                     </button>
                   );
                 })}

@@ -130,10 +130,10 @@ function DateRangePicker({ range, onChange }: { range: DateRange; onChange: (r: 
 function Kpis({ data, loading }: { data: PlaysResponse | null; loading: boolean }) {
   const s = data?.summary;
   const tiles = [
-    { label: 'Total plays',  value: loading || !s ? '—' : s.totalPlays.toLocaleString('en-IN') },
-    { label: 'Watch time',   value: loading || !s ? '—' : fmtDur(s.totalMs) },
-    { label: 'Screens',      value: loading || !s ? '—' : s.screens.toLocaleString('en-IN') },
-    { label: 'Videos',       value: loading || !s ? '—' : s.contentCount.toLocaleString('en-IN') },
+    { label: 'Total plays',  value: loading || !s ? '—' : (s.totalPlays ?? 0).toLocaleString('en-IN') },
+    { label: 'Watch time',   value: loading || !s ? '—' : fmtDur(s.totalMs ?? 0) },
+    { label: 'Screens',      value: loading || !s ? '—' : (s.screens ?? 0).toLocaleString('en-IN') },
+    { label: 'Videos',       value: loading || !s ? '—' : (s.contentCount ?? 0).toLocaleString('en-IN') },
   ];
   return (
     <div className="admin-summary-row">
@@ -153,7 +153,7 @@ function Kpis({ data, loading }: { data: PlaysResponse | null; loading: boolean 
 // the storefront, the creative's first frame — and filter as you type.
 
 const screenLabel = (d: Device) =>
-  d.storeName || d.linkedStoreName || `Screen #${(d.hardwareKey ?? d.id).slice(-4).toUpperCase()}`;
+  d.storeName || d.linkedStoreName || `Screen #${(d.hardwareKey ?? d.id ?? '').slice(-4).toUpperCase()}`;
 
 const DOT_TONE: Record<Device['status'], string> = {
   ONLINE: 'bg-green-500', OFFLINE: 'bg-red-500', PENDING: 'bg-amber-400',
@@ -238,7 +238,7 @@ function AdPicker({ items, value, onChange }: {
   const [q, setQ] = useState('');
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
-    return n ? items.filter((c) => c.name.toLowerCase().includes(n)) : items;
+    return n ? items.filter((c) => (c.name ?? '').toLowerCase().includes(n)) : items;
   }, [items, q]);
 
   return (
@@ -312,9 +312,9 @@ export default function ProofOfPlayTab() {
 
   // Load reference lists once.
   useEffect(() => {
-    getDevices({ take: '500' }).then((r) => setDevices(r.devices)).catch(() => setDevices([]));
-    getContent().then((r) => setContent(r.content)).catch(() => setContent([]));
-    getDeviceGroups().then(setGroups).catch(() => setGroups([]));
+    getDevices({ take: '500' }).then((r) => setDevices(Array.isArray(r?.devices) ? r.devices : [])).catch(() => setDevices([]));
+    getContent().then((r) => setContent(Array.isArray(r?.content) ? r.content : [])).catch(() => setContent([]));
+    getDeviceGroups().then((g) => setGroups(Array.isArray(g) ? g : [])).catch(() => setGroups([]));
   }, []);
 
   const rangeParams = useCallback(() => {
@@ -366,7 +366,7 @@ export default function ProofOfPlayTab() {
   const videos = useMemo(() => {
     // Videos first (the "ad" case), then everything else, alphabetically.
     return [...content].sort((a, b) =>
-      (a.type === b.type ? 0 : a.type === 'video' ? -1 : 1) || a.name.localeCompare(b.name));
+      (a.type === b.type ? 0 : a.type === 'video' ? -1 : 1) || (a.name ?? '').localeCompare(b.name ?? ''));
   }, [content]);
 
   const MODES: { id: Mode; label: string; icon: typeof Tv2 }[] = [
@@ -474,7 +474,7 @@ export default function ProofOfPlayTab() {
               <SectionLabel n={1} label="Videos on this screen" />
               <RollupTable
                 cols={['Video', 'Plays', 'Watch', 'Last played']}
-                rows={data.summary.byContent.map((c) => [c.contentName || c.mediaId, c.plays.toLocaleString('en-IN'), fmtDur(c.totalMs), c.lastPlayedAt ? fmtIST(c.lastPlayedAt) : '—'])}
+                rows={(Array.isArray(data.summary?.byContent) ? data.summary.byContent : []).map((c) => [c.contentName || c.mediaId, (c.plays ?? 0).toLocaleString('en-IN'), fmtDur(c.totalMs ?? 0), c.lastPlayedAt ? fmtIST(c.lastPlayedAt) : '—'])}
               />
             </>
           )}
@@ -483,7 +483,7 @@ export default function ProofOfPlayTab() {
               <SectionLabel n={1} label="Screens that played this ad" />
               <RollupTable
                 cols={['Screen', 'Group', 'Plays', 'Watch', 'Last played']}
-                rows={data.summary.byScreen.map((s) => [s.screenName, s.groupName || '—', s.plays.toLocaleString('en-IN'), fmtDur(s.totalMs), s.lastPlayedAt ? fmtIST(s.lastPlayedAt) : '—'])}
+                rows={(Array.isArray(data.summary?.byScreen) ? data.summary.byScreen : []).map((s) => [s.screenName, s.groupName || '—', (s.plays ?? 0).toLocaleString('en-IN'), fmtDur(s.totalMs ?? 0), s.lastPlayedAt ? fmtIST(s.lastPlayedAt) : '—'])}
               />
             </>
           )}
@@ -492,12 +492,12 @@ export default function ProofOfPlayTab() {
               <SectionLabel n={1} label="By group" />
               <RollupTable
                 cols={['Group', 'Screens', 'Plays', 'Watch']}
-                rows={data.summary.byGroup.map((g) => [g.groupName, g.screens.toLocaleString('en-IN'), g.plays.toLocaleString('en-IN'), fmtDur(g.totalMs)])}
+                rows={(Array.isArray(data.summary?.byGroup) ? data.summary.byGroup : []).map((g) => [g.groupName, (g.screens ?? 0).toLocaleString('en-IN'), (g.plays ?? 0).toLocaleString('en-IN'), fmtDur(g.totalMs ?? 0)])}
               />
               <SectionLabel n={2} label="By screen" />
               <RollupTable
                 cols={['Screen', 'Group', 'Plays', 'Watch', 'Last played']}
-                rows={data.summary.byScreen.map((s) => [s.screenName, s.groupName || '—', s.plays.toLocaleString('en-IN'), fmtDur(s.totalMs), s.lastPlayedAt ? fmtIST(s.lastPlayedAt) : '—'])}
+                rows={(Array.isArray(data.summary?.byScreen) ? data.summary.byScreen : []).map((s) => [s.screenName, s.groupName || '—', (s.plays ?? 0).toLocaleString('en-IN'), fmtDur(s.totalMs ?? 0), s.lastPlayedAt ? fmtIST(s.lastPlayedAt) : '—'])}
               />
             </>
           )}
@@ -523,24 +523,24 @@ export default function ProofOfPlayTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {data.rows.map((r) => (
+                {(Array.isArray(data.rows) ? data.rows : []).map((r) => (
                   <tr key={r.id} className="hover:bg-muted/20">
                     {mode !== 'screen' && <td className="px-3 py-2 text-foreground whitespace-nowrap">{r.screenName}</td>}
                     {mode === 'group'  && <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.groupName || '—'}</td>}
                     {mode !== 'ad'     && <td className="px-3 py-2 text-foreground">{r.contentName || <span className="text-muted-foreground/50 font-mono text-[10px]">{r.mediaId}</span>}</td>}
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{fmtIST(r.startedAt)}</td>
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{fmtIST(r.endedAt)}</td>
-                    <td className="px-3 py-2 text-right text-foreground whitespace-nowrap">{fmtDur(r.durationMs)}</td>
+                    <td className="px-3 py-2 text-right text-foreground whitespace-nowrap">{fmtDur(r.durationMs ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!data.rows.length && (
+            {!(Array.isArray(data.rows) ? data.rows : []).length && (
               <p className="text-sm text-muted-foreground text-center py-10">No plays in this period.</p>
             )}
             {data.rowsTruncated && (
               <div className="px-4 py-2 bg-muted/30 text-[10px] text-muted-foreground text-center border-t border-border">
-                Showing latest {data.rows.length.toLocaleString('en-IN')} of {data.matchedCount.toLocaleString('en-IN')} plays · export CSV for the full log
+                Showing latest {(Array.isArray(data.rows) ? data.rows : []).length.toLocaleString('en-IN')} of {(data.matchedCount ?? 0).toLocaleString('en-IN')} plays · export CSV for the full log
               </div>
             )}
           </div>

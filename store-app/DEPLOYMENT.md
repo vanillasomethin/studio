@@ -88,16 +88,46 @@ eas build --platform android --profile production
 
 ### Option B — `eas submit` (automated)
 
-1. Create a Google Play service account:
-   - Play Console → Setup → API access → Link to Google Cloud project
-   - Create a service account with **Release Manager** role
-   - Download the JSON key → save as `store-app/google-service-account.json`
-   - Add `google-service-account.json` to `.gitignore`
+The Play service-account key is stored **on EAS**, not on disk — this repo is public,
+and a release credential sitting in the working tree is one `git add -f` away from a
+leak. `eas.json` therefore sets no `serviceAccountKeyPath`; EAS supplies the key.
 
-2. Submit:
+One-time setup:
+
+1. **Link Play to a Google Cloud project** — Play Console → Setup → API access →
+   *Link an existing project* (or create one). Enable the **Google Play Android
+   Developer API** on that project.
+
+2. **Mint the service account** — in Google Cloud Console → IAM & Admin →
+   Service Accounts → *Create*. No GCP roles are needed; its authority comes from
+   Play. Then Keys → *Add key* → **JSON** → download.
+
+3. **Grant it Play access** — Play Console → Users and permissions → *Invite new
+   user*, paste the service-account email (`…@….iam.gserviceaccount.com`). Give it
+   **Release manager** on the ALIVE Store app, or at minimum: *View app information*,
+   *Manage testing track releases*, and *Manage production releases*. Permission
+   propagation is not instant — a submit within the first few minutes can still 403.
+
+4. **Upload the key to EAS** (same menu as the FCM V1 push key, a different entry):
    ```bash
-   eas submit --platform android --profile production
+   npx eas credentials --platform android
    ```
+   → `in.wearealive.store` → **Google Service Account** →
+   *Manage your Google Service Account Key for Play Store Submissions* → upload the
+   JSON. Delete the downloaded file afterwards; EAS holds it from here.
+
+Then submit — from any machine, no local key:
+
+```bash
+eas submit --platform android --profile production
+```
+
+Defaults to the **internal** track (`eas.json` → `submit.production.android.track`).
+Add `--latest` to grab the most recent finished build instead of being prompted.
+
+> Do not point `serviceAccountKeyPath` back at a file in this repo. If you need a
+> local key for a one-off, keep it outside the working tree and pass an absolute
+> path on the command line.
 
 ---
 
@@ -174,7 +204,9 @@ eas submit --platform android --profile production
 
 - EAS automatically generates and stores the Android keystore on first production build.
 - **Critical:** Download and back up the keystore from the EAS dashboard (Setup → Credentials). Losing it means you cannot update the Play Store app.
-- Never commit `google-service-account.json` to git.
+- The Play submission key lives on EAS, not on disk (see Step 4 Option B). Nothing to commit,
+  nothing to leak. `google-service-account.json` stays in `.gitignore` as a backstop for
+  anyone who downloads one locally — **this repo is public**, so treat that line as load-bearing.
 
 ## Push notifications (screen-offline alerts)
 

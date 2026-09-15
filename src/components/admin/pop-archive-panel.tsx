@@ -47,7 +47,9 @@ export default function PopArchivePanel() {
   const [saved, setSaved] = useState(false);
   const [running, setRunning] = useState(false);
 
-  const reload = useCallback(() => getPopExportStatus().then(setData).catch(() => {}), []);
+  const reload = useCallback(() => getPopExportStatus()
+    .then((d) => setData({ ...d, exports: Array.isArray(d?.exports) ? d.exports : [], next: d?.next ?? null }))
+    .catch(() => {}), []);
   useEffect(() => { reload().finally(() => setLoading(false)); }, [reload]);
 
   const config = data?.config ?? null;
@@ -81,7 +83,7 @@ export default function PopArchivePanel() {
     try {
       const result = await runPopExportNow();
       if (result.export?.status === 'COMPLETED') {
-        toast({ title: `Archived ${result.export.periodLabel} ✓`, description: `${result.export.playCount.toLocaleString('en-IN')} plays uploaded to cloud storage.` });
+        toast({ title: `Archived ${result.export.periodLabel} ✓`, description: `${(result.export.playCount ?? 0).toLocaleString('en-IN')} plays uploaded to cloud storage.` });
       } else if (result.skipped === 'up-to-date') {
         toast({ title: 'Archive is up to date', description: 'Every completed period is already exported. The current month exports once it ends.' });
       } else if (result.skipped === 'already-running') {
@@ -89,8 +91,8 @@ export default function PopArchivePanel() {
       } else {
         toast({ variant: 'destructive', title: 'Export failed', description: result.export?.error ?? 'Unknown error — see the history below.' });
       }
-      if (result.pruned.length) {
-        toast({ title: 'Old play logs pruned', description: result.pruned.map((p) => `${p.periodLabel}: ${p.deletedRows.toLocaleString('en-IN')} rows`).join(' · ') });
+      if (Array.isArray(result.pruned) && result.pruned.length) {
+        toast({ title: 'Old play logs pruned', description: result.pruned.map((p) => `${p.periodLabel}: ${(p.deletedRows ?? 0).toLocaleString('en-IN')} rows`).join(' · ') });
       }
     } catch (err) {
       toast({ variant: 'destructive', title: 'Export failed', description: (err as Error).message });
@@ -163,7 +165,7 @@ export default function PopArchivePanel() {
           <input
             type="checkbox"
             className="h-3.5 w-3.5 rounded accent-primary cursor-pointer"
-            checked={config.enabled}
+            checked={config.enabled ?? false}
             onChange={(e) => update({ enabled: e.target.checked })}
           />
           <span className="text-[11px] font-semibold text-foreground">Auto-export on schedule</span>
@@ -185,7 +187,7 @@ export default function PopArchivePanel() {
           <input
             type="checkbox"
             className="h-3.5 w-3.5 rounded accent-primary cursor-pointer"
-            checked={config.deleteAfterExport}
+            checked={config.deleteAfterExport ?? false}
             onChange={(e) => update({ deleteAfterExport: e.target.checked })}
           />
           <span className="text-[11px] font-semibold text-foreground flex items-center gap-1">
@@ -230,10 +232,10 @@ export default function PopArchivePanel() {
                     <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${STATUS_TONE[x.status]}`}>{x.status}</span>
                     {x.error && <p className="mt-1 max-w-[260px] text-[10px] text-red-700">{x.error}</p>}
                   </td>
-                  <td className="px-3 py-2 text-right text-foreground whitespace-nowrap">{x.playCount.toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2 text-right text-foreground whitespace-nowrap">{(x.playCount ?? 0).toLocaleString('en-IN')}</td>
                   <td className="px-3 py-2 text-right text-muted-foreground">{x.screenCount}</td>
                   <td className="px-3 py-2 text-right text-muted-foreground">{x.adCount}</td>
-                  <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtBytes(x.totalBytes)}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtBytes(x.totalBytes ?? 0)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {x.deletedRows != null
                       ? <span className="text-[10px] font-semibold text-red-700">deleted {x.deletedRows.toLocaleString('en-IN')}</span>

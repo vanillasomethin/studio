@@ -166,7 +166,7 @@ export default function LayoutsTab() {
 
   const openEdit = (o: Overlay) => {
     setForm({
-      name:        o.name,
+      name:        o.name ?? '',
       type:        o.type,
       enabled:     o.enabled,
       text:        o.text ?? '',
@@ -178,9 +178,9 @@ export default function LayoutsTab() {
       speedPxSec:  o.speedPxSec,
       heightPct:   o.heightPct,
       targetMode:  detectTargetMode(o),
-      deviceIds:   o.deviceIds,
+      deviceIds:   Array.isArray(o.deviceIds) ? o.deviceIds : [],
       groupName:   o.groupName ?? '',
-      storeIds:    o.storeIds,
+      storeIds:    Array.isArray(o.storeIds) ? o.storeIds : [],
       cityFilter:  o.cityFilter ?? '',
       requireWifi: o.requireWifi,
       priority:    o.priority,
@@ -198,7 +198,7 @@ export default function LayoutsTab() {
     setFeedPreview({ items: [], loading: true, error: null });
     try {
       const r = await previewFeed(form.feedUrl);
-      setFeedPreview({ items: r.items.slice(0, 5), loading: false, error: null });
+      setFeedPreview({ items: Array.isArray(r?.items) ? r.items.slice(0, 5) : [], loading: false, error: null });
     } catch (e) {
       setFeedPreview({ items: [], loading: false, error: (e as Error).message });
     }
@@ -288,7 +288,7 @@ export default function LayoutsTab() {
     </div>
   );
 
-  const TypeIcon = TYPE_META[form.type].icon;
+  const TypeIcon = TYPE_META[form.type]?.icon;
 
   return (
     <div className="space-y-4">
@@ -517,7 +517,7 @@ export default function LayoutsTab() {
                       className="w-full rounded-xl border border-border bg-background pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-primary" />
                   </div>
                   <div className="max-h-48 overflow-y-auto rounded-xl border border-border divide-y divide-border">
-                    {devices.filter((d) => !deviceSearch || d.storeName.toLowerCase().includes(deviceSearch.toLowerCase())).map((d) => {
+                    {devices.filter((d) => !deviceSearch || (d.storeName ?? '').toLowerCase().includes(deviceSearch.toLowerCase())).map((d) => {
                       const checked = form.deviceIds.includes(d.id);
                       return (
                         <button key={d.id} type="button"
@@ -646,7 +646,7 @@ export default function LayoutsTab() {
         <div className="space-y-2">
           {overlays.map((o) => {
             const meta = TYPE_META[o.type];
-            const Icon = meta.icon;
+            const Icon = meta?.icon ?? Type;
             return (
               <div key={o.id} className={`rounded-xl border bg-card p-4 flex items-center gap-4 transition-colors ${o.enabled ? 'border-border' : 'border-border bg-muted/30 opacity-60'}`}>
                 <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${o.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
@@ -655,7 +655,7 @@ export default function LayoutsTab() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-bold text-foreground truncate">{o.name}</p>
-                    <span className="text-[10px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground font-semibold">{meta.label}</span>
+                    <span className="text-[10px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground font-semibold">{meta?.label}</span>
                     {o.priority > 0 && <span className="text-[9px] font-bold bg-orange-500/10 text-orange-600 px-1.5 py-0.5 rounded-full">P{o.priority}</span>}
                     {o.requireWifi && <span title="WiFi only" className="text-blue-500"><Wifi className="h-3 w-3" /></span>}
                   </div>

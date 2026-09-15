@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { getContent, getBrands, deleteContent, initiateUpload, updateContentMeta, transcodeVideo, type Content, type AdminBrand } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
+import { describeSlotFit, slotFitMessage } from '@/lib/slots';
 
 function fmtBytes(b: number): string {
   if (b < 1024)         return `${b} B`;
@@ -75,7 +76,20 @@ async function md5Hex(file: File): Promise<string> {
   }
 }
 
-type UploadState = { name: string; progress: number; done: boolean; error?: string };
+// Monotonic across every batch in the session — see handleFiles.
+let uploadSeq = 0;
+
+type UploadState = {
+  /** Stable per-row identity. Every update targets this rather than an array index —
+   *  see handleFiles for why an index was wrong. */
+  uid: string;
+  name: string; progress: number; done: boolean; error?: string;
+  // What this clip's length means for slot mode, decided from the duration the browser
+  // measured before the bytes ever left. Purely informational — a multi-slot ad is a
+  // supported product, not a mistake, so nothing here blocks an upload. The point is
+  // that it is said HERE rather than three screens later when a booking is refused.
+  slotNote?: { tone: 'info' | 'warn'; text: string };
+};
 
 export default function ContentTab() {
   const [content,    setContent]    = useState<Content[]>([]);
@@ -100,7 +114,7 @@ export default function ContentTab() {
   const reload = () => {
     setLoading(true);
     getContent()
-      .then((r) => { setContent(r.content); setTotalBytes(r.totalBytes); })
+      .then((r) => { setContent(Array.isArray(r?.content) ? r.content : []); setTotalBytes(r?.totalBytes ?? 0); })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -116,7 +130,7 @@ export default function ContentTab() {
   useEffect(() => {
     if (!content.some((c) => c.transcodeStatus === 'pending')) return;
     const t = setInterval(() => {
-      getContent().then((r) => { setContent(r.content); setTotalBytes(r.totalBytes); }).catch(() => {});
+      getContent().then((r) => { setContent(Array.isArray(r?.content) ? r.content : []); setTotalBytes(r?.totalBytes ?? 0); }).catch(() => {});
     }, 5_000);
     return () => clearInterval(t);
   }, [content]);
@@ -195,17 +209,26 @@ export default function ContentTab() {
     const MAX_MB = 100;
     const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
 
+    // Row identity. Unique per file and stable for the life of the row, so progress,
+    // the slot note and any error all land on the file they describe.
+    //
+    // A module-level counter rather than Date.now() + an index: dropping a second batch
+    // while the first is still uploading runs two of these loops at once, and two
+    // batches starting in the same millisecond would otherwise mint the same ids.
+    const nextUid = () => `up-${++uploadSeq}`;
+
     for (const file of Array.from(files)) {
       const isVideo = file.type.startsWith('video/');
       const isImage = file.type.startsWith('image/');
       if (!isVideo && !isImage) {
-        setUploads((u) => [...u, { name: file.name, progress: 0, done: false, error: 'Only image or video files are supported.' }]);
+        setUploads((u) => [...u, { uid: nextUid(), name: file.name, progress: 0, done: false, error: 'Only image or video files are supported.' }]);
         continue;
       }
 
       if (file.size > MAX_MB * 1024 * 1024) {
         const mb = (file.size / (1024 * 1024)).toFixed(1);
         setUploads((u) => [...u, {
+          uid:      nextUid(),
           name:     file.name,
           progress: 0,
           done:     false,
@@ -214,13 +237,20 @@ export default function ContentTab() {
         continue;
       }
 
-      const idx = uploads.length;
-      setUploads((u) => [...u, { name: file.name, progress: 0, done: false }]);
+      // A STABLE id, not uploads.length. That was a closure value captured at render,
+      // so every file in a multi-file selection resolved to the same index and all of
+      // them wrote their progress, note and errors onto the first row.
+      const uid = nextUid();
+      setUploads((u) => [...u, { uid, name: file.name, progress: 0, done: false }]);
 
       try {
         const hash = await md5Hex(file);
         const durationMs = isVideo ? await videoDurationMs(file) : undefined;
         const dims = isImage ? await imageDimensions(file) : undefined;
+
+        // Say what this length means for slot mode NOW. The duration is already in hand;
+        // the only reason this used to surface at attach time was that nobody asked here.
+        if (isVideo) setUploads((u) => u.map((x) => x.uid === uid ? { ...x, slotNote: slotFitMessage(durationMs) } : x));
 
         // Step 1: create DB record + get objectKey
         const { id: contentId, objectKey } = await initiateUpload({
@@ -255,7 +285,7 @@ export default function ContentTab() {
         xhr.upload.onprogress = (ev) => {
           if (!ev.lengthComputable) return;
           const pct = Math.round((ev.loaded / ev.total) * 100);
-          setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: pct } : x));
+          setUploads((u) => u.map((x) => x.uid === uid ? { ...x, progress: pct } : x));
         };
         await new Promise<void>((resolve, reject) => {
           xhr.onload = () => {
@@ -279,7 +309,7 @@ export default function ContentTab() {
           xhr.send(file);
         });
 
-        setUploads((u) => u.map((x, i) => i === idx ? { ...x, progress: 100, done: true } : x));
+        setUploads((u) => u.map((x) => x.uid === uid ? { ...x, progress: 100, done: true } : x));
         toast({ title: `${file.name} uploaded ✓` });
 
         // Queue a background re-encode for hardware-decoder compatibility (see
@@ -292,7 +322,7 @@ export default function ContentTab() {
         }
       } catch (err) {
         const msg = (err as Error).message;
-        setUploads((u) => u.map((x, i) => i === idx ? { ...x, error: msg } : x));
+        setUploads((u) => u.map((x) => x.uid === uid ? { ...x, error: msg } : x));
         toast({ variant: 'destructive', title: 'Upload failed', description: msg });
       }
     }
@@ -380,8 +410,8 @@ export default function ContentTab() {
       {/* Upload progress */}
       {uploads.length > 0 && (
         <div className="space-y-2">
-          {uploads.map((u, i) => (
-            <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+          {uploads.map((u) => (
+            <div key={u.uid} className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
               {u.done
                 ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                 : u.error
@@ -396,6 +426,13 @@ export default function ContentTab() {
                   </div>
                 )}
                 {u.error && <p className="text-[10px] text-destructive mt-0.5">{u.error}</p>}
+                {/* Shown alongside progress, not instead of it — the upload is not
+                    blocked, so the note must not read like a failure. */}
+                {!u.error && u.slotNote && (
+                  <p className={`text-[10px] mt-0.5 ${u.slotNote.tone === 'warn' ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                    {u.slotNote.text}
+                  </p>
+                )}
               </div>
               <span className="text-[10px] text-muted-foreground shrink-0">
                 {u.done ? 'Done' : u.error ? 'Failed' : `${u.progress}%`}
@@ -523,6 +560,54 @@ export default function ContentTab() {
                           transcode failed
                         </Badge>
                       )}
+                      {/* The receipt for a retime. Without it, the only symptom is an ad
+                          that plays marginally faster than the file the brand sent, with
+                          nothing on screen to explain why. */}
+                      {/* A creative that occupies more than one slot, stated on the row
+                          itself. The upload note says this once; someone browsing the
+                          library a week later needs it too, and it is the answer to "why
+                          is this ad billed for 20 seconds". Suppressed when the speed-fit
+                          badge below is showing, since that already says 1 slot. */}
+                      {c.type === 'video' && c.speedFittedFromMs == null && (() => {
+                        const v = describeSlotFit(c.durationMs);
+                        if (v.kind !== 'spans') return null;
+                        return (
+                          <Badge
+                            variant="warning"
+                            className="text-[10px] py-0.5 px-2 font-bold"
+                            title={
+                              `${(c.durationMs! / 1000).toFixed(1)}s occupies ${v.slots} consecutive 10s slots ` +
+                              `(${v.slots * 10}s) and is billed for all of them, holding a frozen frame for the ` +
+                              `spare ${(v.wastedMs / 1000).toFixed(1)}s.`
+                            }
+                          >
+                            {v.slots} slots
+                          </Badge>
+                        );
+                      })()}
+                      {c.speedFittedFromMs != null && c.durationMs != null && (() => {
+                        // Stated in slots and seconds rather than "an extra slot", because
+                        // the waste is the same 9-odd seconds whether the ad went 1→2
+                        // slots or 3→4, and a vague claim reads as wrong on the longer one.
+                        const nowSlots  = Math.max(1, Math.round(c.durationMs! / 10_000));
+                        const wasSlots  = nowSlots + 1;
+                        const wasSec    = c.speedFittedFromMs! / 1000;
+                        const frozenSec = wasSlots * 10 - wasSec;
+                        const pct       = ((c.speedFittedFromMs! / c.durationMs!) - 1) * 100;
+                        return (
+                          <Badge
+                            variant="warning"
+                            className="text-[10px] py-0.5 px-2 font-bold"
+                            title={
+                              `Sped up ${pct.toFixed(0)}% to fit ${nowSlots * 10}s exactly. At ${wasSec.toFixed(1)}s it would ` +
+                              `have booked ${wasSlots} slots (${wasSlots * 10}s) instead of ${nowSlots}, holding a frozen ` +
+                              `frame for the spare ${frozenSec.toFixed(1)}s. The untouched original is kept.`
+                            }
+                          >
+                            {wasSec.toFixed(1)}s → {nowSlots * 10}s
+                          </Badge>
+                        );
+                      })()}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">

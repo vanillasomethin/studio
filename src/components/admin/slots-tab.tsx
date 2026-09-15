@@ -20,6 +20,7 @@ import { toast } from '@/hooks/use-toast';
 import { SLOT_TIERS, SLOT_TIER_RATE_RUPEES, type SlotTier } from '@/lib/slot-pricing';
 import { ContentThumb, ContentPickerField, type ContentLike } from './content-picker';
 import { PlaylistPickerField } from './playlist-picker';
+import StoreSlotLoop from './store-slot-loop';
 
 const TIER_LABEL: Record<SlotTier, string> = { standard: 'Standard', growth: 'Growth', flagship: 'Flagship' };
 
@@ -146,11 +147,18 @@ export default function SlotsTab() {
   const [cell,     setCell]     = useState<{ store: SlotStore; date: string } | null>(null);
   const [configStore, setConfigStore] = useState<SlotStore | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Non-null = the one-screen store view is open instead of the inventory grid.
+  const [loopStore, setLoopStore] = useState<SlotStore | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     getSlotAvailability(from, addDays(from, WINDOW_DAYS - 1))
-      .then((r) => { setStores(r.stores); setDates(r.dates); setDefaultFiller(r.defaultFillerCreativeId); setError(null); })
+      .then((r) => {
+        setStores(Array.isArray(r?.stores) ? r.stores : []);
+        setDates(Array.isArray(r?.dates) ? r.dates : []);
+        setDefaultFiller(r?.defaultFillerCreativeId ?? null);
+        setError(null);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [from]);
@@ -182,6 +190,21 @@ export default function SlotsTab() {
       <div><p className="text-sm font-semibold text-foreground">Could not load slot inventory</p>
         <p className="text-xs text-muted-foreground mt-0.5">{error}</p></div>
     </div>
+  );
+
+  // The one-screen store view takes over the tab entirely: settings, roster and the
+  // live loop for one store, instead of the store×date inventory grid.
+  if (loopStore) return (
+    <StoreSlotLoop
+      store={loopStore}
+      campaigns={campaigns}
+      // Every slot-mode store, so one brand can be rolled out across screens from
+      // the panel without going back to the grid and repeating the whole form.
+      allStores={slotStores}
+      onBack={() => setLoopStore(null)}
+      onChanged={load}
+      onReloadCampaigns={loadCampaigns}
+    />
   );
 
   return (
@@ -244,8 +267,11 @@ export default function SlotsTab() {
               {slotStores.map((s) => (
                 <tr key={s.id} className="border-b border-border/60 last:border-0">
                   <td className="sticky left-0 z-10 bg-card px-3 py-2 min-w-[150px]">
-                    <p className="text-[11px] font-semibold text-foreground truncate">{s.storeName}</p>
-                    <p className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots · {s.hoursStart}–{s.hoursEnd} · {TIER_LABEL[(s.slotPricingTier as SlotTier) || 'standard']}</p>
+                    <button onClick={() => setLoopStore(s)} title="Open this store's loop"
+                      className="block w-full text-left group">
+                      <p className="text-[11px] font-semibold text-foreground truncate group-hover:text-primary transition-colors">{s.storeName}</p>
+                      <p className="text-[9px] text-muted-foreground">{s.city ?? '—'} · {s.loopSlotCount} slots · {s.hoursStart}–{s.hoursEnd} · {TIER_LABEL[(s.slotPricingTier as SlotTier) || 'standard']}</p>
+                    </button>
                   </td>
                   {dates.map((d) => {
                     const sold = s.sold?.[d];
@@ -341,7 +367,11 @@ function SlotEditor({ store, date, campaigns, slotStores, onClose, onChanged }: 
 
   const load = useCallback(() => {
     getSlotBookings(store.id, date)
-      .then((r) => { setBookings(r.bookings); setLoop(r.playableLoop); setLoopCount(r.loopSlotCount); })
+      .then((r) => {
+        setBookings(Array.isArray(r?.bookings) ? r.bookings : []);
+        setLoop(Array.isArray(r?.playableLoop) ? r.playableLoop : []);
+        setLoopCount(r?.loopSlotCount ?? 0);
+      })
       .catch((e: Error) => toast({ variant: 'destructive', title: 'Could not load slots', description: e.message }))
       .finally(() => setLoading(false));
   }, [store.id, date]);
@@ -536,7 +566,7 @@ function SlotRequestsPanel() {
     const pw = sessionStorage.getItem('alive_admin_pw') ?? '';
     fetch('/api/admin/slot-requests?status=pending', { headers: { 'admin-password': pw } })
       .then((r) => r.ok ? r.json() as Promise<{ requests: SlotRequestRow[] }> : { requests: [] })
-      .then((d) => setRequests(d.requests))
+      .then((d) => setRequests(Array.isArray(d?.requests) ? d.requests : []))
       .catch(() => setRequests([]));
   }, []);
 
@@ -914,7 +944,7 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
   const rangeDays = from && to ? (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS + 1 : 0;
   const rangeTooLong = rangeDays > 60;
 
-  useEffect(() => { getPlaylists().then(setPlaylists).catch(() => setPlaylists([])); }, []);
+  useEffect(() => { getPlaylists().then((r) => setPlaylists(Array.isArray(r) ? r : [])).catch(() => setPlaylists([])); }, []);
 
   // Availability drives the store list's free counts AND the review matrix. The
   // stale flag drops out-of-order responses — otherwise a slow fetch for an old

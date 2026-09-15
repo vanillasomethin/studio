@@ -63,7 +63,7 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
   useEffect(() => {
     fetch('/api/stores/save', { headers })
       .then(r => r.ok ? r.json() : [])
-      .then((body) => setStores(Array.isArray(body) ? body : (body?.data ?? [])))
+      .then((body) => setStores(Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : []))
       .catch(() => setStores([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminPassword]);
@@ -90,7 +90,7 @@ export default function AutoFlyerPanel({ adminPassword, onSaved }: { adminPasswo
       if (catCategory)        params.set('category', catCategory);
       fetch(`/api/admin/products?${params.toString()}`, { headers })
         .then(r => r.json() as Promise<{ products: CatalogueProduct[] }>)
-        .then(body => setCatResults(body.products ?? []))
+        .then(body => setCatResults(Array.isArray(body?.products) ? body.products : []))
         .catch(() => setCatResults([]))
         .finally(() => setCatLoading(false));
     }, 300);
