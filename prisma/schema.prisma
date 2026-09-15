@@ -359,6 +359,7 @@ model Store {
   smartPlug            SmartPlug?
   slotAddons           SlotAddon[]
   slotRequests         SlotRequest[]
+  slotPlans            SlotPlan[]
   pushSubscriptions    PushSubscription[]
 
   @@index([city])
@@ -416,13 +417,26 @@ model StorePayment {
 
 // ─── Brands ──────────────────────────────────────────────────────────────────
 
+// An ADVERTISER. Most are sold to in person and never sign in, so a self-serve
+// login is an optional attachment — not what makes a brand a brand.
+//
+// userId used to be required, which meant the only way to get a Brand row was
+// /api/brands/register. Every advertiser sold face to face therefore existed only
+// as free text on Campaign.name: duplicated per campaign, un-joinable, and unable
+// to own a creative (Content.brandId points here). Nullable-unique is the same
+// trick Campaign.orderId uses — Postgres allows many NULLs in a unique index — so
+// login-less brands coexist with the one-login-one-brand rule for those that have one.
+//
+// contactName/email/phone follow for the same reason: an empty string would be a
+// lie about details we simply have not collected. Null says exactly that, and every
+// consumer already guards on falsy (see admin/brands/[brandId]/offer-trial).
 model Brand {
   id             String    @id @default(cuid())
-  userId         String    @unique
+  userId         String?   @unique
   brandName      String
-  contactName    String
-  email          String
-  phone          String
+  contactName    String?
+  email          String?
+  phone          String?
   gstin          String?
   walletPaise    BigInt    @default(0)
   trialOfferedAt DateTime?
@@ -430,7 +444,7 @@ model Brand {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns Campaign[]
   creatives Content[]
 }
@@ -496,6 +510,7 @@ model Campaign {
   playGuaranteeCycles  PlayGuaranteeCycle[]
   slotAddons           SlotAddon[]
   slotRequests         SlotRequest[]
+  slotPlans            SlotPlan[]
 
   @@index([brandId])
   @@index([status])
@@ -912,6 +927,20 @@ model Content {
   // instead of the whole library. Deleting a brand nulls it rather than cascading:
   // the file may still be booked and playing, and taking it with the brand would
   // blank a live screen.
+  // What this clip measured BEFORE the transcode retimed it onto a slot boundary, in ms.
+  // Null = never retimed, which is the overwhelming majority.
+  //
+  // The slot cliff is 10.50 s (SLOT_SNAP_GRACE_MS absorbs drift below that), so a 10.6 s
+  // export used to book two 10 s slots — double the cost, with ~9.5 s of the window
+  // holding a frozen final frame. The Lambda now speeds such a clip up onto the multiple
+  // instead (band 1.0 s; see transcode-lambda/speed-fit.mjs). This column is the receipt:
+  // it is what lets the Content row say "10.6s → 10.0s" rather than leaving an operator
+  // to wonder why an ad looks marginally faster than the file they delivered.
+  //
+  // Not derivable after the fact — durationMs holds the retimed length, and the original
+  // is only recoverable by probing originalObjectKey.
+  speedFittedFromMs Int?
+
   brandId      String?
   brand        Brand?      @relation(fields: [brandId], references: [id], onDelete: SetNull)
 
@@ -1056,6 +1085,50 @@ model Composition {
 // (house-ads) campaign; otherwise empties are round-robined across the sold
 // campaigns as bonus plays — logged with isFiller=true but attributed to the
 // campaign, and NEVER counted against brand-facing availability.
+
+/// A STANDING assignment: "this brand plays N times a day at this store, from D,
+/// until someone stops it". One row, no end date — as opposed to SlotBooking, which
+/// materialises one row per store per date per position (10 stores × 1 month × 2/day
+/// = 600 rows) and then expires silently when the range runs out.
+///
+/// Modelled as a TARGETED FILLER WITH PRIORITY, and that choice is load-bearing: a
+/// plan never consumes sellable inventory, so `Availability = loopSlotCount − sold
+/// bookings` stays exactly true and SLA, spans, add-ons and SlotRequest are all
+/// untouched. Plan plays land in positions that would otherwise have been bonus or
+/// house filler, which is why they are logged with isFiller=true — they are real,
+/// attributed plays, but NOT guaranteed inventory, so they must never count toward
+/// a PlayGuaranteeCycle's delivered total.
+///
+/// Fill order in buildSlotLoop is sold → plan → bonus → filler.
+///
+/// Single-slot only, the same constraint bonus fill has: a 30s creative cannot fill
+/// one scattered 10s position. The API rejects a plan whose campaign needs a span,
+/// rather than truncating it into a half-window nobody bought.
+model SlotPlan {
+  id          String    @id @default(cuid())
+  storeId     String
+  campaignId  String
+  /// Plays per day this plan aims for. Best-effort by construction — it only ever
+  /// gets the positions left after sold bookings, so a fully-sold day yields none.
+  slotsPerDay Int       @default(1)
+  startDate   DateTime  @db.Date
+  /// null = runs until someone stops it. That open end is the entire point: a dated
+  /// booking expiring unnoticed is the failure this model exists to remove.
+  endDate     DateTime? @db.Date
+  /// Off keeps the row (and its history) while taking it out of the loop.
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// One standing assignment per brand per store — changing the rate is an edit,
+  /// not a second row that would silently double the brand's plays.
+  @@unique([storeId, campaignId])
+  @@index([storeId, active])
+  @@index([campaignId])
+}
 
 model SlotBooking {
   id           String   @id @default(cuid())

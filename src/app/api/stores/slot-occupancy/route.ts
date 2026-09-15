@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { publicUrl } from '@/lib/r2';
 import { resolveStoreId } from '@/lib/store-partner-auth';
 import { istToday, buildSlotLoop, slotDayIndex, slotSpanForDuration } from '@/lib/slots';
-import { resolveFillerCampaign, campaignCreatives, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
+import { resolveFillerCampaign, campaignCreatives, activeSlotPlans, CAMPAIGN_SLOT_CREATIVES_SELECT } from '@/lib/slots-db';
 import { filledSlotCount } from '@/lib/slot-pricing-db';
 
 export async function GET(req: NextRequest) {
@@ -65,6 +65,8 @@ export async function GET(req: NextRequest) {
       }),
       filler,
       slotDayIndex(today),
+      new Map(),
+      await activeSlotPlans(storeId, today),
     );
 
     const contentIds = [...new Set(loop.map((a) => a.contentId))];
@@ -76,17 +78,27 @@ export async function GET(req: NextRequest) {
       : [];
     const contentById = new Map(contents.map((c) => [c.id, c]));
 
-    // A booked campaign is 'sold'. Anything else attributed to one of those same
-    // campaigns is a bonus play in a position nobody bought; whatever is left is
-    // house filler, whose id is a FillerCreative, not a Campaign.
-    const soldCampaignIds = new Set(bookings.map((b) => b.campaignId));
+    // The builder reports the fill reason directly (sold | plan | bonus | filler);
+    // deriving it here from isFiller was only ever correct while standing
+    // assignments did not exist.
     const brandByCampaign = new Map(
       bookings.map((b) => [b.campaignId, b.campaign.brand?.brandName ?? b.campaign.name ?? 'A brand']),
     );
+    // Plan campaigns hold no booking here, so their names are not in the map above —
+    // without this a standing assignment shows as an unnamed brand.
+    const planCampaignIds = [...new Set(loop.filter((a) => a.source === 'plan').map((a) => a.campaignId))]
+      .filter((id) => !brandByCampaign.has(id));
+    if (planCampaignIds.length) {
+      const planCampaigns = await db.campaign.findMany({
+        where:  { id: { in: planCampaignIds } },
+        select: { id: true, name: true, brand: { select: { brandName: true } } },
+      });
+      for (const c of planCampaigns) brandByCampaign.set(c.id, c.brand?.brandName ?? c.name ?? 'A brand');
+    }
 
     const entries = loop.map((a) => {
       const c = contentById.get(a.contentId);
-      const source = !a.isFiller ? 'sold' : soldCampaignIds.has(a.campaignId) ? 'bonus' : 'filler';
+      const source = a.source;
       return {
         position:    a.slotPosition,
         spanSlots:   a.spanSlots,

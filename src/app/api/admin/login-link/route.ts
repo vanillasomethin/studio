@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     const { token, expiresAt } = await createInvite(email, 'ADMIN', null);
     const link = `${baseUrl()}/admin/setup?token=${encodeURIComponent(token)}`;
 
-    const sent = await sendEmail(email, 'Your ALIVE admin sign-in link', linkEmailHtml(link, expiresAt, isNew));
+    const mail = await sendEmail(email, 'Your ALIVE admin sign-in link', linkEmailHtml(link, expiresAt, isNew));
 
     await db.auditLog.create({
       data: {
@@ -128,7 +128,14 @@ export async function POST(req: NextRequest) {
         ip,
         userAgent: req.headers.get('user-agent') ?? null,
         // Never the token or the link — those are the credential.
-        meta: { newAccount: isNew, emailDelivered: sent, rateLimitDegraded: emailLimit.degraded || ipLimit.degraded },
+        meta: {
+          newAccount: isNew,
+          emailDelivered: mail.ok,
+          // The caller is told nothing either way, so the audit row is the ONLY
+          // place a failed sign-in link leaves a trace of why.
+          ...(mail.ok ? { emailVia: mail.via } : { emailError: mail.reason }),
+          rateLimitDegraded: emailLimit.degraded || ipLimit.degraded,
+        },
       },
     }).catch(() => {});
 
@@ -153,11 +160,11 @@ export async function POST(req: NextRequest) {
     // the response. Gated hard on NODE_ENV: in production this would hand a
     // valid sign-in token to whoever asked for it, which is the entire threat
     // this route is otherwise built to avoid.
-    if (!sent && process.env.NODE_ENV !== 'production') {
+    if (!mail.ok && process.env.NODE_ENV !== 'production') {
       return NextResponse.json({
         ...SAME_ANSWER,
         devLink: link,
-        devNote: 'DEV ONLY — no mail transport configured. Configure EMAIL_SERVER_* or RESEND_API_KEY; this field never appears in production.',
+        devNote: `DEV ONLY — mail did not go out: ${mail.reason} Configure ZOHO_SMTP_* or RESEND_API_KEY; this field never appears in production.`,
       });
     }
 
