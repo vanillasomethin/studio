@@ -1305,6 +1305,13 @@ function StoresPanel() {
 
                 {isExpanded && (
                   <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => expandStore(null)}
+                      className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors mb-2"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" /> Back
+                    </button>
                     <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                       {s.address && <span><span className="font-semibold text-foreground/60">Address:</span> {s.address}, {s.pincode}</span>}
                       {s.gstin   && <span><span className="font-semibold text-foreground/60">GST:</span> {s.gstin}</span>}
