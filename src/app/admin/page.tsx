@@ -2909,7 +2909,7 @@ function Dashboard({ email }: { email: string | null }) {
               {tab === 'power'      && <PowerTab />}
               {tab === 'qr'         && <QrTab />}
               {tab === 'prospects' && <ProspectsTab />}
-              {tab === 'fillers'   && <FillersTab />}
+              {tab === 'fillers'   && <FillersTab onNav={(t) => handleNav(t as Tab)} />}
               {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}
