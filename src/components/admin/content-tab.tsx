@@ -45,7 +45,9 @@ export default function ContentTab() {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [activeTag,    setActiveTag]    = useState<string | null>(null);
   const [editTagId,    setEditTagId]    = useState<string | null>(null);
+  const [editNameId,   setEditNameId]   = useState<string | null>(null);
   const [tagInput,     setTagInput]     = useState('');
+  const [nameInput,    setNameInput]    = useState('');
   const [folderInput,  setFolderInput]  = useState('');
   const [brands,       setBrands]       = useState<AdminBrand[]>([]);
   // null = no brand filter. '' is a real selection — house content, the rows with no brand.
@@ -116,6 +118,11 @@ export default function ContentTab() {
     setBrandInput(c.brandId ?? '');
   };
 
+  const openNameEdit = (c: Content) => {
+    setEditNameId(c.id);
+    setNameInput(c.name);
+  };
+
   const saveTagEdit = async (id: string) => {
     const tags    = tagInput.split(',').map((t) => t.trim()).filter(Boolean);
     const folder  = folderInput.trim() || null;
@@ -128,6 +135,21 @@ export default function ContentTab() {
     } catch (e) {
       toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
     } finally { setEditTagId(null); }
+  };
+
+  const saveNameEdit = async (id: string) => {
+    const newName = nameInput.trim();
+    if (!newName) {
+      toast({ variant: 'destructive', title: 'Name cannot be empty' });
+      return;
+    }
+    try {
+      await updateContentMeta(id, { name: newName });
+      setContent((prev) => prev.map((c) => c.id === id ? { ...c, name: newName } : c));
+      toast({ title: 'Name updated ✓' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
+    } finally { setEditNameId(null); }
   };
 
   const del = async (id: string) => {
@@ -385,7 +407,30 @@ export default function ContentTab() {
                       </span>
                     </button>
                   </td>
-                  <td className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate">{c.name}</td>
+                  <td
+                    className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate cursor-pointer hover:text-primary transition-colors"
+                    onDoubleClick={() => openNameEdit(c)}
+                    title="Double-click to edit name"
+                  >
+                    {editNameId === c.id ? (
+                      <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          value={nameInput}
+                          onChange={(e) => setNameInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveNameEdit(c.id);
+                            if (e.key === 'Escape') setEditNameId(null);
+                          }}
+                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none flex-1 min-w-0"
+                        />
+                        <button onClick={() => saveNameEdit(c.id)} className="rounded-lg bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground whitespace-nowrap">Save</button>
+                        <button onClick={() => setEditNameId(null)} className="rounded-lg border border-border px-2 py-1 text-[10px] text-muted-foreground whitespace-nowrap">Cancel</button>
+                      </div>
+                    ) : (
+                      c.name
+                    )}
+                  </td>
                   <td className="px-4 py-3 max-w-[140px]">
                     {c.brandId ? (
                       <button

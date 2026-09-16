@@ -164,8 +164,8 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireAdmin(req);
   if (!actor) return adminUnauthorized();
   try {
-    const { id, tags, folder, brandId } = await req.json() as {
-      id: string; tags?: string[]; folder?: string | null; brandId?: string | null;
+    const { id, name, tags, folder, brandId } = await req.json() as {
+      id: string; name?: string; tags?: string[]; folder?: string | null; brandId?: string | null;
     };
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
@@ -182,20 +182,25 @@ export async function PATCH(req: NextRequest) {
       const updated = await db.content.update({
         where: { id },
         data: {
+          ...(name     !== undefined ? { name }     : {}),
           ...(tags    !== undefined ? { tags }    : {}),
           ...(folder  !== undefined ? { folder }  : {}),
           ...(brandId !== undefined ? { brandId } : {}),
         },
       });
-      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder, brandId } });
+      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { name, tags, folder, brandId } });
       return NextResponse.json({
         id:      updated.id,
+        name:    updated.name,
         tags:    (updated as { tags?: string[] }).tags ?? [],
         folder:  (updated as { folder?: string | null }).folder ?? null,
         brandId: (updated as { brandId?: string | null }).brandId ?? null,
       });
     } catch {
       // Fallback: update via raw SQL if ORM fails on missing column
+      if (name !== undefined) {
+        await db.$executeRaw`UPDATE "Content" SET name = ${name} WHERE id = ${id}`;
+      }
       if (tags !== undefined) {
         await db.$executeRaw`UPDATE "Content" SET tags = ${tags}::text[] WHERE id = ${id}`;
       }
@@ -205,8 +210,8 @@ export async function PATCH(req: NextRequest) {
       if (brandId !== undefined) {
         await db.$executeRaw`UPDATE "Content" SET "brandId" = ${brandId} WHERE id = ${id}`;
       }
-      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { tags, folder, brandId, viaRawSql: true } });
-      return NextResponse.json({ id, tags: tags ?? [], folder: folder ?? null, brandId: brandId ?? null });
+      await logAdminAction({ actor, req, action: 'content.update', target: id, meta: { name, tags, folder, brandId, viaRawSql: true } });
+      return NextResponse.json({ id, name: name ?? '', tags: tags ?? [], folder: folder ?? null, brandId: brandId ?? null });
     }
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

@@ -492,8 +492,8 @@ export const createBrand = (body: { brandName: string; contactName?: string; ema
 
 // brandId: pass null to unassign a creative back to house content; omit it to
 // leave the current owner untouched. undefined and null mean different things here.
-export const updateContentMeta = (id: string, body: { tags?: string[]; folder?: string | null; brandId?: string | null }) =>
-  apiFetch<{ id: string; tags: string[]; folder?: string | null; brandId?: string | null }>('/api/content', {
+export const updateContentMeta = (id: string, body: { name?: string; tags?: string[]; folder?: string | null; brandId?: string | null }) =>
+  apiFetch<{ id: string; name?: string; tags: string[]; folder?: string | null; brandId?: string | null }>('/api/content', {
     method: 'PATCH',
     body:   JSON.stringify({ id, ...body }),
   });
