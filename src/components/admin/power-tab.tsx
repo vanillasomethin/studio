@@ -25,6 +25,7 @@ type PowerStore = {
     model: string | null; watts: number | null; surveyedAt: string | null;
     platePhotoUrl: string | null; ratingPhotoUrl: string | null;
   };
+  electricityPaisePerKwh: number | null;
   devices: DeviceInfo[];
   estimate: {
     onHours: number; units: number; costPaise: number;
@@ -252,6 +253,7 @@ function SurveyDialog({ store, onClose, onSaved }: {
   const [watts, setWatts] = useState(store.screen?.watts?.toString() ?? '');
   const [plateUrl,  setPlateUrl]  = useState(store.screen?.platePhotoUrl ?? '');
   const [ratingUrl, setRatingUrl] = useState(store.screen?.ratingPhotoUrl ?? '');
+  const [rupeesPerUnit, setRupeesPerUnit] = useState((store.electricityPaisePerKwh ? store.electricityPaisePerKwh / 100 : '').toString());
   const [busy,   setBusy]   = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -286,10 +288,11 @@ function SurveyDialog({ store, onClose, onSaved }: {
           screenWatts: watts.trim() ? Number(watts) : null,
           screenPlatePhotoUrl:  plateUrl  || null,
           screenRatingPhotoUrl: ratingUrl || null,
+          storeElectricityPaisePerKwh: rupeesPerUnit.trim() ? Math.round(Number(rupeesPerUnit) * 100) : null,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      toast({ title: 'Screen survey saved ✓', description: watts.trim() ? 'Estimates now use the real wattage.' : 'No wattage recorded — still on the fleet default.' });
+      toast({ title: 'Screen survey saved ✓' });
       onSaved();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Save failed', description: (e as Error).message });
@@ -337,6 +340,12 @@ function SurveyDialog({ store, onClose, onSaved }: {
             <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Power rating (W)</label>
             <input type="number" min={1} max={1000} value={watts} onChange={(e) => setWatts(e.target.value)} placeholder="e.g. 65"
               className="w-28 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">₹ per unit (kWh) — optional</label>
+            <input type="number" min={0.01} step={0.01} value={rupeesPerUnit} onChange={(e) => setRupeesPerUnit(e.target.value)} placeholder="Leave blank for fleet default"
+              className="w-28 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
+            <p className="mt-1 text-[10px] text-muted-foreground">Store-specific electricity tariff. Leave blank to use the fleet default.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -40,6 +40,13 @@ export async function estimateStorePower(
 
   const { defaultWatts, paisePerKwh } = await getPowerSettings();
 
+  // Fetch per-store electricity rates (falls back to global if null)
+  const storeRates = await db.store.findMany({
+    where:  { id: { in: stores.map((s) => s.id) } },
+    select: { id: true, electricityPaisePerKwh: true },
+  });
+  const rateByStoreId = new Map(storeRates.map((s) => [s.id, s.electricityPaisePerKwh]));
+
   const devices = await db.device.findMany({
     where:  { storeId: { in: stores.map((s) => s.id) } },
     select: { id: true, storeId: true },
@@ -92,11 +99,13 @@ export async function estimateStorePower(
   }
 
   for (const s of stores) {
+    const storeRate = rateByStoreId.get(s.id) ?? null;
+    const effectiveRate = storeRate ?? paisePerKwh;
     out.set(s.id, estimatePower({
       buckets:      byStore.get(s.id) ?? [],
       storeWatts:   s.screenWatts,
       defaultWatts,
-      paisePerKwh,
+      paisePerKwh:  effectiveRate,
       meteredWatts: meteredByStore.get(s.id) ?? null,
     }));
   }

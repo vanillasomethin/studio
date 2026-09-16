@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
         id: true, storeName: true, city: true,
         screenWatts: true, screenModel: true, screenSurveyedAt: true,
         screenPlatePhotoUrl: true, screenRatingPhotoUrl: true,
+        electricityPaisePerKwh: true,
         devices: {
           select: {
             id: true, name: true, status: true, lastSeen: true,
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
             platePhotoUrl:  s.screenPlatePhotoUrl,
             ratingPhotoUrl: s.screenRatingPhotoUrl,
           },
+          electricityPaisePerKwh: s.electricityPaisePerKwh,
           devices: s.devices.map((d) => ({
             ...d, lastSeen: d.lastSeen?.toISOString() ?? null,
           })),
@@ -81,13 +83,14 @@ export async function GET(req: NextRequest) {
 }
 
 type PatchBody = {
-  storeId?:              string;
-  screenWatts?:          number | null;
-  screenModel?:          string | null;
-  screenPlatePhotoUrl?:  string | null;
-  screenRatingPhotoUrl?: string | null;
-  defaultScreenWatts?:     number;
-  electricityPaisePerKwh?: number;
+  storeId?:                    string;
+  screenWatts?:                number | null;
+  screenModel?:                string | null;
+  screenPlatePhotoUrl?:        string | null;
+  screenRatingPhotoUrl?:       string | null;
+  storeElectricityPaisePerKwh?: number | null; // per-store tariff
+  defaultScreenWatts?:         number;
+  electricityPaisePerKwh?:     number; // fleet-level tariff
 };
 
 export async function PATCH(req: NextRequest) {
@@ -126,6 +129,10 @@ export async function PATCH(req: NextRequest) {
         (!Number.isInteger(body.screenWatts) || body.screenWatts < 1 || body.screenWatts > 1000)) {
       return NextResponse.json({ error: 'screenWatts must be 1–1000 (or null to use the fleet default)' }, { status: 400 });
     }
+    if (body.storeElectricityPaisePerKwh != null &&
+        (!Number.isInteger(body.storeElectricityPaisePerKwh) || body.storeElectricityPaisePerKwh < 1 || body.storeElectricityPaisePerKwh > 10_000)) {
+      return NextResponse.json({ error: 'storeElectricityPaisePerKwh must be 1–10000 (paise per unit), or null to use the fleet default' }, { status: 400 });
+    }
 
     const surveyed = body.screenWatts != null || body.screenModel
       || body.screenPlatePhotoUrl || body.screenRatingPhotoUrl;
@@ -133,15 +140,17 @@ export async function PATCH(req: NextRequest) {
     const store = await db.store.update({
       where: { id: body.storeId },
       data: {
-        ...(body.screenWatts          !== undefined ? { screenWatts:          body.screenWatts }          : {}),
-        ...(body.screenModel          !== undefined ? { screenModel:          body.screenModel }          : {}),
-        ...(body.screenPlatePhotoUrl  !== undefined ? { screenPlatePhotoUrl:  body.screenPlatePhotoUrl }  : {}),
-        ...(body.screenRatingPhotoUrl !== undefined ? { screenRatingPhotoUrl: body.screenRatingPhotoUrl } : {}),
+        ...(body.screenWatts                  !== undefined ? { screenWatts:                  body.screenWatts }                  : {}),
+        ...(body.screenModel                  !== undefined ? { screenModel:                  body.screenModel }                  : {}),
+        ...(body.screenPlatePhotoUrl          !== undefined ? { screenPlatePhotoUrl:          body.screenPlatePhotoUrl }          : {}),
+        ...(body.screenRatingPhotoUrl         !== undefined ? { screenRatingPhotoUrl:         body.screenRatingPhotoUrl }         : {}),
+        ...(body.storeElectricityPaisePerKwh !== undefined ? { electricityPaisePerKwh:       body.storeElectricityPaisePerKwh } : {}),
         ...(surveyed ? { screenSurveyedAt: new Date() } : {}),
       },
       select: {
         id: true, screenWatts: true, screenModel: true, screenSurveyedAt: true,
         screenPlatePhotoUrl: true, screenRatingPhotoUrl: true,
+        electricityPaisePerKwh: true,
       },
     });
     return NextResponse.json({ store });
