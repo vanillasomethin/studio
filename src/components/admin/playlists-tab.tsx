@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2, ListVideo, Plus, Trash2, AlertCircle, Film, ImageIcon, GripVertical, X, Check } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getPlaylists, createPlaylist, updatePlaylist, deletePlaylist, getContent, type Playlist, type Content } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 
@@ -329,13 +330,27 @@ export default function PlaylistsTab() {
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={item.url} alt="" className="h-9 w-14 object-cover rounded-lg bg-muted shrink-0" />
                     ) : (
-                      <video
-                        src={item.url}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        className="h-9 w-14 object-cover rounded-lg bg-purple-500/10 shrink-0"
-                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <video
+                            src={item.url}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="h-9 w-14 object-cover rounded-lg bg-purple-500/10 shrink-0 cursor-pointer"
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="w-auto p-0 border-0 bg-transparent shadow-none" asChild>
+                          <div className="rounded-lg border border-border overflow-hidden bg-black/90 shadow-lg">
+                            <video
+                              src={item.url}
+                              controls
+                              autoPlay
+                              className="max-w-xs max-h-64 rounded-lg"
+                            />
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                     <p className="flex-1 text-xs font-semibold text-foreground truncate">
                       {item.name}

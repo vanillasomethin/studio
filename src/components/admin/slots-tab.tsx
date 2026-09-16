@@ -16,6 +16,7 @@ import {
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { SLOT_TIERS, SLOT_TIER_RATE_RUPEES, type SlotTier } from '@/lib/slot-pricing';
 import { ContentThumb, ContentPickerField, type ContentLike } from './content-picker';
@@ -872,7 +873,27 @@ function StoreSlotSettings({ store, campaigns, fillers, defaultFiller, onClose, 
                             onClick={() => { setFiller(f.id); setFillerPickerOpen(false); }}
                             className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${on ? 'bg-primary/5' : 'hover:bg-muted/20'}`}
                           >
-                            <ContentThumb content={f.content} className="h-8 w-12" />
+                            {f.content && f.content.type === 'video' ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div>
+                                    <ContentThumb content={f.content} className="h-8 w-12" />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="w-auto p-0 border-0 bg-transparent shadow-none" asChild>
+                                  <div className="rounded-lg border border-border overflow-hidden bg-black/90 shadow-lg">
+                                    <video
+                                      src={f.content.url}
+                                      controls
+                                      autoPlay
+                                      className="max-w-xs max-h-64 rounded-lg"
+                                    />
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <ContentThumb content={f.content} className="h-8 w-12" />
+                            )}
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[11px] font-semibold text-foreground">{f.name}{!f.active ? ' (off)' : ''}</span>
                               <span className="block text-[9px] text-muted-foreground">
