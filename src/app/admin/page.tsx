@@ -1220,11 +1220,6 @@ function StoresPanel() {
                     )}
                   </div>
                   <div className="absolute right-3 top-3 flex items-center gap-1.5">
-                    {s.tier === 'premium' && (
-                      <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300">
-                        <Star className="h-2.5 w-2.5" /> Premium
-                      </span>
-                    )}
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${(s.deviceCount ?? 0) > 0 ? 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-white/90 text-gray-500 dark:bg-neutral-800/90 dark:text-neutral-300'}`}>
                       <Tv2 className="h-2.5 w-2.5" /> {s.deviceCount ?? 0} screen{(s.deviceCount ?? 0) !== 1 ? 's' : ''}
                     </span>
