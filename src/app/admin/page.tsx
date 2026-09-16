@@ -53,6 +53,7 @@ import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { AdminTour } from '@/components/admin/admin-tour';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
 import { SLOT_TIERS, SLOT_TIER_LABEL, SLOT_TIER_RATE_RUPEES } from '@/lib/slot-pricing';
+import { extractGpsFromFile } from '@/lib/exif-gps';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -637,19 +638,32 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
   const upload = async (file: File) => {
     setBusy(true); setError(null);
     try {
-      // Fix and downscale run together: the GPS lookup is usually done by the
-      // time the canvas has re-encoded, so ops waits for neither.
-      const fixP = currentFix();
+      // Extract GPS from EXIF first, fall back to device geolocation.
+      // GPS is read from the original file's EXIF before re-encoding, so
+      // losing EXIF in the downscale costs nothing.
+      const exifP = extractGpsFromFile(file);
       const blob = await prepareUpload(file);
-      const fix  = await fixP;
+      let coords = await exifP;
+      let source: 'exif' | 'device' | null = null;
+
+      if (!coords) {
+        // No EXIF GPS — use device location as fallback
+        const fix = await currentFix();
+        if (fix) {
+          coords = fix;
+          source = 'device';
+        }
+      } else {
+        source = 'exif';
+      }
 
       const fd = new FormData();
       fd.append('file', blob, `${kind}.jpg`);
       fd.append('kind', kind);
-      if (fix) {
-        fd.append('lat', String(fix.lat));
-        fd.append('lng', String(fix.lng));
-        fd.append('source', 'device');
+      if (coords) {
+        fd.append('lat', String(coords.lat));
+        fd.append('lng', String(coords.lng));
+        fd.append('source', source);
       }
       const pw   = sessionStorage.getItem(SS_PW) ?? '';
       const res  = await fetch(`/api/admin/stores/${storeId}/photo`, { method: 'POST', headers: { 'admin-password': pw }, body: fd });
@@ -668,7 +682,7 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
           url:    body.url,
           lat:    body.lat ?? null,
           lng:    body.lng ?? null,
-          source: body.lat != null ? 'device' : null,
+          source: body.lat != null ? source : null,
           at:     body.at ?? null,
         }),
         ...(body.storeLat != null && body.storeLng != null ? { lat: body.storeLat, lng: body.storeLng } : {}),
