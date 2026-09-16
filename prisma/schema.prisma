@@ -182,6 +182,12 @@ model ProspectLocation {
   lng       Float
   locality  String?
   city      String?
+  pincode   String?
+  address   String?
+  /// Shop owner's name and phone, when ops has already spoken to them —
+  /// optional, since most prospects start as a pin dropped from the street.
+  ownerName String?
+  phone     String?
   /// Free-text observations: footfall, who owns it, what was said.
   notes     String?
   /// scouting | contacted | negotiating | rejected | converted
@@ -195,7 +201,28 @@ model ProspectLocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  requests  ProspectRequest[]
+
   @@index([status])
+  @@index([createdAt])
+}
+
+/// A brand clicking a "Potential" pin on /advertise and asking ALIVE to onboard
+/// it — not a full campaign estimate (BrandEnquiry's shape: agreement version,
+/// slot math, store-slug allowlist), just "we'd want a screen here", so sales
+/// knows which greyed-out spots to prioritise scouting. Public write, admin-only
+/// read — same visibility split as an enquiry.
+model ProspectRequest {
+  id            String   @id @default(cuid())
+  prospectId    String
+  prospect      ProspectLocation @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  brandName     String
+  contactPerson String
+  phone         String
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([prospectId])
   @@index([createdAt])
 }
 

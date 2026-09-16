@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import {
   getDevices, updateDevice, bulkUpdateDevices, bulkPushSchedule, getDeviceGroups, getPlaylists,
-  searchStores, forceSyncDevice, sendDeviceCommand, confirmPairing, uploadStorePhoto,
+  searchStores, forceSyncDevice, sendDeviceCommand, confirmPairing, uploadStorePhoto, getSlotAvailability,
   type Device, type DeviceGroup, type StoreSearchResult, type Playlist,
 } from '@/lib/backend-api';
 import ScreenTestButton from './screen-test-button';
@@ -832,7 +832,13 @@ const RAIL_TONE: Record<Device['status'], string> = {
 };
 
 // ─── Main tab ────────────────────────────────────────────────────────────────
-export default function ScreensTab() {
+const istTodayStr = () => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+
+export default function ScreensTab({ focusDeviceId, onFocusHandled, onViewSlotLoop }: {
+  focusDeviceId?: string | null;
+  onFocusHandled?: () => void;
+  onViewSlotLoop?: (storeId: string) => void;
+} = {}) {
   const [devices,    setDevices]    = useState<Device[]>([]);
   const [total,      setTotal]      = useState(0);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -862,8 +868,26 @@ export default function ScreensTab() {
   const [showFilters,  setShowFilters]  = useState(false);
   const [sortKey,      setSortKey]      = useState<SortKey>('problems');
   const [expanded,     setExpanded]     = useState<Set<string>>(new Set());
+  // Today's sold/capacity per store, so a slot-mode card can show occupancy
+  // without an operator leaving Screens for Programming → Slots.
+  const [slotOcc,      setSlotOcc]      = useState<Map<string, { sold: number; capacity: number } | null>>(new Map());
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const today = istTodayStr();
+    getSlotAvailability(today, today)
+      .then((r) => {
+        const map = new Map<string, { sold: number; capacity: number } | null>();
+        for (const s of r?.stores ?? []) {
+          if (s.loopSlotCount == null) continue;
+          const soldToday = s.sold?.[today] ?? null;
+          map.set(s.id, soldToday == null ? null : { sold: soldToday, capacity: s.loopSlotCount });
+        }
+        setSlotOcc(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const loadGroups = useCallback(() => {
     getDeviceGroups().then((r) => setAllGroups(Array.isArray(r) ? r : [])).catch(() => {});
@@ -898,6 +922,17 @@ export default function ScreensTab() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusF, groupF, linkedF]);
+
+  // Arriving from Overview's "screen network" feed: jump straight to that
+  // device, pre-expanded, instead of leaving the operator to find it again
+  // in a 4-column grid.
+  useEffect(() => {
+    if (!focusDeviceId) return;
+    setSearch(focusDeviceId);
+    setExpanded((prev) => new Set(prev).add(focusDeviceId));
+    onFocusHandled?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDeviceId]);
 
   const goNext = () => { if (nextCursor) fetchPage(nextCursor); };
   const goPrev = () => {
@@ -1321,7 +1356,7 @@ export default function ScreensTab() {
 
                       <div className="px-3.5 py-3">
                         <div className="flex items-center gap-1.5">
-                          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{friendlyDeviceLabel(d)}</p>
+                          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={d.linkedStoreName ? 'Linked store name — this screen also has its own device label below.' : "This screen's own device label — it isn't linked to a store yet."}>{friendlyDeviceLabel(d)}</p>
                           <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
                         </div>
                         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
@@ -1356,16 +1391,42 @@ export default function ScreensTab() {
                     {open && (
                       <div className="border-t border-border/60">
                         <div className="grid grid-cols-2 divide-x divide-y divide-border/60">
-                          <div className="px-4 py-2.5">
+                          <div className={d.slotMode ? 'col-span-2 px-4 py-2.5' : 'px-4 py-2.5'}>
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><CalendarDays className="h-2.5 w-2.5" />Schedule</p>
-                            {d.slotMode ? (
-                              <><p className="truncate text-[11px] font-semibold text-primary">Slot loop</p><p className="truncate text-[10px] text-muted-foreground">Schedules ignored while slots play</p></>
-                            ) : sched ? (<><p className="truncate text-[11px] font-semibold text-foreground">{sched.name}</p>{sched.playlistName && <p className="truncate text-[10px] text-muted-foreground">{sched.playlistName}</p>}</>) : <p className="text-[11px] italic text-muted-foreground/50">No active schedule</p>}
+                            {d.slotMode ? (() => {
+                              const occ = d.storeId ? slotOcc.get(d.storeId) : undefined;
+                              return (
+                                <>
+                                  {occ === null ? (
+                                    <p className="text-[11px] italic text-muted-foreground/50">Store closed today — slots don't play</p>
+                                  ) : occ ? (
+                                    <>
+                                      <p className="truncate text-[11px] font-semibold text-primary">{occ.sold}/{occ.capacity} slots sold today</p>
+                                      {/* Colour and shape, not a bare count — a filled square per sold slot. */}
+                                      <div className="mt-1 flex flex-wrap gap-0.5">
+                                        {Array.from({ length: occ.capacity }).map((_, i) => (
+                                          <span key={i} className={`h-2 w-2 rounded-sm border ${i < occ.sold ? 'border-red-300 bg-red-400' : 'border-green-300 bg-green-100'}`} />
+                                        ))}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <p className="truncate text-[11px] font-semibold text-primary">Slot loop</p>
+                                  )}
+                                  {onViewSlotLoop && d.storeId && (
+                                    <button onClick={() => onViewSlotLoop(d.storeId!)} className="mt-1.5 text-[10px] font-semibold text-primary hover:underline">
+                                      View full slot loop, what's playing now →
+                                    </button>
+                                  )}
+                                </>
+                              );
+                            })() : sched ? (<><p className="truncate text-[11px] font-semibold text-foreground">{sched.name}</p>{sched.playlistName && <p className="truncate text-[10px] text-muted-foreground">{sched.playlistName}</p>}</>) : <p className="text-[11px] italic text-muted-foreground/50">No active schedule</p>}
                           </div>
+                          {!d.slotMode && (
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Clock className="h-2.5 w-2.5" />Ends at</p>
                             <p className="text-[11px] text-foreground">{sched ? fmtDate(sched.endsAt) : '—'}</p>
                           </div>
+                          )}
                           <div className="px-4 py-2.5">
                             <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground"><Play className="h-2.5 w-2.5" />Last play</p>
                             <p className="text-[11px] text-foreground">{d.lastPlayAt ? timeSince(d.lastPlayAt) : '—'}</p>
@@ -1383,7 +1444,20 @@ export default function ScreensTab() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2.5">
-                          <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />
+                          <div className="min-w-0">
+                            <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground" title="This screen's own admin-set label — separate from the business name of the store it's linked to.">
+                              <Tv2 className="h-2.5 w-2.5" />Device label
+                            </p>
+                            <RenameField device={d} onSave={(updated) => setDevices((prev) => prev.map((x) => x.id === updated.id ? { ...x, storeName: updated.storeName, groupName: updated.groupName } : x))} />
+                          </div>
+                          {d.linkedStoreName && d.linkedStoreName !== d.storeName && (
+                            <div className="min-w-0">
+                              <p className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground" title="The business name of the store this screen is linked to.">
+                                <Store className="h-2.5 w-2.5" />Linked store
+                              </p>
+                              <p className="truncate text-sm font-bold text-foreground">{d.linkedStoreName}</p>
+                            </div>
+                          )}
                           <div className="flex-1" />
                           <button onClick={() => setLinkIds([d.id])} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
                             <Link2 className="h-3 w-3" /> {d.storeId ? 'Change store' : 'Link store'}

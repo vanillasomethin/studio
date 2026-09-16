@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus, Building2 } from 'lucide-react';
+import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, Tag, FolderOpen, Plus, Building2, Maximize2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { ContentThumb } from '@/components/admin/content-picker';
 import { getContent, getBrands, deleteContent, updateContentMeta, type Content, type AdminBrand } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 import { describeSlotFit, slotFitMessage } from '@/lib/slots';
@@ -53,6 +54,7 @@ export default function ContentTab() {
   // Sticky across a multi-file drop: set it once, every file in the batch lands on
   // that brand instead of needing to be tagged one by one afterwards.
   const [uploadBrand,  setUploadBrand]  = useState('');
+  const [previewId,    setPreviewId]    = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reload = () => {
@@ -370,15 +372,18 @@ export default function ContentTab() {
             <tbody className="divide-y divide-border">
               {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-3 w-10">
-                    {c.type === 'image' ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.url} alt="" className="h-8 w-12 object-cover rounded-lg bg-muted" />
-                    ) : (
-                      <div className="flex h-8 w-12 items-center justify-center rounded-lg bg-purple-500/10">
-                        <Film className="h-4 w-4 text-purple-600" />
-                      </div>
-                    )}
+                  <td className="px-4 py-3 w-24">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewId(c.id)}
+                      title="Preview"
+                      className="group/thumb relative block overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
+                    >
+                      <ContentThumb content={c} className="h-14 w-20" />
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover/thumb:bg-black/30 group-hover/thumb:opacity-100">
+                        <Maximize2 className="h-3.5 w-3.5 text-white drop-shadow" />
+                      </span>
+                    </button>
                   </td>
                   <td className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate">{c.name}</td>
                   <td className="px-4 py-3 max-w-[140px]">
@@ -523,6 +528,36 @@ export default function ContentTab() {
           </table>
         </div>
       )}
+
+      {previewId && (() => {
+        const c = content.find((x) => x.id === previewId);
+        if (!c) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setPreviewId(null)}>
+            <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-foreground">{c.name}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {c.type} · {fmtBytes(c.sizeBytes)}{c.width && c.height ? ` · ${c.width}×${c.height}` : ''}
+                  </p>
+                </div>
+                <button onClick={() => setPreviewId(null)} className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex max-h-[70vh] items-center justify-center bg-black/90 p-2">
+                {c.type === 'image' ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.url} alt={c.name} className="max-h-[65vh] w-auto max-w-full rounded-lg object-contain" />
+                ) : (
+                  <video src={c.url} controls autoPlay className="max-h-[65vh] w-auto max-w-full rounded-lg" />
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Loader2, AlertCircle, Plus, Trash2, Star, Check, X, Film, ListVideo, Power,
+  Loader2, AlertCircle, Plus, Trash2, Star, Check, X, Film, ListVideo, Power, Info, ArrowRight,
 } from 'lucide-react';
 import { ContentThumb, ContentPickerField, type ContentLike } from './content-picker';
 import { PlaylistPickerField } from './playlist-picker';
@@ -42,7 +42,7 @@ const SLOT_MS = 10_000;
 const isOneSlot = (ms: number | null | undefined) =>
   typeof ms === 'number' && ms > 0 && Math.ceil(ms / SLOT_MS) === 1;
 
-export default function FillersTab() {
+export default function FillersTab({ onNav }: { onNav?: (tab: string) => void } = {}) {
   const [fillers,   setFillers]   = useState<Filler[]>([]);
   const [content,   setContent]   = useState<ContentRow[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistRow[]>([]);
@@ -140,6 +140,29 @@ export default function FillersTab() {
         </button>
       </div>
 
+      {/* This is the #1 point of confusion: there is no day/time schedule here at
+          all — that's Programming → Schedules, a different system entirely for
+          stores playing Playlists rather than slots. A filler only ever reaches a
+          screen two ways, both explained up front instead of in a footnote. */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="text-[11px] leading-relaxed text-muted-foreground">
+          <strong className="text-foreground">This isn&apos;t scheduled by day or time.</strong> A filler reaches a screen
+          one of two ways: mark it the <strong className="text-foreground">fleet default</strong> below — it then plays
+          in every unsold slot position, fleet-wide — or a specific store can be set to use a different filler instead,
+          in Programming → Slots → that store&apos;s settings. (Looking to schedule a playlist onto screens by day/time
+          instead? That&apos;s Programming → Schedules — a separate system for stores not in slot mode.)
+          {onNav && (
+            <button
+              onClick={() => onNav('slots')}
+              className="ml-1.5 inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+            >
+              Go to Slot settings <ArrowRight className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* The one failure that matters: no usable default means unsold positions
           have nothing to play, which is the outcome the loop exists to prevent. */}
       {nothingPlayable && (
@@ -213,8 +236,9 @@ export default function FillersTab() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      {f.content && <ContentThumb content={f.content} className="h-6 w-9" />}
+                    <p className="mt-1.5 flex items-start gap-2.5 text-[11px] text-muted-foreground">
+                      {f.content && <ContentThumb content={f.content} className="h-12 w-20 shrink-0" />}
+                      <span className="pt-0.5">
                       {f.content
                         ? <>Single creative · <span className="text-foreground">{f.content.name}</span>
                             {!isOneSlot(f.content.durationMs) && <span className="ml-1 text-amber-600">(longer than one slot)</span>}</>
@@ -222,6 +246,7 @@ export default function FillersTab() {
                           ? <>Playlist · <span className="text-foreground">{f.playlist.name}</span> · {f.playlist.itemCount} item{f.playlist.itemCount === 1 ? '' : 's'} rotating</>
                           : 'Nothing attached yet'}
                       {f.storeCount > 0 && <> · {f.storeCount} store{f.storeCount === 1 ? '' : 's'} pick this one</>}
+                      </span>
                     </p>
                   </div>
 
@@ -288,7 +313,6 @@ export default function FillersTab() {
       )}
 
       <p className="text-[11px] text-muted-foreground">
-        A store can override the fleet default in <strong className="text-foreground">Programming → Slots → store settings</strong>.
         Setting one of the two pickers above clears the other — a filler plays a single creative or a playlist, never both.
       </p>
     </div>

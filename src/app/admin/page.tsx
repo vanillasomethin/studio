@@ -48,6 +48,7 @@ const TeamTab          = dynamic(() => import('@/components/admin/team-tab'),   
 const StorePlugPanel   = dynamic(() => import('@/components/admin/store-plug-panel'),    { ssr: false });
 const MapPicker        = dynamic(() => import('@/components/map-picker'),                { ssr: false });
 import { Logo } from '@/components/icons/logo';
+import { StoreDealsQr, dealsUrl } from '@/components/store-deals-qr';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { AdminTour } from '@/components/admin/admin-tour';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
@@ -964,6 +965,7 @@ function StoresPanel() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [saving,   setSaving]   = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [qrFor, setQrFor] = useState<StoreReg | null>(null);
   // Rejected save, shown on the card it belongs to. The install gate answers 409
   // with the exact list of what ops still has to collect — far more actionable
   // than one sentence in an alert() they have to dismiss before they can act.
@@ -1284,6 +1286,14 @@ function StoresPanel() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => setQrFor(s)}
+                        title="This store's deals QR code — scan or click through to see its offers"
+                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                      >
+                        <QrCode className="h-3 w-3" /> Deals QR
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void deleteStore(s.id, s.storeName)}
                         disabled={deleting === s.id}
                         className="ml-auto flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/15"
@@ -1454,6 +1464,27 @@ function StoresPanel() {
             );
           })}
         </motion.div>
+      )}
+
+      {qrFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setQrFor(null)}>
+          <div className="w-full max-w-xs rounded-2xl border border-border bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-bold text-foreground">{qrFor.storeName}</p>
+              <button onClick={() => setQrFor(null)} className="rounded-lg border border-border p-1 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+            </div>
+            <p className="mb-3 text-[11px] text-muted-foreground">
+              Scan, or click through from the site, to see this store's deals and what ALIVE is.
+              Print it near the till — the same code works for every store, no per-store setup.
+            </p>
+            <div className="flex justify-center">
+              <StoreDealsQr storeId={qrFor.id} storeName={qrFor.storeName} size={160} />
+            </div>
+            <a href={dealsUrl(qrFor.id)} target="_blank" rel="noreferrer" className="mt-3 block truncate text-center text-[10px] text-muted-foreground hover:text-primary">
+              {dealsUrl(qrFor.id)}
+            </a>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1791,7 +1822,7 @@ function KpiRow({ stats, onNav }: { stats: OpsStats | null; onNav: (t: Tab) => v
 
 type DeviceRow2 = { id: string; name?: string; storeName?: string; status: string; lastSeen?: string | null; locality?: string | null };
 
-function DeviceFeedCard({ devices }: { devices: DeviceRow2[] }) {
+function DeviceFeedCard({ devices, onSelect }: { devices: DeviceRow2[]; onSelect: (id: string) => void }) {
   const [filter, setFilter] = useState('all');
   const filtered = filter === 'all' ? devices : devices.filter((d) => d.status.toUpperCase() === filter.toUpperCase());
   const online  = devices.filter((d) => d.status === 'ONLINE').length;
@@ -1838,7 +1869,15 @@ function DeviceFeedCard({ devices }: { devices: DeviceRow2[] }) {
       </div>
       <div className="feed">
         {filtered.slice(0, 10).map((d) => (
-          <div key={d.id} className="feed-item">
+          <div
+            key={d.id}
+            className="feed-item"
+            role="button"
+            tabIndex={0}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onSelect(d.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(d.id); } }}
+          >
             <span className={statusDot(d.status)}></span>
             <div className="feed-item__main">
               <div className="feed-item__name">{d.storeName || d.name || d.id.slice(0, 8)}{d.locality ? <span className="feed-item__area"> · {d.locality}</span> : null}</div>
@@ -2074,7 +2113,7 @@ function SidebarNav({ tab, onTab, onSignOut, liveCount, email, collapsed, onTogg
   return (
     <aside className={`sb${collapsed ? ' sb--collapsed' : ''}`}>
       <div className="sb__logo">
-        {!collapsed && <Logo />}
+        {!collapsed && <Logo size={22} />}
         <button
           className="sb__collapse-btn"
           onClick={onToggleCollapsed}
@@ -2260,7 +2299,7 @@ function Topbar({ tab, section, liveCount, onOpenCmd, onOpenNotif, onNav, onOpen
 
 // ─── Overview Panel ───────────────────────────────────────────────────────────
 
-function OverviewPanel({ onNav, onOpenTour }: { onNav: (t: Tab) => void; onOpenTour: () => void }) {
+function OverviewPanel({ onNav, onOpenTour, onSelectDevice }: { onNav: (t: Tab) => void; onOpenTour: () => void; onSelectDevice: (id: string) => void }) {
   const [stats,   setStats]   = useState<OpsStats | null>(null);
   const [devices, setDevices] = useState<DeviceRow2[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2328,7 +2367,7 @@ function OverviewPanel({ onNav, onOpenTour }: { onNav: (t: Tab) => void; onOpenT
       <KpiRow stats={stats} onNav={onNav} />
 
       <SectionLabel n={2} label="Network" />
-      <DeviceFeedCard devices={devices} />
+      <DeviceFeedCard devices={devices} onSelect={onSelectDevice} />
 
       <SectionLabel n={3} label="Store app" />
       <AppPreviewCard />
@@ -2423,7 +2462,7 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo size={22} /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1">Admin</p>
           <h1 className="text-3xl font-bold text-foreground">
             {mode === 'account' ? 'Sign in' : 'Get a sign-in link'}
@@ -2549,7 +2588,7 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-sm space-y-6">
           <div>
-            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+            <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo size={22} /></a>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1 flex items-center gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5" /> Save your recovery codes
             </p>
@@ -2606,7 +2645,7 @@ function MfaEnrolment({ email, onDone }: { email: string | null; onDone: () => v
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo /></a>
+          <a href="/" className="opacity-70 hover:opacity-100 transition-opacity inline-block mb-8"><Logo size={22} /></a>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary mb-1 flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5" /> Set up 2FA
           </p>
@@ -2684,6 +2723,8 @@ function Dashboard({ email }: { email: string | null }) {
   // same offline screen.
   const [offlineAlertCount, setOfflineAlertCount] = useState(0);
   const [tickerStats, setTickerStats] = useState<OpsStats | null>(null);
+  const [focusDeviceId, setFocusDeviceId] = useState<string | null>(null);
+  const [focusStoreId,  setFocusStoreId]  = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Prefetch alert count + live network stats for the ticker
@@ -2755,6 +2796,8 @@ function Dashboard({ email }: { email: string | null }) {
   }, []);
 
   const handleNav = (t: Tab) => { setTab(t); setSidebarOpen(false); };
+  const selectDevice = (id: string) => { setFocusDeviceId(id); handleNav('screens'); };
+  const viewSlotLoop = (storeId: string) => { setFocusStoreId(storeId); handleNav('slots'); };
   // Stable identity so OfflineAlertWatcher's effect doesn't re-subscribe (and
   // re-prime, losing its seen-set) on every render of this shell.
   const openAlertsTab = useCallback(() => { setTab('alerts'); setSidebarOpen(false); }, []);
@@ -2838,7 +2881,7 @@ function Dashboard({ email }: { email: string | null }) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18 }}
             >
-              {tab === 'overview'   && <OverviewPanel onNav={handleNav} onOpenTour={() => setTourOpen(true)} />}
+              {tab === 'overview'   && <OverviewPanel onNav={handleNav} onOpenTour={() => setTourOpen(true)} onSelectDevice={selectDevice} />}
               {tab === 'flyers'     && (
                 <div className="grid-2">
                   <div className="space-y-4">
@@ -2859,14 +2902,14 @@ function Dashboard({ email }: { email: string | null }) {
               {tab === 'coupons'    && <CouponsTab />}
               {tab === 'enquiries'  && <EnquiriesTab />}
               {tab === 'team'       && <TeamTab />}
-              {tab === 'screens'    && <ScreensTab />}
+              {tab === 'screens'    && <ScreensTab focusDeviceId={focusDeviceId} onFocusHandled={() => setFocusDeviceId(null)} onViewSlotLoop={viewSlotLoop} />}
               {tab === 'content'    && <ContentTab />}
               {tab === 'programming'   && <ProgrammingTab />}
-              {tab === 'slots'      && <SlotsTab />}
+              {tab === 'slots'      && <SlotsTab focusStoreId={focusStoreId} onFocusHandled={() => setFocusStoreId(null)} />}
               {tab === 'power'      && <PowerTab />}
               {tab === 'qr'         && <QrTab />}
               {tab === 'prospects' && <ProspectsTab />}
-              {tab === 'fillers'   && <FillersTab />}
+              {tab === 'fillers'   && <FillersTab onNav={(t) => handleNav(t as Tab)} />}
               {tab === 'compositions' && <CompositionsTab />}
               {tab === 'layouts'    && <LayoutsTab />}
               {tab === 'reports'    && <ReportsTab />}

@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
-import { ALIVE_MAP_CSS, createAliveMap, fitToPins } from '@/lib/alive-map';
+import { PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { ALIVE_MAP_CSS, createAliveMap, fitToPins, buildCoverageRings } from '@/lib/alive-map';
 import { LOCALITY_TIP_CSS } from '@/lib/locality-boundaries';
 
 type StoreStatus = 'live' | 'in_progress';
@@ -31,7 +32,7 @@ const PIN = {
 
 const RED = '#dc2626';
 
-type StoreTier = 'standard' | 'growth' | 'flagship';
+export type StoreTier = 'standard' | 'growth' | 'flagship';
 
 // Tier colours stay in the brand family: flagship is the red, growth warms to
 // amber, standard is ink. Grey means onboarded — signed up, screen on its way.
@@ -42,7 +43,7 @@ export const TIER: Record<StoreTier, { label: string; color: string; text: strin
   growth:   { label: 'Growth',   color: '#f59e0b', text: '#b45309', tint: 'rgba(245,158,11,.14)' },
   standard: { label: 'Standard', color: '#111827', text: '#111827', tint: 'rgba(17,24,39,.06)' },
 };
-const ONBOARDED = '#9ca3af';
+export const ONBOARDED = '#9ca3af';
 
 export function coreColor(status: StoreStatus, tier?: StoreTier): string {
   return status === 'live' ? TIER[tier ?? 'standard'].color : ONBOARDED;
@@ -138,43 +139,21 @@ function shopCardHtml(store: StorePin): string {
   );
 }
 
-// A pincode area from /geo/pincode-areas-mangaluru.json — official data.gov.in
-// boundaries, vendored and simplified (see the file's attribution key).
-type AreaFeature = {
-  properties: { Pincode?: string; Office_Name?: string };
-  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] };
-};
-
-// Ray-cast a point against the outer ring(s) of a polygon/multipolygon. Holes
-// are ignored — for "does this shop sit inside this pincode area" that's plenty.
-function areaContains(geom: AreaFeature['geometry'], lat: number, lng: number): boolean {
-  const rings: number[][][] =
-    geom.type === 'Polygon'
-      ? [(geom.coordinates as number[][][])[0]]
-      : (geom.coordinates as number[][][][]).map((poly) => poly[0]);
-  return rings.some((ring) => {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i], [xj, yj] = ring[j];
-      if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  });
-}
-
-// "Kodiyalbail S.O" → "Kodiyalbail" — office-type suffixes are postal jargon,
-// not area names.
-function areaName(f: AreaFeature): string {
-  const office = (f.properties.Office_Name ?? '').replace(/\s+[HSB]\.O\.?$/i, '').trim();
-  return office || f.properties.Pincode || 'Area';
-}
-
 export default function StoreLocationsMap() {
   const mapRef        = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const [stores, setStores] = useState<StorePin[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  // The store list panel steals a fixed 260px from the map — fine on desktop,
+  // but on a phone that leaves the map a sliver a few dozen px wide. Collapsible
+  // everywhere, and the CSS below defaults it collapsed under 720px so a first
+  // visit on a phone sees the map, not the list.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Default collapsed on a phone-width first visit, so the map itself is what
+  // greets someone who opens the site on their phone — not a list eating half
+  // the screen. Runs once; after that the toggle is the operator's own call.
+  useEffect(() => { if (window.innerWidth < 720) setSidebarOpen(false); }, []);
   // Marker effect must re-run once the async init lands, not just when stores
   // change — otherwise stores loaded before the map is ready never get pins.
   const [mapReady, setMapReady] = useState(false);
@@ -304,28 +283,8 @@ export default function StoreLocationsMap() {
       // Rings live in the vector pane under the dots — markers stay clickable —
       // and hovering names the area, not the stores.
       if (zonesRef.current) { zonesRef.current.remove(); zonesRef.current = null; }
-      if (areas?.features?.length) {
-        const claimed = new Set(
-          stores.map((s) => (s.pincode ?? '').trim()).filter((p) => /^\d{6}$/.test(p)),
-        );
-        const zones = (L as any).geoJSON(areas, {
-          filter: (f: AreaFeature) =>
-            (!!f.properties.Pincode && claimed.has(f.properties.Pincode)) ||
-            stores.some((s) => areaContains(f.geometry, s.lat, s.lng)),
-          style: {
-            color: RED, weight: 1, opacity: 0.5, dashArray: '4 4',
-            fillColor: RED, fillOpacity: 0.04,
-          },
-          onEachFeature: (f: AreaFeature, layer: { bindTooltip(content: string, options?: object): void }) => {
-            layer.bindTooltip(
-              `${esc(areaName(f))} · ${esc(f.properties.Pincode ?? '')}`,
-              { sticky: true, direction: 'top', className: 'alive-zone-tip' },
-            );
-          },
-        });
-        zones.addTo(map);
-        zonesRef.current = zones;
-      }
+      const zones = buildCoverageRings(L, areas, stores);
+      if (zones) { zones.addTo(map); zonesRef.current = zones; }
 
       fitToPins(L, map, Array.from(markersRef.current.values()));
     }
@@ -343,21 +302,30 @@ export default function StoreLocationsMap() {
     setSelected(store.id);
   };
 
+  const hasSidebar = stores.length > 0 && sidebarOpen;
+
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: stores.length > 0 ? '1fr 260px' : '1fr',
-      height: 520,
-      borderRadius: 8,
-      overflow: 'hidden',
-      border: '1px solid var(--rule)',
-    }}>
+    <div className={`asm${hasSidebar ? ' asm--sidebar' : ''}`}>
       {/* Map */}
-      <div ref={mapRef} style={{ width: '100%', height: '100%', background: '#f5f5f5' }} />
+      <div className="asm__map-wrap">
+        <div ref={mapRef} style={{ width: '100%', height: '100%', background: '#f5f5f5' }} />
+        {stores.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((v) => !v)}
+            className="asm__toggle"
+            title={sidebarOpen ? 'Hide store list' : 'Show store list'}
+            aria-label={sidebarOpen ? 'Hide store list' : 'Show store list'}
+          >
+            {sidebarOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+            <span>{liveCount + progressCount} store{liveCount + progressCount !== 1 ? 's' : ''}</span>
+          </button>
+        )}
+      </div>
 
       {/* Store sidebar */}
-      {stores.length > 0 && (
-        <div style={{ background: '#fff', borderLeft: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {hasSidebar && (
+        <div className="asm__sidebar">
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--rule)', flexShrink: 0 }}>
             <p style={{ fontFamily: 'var(--font-dm-mono), monospace', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#dc2626', fontWeight: 600 }}>
               {liveCount} live screen{liveCount !== 1 ? 's' : ''}
@@ -406,6 +374,17 @@ export default function StoreLocationsMap() {
       )}
 
       <style>{`
+        .asm{display:grid;grid-template-columns:1fr;height:520px;border-radius:8px;overflow:hidden;border:1px solid var(--rule);}
+        .asm.asm--sidebar{grid-template-columns:1fr 260px;}
+        .asm__map-wrap{position:relative;width:100%;height:100%;}
+        .asm__sidebar{background:#fff;border-left:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden;}
+        .asm__toggle{position:absolute;top:10px;right:10px;z-index:500;display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;border:1px solid var(--rule);background:rgba(255,255,255,.94);box-shadow:0 2px 8px rgba(0,0,0,.12);font-family:var(--font-dm-mono),monospace;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#111;cursor:pointer;}
+        .asm__toggle:hover{background:#fff;}
+        @media (max-width:720px){
+          .asm{height:420px;}
+          .asm.asm--sidebar{grid-template-columns:1fr;grid-template-rows:1fr 200px;height:640px;}
+          .asm__sidebar{border-left:none;border-top:1px solid var(--rule);}
+        }
         ${SHOP_PIN_CSS}
         ${LOCALITY_TIP_CSS}
         .alive-popup .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:0;overflow:hidden;}

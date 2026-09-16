@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
+import { Logo } from '@/components/icons/logo';
 
 const AliveBeforeAfter    = dynamic(() => import('@/components/interactive/alive-before-after'),    { ssr: false });
 const StoreLocationsMap   = dynamic(() => import('@/components/sections/store-locations-map'),   { ssr: false });
@@ -18,10 +19,10 @@ const ROMAN_YEAR = (() => {
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
 
-const HERO_STATES: { state: HeroState; href: string; img: string; cap: string; loc: string; corner: string; icon: string; audience: string; label: string }[] = [
-  { state: 'brand',    href: '/brand-onboarding', img: '/for-brands.jpg',          cap: 'Reach the shelf, not the feed.',     loc: 'Mumbai · BKC',         corner: 'N°01 · Brand',    icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
-  { state: 'kirana',   href: '/store',             img: '/kirana-best-practice.jpg', cap: 'Earn more from your shelves.',       loc: 'Attavar · Mangalore',  corner: 'N°02 · Kirana',   icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
-  { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         cap: 'Discover your next favorite.',       loc: 'Lajpat Nagar · Delhi', corner: 'N°03 · Consumer', icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
+const HERO_STATES: { state: HeroState; href: string; img: string; icon: string; audience: string; label: string }[] = [
+  { state: 'brand',    href: '/brand-onboarding', img: '/for-brands.jpg',          icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
+  { state: 'kirana',   href: '/store',             img: '/kirana-best-practice.jpg', icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
+  { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
 ];
 
 const CITIES = [
@@ -155,8 +156,6 @@ export default function Home() {
   }, [startAuto, stopAuto]);
   useEffect(() => { resetIdle(); return () => { stopAuto(); if (idleTimerRef.current) clearTimeout(idleTimerRef.current); }; }, [resetIdle, stopAuto]);
 
-  const activeHero = HERO_STATES.find(h => h.state === heroState)!;
-
   return (
     <>
 
@@ -178,7 +177,7 @@ export default function Home() {
       {/* Loader */}
       <div className={`loader${loaded ? ' done' : ''}`} id="loader">
         <div className="loader-inner">
-          <div className="loader-mark">alive<span className="dot" /></div>
+          <div className="loader-mark"><Logo size="inherit" /></div>
           <div className="loader-num">In-store · {ROMAN_YEAR} · Network 027</div>
           <div className="loader-bar" />
         </div>
@@ -186,7 +185,7 @@ export default function Home() {
 
       {/* Nav */}
       <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
-        <a href="#" className="brand">alive<span className="dot" /></a>
+        <a href="#" className="brand"><Logo size="inherit" /></a>
         <ul>
           {/* '/advertise' is the one page link in this list of section anchors —
               the advertiser landing page has no section on the homepage. */}
@@ -259,12 +258,6 @@ export default function Home() {
                   <Image src={mediaUrl(`hero-${h.state}`, h.img, siteMedia)} alt={h.label} fill style={{ objectFit: 'cover' }} sizes="360px" priority={h.state === 'brand'} />
                 </div>
               ))}
-              <div className="corner">{activeHero.corner}</div>
-              <div className="cap">
-                <span className="loc">{activeHero.loc}</span>
-                {activeHero.cap}
-              </div>
-              <div className="alive-tag"><span className="dot" />alive</div>
             </div>
           </div>
         </div>
@@ -391,7 +384,10 @@ export default function Home() {
               One screen above the counter. Drag to see what changes.
             </p>
           </div>
-          <AliveBeforeAfter />
+          <AliveBeforeAfter
+            beforeUrl={siteMedia['before-after-before']}
+            afterUrl={siteMedia['before-after-after']}
+          />
         </div>
       </section>
 
@@ -503,14 +499,14 @@ export default function Home() {
       <footer className="f" ref={footerRef}>
         <div className="top">
           <div className="lead">
-            <h3>alive<span className="dot" /></h3>
+            <h3><Logo size="inherit" /></h3>
             <div className="tagline">Turning kirana visits into discovery moments. Twelve million shelves. One network.</div>
             <a href="#join" className="footer-cta"><span className="dot" />Be Alive With Us</a>
           </div>
           <div className="col">
             <h4>Product</h4>
             <ul>
-              {([['For Brands','/advertise'],['For Kiranas','#'],['For Consumers','#'],['Measurement','#'],['How It Works','#']] as const).map(([l,h]) => <li key={l}><a href={h}>{l}</a></li>)}
+              {([['For Brands','/advertise'],['For Kiranas','/store'],['For Consumers','/deals'],['Measurement','#'],['How It Works','#']] as const).map(([l,h]) => <li key={l}><a href={h}>{l}</a></li>)}
             </ul>
           </div>
           <div className="col">

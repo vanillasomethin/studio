@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { db } from '@/lib/db';
+import { recordError, hashStack } from '@/lib/telemetry';
 
 /** Public-facing status. The internal onboarding stages collapse to two states:
  *  a screen is either playing, or it is on its way. */
@@ -79,7 +81,16 @@ export async function GET() {
           ORDER BY "createdAt" DESC
         `;
         rows = legacy.map((r) => ({ ...r, onboardingStage: 'live', slotPricingTier: 'standard', ...NO_PHOTOS }));
-      } catch {
+      } catch (e3) {
+        // Every fallback failed — the public map would otherwise go blank with
+        // no trail at all. Log it (best-effort; never blocks the response) so a
+        // real outage shows up instead of just looking like "no stores".
+        const err = e3 as Error;
+        void recordError({
+          route: 'GET /api/stores/locations', actorType: 'anonymous',
+          correlationId: randomUUID(), errorClass: err.name ?? 'Error',
+          message: err.message, stackHash: hashStack(err.stack),
+        });
         return NextResponse.json({ stores: [] });
       }
     }

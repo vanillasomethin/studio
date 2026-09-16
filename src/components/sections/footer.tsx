@@ -4,7 +4,7 @@ import { Logo } from '../icons/logo';
 // page behind it exists.
 const footerLinks = [
     { title: "Company", links: [{ label: "About Us", href: "#" }, { label: "Team", href: "#" }, { label: "Careers", href: "#" }] },
-    { title: "Solutions", links: [{ label: "For Brands", href: "/advertise" }, { label: "For Kiranas", href: "#" }, { label: "For Consumers", href: "#" }] },
+    { title: "Solutions", links: [{ label: "For Brands", href: "/advertise" }, { label: "For Kiranas", href: "/store" }, { label: "For Consumers", href: "/deals" }] },
     { title: "Resources", links: [{ label: "Blog", href: "#" }, { label: "Case Studies", href: "#" }, { label: "Help Center", href: "#" }] },
 ];
 
@@ -19,7 +19,7 @@ export default function Footer() {
       <div className="container mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
             <div className="md:col-span-1 space-y-4">
-                <Logo />
+                <Logo size={22} />
                 <p className="text-sm text-muted-foreground">
                     Transforming kirana stores into discovery moments.
                 </p>

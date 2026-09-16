@@ -15,6 +15,11 @@ const MEDIA_SLOTS = [
   { key: 'vessel-consumer', label: 'Audience card — Consumers',   hint: '/india-street.jpg',             section: 'Audience cards' },
   // Product / proof section
   { key: 'product-shot',    label: 'Product shot',                 hint: '/alive-product-shot.png',      section: 'Product section' },
+  // Before/after slider — independent of every slot above; not the same asset system
+  // as the rest of the page (used to read from a hardcoded placeholder list with no
+  // admin control at all).
+  { key: 'before-after-before', label: 'Before / after — Before',  hint: '/alive_before.png',             section: 'Before / after slider' },
+  { key: 'before-after-after',  label: 'Before / after — After',   hint: '/alive_after.png',              section: 'Before / after slider' },
   // Testimonials (4 quotes with headshots) — independent of the hero slots above
   { key: 'testimonial-kirana', label: 'Testimonial — Kirana Owner', hint: '/kirana-best-practice.jpg',   section: 'Testimonials' },
   { key: 'store-shelf',     label: 'Testimonial — Brand Manager',  hint: '/store-shelf.jpg',              section: 'Testimonials' },
@@ -43,12 +48,22 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminPassword]);
 
+  // Throws on any non-2xx — an admin session that expired mid-tab (or any
+  // other server-side failure) must not look like a successful save. Callers
+  // only update local `media` state once this has actually confirmed the
+  // write, so the UI never claims a slot is set when Redis never got it.
   const saveUrl = async (slot: string, url: string) => {
-    await fetch('/api/admin/site-media', {
+    const res = await fetch('/api/admin/site-media', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ slot, url }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(body.error ?? (res.status === 401
+        ? 'Your admin session has expired — sign in again and retry.'
+        : `Save failed (${res.status}).`));
+    }
     setMedia(m => ({ ...m, [slot]: url }));
   };
 
@@ -71,7 +86,10 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
     try {
       // Still worth shrinking oversized photos: these render as page backgrounds, and
       // a 12 MB hero is a slow page for every visitor. Videos pass through untouched.
-      const upload = await compressImageFile(file, { maxEdge: 2400, quality: 0.85 });
+      // 3200px, not 2400 — these slots render `fill` at up to 100vw, and 2400 was
+      // visibly softer than the source on a wide desktop monitor while looking fine
+      // on a phone, where the rendered width never got close to the cap.
+      const upload = await compressImageFile(file, { maxEdge: 3200, quality: 0.88 });
       const ext = upload.name.split('.').pop()?.toLowerCase() ?? 'jpg';
       const key = `site-media/${slot}-${Date.now()}.${ext}`;
       const contentType = upload.type || 'application/octet-stream';
@@ -108,18 +126,29 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
 
   const handlePasteUrl = async () => {
     if (!urlSlot || !urlInput.trim()) return;
-    await saveUrl(urlSlot, urlInput.trim());
-    setUrlSlot(null);
-    setUrlInput('');
+    setError(null);
+    try {
+      await saveUrl(urlSlot, urlInput.trim());
+      setUrlSlot(null);
+      setUrlInput('');
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const resetSlot = async (slot: string) => {
-    await fetch('/api/admin/site-media', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slot, url: '' }),
-    });
-    setMedia(m => { const n = { ...m }; delete n[slot]; return n; });
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/site-media', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot, url: '' }),
+      });
+      if (!res.ok) throw new Error(res.status === 401 ? 'Your admin session has expired — sign in again and retry.' : `Reset failed (${res.status}).`);
+      setMedia(m => { const n = { ...m }; delete n[slot]; return n; });
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const sections = Array.from(new Set(MEDIA_SLOTS.map(s => s.section)));
@@ -164,6 +193,14 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
           {/* Product shot */}
           <div className={`h-12 flex items-center justify-center text-[8px] font-mono border-b border-border/40 ${media['product-shot']?'bg-green-50 text-green-700':'bg-muted/40 text-muted-foreground'}`}>
             product-shot
+          </div>
+          {/* Before / after slider */}
+          <div className="flex border-b border-border/40">
+            {['before-after-before','before-after-after'].map((k, i) => (
+              <div key={k} className={`flex-1 h-12 flex items-center justify-center text-[8px] font-mono ${media[k]?'bg-green-50 text-green-700':'bg-muted/40 text-muted-foreground'} ${i<1?'border-r border-border/40':''}`}>
+                {['before','after'][i]}
+              </div>
+            ))}
           </div>
           {/* Testimonials */}
           <div className="flex">
