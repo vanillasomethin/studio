@@ -52,7 +52,7 @@ import { StoreDealsQr, dealsUrl } from '@/components/store-deals-qr';
 import OfflineAlertWatcher from '@/components/admin/offline-alert-watcher';
 import { AdminTour } from '@/components/admin/admin-tour';
 import { adminGetArray, adminGetObject, adminPw } from '@/lib/admin-fetch';
-import { SLOT_TIERS, SLOT_TIER_LABEL, SLOT_TIER_RATE_RUPEES } from '@/lib/slot-pricing';
+import { SLOT_TIERS, SLOT_TIER_LABEL, SLOT_TIER_RATE_RUPEES, isSlotTier } from '@/lib/slot-pricing';
 import { extractGpsFromFile } from '@/lib/exif-gps';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1241,20 +1241,19 @@ function StoresPanel() {
                 </div>
 
                 <div className="p-4">
-                  {/* Tier badge */}
-                  {!s.tier || s.tier === 'standard' || s.tier === 'growth' || s.tier === 'flagship' ? (
-                    <div className="mb-3">
-                      <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[10px] font-bold shadow-sm ${
-                        s.tier === 'flagship'
-                          ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300'
-                          : s.tier === 'growth'
-                            ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300'
-                            : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-500/30 dark:bg-gray-500/15 dark:text-gray-300'
-                      }`}>
-                        {s.tier ? s.tier.charAt(0).toUpperCase() + s.tier.slice(1) : 'Standard'}
-                      </span>
-                    </div>
-                  ) : null}
+                  {/* The store's category, from slotPricingTier — NOT s.tier,
+                      which is the separate standard|premium compensation axis. */}
+                  <div className="mb-3">
+                    <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[10px] font-bold shadow-sm ${
+                      s.slotPricingTier === 'flagship'
+                        ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300'
+                        : s.slotPricingTier === 'growth'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300'
+                          : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-500/30 dark:bg-gray-500/15 dark:text-gray-300'
+                    }`}>
+                      {SLOT_TIER_LABEL[isSlotTier(s.slotPricingTier) ? s.slotPricingTier : 'standard']}
+                    </span>
+                  </div>
 
                   {/* Name + owner */}
                   <div className="flex items-start justify-between gap-2">
