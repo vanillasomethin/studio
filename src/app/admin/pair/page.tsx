@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Logo } from '@/components/icons/logo';
 import { adminGet, adminGetArray, adminPw } from '@/lib/admin-fetch';
+import { extractGpsFromFile } from '@/lib/exif-gps';
 
 const SS_AUTH  = 'alive_admin';
 const SS_PW    = 'alive_admin_pw';
@@ -861,21 +862,35 @@ function Wizard({ draft, update }: { draft: Draft; update: UpdateFn }) {
     setPhotoBusy((p) => ({ ...p, [kind]: true }));
     setPhotoErr((p) => ({ ...p, [kind]: undefined }));
     try {
-      // Ask for the fix and shrink the frame at the same time: both are slow and
-      // neither needs the other, so the wait is one of them, not both.
-      const fixPromise = currentFix();
+      // Extract GPS from EXIF first, fall back to device geolocation.
+      // GPS is read from the original file's EXIF before downscaling, so
+      // losing EXIF in the re-encode costs nothing.
+      const exifPromise = extractGpsFromFile(file);
       const SERVER_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
       let blob: Blob = file;
       if (file.size > 3.5 * 1024 * 1024 || !SERVER_TYPES.includes(file.type)) blob = await downscaleImage(file);
 
-      const fix = await fixPromise;
+      let coords = await exifPromise;
+      let source: 'exif' | 'device' | null = null;
+
+      if (!coords) {
+        // No EXIF GPS — use device location as fallback
+        const fix = await currentFix();
+        if (fix) {
+          coords = fix;
+          source = 'device';
+        }
+      } else {
+        source = 'exif';
+      }
+
       const fd = new FormData();
       fd.append('file', blob, `${kind}.jpg`);
       fd.append('kind', kind);
-      if (fix) {
-        fd.append('lat', String(fix.lat));
-        fd.append('lng', String(fix.lng));
-        fd.append('source', 'device');
+      if (coords) {
+        fd.append('lat', String(coords.lat));
+        fd.append('lng', String(coords.lng));
+        fd.append('source', source);
       }
       const res  = await fetch(`/api/admin/stores/${d.storeId}/photo`, { method: 'POST', headers: { 'admin-password': adminPw() }, body: fd });
       if (bounceIfUnauthorized(res)) return;
