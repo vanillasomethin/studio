@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
       id: string;
       tvBrand: string | null; tvModel: string | null; tvSizeInches: number | null;
       tvTag: string | null; tvSerial: string | null;
-      tvInstalledAt: Date | null; espSwitchName: string | null; espPlugId: string | null;
+      tvInstalledAt: Date | null; espPlugId: string | null;
       wifiSsid: string | null; wifiUsername: string | null; wifiPassword: string | null;
       wifiAuthType: string | null; installNotes: string | null;
     };
@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
     try {
       const installRows = await db.$queryRaw<InstallRow[]>`
         SELECT "id", "tvBrand", "tvModel", "tvSizeInches", "tvTag", "tvSerial", "tvInstalledAt",
-               "espSwitchName", "espPlugId",
+               "espPlugId",
                "wifiSsid", "wifiUsername", "wifiPassword", "wifiAuthType", "installNotes"
         FROM "Store"
       `;
@@ -145,7 +145,6 @@ export async function GET(req: NextRequest) {
         tvTag:         hw?.tvTag         ?? null,
         tvSerial:      hw?.tvSerial      ?? null,
         tvInstalledAt: hw?.tvInstalledAt instanceof Date ? hw.tvInstalledAt.toISOString() : (hw?.tvInstalledAt ?? null),
-        espSwitchName: hw?.espSwitchName ?? null,
         espPlugId:     hw?.espPlugId     ?? null,
         wifiSsid:      hw?.wifiSsid      ?? null,
         wifiUsername:  hw?.wifiUsername  ?? null,

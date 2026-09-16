@@ -33,7 +33,7 @@ function verificationKeyFromStored(stored: string | null): { key: string; wasPub
  * from the request, so the raw UPDATE below stays injection-safe.
  */
 const TEXT_COLS = [
-  'tvBrand', 'tvModel', 'tvSerial', 'tvTag', 'espSwitchName', 'espPlugId',
+  'tvBrand', 'tvModel', 'tvSerial', 'tvTag', 'espPlugId',
   'wifiSsid', 'wifiUsername', 'wifiPassword', 'wifiAuthType', 'installNotes',
 ] as const;
 
@@ -102,7 +102,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       tvSizeInches?: number | string | null;
       tvTag?: string | null;
       tvInstalledAt?: string | null;
-      espSwitchName?: string | null;
       espPlugId?: string | null;
       wifiSsid?: string | null;
       wifiUsername?: string | null;
