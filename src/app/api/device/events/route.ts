@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import { getOrCreateCorrelationId, hashStack, recordError } from '@/lib/telemetry';
 import { respond } from '@/lib/api-envelope';
 import { resolveOfflineAlerts, backfillMissedOutage } from '@/lib/device-alerts';
+import { attributeSlotPlay, slotPlayKey, istToday } from '@/lib/slots';
 
 type PlayEventInput = {
   id:          string;   // client-generated UUID for dedup
@@ -300,6 +301,55 @@ export async function POST(req: NextRequest) {
       if (fillerId) attributable.add(fillerId);
     }
 
+    // Fall back to the server's OWN record of who held the slot.
+    //
+    // Campaign attribution used to depend entirely on the device echoing
+    // `campaignId` back from the plan item. Players that echo `slotPosition` and
+    // `isFiller` but not `campaignId` — which the API doc never asked for until
+    // now — therefore logged every guaranteed play with campaignId: null: real
+    // plays on screen, invisible to brand reporting and unbillable. The fleet is
+    // full of such builds and an APK rollout cannot reach them all.
+    //
+    // The server does not need to be told. A guaranteed play carries the loop
+    // position it played in, and the SlotBooking table already says which
+    // campaign held that position on that date. Deriving it here is strictly
+    // BETTER than trusting the device: it reads our own sales record instead of
+    // the player's word, so it cannot be used to forge another brand's evidence.
+    //
+    // Only for isFiller=false. A bonus/filler play sits in a position whose
+    // booking (if any) belongs to a different campaign, so the position does not
+    // identify the payer — those keep relying on the echoed id. Multi-slot
+    // placements report their head position, which is where the booking rows are.
+    // SlotPlan plays are not covered: standing assignments carry no position, so
+    // only a full loop rebuild could place them.
+    // The rule itself is pure and lives in lib/slots.ts (attributeSlotPlay), so it
+    // is verified by scripts/verify-pop-attribution.mjs; this only feeds it the
+    // bookings for the dates and positions the batch actually mentions.
+    const needsDerivation = batch.filter(
+      (e) => e.startedAt
+        && e.isFiller !== true
+        && typeof e.slotPosition === 'number'
+        && !(e.campaignId && attributable.has(e.campaignId)),
+    );
+    const bookedByKey = new Map<string, string>();
+    if (needsDerivation.length && device.storeId) {
+      const dates = [...new Set(needsDerivation.map((e) => istToday(new Date(e.startedAt))))];
+      const rows = await db.slotBooking.findMany({
+        where: {
+          storeId:      device.storeId,
+          date:         { in: dates.map((d) => new Date(`${d}T00:00:00Z`)) },
+          slotPosition: { in: [...new Set(needsDerivation.map((e) => e.slotPosition!))] },
+        },
+        select: { date: true, slotPosition: true, campaignId: true },
+      }).catch(() => []);
+      for (const r of rows) {
+        bookedByKey.set(
+          slotPlayKey(r.date.toISOString().slice(0, 10), r.slotPosition),
+          r.campaignId,
+        );
+      }
+    }
+
     // Seed the chain from the last row in INSERTION order, which is the only
     // order this writer can know. Seeding by startedAt broke the chain whenever a
     // device drained an offline backlog: a late-arriving earlier play would chain
@@ -360,8 +410,12 @@ export async function POST(req: NextRequest) {
       if (!plausible(ev)) { rejected++; continue; }
       seenInBatch.add(ev.id);
       // Drop an attribution this device is not entitled to make; keep the play.
+      // When the device claimed nothing (or nothing valid), fall back to the
+      // booking that held this slot — see derivation note above.
       const attributedCampaignId =
-        ev.campaignId && attributable.has(ev.campaignId) ? ev.campaignId : null;
+        ev.campaignId && attributable.has(ev.campaignId)
+          ? ev.campaignId
+          : attributeSlotPlay(ev, bookedByKey);
       try {
         const rowHash = computeRowHash(
           ev.id, device.id, ev.mediaId,

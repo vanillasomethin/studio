@@ -203,7 +203,7 @@ curl https://wearealive.in/api/device/plan \
 | `validUntil` | `string` (ISO 8601) | Hint for when to re-poll. |
 | `forceSyncAt` | `string \| null` | Admin-triggered cache-bust timestamp. If the player's last cached `forceSyncAt` differs (or is older), invalidate the local content cache and re-download. |
 | `items` | `ContentItem[]` | Ordered list of content to download and play, **fully flattened** — nested playlists are already expanded into play order, so a player that only reads `items` plays the correct sequence. Empty if no schedule. |
-| _(slot mode)_ | — | When the device's store is in **slot mode** (a fixed loop of N 10-second ad slots, sold by loop position + date), `items` is that loop in position order and each item additionally carries `slotPosition` (0-based) and `isFiller` (true = a bonus/house play in an unsold position). `timeline` holds a single window covering the store's open hours for the day; closed days return no items. The player must echo `slotPosition`/`isFiller` back on the matching proof-of-play event. |
+| _(slot mode)_ | — | When the device's store is in **slot mode** (a fixed loop of N 10-second ad slots, sold by loop position + date), `items` is that loop in position order and each item additionally carries `slotPosition` (0-based), `isFiller` (true = a bonus/house play in an unsold position) and `campaignId` (who the play is credited to). `timeline` holds a single window covering the store's open hours for the day; closed days return no items. The player must echo `slotPosition`, `isFiller` **and `campaignId`** back on the matching proof-of-play event — all three come from the plan item, never from local state. Omitting `campaignId` records the play as unattributed, which is invisible on the screen but leaves the brand with no proof-of-play and nothing to bill from. |
 | `nested` | `NestedNode[]` | Optional playlist tree for the active schedule. Present when the scheduled playlist nests other playlists (Master → Internal). Entries are either `{ "kind": "content", ...ContentItem }` or `{ "kind": "playlist", "playlistId", "name", "items": NestedNode[] }` (max depth 3). Semantics: a nested playlist plays **all** its items per visit (SMIL `<seq>`-in-`<seq>`), so depth-first traversal of `nested` equals `items`. Players that don't understand it can ignore it. |
 | `timeline` | `TimelineSlot[]` | Schedule windows with dayparting boundaries. |
 | `overlays` | `Overlay[]` | Active overlays (tickers / banners / news feeds) to render on top of content. May be empty. |
@@ -223,6 +223,10 @@ curl https://wearealive.in/api/device/plan \
 | `hevcMd5` | `string` (optional) | MD5 hex of `hevcUrl`'s file. Always present alongside `hevcUrl`. |
 | `width` | `number` (optional) | Intrinsic pixel width. Present for images measured in-browser at upload and videos that have been transcoded; absent for legacy uploads. Lets the player pick a scale mode (fill vs letterbox) before the file is downloaded/decoded. |
 | `height` | `number` (optional) | Intrinsic pixel height. Present exactly when `width` is. |
+| `slotPosition` | `number` (optional) | Slot mode only — the item's 0-based position in the store's loop. Echo it back on the play event. |
+| `isFiller` | `boolean` (optional) | Slot mode only — true when this position is a bonus/house play rather than the sold placement. Echo it back on the play event. |
+| `campaignId` | `string` (optional) | Slot mode only — the campaign this play is credited to. **Echo it back on the play event**; it is the only source of campaign attribution, since the media file itself carries no campaign identity (the same creative can serve several campaigns). |
+| `soundEligible` | `boolean` (optional) | Slot mode only — true for the one position allowed to play with audio (Sound Ad). Cadence and the store mute override are enforced player-side. |
 
 **Choosing between `url` and `hevcUrl`:** most devices should just use `url`/`md5` (H.264 —
 universally hardware-decodable across the fleet). Only prefer `hevcUrl`/`hevcMd5` when the
@@ -295,7 +299,12 @@ data class ContentItem(
     val md5: String,
     val type: ContentType,
     val durationMs: Long,
-    val order: Int
+    val order: Int,
+    // Slot mode only. Carry these into the PlayEventInput for this play —
+    // campaignId especially: it is the sole source of campaign attribution.
+    val slotPosition: Int? = null,
+    val isFiller: Boolean? = null,
+    val campaignId: String? = null
 )
 
 enum class ContentType { IMAGE, VIDEO }
@@ -337,7 +346,7 @@ Authorization: Bearer <token>
 | `id` | `string` (UUID v4) | Yes | Client-generated UUID — deduplication key |
 | `mediaId` | `string` | Yes | `contentId` of the item that played |
 | `scheduleId` | `string` | No | Active schedule at time of play |
-| `campaignId` | `string` | No | Campaign attribution (from content metadata if available) |
+| `campaignId` | `string` | No | Campaign attribution. **In slot mode, echo the played plan item's `campaignId` verbatim** — do not derive it from content metadata, which does not carry campaign identity. The server only credits a campaign that actually holds a slot booking (or standing plan, or is the store's filler) at this device's store; an unrecognised id is dropped to `null` and the play is recorded unattributed, so echoing the plan value is both required and safe. |
 | `tag` | `string` | No | Arbitrary tag for reporting segmentation |
 | `startedAt` | `string` (ISO 8601) | Yes | UTC time playback started |
 | `endedAt` | `string` (ISO 8601) | Yes | UTC time playback ended |
@@ -360,7 +369,10 @@ curl -X POST https://wearealive.in/api/device/events \
         "tag": "brand-promo-may26",
         "startedAt": "2026-05-18T08:00:00.000Z",
         "endedAt": "2026-05-18T08:00:30.000Z",
-        "durationMs": 30000
+        "durationMs": 30000,
+        "campaignId": "clx7k2m0f0000cmp1234abcd",
+        "slotPosition": 7,
+        "isFiller": false
       }
     ]
   }'
@@ -389,11 +401,16 @@ data class PlayEventInput(
     val id: String = UUID.randomUUID().toString(),
     val mediaId: String,
     val scheduleId: String? = null,
-    val campaignId: String? = null,
     val tag: String? = null,
     val startedAt: String,   // ISO 8601 UTC
     val endedAt: String,     // ISO 8601 UTC
-    val durationMs: Long
+    val durationMs: Long,
+    // Slot mode: copy all three straight off the ContentItem that just played.
+    // campaignId is the ONLY campaign attribution the server gets — drop it and
+    // the play is recorded, but credited to nobody and unbillable.
+    val campaignId: String? = null,
+    val slotPosition: Int? = null,
+    val isFiller: Boolean? = null
 )
 
 data class EventsBatchRequest(
