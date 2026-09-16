@@ -1225,7 +1225,16 @@ function StoresPanel() {
                         <Star className="h-2.5 w-2.5" /> Premium
                       </span>
                     )}
-                    {!s.tier || s.tier === 'standard' || s.tier === 'growth' || s.tier === 'flagship' ? (
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${(s.deviceCount ?? 0) > 0 ? 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-white/90 text-gray-500 dark:bg-neutral-800/90 dark:text-neutral-300'}`}>
+                      <Tv2 className="h-2.5 w-2.5" /> {s.deviceCount ?? 0} screen{(s.deviceCount ?? 0) !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  {/* Tier badge */}
+                  {!s.tier || s.tier === 'standard' || s.tier === 'growth' || s.tier === 'flagship' ? (
+                    <div className="mb-3">
                       <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[10px] font-bold shadow-sm ${
                         s.tier === 'flagship'
                           ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300'
@@ -1235,14 +1244,9 @@ function StoresPanel() {
                       }`}>
                         {s.tier ? s.tier.charAt(0).toUpperCase() + s.tier.slice(1) : 'Standard'}
                       </span>
-                    ) : null}
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-sm ${(s.deviceCount ?? 0) > 0 ? 'bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-white/90 text-gray-500 dark:bg-neutral-800/90 dark:text-neutral-300'}`}>
-                      <Tv2 className="h-2.5 w-2.5" /> {s.deviceCount ?? 0} screen{(s.deviceCount ?? 0) !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                </div>
+                    </div>
+                  ) : null}
 
-                <div className="p-4">
                   {/* Name + owner */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
