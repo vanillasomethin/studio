@@ -21,6 +21,24 @@ import type {NextConfig} from 'next';
 
 const RAZORPAY = ['https://api.razorpay.com', 'https://checkout.razorpay.com'];
 
+// R2's public base is a Cloudflare-fronted custom domain (media.wearealive.in —
+// see .env.example), not the pub-xxxx.r2.dev default that was the only R2
+// pattern actually listed below. next/image 400s any host it isn't told about,
+// so every image served from that domain — every site-media hero/product
+// photo, every store photo — silently failed to load on the homepage while
+// the bundled /public fallbacks kept working, which is exactly what made this
+// look like "some images are fine, some aren't" rather than "R2 is broken".
+// Derived from the env var so a future domain change doesn't need a second
+// edit here, with the documented default as a fallback if the build doesn't
+// have it set.
+function r2PublicHostname(): string {
+  try {
+    return new URL(process.env.R2_PUBLIC_BASE || 'https://media.wearealive.in').hostname;
+  } catch {
+    return 'media.wearealive.in';
+  }
+}
+
 // ── 1. Enforcing. None of these can block a script, style, image or font. ─────
 const CSP_ENFORCED = [
   // Stops an injected <base> tag silently repointing every relative URL on the
@@ -158,6 +176,12 @@ const nextConfig: NextConfig = {
       {
         protocol: 'https',
         hostname: 'pub-7a9bd7006a434f6c84ea68e69b323918.r2.dev',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: r2PublicHostname(),
         port: '',
         pathname: '/**',
       },
