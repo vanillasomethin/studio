@@ -1281,10 +1281,17 @@ function MainDashboard({ store, onLogout }: { store: StoreInfo; onLogout: () => 
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">Store Partner</p>
               <h1 className="text-xl font-bold text-white">Welcome back, {displayName}!</h1>
               {storeData.locality && (
-                <p className="text-xs text-white/50 flex items-center gap-1.5 mt-1">
-                  <MapPin className="h-3 w-3 text-primary/70" />
-                  {storeData.storeName} · {storeData.locality}{storeData.city ? `, ${storeData.city}` : ''}
-                </p>
+                <div className="mt-1 space-y-1">
+                  {storeData.tier && (
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-primary/80">
+                      {storeData.tier.charAt(0).toUpperCase() + storeData.tier.slice(1)}
+                    </p>
+                  )}
+                  <p className="text-xs text-white/50 flex items-center gap-1.5">
+                    <MapPin className="h-3 w-3 text-primary/70" />
+                    {storeData.storeName} · {storeData.locality}{storeData.city ? `, ${storeData.city}` : ''}
+                  </p>
+                </div>
               )}
             </div>
             <div className="flex gap-2 shrink-0">
