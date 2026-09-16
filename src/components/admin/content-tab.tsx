@@ -5,9 +5,10 @@ import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, T
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ContentThumb } from '@/components/admin/content-picker';
-import { getContent, getBrands, deleteContent, initiateUpload, updateContentMeta, transcodeVideo, type Content, type AdminBrand } from '@/lib/backend-api';
+import { getContent, getBrands, deleteContent, updateContentMeta, type Content, type AdminBrand } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 import { describeSlotFit, slotFitMessage } from '@/lib/slots';
+import { uploadContentFile } from '@/lib/upload-video';
 
 function fmtBytes(b: number): string {
   if (b < 1024)         return `${b} B`;
@@ -18,63 +19,6 @@ function fmtBytes(b: number): string {
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
   catch { return iso; }
-}
-
-async function videoDurationMs(file: File): Promise<number | undefined> {
-  // Browsers expose the real duration via a hidden <video>'s loadedmetadata event —
-  // no server-side ffprobe needed. Used so playlist items default to the actual
-  // clip length instead of a hardcoded fallback.
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve(Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined);
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(undefined);
-    };
-    video.src = url;
-  });
-}
-
-async function imageDimensions(file: File): Promise<{ width: number; height: number } | undefined> {
-  // Intrinsic pixel size, read in-browser before upload and persisted with the
-  // content row — the schedule UI uses it to warn when a creative's aspect ratio
-  // will letterbox on the target screens (the player fits instead of fills past a
-  // 1.35× aspect mismatch). Video dimensions come from the transcode callback.
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img.naturalWidth > 0 && img.naturalHeight > 0
-        ? { width: img.naturalWidth, height: img.naturalHeight }
-        : undefined);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(undefined);
-    };
-    img.src = url;
-  });
-}
-
-async function md5Hex(file: File): Promise<string> {
-  // Web Crypto doesn't support MD5; use full SHA-256 hex as the cache key.
-  // Must NOT be truncated to 32 chars: the player's hashMatches() picks MD5
-  // vs SHA-256 purely by string length (<=32 -> MD5), so a truncated SHA-256
-  // gets misread as a real MD5 digest and never verifies — content downloads
-  // forever fail integrity checks and never become playable.
-  try {
-    const buf    = await file.arrayBuffer();
-    const digest = await crypto.subtle.digest('SHA-256', buf);
-    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  } catch {
-    return `nohash-${Date.now()}`;
-  }
 }
 
 // Monotonic across every batch in the session — see handleFiles.
@@ -203,14 +147,6 @@ export default function ContentTab() {
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
 
-    // Uploads go browser -> R2 directly via a presigned PUT, so the ~4.5 MB Vercel
-    // serverless request-body cap doesn't apply (it only binds traffic that passes
-    // through a function, and the bytes no longer do). This ceiling is ours to pick:
-    // 100 MB covers a 30s 4K clip. Requires CORS on the R2 bucket to allow PUT from
-    // the admin origin — see docs/R2_CORS.md.
-    const MAX_MB = 100;
-    const pw = typeof window !== 'undefined' ? (sessionStorage.getItem('alive_admin_pw') ?? '') : '';
-
     // Row identity. Unique per file and stable for the life of the row, so progress,
     // the slot note and any error all land on the file they describe.
     //
@@ -220,108 +156,22 @@ export default function ContentTab() {
     const nextUid = () => `up-${++uploadSeq}`;
 
     for (const file of Array.from(files)) {
-      const isVideo = file.type.startsWith('video/');
-      const isImage = file.type.startsWith('image/');
-      if (!isVideo && !isImage) {
-        setUploads((u) => [...u, { uid: nextUid(), name: file.name, progress: 0, done: false, error: 'Only image or video files are supported.' }]);
-        continue;
-      }
-
-      if (file.size > MAX_MB * 1024 * 1024) {
-        const mb = (file.size / (1024 * 1024)).toFixed(1);
-        setUploads((u) => [...u, {
-          uid:      nextUid(),
-          name:     file.name,
-          progress: 0,
-          done:     false,
-          error:    `Too large (${mb} MB). Compress to under ${MAX_MB} MB — try HandBrake (video) or TinyPNG (image).`,
-        }]);
-        continue;
-      }
-
-      // A STABLE id, not uploads.length. That was a closure value captured at render,
-      // so every file in a multi-file selection resolved to the same index and all of
-      // them wrote their progress, note and errors onto the first row.
       const uid = nextUid();
       setUploads((u) => [...u, { uid, name: file.name, progress: 0, done: false }]);
 
       try {
-        const hash = await md5Hex(file);
-        const durationMs = isVideo ? await videoDurationMs(file) : undefined;
-        const dims = isImage ? await imageDimensions(file) : undefined;
-
-        // Say what this length means for slot mode NOW. The duration is already in hand;
-        // the only reason this used to surface at attach time was that nobody asked here.
-        if (isVideo) setUploads((u) => u.map((x) => x.uid === uid ? { ...x, slotNote: slotFitMessage(durationMs) } : x));
-
-        // Step 1: create DB record + get objectKey
-        const { id: contentId, objectKey } = await initiateUpload({
-          name:      file.name.replace(/\.[^.]+$/, ''),
-          type:      isVideo ? 'video' : 'image',
-          mimeType:  file.type || undefined,
-          sizeBytes: file.size,
-          md5:       hash,
-          durationMs,
-          width:     dims?.width,
-          height:    dims?.height,
-          brandId:   uploadBrand || null,
+        await uploadContentFile(file, {
+          brandId: uploadBrand || null,
+          // Say what this length means for slot mode NOW, the moment the browser has
+          // measured it — before it did, the answer only arrived at booking time,
+          // several screens away from the file picker.
+          onDurationKnown: (durationMs, isVideo) => {
+            if (isVideo) setUploads((u) => u.map((x) => x.uid === uid ? { ...x, slotNote: slotFitMessage(durationMs) } : x));
+          },
+          onProgress: (pct) => setUploads((u) => u.map((x) => x.uid === uid ? { ...x, progress: pct } : x)),
         });
-
-        // Step 2: ask the server to presign a PUT for this exact key + content type.
-        // The signature covers Content-Type, so the PUT below must send the identical
-        // value or R2 rejects it as a signature mismatch.
-        const contentType = file.type || 'application/octet-stream';
-        const signRes = await fetch(
-          `/api/admin/r2-upload?key=${encodeURIComponent(objectKey)}&type=${encodeURIComponent(contentType)}`,
-          { headers: pw ? { 'admin-password': pw } : {} },
-        );
-        if (!signRes.ok) {
-          const body = await signRes.json().catch(() => ({})) as { error?: string };
-          throw new Error(body.error ?? `Could not start upload (server returned ${signRes.status}).`);
-        }
-        const { uploadUrl } = await signRes.json() as { uploadUrl: string };
-
-        // Step 3: PUT the bytes straight to R2. They never traverse a serverless
-        // function, so the ~4.5 MB request-body cap doesn't apply.
-        const xhr = new XMLHttpRequest();
-        xhr.upload.onprogress = (ev) => {
-          if (!ev.lengthComputable) return;
-          const pct = Math.round((ev.loaded / ev.total) * 100);
-          setUploads((u) => u.map((x) => x.uid === uid ? { ...x, progress: pct } : x));
-        };
-        await new Promise<void>((resolve, reject) => {
-          xhr.onload = () => {
-            if (xhr.status < 300) { resolve(); return; }
-            const mb = (file.size / (1024 * 1024)).toFixed(1);
-            if (xhr.status === 403) {
-              reject(new Error(`R2 rejected the upload (403). The signed link may have expired — try again. If it keeps failing, check the bucket's CORS rules (docs/R2_CORS.md).`));
-              return;
-            }
-            reject(new Error(`Couldn't upload "${file.name}" (${mb} MB) — R2 returned ${xhr.status}.`));
-          };
-          // A direct-to-R2 PUT that fails CORS preflight surfaces here as a generic
-          // network error with no status, so name that cause explicitly.
-          xhr.onerror = () => reject(new Error(
-            'Upload failed before reaching R2 — usually missing/incorrect bucket CORS rules ' +
-            '(needs PUT allowed from this origin, see docs/R2_CORS.md), otherwise a connection drop.',
-          ));
-          xhr.onabort = () => reject(new Error('Upload cancelled.'));
-          xhr.open('PUT', uploadUrl);
-          xhr.setRequestHeader('Content-Type', contentType);
-          xhr.send(file);
-        });
-
         setUploads((u) => u.map((x) => x.uid === uid ? { ...x, progress: 100, done: true } : x));
         toast({ title: `${file.name} uploaded ✓` });
-
-        // Queue a background re-encode for hardware-decoder compatibility (see
-        // transcode-lambda/) — best-effort, doesn't block the upload UI on it.
-        if (isVideo) {
-          transcodeVideo(contentId).catch(() => {
-            // Non-fatal: the original file still plays fine on devices whose decoder
-            // already accepts it. Surfaced via the "Transcode failed" badge on reload.
-          });
-        }
       } catch (err) {
         const msg = (err as Error).message;
         setUploads((u) => u.map((x) => x.uid === uid ? { ...x, error: msg } : x));
