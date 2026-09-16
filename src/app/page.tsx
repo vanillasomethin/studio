@@ -19,10 +19,10 @@ const ROMAN_YEAR = (() => {
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
 
-const HERO_STATES: { state: HeroState; href: string; img: string; cap: string; loc: string; corner: string; icon: string; audience: string; label: string }[] = [
-  { state: 'brand',    href: '/brand-onboarding', img: '/for-brands.jpg',          cap: 'Reach the shelf, not the feed.',     loc: 'Mumbai · BKC',         corner: 'N°01 · Brand',    icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
-  { state: 'kirana',   href: '/store',             img: '/kirana-best-practice.jpg', cap: 'Earn more from your shelves.',       loc: 'Attavar · Mangalore',  corner: 'N°02 · Kirana',   icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
-  { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         cap: 'Discover your next favorite.',       loc: 'Lajpat Nagar · Delhi', corner: 'N°03 · Consumer', icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
+const HERO_STATES: { state: HeroState; href: string; img: string; icon: string; audience: string; label: string }[] = [
+  { state: 'brand',    href: '/brand-onboarding', img: '/for-brands.jpg',          icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
+  { state: 'kirana',   href: '/store',             img: '/kirana-best-practice.jpg', icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
+  { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
 ];
 
 const CITIES = [
@@ -156,8 +156,6 @@ export default function Home() {
   }, [startAuto, stopAuto]);
   useEffect(() => { resetIdle(); return () => { stopAuto(); if (idleTimerRef.current) clearTimeout(idleTimerRef.current); }; }, [resetIdle, stopAuto]);
 
-  const activeHero = HERO_STATES.find(h => h.state === heroState)!;
-
   return (
     <>
 
@@ -260,12 +258,6 @@ export default function Home() {
                   <Image src={mediaUrl(`hero-${h.state}`, h.img, siteMedia)} alt={h.label} fill style={{ objectFit: 'cover' }} sizes="360px" priority={h.state === 'brand'} />
                 </div>
               ))}
-              <div className="corner">{activeHero.corner}</div>
-              <div className="cap">
-                <span className="loc">{activeHero.loc}</span>
-                {activeHero.cap}
-              </div>
-              <div className="alive-tag"><span className="dot" />alive</div>
             </div>
           </div>
         </div>
