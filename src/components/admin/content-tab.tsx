@@ -5,6 +5,7 @@ import { Loader2, Film, ImageIcon, Trash2, Upload, X, CheckCircle2, HardDrive, T
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ContentThumb } from '@/components/admin/content-picker';
+import { VideoPreviewTooltip } from '@/components/admin/video-preview-tooltip';
 import { getContent, getBrands, deleteContent, updateContentMeta, type Content, type AdminBrand } from '@/lib/backend-api';
 import { toast } from '@/hooks/use-toast';
 import { describeSlotFit, slotFitMessage } from '@/lib/slots';
@@ -395,17 +396,19 @@ export default function ContentTab() {
               {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-3 w-24">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewId(c.id)}
-                      title="Preview"
-                      className="group/thumb relative block overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
-                    >
-                      <ContentThumb content={c} className="h-14 w-20" />
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover/thumb:bg-black/30 group-hover/thumb:opacity-100">
-                        <Maximize2 className="h-3.5 w-3.5 text-white drop-shadow" />
-                      </span>
-                    </button>
+                    <VideoPreviewTooltip content={c}>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewId(c.id)}
+                        title="Preview"
+                        className="group/thumb relative block overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
+                      >
+                        <ContentThumb content={c} className="h-14 w-20" />
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover/thumb:bg-black/30 group-hover/thumb:opacity-100">
+                          <Maximize2 className="h-3.5 w-3.5 text-white drop-shadow" />
+                        </span>
+                      </button>
+                    </VideoPreviewTooltip>
                   </td>
                   <td
                     className="px-4 py-3 font-semibold text-foreground max-w-[160px] truncate cursor-pointer hover:text-primary transition-colors"
