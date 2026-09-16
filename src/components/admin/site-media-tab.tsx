@@ -48,12 +48,22 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminPassword]);
 
+  // Throws on any non-2xx — an admin session that expired mid-tab (or any
+  // other server-side failure) must not look like a successful save. Callers
+  // only update local `media` state once this has actually confirmed the
+  // write, so the UI never claims a slot is set when Redis never got it.
   const saveUrl = async (slot: string, url: string) => {
-    await fetch('/api/admin/site-media', {
+    const res = await fetch('/api/admin/site-media', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ slot, url }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(body.error ?? (res.status === 401
+        ? 'Your admin session has expired — sign in again and retry.'
+        : `Save failed (${res.status}).`));
+    }
     setMedia(m => ({ ...m, [slot]: url }));
   };
 
@@ -116,18 +126,29 @@ export default function SiteMediaTab({ adminPassword }: { adminPassword: string 
 
   const handlePasteUrl = async () => {
     if (!urlSlot || !urlInput.trim()) return;
-    await saveUrl(urlSlot, urlInput.trim());
-    setUrlSlot(null);
-    setUrlInput('');
+    setError(null);
+    try {
+      await saveUrl(urlSlot, urlInput.trim());
+      setUrlSlot(null);
+      setUrlInput('');
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const resetSlot = async (slot: string) => {
-    await fetch('/api/admin/site-media', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slot, url: '' }),
-    });
-    setMedia(m => { const n = { ...m }; delete n[slot]; return n; });
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/site-media', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot, url: '' }),
+      });
+      if (!res.ok) throw new Error(res.status === 401 ? 'Your admin session has expired — sign in again and retry.' : `Reset failed (${res.status}).`);
+      setMedia(m => { const n = { ...m }; delete n[slot]; return n; });
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const sections = Array.from(new Set(MEDIA_SLOTS.map(s => s.section)));
