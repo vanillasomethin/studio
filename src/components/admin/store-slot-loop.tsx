@@ -27,6 +27,7 @@ import {
 } from '@/lib/backend-api';
 import { ContentThumb, ContentMultiPickerField } from './content-picker';
 import { uploadContentFile } from '@/lib/upload-video';
+import { loopRepeatsPerDay } from '@/lib/slots';
 import { toast } from '@/hooks/use-toast';
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -527,6 +528,18 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
   // point their number wins even if they later add or remove a creative.
   const effectivePerDay = perDayTouched ? perDay : String(Math.max(1, selectedIds.length));
 
+  // How many times the whole loop runs while the store is open — the multiplier
+  // between a slot and an actual play. Derived from this store's own loop size and
+  // hours so it stays right when either changes, rather than hard-coding 144.
+  const loopRepeats = store.loopSlotCount
+    ? loopRepeatsPerDay({
+        loopSlotCount: store.loopSlotCount,
+        hoursStart:    store.hoursStart,
+        hoursEnd:      store.hoursEnd,
+      })
+    : 0;
+  const playsPerDayEstimate = (Number(effectivePerDay) || 0) * loopRepeats;
+
   const selectedContent = selectedIds
     .map((id) => library.find((c) => c.id === id))
     .filter((c): c is Content => c != null);
@@ -639,7 +652,9 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
         const plan = await createSlotPlan({ storeId: store.id, campaignId: finalCampaignId, slotsPerDay: plays });
         toast({
           title: `${chosenName} added`,
-          description: `${plan.slotsPerDay} play${plan.slotsPerDay === 1 ? '' : 's'} a day, every day, until you stop it.`,
+          description: `${plan.slotsPerDay} slot${plan.slotsPerDay === 1 ? '' : 's'} a day${
+            loopRepeats > 0 ? ` (≈ ${(plan.slotsPerDay * loopRepeats).toLocaleString('en-IN')} plays)` : ''
+          }, every day, until you stop it.`,
         });
       } else {
         const { plans, skipped } = await createSlotPlans({ storeIds, campaignId: finalCampaignId, slotsPerDay: plays });
@@ -757,20 +772,27 @@ function AddBrandDialog({ store, campaigns, allStores, onClose, onDone }: {
 
             <span className="text-[10px] text-muted-foreground">
               {selectedContent.length > 1
-                ? `${selectedContent.length} videos — each plays once a day, every day.`
+                ? `${selectedContent.length} videos — one slot each, rotating through the day.`
                 : 'An untagged video becomes this brand’s, so it is one click next time.'}
             </span>
           </div>
         )}
 
+        {/* SLOTS, not plays. The number buys positions in ONE loop pass, and the
+            player replays that pass for the whole open day — so the actual play
+            count is slots × loopRepeatsPerDay (144 on a 30-slot 09:00–21:00 store).
+            sla-db.ts:sumPromisedPlays already bills it that way; only this label
+            said "plays", which undersold the real delivery by two orders of
+            magnitude and is the number an operator prices a brand against. */}
         <label className="flex flex-col gap-1">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Plays per day</span>
+          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Slots per day</span>
           <input value={effectivePerDay} inputMode="numeric"
             onChange={(e) => { setPerDayTouched(true); setPerDay(e.target.value.replace(/[^0-9]/g, '')); }}
             className="w-24 rounded-lg border border-border bg-card px-2 py-1.5 text-[12px] tabular-nums text-foreground focus:border-primary focus:outline-none" />
           <span className="text-[10px] text-muted-foreground">
+            {playsPerDayEstimate > 0 && `≈ ${playsPerDayEstimate.toLocaleString('en-IN')} plays a day — the loop repeats ${loopRepeats}× while the store is open. `}
             {!perDayTouched && selectedContent.length > 1
-              ? `Matches the ${selectedContent.length} videos above — each plays once. Edit to change.`
+              ? `Matches the ${selectedContent.length} videos above — one slot each. Edit to change.`
               : 'A target, not a guarantee — a standing assignment takes the positions left after that day’s sold bookings, so it never blocks a sale.'}
           </span>
         </label>
