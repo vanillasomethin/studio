@@ -17,8 +17,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  getPlays, downloadPlaysCsv, getDevices, getContent, getDeviceGroups,
-  type PlaysResponse, type Device, type Content, type DeviceGroup,
+  getPlays, getPlaySessions, downloadPlaysCsv, getDevices, getContent, getDeviceGroups,
+  type PlaysResponse, type PlaySession, type Device, type Content, type DeviceGroup,
 } from '@/lib/backend-api';
 import PopArchivePanel from '@/components/admin/pop-archive-panel';
 
@@ -284,6 +284,145 @@ function AdPicker({ items, value, onChange }: {
   );
 }
 
+// ─── On-air timeline ────────────────────────────────────────────────────────────
+// Reading a play log row by row can't answer "was this screen actually running
+// yesterday?". The timeline answers it at a glance: one 24h track per IST day, a
+// green bar wherever the screen was playing, empty track wherever it was dark.
+
+const DAY_MS  = 86_400_000;
+const IST_OFF = 5.5 * 3_600_000;
+
+const istDayIndex  = (ms: number) => Math.floor((ms + IST_OFF) / DAY_MS);
+const istDayOffset = (ms: number) => (ms + IST_OFF) % DAY_MS;
+const istDayLabel  = (dayIndex: number) =>
+  new Date(dayIndex * DAY_MS - IST_OFF).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short',
+  });
+
+function fmtClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
+type DaySpan = { startMs: number; endMs: number; plays: number };
+
+/** Split merged sessions at IST midnight so each lands on exactly one day track. */
+function splitByIstDay(sessions: { start: string; end: string; plays: number }[]) {
+  const days = new Map<number, DaySpan[]>();
+  for (const s of sessions) {
+    let t = new Date(s.start).getTime();
+    const end = new Date(s.end).getTime();
+    if (!Number.isFinite(t) || !Number.isFinite(end) || end < t) continue;
+    while (t <= end) {
+      const day      = istDayIndex(t);
+      const dayEnd   = (day + 1) * DAY_MS - IST_OFF - 1;
+      const spanEnd  = Math.min(end, dayEnd);
+      const list     = days.get(day) ?? [];
+      list.push({ startMs: t, endMs: spanEnd, plays: s.plays });
+      days.set(day, list);
+      t = spanEnd + 1;
+    }
+  }
+  return days;
+}
+
+function UptimeTimeline({ sessions, range, loading }: {
+  sessions: { start: string; end: string; plays: number }[];
+  range: DateRange;
+  loading: boolean;
+}) {
+  const days = useMemo(() => {
+    const byDay = splitByIstDay(sessions);
+    // Every day in the picked range gets a track — a day with no plays is the
+    // point of the chart, so it must not be silently missing.
+    const first = range.from ? istDayIndex(new Date(`${ymd(range.from)}T12:00:00+05:30`).getTime()) : null;
+    const last  = range.to   ? istDayIndex(new Date(`${ymd(range.to)}T12:00:00+05:30`).getTime())   : first;
+    const out: { day: number; spans: DaySpan[] }[] = [];
+    if (first != null && last != null) {
+      for (let d = last; d >= first; d--) out.push({ day: d, spans: byDay.get(d) ?? [] });
+    } else {
+      for (const d of [...byDay.keys()].sort((a, b) => b - a)) out.push({ day: d, spans: byDay.get(d)! });
+    }
+    return out;
+  }, [sessions, range]);
+
+  if (loading) return <Skeleton className="h-52 rounded-xl" />;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      {/* Hour scale */}
+      <div className="mb-2 flex items-center gap-3">
+        <div className="w-24 shrink-0" />
+        <div className="relative h-4 flex-1">
+          {[0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => (
+            <span key={h}
+              className="absolute -translate-x-1/2 text-[9px] font-semibold tabular-nums text-muted-foreground/70"
+              style={{ left: `${(h / 24) * 100}%` }}>
+              {h === 24 ? '24' : h}
+            </span>
+          ))}
+        </div>
+        <div className="w-28 shrink-0 text-right text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70">
+          On air
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {days.map(({ day, spans }) => {
+          const onMs  = spans.reduce((n, s) => n + (s.endMs - s.startMs), 0);
+          const firstOn = spans.length ? Math.min(...spans.map((s) => s.startMs)) : null;
+          const lastOff = spans.length ? Math.max(...spans.map((s) => s.endMs))   : null;
+          return (
+            <div key={day} className="flex items-center gap-3">
+              <div className="w-24 shrink-0 text-[11px] font-semibold text-foreground">{istDayLabel(day)}</div>
+              <div className="relative h-6 flex-1 overflow-hidden rounded-md border border-border bg-muted/30">
+                {/* 6-hourly guides */}
+                {[6, 12, 18].map((h) => (
+                  <span key={h} className="absolute top-0 h-full w-px bg-border/70" style={{ left: `${(h / 24) * 100}%` }} />
+                ))}
+                {spans.map((s, i) => {
+                  const left  = (istDayOffset(s.startMs) / DAY_MS) * 100;
+                  const width = ((s.endMs - s.startMs) / DAY_MS) * 100;
+                  return (
+                    <span
+                      key={i}
+                      className="absolute top-0 h-full rounded-[3px] bg-green-600/85 hover:bg-green-600"
+                      style={{ left: `${left}%`, width: `${Math.max(width, 0.35)}%` }}
+                      title={`On ${fmtClock(s.startMs)} → ${fmtClock(s.endMs)} · ${fmtDur(s.endMs - s.startMs)} · ${s.plays.toLocaleString('en-IN')} plays`}
+                    />
+                  );
+                })}
+                {!spans.length && (
+                  <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                    No plays — screen dark
+                  </span>
+                )}
+              </div>
+              <div className="w-28 shrink-0 text-right">
+                <div className="text-[11px] font-bold tabular-nums text-foreground">{onMs ? fmtDur(onMs) : '—'}</div>
+                {firstOn != null && lastOff != null && (
+                  <div className="text-[9px] tabular-nums text-muted-foreground">{fmtClock(firstOn)} – {fmtClock(lastOff)}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-4 rounded-[2px] bg-green-600/85" /> Playing
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-4 rounded-[2px] border border-border bg-muted/30" /> Off / not reporting
+        </span>
+        <span>Gaps over 10 minutes are shown as off. Times in IST.</span>
+      </p>
+    </div>
+  );
+}
+
 // ─── Main tab ───────────────────────────────────────────────────────────────────
 
 export default function ProofOfPlayTab() {
@@ -309,6 +448,10 @@ export default function ProofOfPlayTab() {
   const [data,    setData]    = useState<PlaysResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
+
+  // On-air timeline (screen lens) — merged server-side over the full matching set.
+  const [sessions,        setSessions]        = useState<PlaySession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
 
   // Load reference lists once.
   useEffect(() => {
@@ -338,13 +481,23 @@ export default function ProofOfPlayTab() {
     (mode === 'group'  && selectedGroups.length > 0);
 
   const runReport = useCallback(() => {
-    if (!hasSelection) { setData(null); return; }
+    if (!hasSelection) { setData(null); setSessions([]); return; }
     setLoading(true); setError(null);
     getPlays({ ...rangeParams(), ...activeFilterParams() })
       .then(setData)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [hasSelection, rangeParams, activeFilterParams]);
+
+    if (mode === 'screen') {
+      setSessionsLoading(true);
+      getPlaySessions({ ...rangeParams(), ...activeFilterParams() })
+        .then((r) => setSessions(Array.isArray(r?.sessions) ? r.sessions : []))
+        .catch(() => setSessions([]))
+        .finally(() => setSessionsLoading(false));
+    } else {
+      setSessions([]);
+    }
+  }, [hasSelection, mode, rangeParams, activeFilterParams]);
 
   // Re-run whenever the primary selection or mode changes (range changes re-run on "Run report").
   useEffect(() => { runReport(); }, [mode, deviceId, mediaId, selectedGroups, runReport]);
@@ -471,7 +624,10 @@ export default function ProofOfPlayTab() {
           {/* Lens-specific rollup */}
           {mode === 'screen' && (
             <>
-              <SectionLabel n={1} label="Videos on this screen" />
+              <SectionLabel n={1} label="On air — when this screen was running" />
+              <UptimeTimeline sessions={sessions} range={range} loading={sessionsLoading} />
+
+              <SectionLabel n={2} label="Videos on this screen" />
               <RollupTable
                 cols={['Video', 'Plays', 'Watch', 'Last played']}
                 rows={(Array.isArray(data.summary?.byContent) ? data.summary.byContent : []).map((c) => [c.contentName || c.mediaId, (c.plays ?? 0).toLocaleString('en-IN'), fmtDur(c.totalMs ?? 0), c.lastPlayedAt ? fmtIST(c.lastPlayedAt) : '—'])}
@@ -504,7 +660,7 @@ export default function ProofOfPlayTab() {
 
           {/* Row-level timeline — the exact-timing proof */}
           <div className="flex items-center justify-between mt-2">
-            <SectionLabel n={mode === 'group' ? 3 : 2} label="Play log — exact timing" />
+            <SectionLabel n={mode === 'ad' ? 2 : 3} label="Play log — exact timing" />
             <button onClick={exportCsv}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2 text-xs font-bold text-foreground hover:border-primary/40 transition-colors">
               <Download className="h-3.5 w-3.5 text-primary" /> Export CSV

@@ -455,6 +455,17 @@ export const getPlays = (params?: Record<string, string>) => {
   return apiFetch<PlaysResponse>(`/api/reports/plays${qs}`);
 };
 
+// On-air timeline: consecutive plays merged into "screen was running" stretches, so a
+// gap in the returned sessions is the screen being off. Computed over the full matching
+// set server-side (the row list is paginated; this must not be).
+export type PlaySession = { start: string; end: string; plays: number };
+export type PlaySessionsResponse = { gapMs: number; sessions: PlaySession[]; eventCount: number };
+
+export const getPlaySessions = (params?: Record<string, string>) => {
+  const qs = '?' + new URLSearchParams({ ...(params ?? {}), format: 'sessions' }).toString();
+  return apiFetch<PlaySessionsResponse>(`/api/reports/plays${qs}`);
+};
+
 // CSV export of the full matching set (auth is header-only, so fetch → blob, same as downloadEventsCsv).
 export async function downloadPlaysCsv(params?: Record<string, string>, filename = 'alive-proof-of-play.csv'): Promise<void> {
   const qs  = '?' + new URLSearchParams({ ...(params ?? {}), format: 'csv' }).toString();
