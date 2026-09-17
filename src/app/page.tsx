@@ -19,8 +19,11 @@ const ROMAN_YEAR = (() => {
 /* ─── Types ─── */
 type HeroState = 'brand' | 'kirana' | 'consumer';
 
+/* A brand starts on /advertise — the advertiser page carries the network map,
+   the rate estimator and the enquiry form it submits from. /brand-onboarding is
+   the pay-now wizard, which is not where a new brand should land. */
 const HERO_STATES: { state: HeroState; href: string; img: string; icon: string; audience: string; label: string }[] = [
-  { state: 'brand',    href: '/brand-onboarding', img: '/for-brands.jpg',          icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
+  { state: 'brand',    href: '/advertise',         img: '/for-brands.jpg',          icon: '□', audience: 'Audience 01', label: 'Join as a Brand' },
   { state: 'kirana',   href: '/store',             img: '/kirana-best-practice.jpg', icon: '◫', audience: 'Audience 02', label: 'Partner as a Kirana' },
   { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
 ];
@@ -467,7 +470,7 @@ export default function Home() {
             <div className="jc-tag">Audience 01 · Brands</div>
             <div className="jc-title">Launch in-store campaigns that move product.</div>
             <p className="jc-desc">Three steps. Pay per verified play. Real uplift data against a matched control group — not impressions.</p>
-            <a href="/brand-onboarding" className="jc-btn">
+            <a href="/advertise#enquiry" className="jc-btn">
               Start a campaign
               <svg className="jc-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </a>
