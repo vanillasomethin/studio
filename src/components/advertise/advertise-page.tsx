@@ -40,6 +40,8 @@ export default function AdvertisePage() {
   const [slots, setSlots] = useState(1);
   const [months, setMonths] = useState(3);
 
+  useHashLanding();
+
   return (
     <div style={brandStyle()} className="min-h-screen">
       <SiteHeader />
@@ -130,6 +132,45 @@ export default function AdvertisePage() {
       <StickyCta />
     </div>
   );
+}
+
+/**
+ * Land on the section a deep link asks for. /advertise#enquiry is where the
+ * homepage sends a brand, and left to the browser it misses the form about half
+ * the time: the anchor is looked for before the page has laid out, hydration
+ * then puts the scroll back at the top, and the network map takes its height
+ * after first paint and moves the section again. So the landing is re-applied
+ * over the first second — and abandoned the moment the visitor scrolls, so
+ * someone who starts reading on the way down is never yanked.
+ */
+function useHashLanding() {
+  useEffect(() => {
+    const target = window.location.hash
+      ? document.getElementById(window.location.hash.slice(1))
+      : null;
+    if (!target) return;
+
+    let live = true;
+    const stop = () => { live = false; };
+    // 'instant', not the page's smooth scroll: a smooth run at this point is
+    // still animating when hydration scrolls back to the top, which cancels it
+    // — and nobody wants to watch 5,000px glide past on arrival.
+    const land = () => { if (live) target.scrollIntoView({ behavior: 'instant', block: 'start' }); };
+
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchstart', stop, { passive: true });
+    window.addEventListener('keydown', stop);
+
+    land();
+    const timers = [100, 350, 700, 1000].map(ms => window.setTimeout(land, ms));
+
+    return () => {
+      timers.forEach(t => window.clearTimeout(t));
+      window.removeEventListener('wheel', stop);
+      window.removeEventListener('touchstart', stop);
+      window.removeEventListener('keydown', stop);
+    };
+  }, []);
 }
 
 /* ------------------------------------------------------------------ chrome */
