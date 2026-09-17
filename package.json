@@ -22,6 +22,7 @@
     "verify:tier-links": "tsx scripts/verify-tier-links.mjs",
     "verify:store-ids": "tsx scripts/verify-store-ids.mjs",
     "verify:pop-periods": "tsx scripts/verify-pop-periods.mjs",
+    "verify:pop-attribution": "tsx scripts/verify-pop-attribution.mjs",
     "verify:brand-billing": "tsx scripts/verify-brand-billing.mjs",
     "verify:store-payout": "tsx scripts/verify-store-payout.mjs",
     "verify:transcode-skip": "tsx scripts/verify-transcode-skip.mjs",

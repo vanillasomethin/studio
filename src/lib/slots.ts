@@ -149,6 +149,42 @@ export function istToday(now = new Date()): string {
   return new Date(now.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/** Lookup key for "which campaign held this position on this IST date". */
+export function slotPlayKey(dateStr: string, slotPosition: number): string {
+  return `${dateStr}#${slotPosition}`;
+}
+
+/**
+ * Who a proof-of-play event belongs to when the player sent no usable campaignId.
+ *
+ * Attribution used to depend wholly on the device echoing the plan item's
+ * campaignId. Player builds that echo slotPosition and isFiller but not
+ * campaignId — which ALIVE_PLAYER_API.md did not ask for until now — logged
+ * every guaranteed play unattributed: on screen, but invisible to brand
+ * reporting and unbillable. The server can answer this itself, since the play
+ * names the loop position and SlotBooking records who bought it.
+ *
+ * Deriving beats trusting the device: it reads our own sales record, so it
+ * cannot be used to forge another brand's proof-of-play.
+ *
+ * Returns null — leaving the play recorded but unattributed — when:
+ *  - isFiller: a bonus/house play sits in a position whose booking belongs to
+ *    someone else, so the position does not identify the payer;
+ *  - no slotPosition: schedule-mode plays have no loop position;
+ *  - no booking for that date+position: e.g. a SlotPlan standing assignment,
+ *    which carries no position and would need a full loop rebuild to place.
+ */
+export function attributeSlotPlay(
+  ev: { slotPosition?: number | null; isFiller?: boolean | null; startedAt: string | Date },
+  bookedByKey: Map<string, string>,
+): string | null {
+  if (ev.isFiller === true) return null;
+  if (typeof ev.slotPosition !== 'number') return null;
+  const at = ev.startedAt instanceof Date ? ev.startedAt : new Date(ev.startedAt);
+  if (Number.isNaN(at.getTime())) return null;
+  return bookedByKey.get(slotPlayKey(istToday(at), ev.slotPosition)) ?? null;
+}
+
 /** IST weekday for a 'YYYY-MM-DD' date: 0=Mon … 6=Sun (matches the openDays bitmask). */
 export function istWeekday(dateStr: string): number {
   const jsDay = new Date(`${dateStr}T00:00:00Z`).getUTCDay(); // 0=Sun … 6=Sat
