@@ -87,6 +87,39 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // ── Sessions: the play log folded into "screen was on" stretches ──
+    // A screen doesn't report on/off — it reports plays. Consecutive plays with no
+    // meaningful gap between them mean it was running the whole time, so merging them
+    // gives an on-air timeline. Anything longer than gapMs counts as the screen being
+    // off (power cut, unplugged, closed for the night). Computed over the FULL matching
+    // set, not the paginated rows, so a busy screen's timeline is never truncated.
+    if (format === 'sessions') {
+      const gapMs = Math.max(60_000, Math.min(Number(p.get('gapMs') ?? 600_000), 6 * 3_600_000));
+      const events = await db.playEvent.findMany({
+        where,
+        select: { startedAt: true, endedAt: true },
+        orderBy: { startedAt: 'asc' },
+        take: 200_000,
+      });
+
+      const sessions: { start: string; end: string; plays: number }[] = [];
+      let start = 0, end = 0, plays = 0;
+      for (const e of events) {
+        const s = e.startedAt.getTime();
+        // endedAt can lag/precede oddly on a crashed play — never let it walk backwards.
+        const t = Math.max(s, e.endedAt.getTime());
+        if (plays && s - end <= gapMs) {
+          end = Math.max(end, t); plays += 1;
+        } else {
+          if (plays) sessions.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString(), plays });
+          start = s; end = t; plays = 1;
+        }
+      }
+      if (plays) sessions.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString(), plays });
+
+      return NextResponse.json({ gapMs, sessions, eventCount: events.length });
+    }
+
     // ── JSON: paginated rows + full-set summary rollups ──
     const [matchedCount, rows, grouped] = await Promise.all([
       db.playEvent.count({ where }),
@@ -205,6 +238,7 @@ function emptyResponse(format: string) {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="alive-proof-of-play.csv"' },
     });
   }
+  if (format === 'sessions') return NextResponse.json({ gapMs: 600_000, sessions: [], eventCount: 0 });
   return NextResponse.json({
     matchedCount: 0, rowsTruncated: false, rows: [], nextCursor: null,
     summary: { totalPlays: 0, totalMs: 0, screens: 0, contentCount: 0, byScreen: [], byContent: [], byGroup: [] },
