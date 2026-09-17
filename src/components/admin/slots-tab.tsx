@@ -1306,7 +1306,11 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
             <>
               <div className="flex items-center gap-3 flex-wrap">
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Plays per day per store</label>
+                  {/* Slots, not plays: one slot is a position in a single loop pass,
+                      and the pass repeats all day (see loopRepeatsPerDay). No play
+                      estimate here because this books many stores at once and each
+                      has its own loop size and hours. */}
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Slots per day per store</label>
                   <input type="number" min={1} max={60} value={perDay} onChange={(e) => setPerDay(Math.min(60, Math.max(1, Number(e.target.value) || 1)))}
                     className="w-24 rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary" />
                   {bookSpan > 1 && (
