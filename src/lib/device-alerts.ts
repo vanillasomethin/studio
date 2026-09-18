@@ -57,11 +57,24 @@ export const OFFLINE_AFTER_MS = 20 * 60 * 1000;
  * recoverable, a fabricated outage corrupts uptime and trains you to ignore it.
  */
 export const BACKFILL_MIN_GAP_MS = 60 * 60 * 1000;
-/** Extra downtime past the offline edge before the partner is told. */
-export const PARTNER_NOTIFY_AFTER_MS = 40 * 60 * 1000; // ≈60 min total downtime
+/**
+ * Extra downtime past the offline edge before the partner is told.
+ *
+ * 20 min past a 20-min edge, so ≈40 min of real downtime. Was 40 min (≈60 min
+ * total), which was a long time to leave a shopkeeper unaware that their screen
+ * — and the ads it owes a brand — had stopped.
+ *
+ * It does not go lower than this. Both player workers are 15-minute
+ * PeriodicWorkRequests that Android's Doze defers freely, so a healthy screen
+ * routinely brushes the 20-min offline edge; this window is what lets a merely
+ * late heartbeat land before anyone's phone buzzes. Shrink it further and the
+ * alert starts crying wolf, which costs more than the minutes it saves —
+ * a partner who learns to swipe these away is worse than no alert at all.
+ */
+export const PARTNER_NOTIFY_AFTER_MS = 20 * 60 * 1000; // ≈40 min total downtime
 /**
  * How long a screen must have been down before it appears in a "still offline"
- * digest. Comfortably past the partner escalation at ~60 min, so the digest can
+ * digest. Comfortably past the partner escalation at ~40 min, so the digest can
  * never merely echo a message the admin was sent minutes earlier — by the time
  * an outage qualifies, both the edge alert and the partner nudge have already
  * failed to produce a fix, which is precisely what makes the reminder worth
@@ -484,7 +497,7 @@ export async function escalateSustainedOutages(now = new Date()): Promise<number
         // Ends on the question because answering it is the action we want: the
         // tap lands on the dashboard banner, whose one-tap buttons write
         // partnerReportedCause — currently the only cause signal the fleet has.
-        body:  'It stopped playing about an hour ago. Was it a power cut, or the Wi-Fi? Tap to tell us — it helps us fix it faster.',
+        body:  'It stopped playing about half an hour ago. Was it a power cut, or the Wi-Fi? Tap to tell us — it helps us fix it faster.',
         url:   '/store-dashboard',
         tag:   `offline-${alert.id}`,
       });

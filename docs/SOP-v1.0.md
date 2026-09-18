@@ -611,7 +611,7 @@ Two signals beyond status, both visible per screen:
 Implemented in `src/lib/device-alerts.ts` + the health cron; timings are code, not convention:
 
 1. **Offline edge** — the 5-min cron flips the device OFFLINE (20-min threshold) and opens one `DeviceAlert` row per outage (a flapping screen does not stack rows). Admin is notified **immediately**: console popup + WhatsApp. When **≥3** screens drop in one sweep (`ADMIN_DIGEST_THRESHOLD = 3`) they arrive as a single digest — read a digest as "mains or ISP event, not a device fault."
-2. **Sustained outage** — after `PARTNER_NOTIFY_AFTER_MS = 40 min` past the edge (**≈60 min total downtime**), the partner gets a web push + WhatsApp ("check the screen's power and Wi-Fi"). Before sending, the system **re-checks live state** and silently closes the alert if the screen recovered or was re-assigned — a self-healed screen never generates a shopkeeper message. Severity escalates `warning → critical` at this point.
+2. **Sustained outage** — after `PARTNER_NOTIFY_AFTER_MS = 20 min` past the edge (**≈40 min total downtime**), the partner gets a web push + WhatsApp ("check the screen's power and Wi-Fi"). Before sending, the system **re-checks live state** and silently closes the alert if the screen recovered or was re-assigned — a self-healed screen never generates a shopkeeper message. Severity escalates `warning → critical` at this point.
 3. **Auto-resolve** — the next heartbeat closes the alert, records `downtimeSec`, and (only if the partner was told it broke) sends them a back-online notice.
 
 The cron also opens a `RemediationTicket` (with an admin WhatsApp) when a device misses **3** heartbeat windows (20 min each), logs **≥3** offline transitions in 24 h, or its 30-day uptime drops **>15 points**; severity `high` at ≥6 missed windows.
@@ -651,7 +651,7 @@ Standing facts you need for almost every diagnosis:
 | Heartbeat floor | Android clamps the player's heartbeat WorkManager job to a **15-minute minimum** — 20–25 min of dashboard lag after a real outage is normal, not a bug | field-trial-runbook §2 |
 | Plan poll | Every 15 min + instantly on FCM `plan_updated` push; 60 s fallback poll when the device has no FCM token | ARCHITECTURE.md §3.1 |
 | PoP flush | Events buffered locally (Room), flushed every 60 s in batches of ≤500, deleted **only after a 200** | ALIVE_PLAYER_API.md |
-| Partner notified | Only after ~**60 min** sustained downtime (20-min edge + 40-min `PARTNER_NOTIFY_AFTER_MS`) | `src/lib/device-alerts.ts` |
+| Partner notified | Only after ~**40 min** sustained downtime (20-min edge + 20-min `PARTNER_NOTIFY_AFTER_MS`) | `src/lib/device-alerts.ts` |
 | Current fleet build | versionCode **999560** (`apk-releases/alive-player-999560.apk`) | apk-releases/README.md |
 | Admin tools | Screens tab → **Diagnose** (`/api/admin/devices/[id]/plan-preview`) and **Force Sync** (`POST /api/devices/[id]/force-sync`) | field-trial-runbook §1, §3 |
 
@@ -911,7 +911,7 @@ The system messages partners about outages **on its own**. Know the timeline so 
 |---|---|
 | 0 | Screen's heartbeats stop |
 | ~20 min | 5-min cron flips the device OFFLINE, opens a `DeviceAlert`, notifies **admin** WhatsApp immediately (one digest message if ≥3 screens drop together) |
-| ~60 min | If still down (`PARTNER_NOTIFY_AFTER_MS` = 40 min past the edge), the **partner** gets a push + WhatsApp: *"Your ALIVE screen is offline — it stopped playing about an hour ago. Please check the screen's power and Wi-Fi."* Alert severity escalates to critical |
+| ~40 min | If still down (`PARTNER_NOTIFY_AFTER_MS` = 20 min past the edge), the **partner** gets a push + WhatsApp: *"Your ALIVE screen is offline — it stopped playing about half an hour ago. Please check the screen's power and Wi-Fi."* Alert severity escalates to critical |
 | Recovery | On the next heartbeat the alert auto-resolves with `downtimeSec`; the partner gets a back-online message **only if** they received the offline one — a resolution notice is never their first contact |
 
 Built-in guards you can rely on: before messaging, the system re-checks the device's **live** state (a screen that recovered is never falsely reported to its shopkeeper), and re-checks the screen still belongs to that store (a relinked screen never messages the wrong partner). Marking happens before sending, so a partner can never be double-messaged for one outage.
