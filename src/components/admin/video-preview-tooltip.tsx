@@ -2,37 +2,49 @@
 
 import { useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ContentThumb, type ContentLike } from '@/components/admin/content-picker';
+
+type PreviewContent = { type: 'image' | 'video'; url: string };
 
 type VideoPreviewTooltipProps = {
-  content: ContentLike | null;
-  className?: string;
-  children?: React.ReactNode;
+  content: PreviewContent | null;
+  children: React.ReactNode;
 };
 
-export function VideoPreviewTooltip({ content, className, children }: VideoPreviewTooltipProps) {
-  const [open, setOpen] = useState(false);
+/** Hover preview for a video creative. Deliberately has NO <video controls>:
+ *  a Radix tooltip closes on pointer-down, so the controls were unusable — the
+ *  first click on play dismissed the preview. A hover preview is a glance, so it
+ *  autoplays muted and loops; the full player with controls is a click away in
+ *  the Content tab's preview modal.
+ *
+ *  `muted` is load-bearing, not decoration: autoplay with sound is blocked by
+ *  every browser, which left the old version showing a permanently black frame. */
+export function VideoPreviewTooltip({ content, children }: VideoPreviewTooltipProps) {
+  const [failed, setFailed] = useState(false);
 
-  if (!content || content.type !== 'video') {
-    return children ? <>{children}</> : <ContentThumb content={content} className={className} />;
-  }
+  if (!content || content.type !== 'video') return <>{children}</>;
 
   return (
-    <Tooltip open={open} onOpenChange={setOpen}>
+    <Tooltip>
       <TooltipTrigger asChild>
-        <div>
-          {children ? children : <ContentThumb content={content} className={className} />}
-        </div>
+        <div>{children}</div>
       </TooltipTrigger>
-      <TooltipContent side="right" className="w-auto p-0 border-0 bg-transparent shadow-none" asChild>
-        <div className="rounded-lg border border-border overflow-hidden bg-black/90 shadow-lg">
-          <video
-            src={content.url}
-            controls
-            autoPlay
-            className="max-w-xs max-h-64 rounded-lg"
-            onMouseLeave={() => setOpen(false)}
-          />
+      <TooltipContent side="right" className="w-auto border-0 bg-transparent p-0 shadow-none" asChild>
+        <div className="overflow-hidden rounded-lg border border-border bg-black/90 shadow-lg">
+          {failed ? (
+            <p className="px-3 py-2 text-[11px] font-semibold text-white/80">Preview unavailable</p>
+          ) : (
+            <video
+              key={content.url}
+              src={content.url}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              className="max-h-64 max-w-xs rounded-lg"
+              onError={() => setFailed(true)}
+            />
+          )}
         </div>
       </TooltipContent>
     </Tooltip>

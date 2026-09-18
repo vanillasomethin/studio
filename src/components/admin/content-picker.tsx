@@ -11,36 +11,9 @@
 import { useState } from 'react';
 import { Check, Film, ImageIcon } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { VideoPreviewTooltip } from '@/components/admin/video-preview-tooltip';
 
 export type ContentLike = { id: string; name: string; type: 'image' | 'video'; url: string };
-
-/** Wraps a thumbnail with a hover preview for videos */
-function VideoPreviewWrapper<T extends ContentLike>({ content, className = 'h-9 w-14', children }: { content: T | null; className?: string; children?: React.ReactNode }) {
-  if (!content || content.type !== 'video') {
-    return children ?? <ContentThumb content={content} className={className} />;
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div>
-          {children ?? <ContentThumb content={content} className={className} />}
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="right" className="w-auto p-0 border-0 bg-transparent shadow-none" asChild>
-        <div className="rounded-lg border border-border overflow-hidden bg-black/90 shadow-lg">
-          <video
-            src={content.url}
-            controls
-            autoPlay
-            className="max-w-xs max-h-64 rounded-lg"
-          />
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 
 /** A single content item's thumbnail — image, or a muted video frame with a
  *  film-strip corner badge. Reusable standalone wherever a card face needs to
@@ -58,7 +31,9 @@ export function ContentThumb({ content, className = 'h-9 w-14' }: { content: Con
     <img src={content.url} alt="" className={`shrink-0 rounded-lg bg-muted object-cover ${className}`} />
   ) : (
     <div className={`relative shrink-0 overflow-hidden rounded-lg bg-purple-500/10 ${className}`}>
-      <video src={content.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+      {/* #t=0.1 asks for a real frame: with a bare src, browsers that only fetch
+          metadata paint an empty black box instead of the first frame. */}
+      <video src={`${content.url}#t=0.1`} muted playsInline preload="metadata" className="h-full w-full object-cover" />
       <Film className="pointer-events-none absolute bottom-0.5 right-0.5 h-2.5 w-2.5 text-white drop-shadow" />
     </div>
   );
@@ -97,7 +72,7 @@ export function ContentMultiPickerField<T extends ContentLike>({
             {content.map((c) => {
               const on = value.includes(c.id);
               return (
-                <VideoPreviewWrapper key={c.id} content={c} className="h-16 w-full">
+                <VideoPreviewTooltip key={c.id} content={c}>
                   <button
                     type="button"
                     onClick={() => toggle(c.id)}
@@ -113,7 +88,7 @@ export function ContentMultiPickerField<T extends ContentLike>({
                       </div>
                     )}
                   </button>
-                </VideoPreviewWrapper>
+                </VideoPreviewTooltip>
               );
             })}
           </div>
@@ -167,7 +142,7 @@ export function ContentPickerField<T extends ContentLike>({
             {items.map((c) => {
               const on = c.id === value;
               return (
-                <VideoPreviewWrapper key={c.id} content={c} className="h-16 w-full">
+                <VideoPreviewTooltip key={c.id} content={c}>
                   <button
                     type="button"
                     onClick={() => { onChange(c.id); setOpen(false); }}
@@ -183,7 +158,7 @@ export function ContentPickerField<T extends ContentLike>({
                       </div>
                     )}
                   </button>
-                </VideoPreviewWrapper>
+                </VideoPreviewTooltip>
               );
             })}
           </div>
