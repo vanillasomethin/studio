@@ -870,27 +870,25 @@ function Wizard({ draft, update }: { draft: Draft; update: UpdateFn }) {
       let blob: Blob = file;
       if (file.size > 3.5 * 1024 * 1024 || !SERVER_TYPES.includes(file.type)) blob = await downscaleImage(file);
 
-      let coords = await exifPromise;
-      let source: 'exif' | 'device' | null = null;
-
-      if (!coords) {
-        // No EXIF GPS — use device location as fallback
-        const fix = await currentFix();
-        if (fix) {
-          coords = fix;
-          source = 'device';
-        }
-      } else {
-        source = 'exif';
-      }
+      // A fix and its provenance are ONE value, not two bindings that happen to
+      // agree. As separate `let`s, "we have coords, so we know where they came
+      // from" was an invariant the compiler could not see — `source` stayed
+      // `string | null` inside `if (coords)`, so appending it to FormData did
+      // not typecheck. Pairing them makes the guarantee structural instead.
+      // Device geolocation still only runs on an EXIF miss: it prompts the
+      // operator, so it must never be consulted speculatively.
+      const exifCoords = await exifPromise;
+      const located = exifCoords
+        ? { ...exifCoords, source: 'exif' as const }
+        : await currentFix().then((fix) => (fix ? { ...fix, source: 'device' as const } : null));
 
       const fd = new FormData();
       fd.append('file', blob, `${kind}.jpg`);
       fd.append('kind', kind);
-      if (coords) {
-        fd.append('lat', String(coords.lat));
-        fd.append('lng', String(coords.lng));
-        fd.append('source', source);
+      if (located) {
+        fd.append('lat', String(located.lat));
+        fd.append('lng', String(located.lng));
+        fd.append('source', located.source);
       }
       const res  = await fetch(`/api/admin/stores/${d.storeId}/photo`, { method: 'POST', headers: { 'admin-password': adminPw() }, body: fd });
       if (bounceIfUnauthorized(res)) return;
