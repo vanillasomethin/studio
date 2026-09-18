@@ -14,10 +14,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 
 const ROW_CAP = 2000; // hard cap on rows returned per page (summary is unaffected)
+const SESSION_CAP = 20_000; // hard cap on on-air stretches returned (format=sessions); the fold itself is uncapped
 
 function csvEsc(v: string | number | null | undefined) {
   if (v == null) return '';
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
     // Resolve group names → device ids (grouping lives only on Device.groupName).
     // If groups are selected but resolve to no devices, there's nothing to report.
     let deviceScope: Prisma.PlayEventWhereInput = {};
+    let scopeIds: string[] | null = null;   // resolved device ids, for the raw sessions query
     if (groupNames.length) {
       const inGroup = await db.device.findMany({
         where:  { groupName: { in: groupNames }, ...(deviceId ? { id: deviceId } : {}) },
@@ -50,8 +52,10 @@ export async function GET(req: NextRequest) {
       const ids = inGroup.map((d) => d.id);
       if (!ids.length) return emptyResponse(format);
       deviceScope = { deviceId: { in: ids } };
+      scopeIds    = ids;
     } else if (deviceId) {
       deviceScope = { deviceId };
+      scopeIds    = [deviceId];
     }
 
     const where: Prisma.PlayEventWhereInput = {
@@ -90,34 +94,97 @@ export async function GET(req: NextRequest) {
     // ── Sessions: the play log folded into "screen was on" stretches ──
     // A screen doesn't report on/off — it reports plays. Consecutive plays with no
     // meaningful gap between them mean it was running the whole time, so merging them
-    // gives an on-air timeline. Anything longer than gapMs counts as the screen being
-    // off (power cut, unplugged, closed for the night). Computed over the FULL matching
-    // set, not the paginated rows, so a busy screen's timeline is never truncated.
+    // gives an on-air timeline. A gap longer than gapMs is the screen being off (power
+    // cut, unplugged, closed for the night).
+    //
+    // Folded in SQL, per device, because the volume makes any row-fetching approach
+    // wrong rather than merely slow: slots are SLOT_DURATION_MS (10s) long, so one
+    // screen running 12h emits ~4,300 PlayEvents a day and a 7-screen group clears
+    // 200k inside the tab's default 7-day range. Reading rows into the function to
+    // fold them in JS would need a cap, and a capped fold draws a screen that was on
+    // as a screen that was dark. Postgres does the gaps-and-islands in place against
+    // @@index([deviceId, startedAt]) and hands back one row per on-air stretch.
+    //
+    // PER DEVICE, never across devices: screens in a group interleave their plays, so
+    // one global fold would report the group as continuously on whenever any single
+    // screen was — the exact question the timeline exists to answer.
     if (format === 'sessions') {
       const gapMs = Math.max(60_000, Math.min(Number(p.get('gapMs') ?? 600_000), 6 * 3_600_000));
-      const events = await db.playEvent.findMany({
-        where,
-        select: { startedAt: true, endedAt: true },
-        orderBy: { startedAt: 'asc' },
-        take: 200_000,
-      });
 
-      const sessions: { start: string; end: string; plays: number }[] = [];
-      let start = 0, end = 0, plays = 0;
-      for (const e of events) {
-        const s = e.startedAt.getTime();
-        // endedAt can lag/precede oddly on a crashed play — never let it walk backwards.
-        const t = Math.max(s, e.endedAt.getTime());
-        if (plays && s - end <= gapMs) {
-          end = Math.max(end, t); plays += 1;
-        } else {
-          if (plays) sessions.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString(), plays });
-          start = s; end = t; plays = 1;
-        }
+      // The fold is uncapped by design, so it must never be unbounded: without a lower
+      // bound a caller that omits from/to (the date picker hands back a cleared range on
+      // an ordinary "re-pick the start" click) would fold the entire table. 90 days is
+      // the longest range the tab itself offers.
+      const foldFrom = from ?? new Date(Date.now() - 90 * 86_400_000);
+
+      const conds: Prisma.Sql[] = [Prisma.sql`"startedAt" >= ${foldFrom}`];
+      if (scopeIds) conds.push(Prisma.sql`"deviceId" IN (${Prisma.join(scopeIds)})`);
+      if (mediaId)  conds.push(Prisma.sql`"mediaId" = ${mediaId}`);
+      if (to)       conds.push(Prisma.sql`"startedAt" <= ${to}`);
+      const whereSql = Prisma.sql`WHERE ${Prisma.join(conds, ' AND ')}`;
+
+      // prev_end is the running max of every earlier end in the partition, not the
+      // previous row's end: a long play can finish after the next one starts, and
+      // LAG would then split a session that never actually stopped.
+      const rows = await db.$queryRaw<{ deviceId: string; start: Date; end: Date; plays: number }[]>(Prisma.sql`
+        WITH ev AS (
+          SELECT "deviceId", "startedAt", GREATEST("endedAt", "startedAt") AS ended
+          FROM "PlayEvent"
+          ${whereSql}
+        ),
+        marked AS (
+          SELECT "deviceId", "startedAt", ended,
+                 MAX(ended) OVER (PARTITION BY "deviceId" ORDER BY "startedAt"
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_end
+          FROM ev
+        ),
+        islands AS (
+          SELECT "deviceId", "startedAt", ended,
+                 SUM(CASE WHEN prev_end IS NULL
+                           OR "startedAt" > prev_end + (${gapMs} * interval '1 millisecond')
+                          THEN 1 ELSE 0 END)
+                   OVER (PARTITION BY "deviceId" ORDER BY "startedAt" ROWS UNBOUNDED PRECEDING) AS island
+          FROM marked
+        )
+        SELECT "deviceId",
+               MIN("startedAt")  AS start,
+               MAX(ended)        AS end,
+               COUNT(*)::int     AS plays
+        FROM islands
+        GROUP BY "deviceId", island
+        ORDER BY "deviceId", start
+        LIMIT ${SESSION_CAP + 1}
+      `);
+
+      const truncated = rows.length > SESSION_CAP;
+      const kept      = truncated ? rows.slice(0, SESSION_CAP) : rows;
+
+      const byDevice = new Map<string, { start: string; end: string; plays: number }[]>();
+      for (const r of kept) {
+        const list = byDevice.get(r.deviceId) ?? [];
+        list.push({ start: r.start.toISOString(), end: r.end.toISOString(), plays: r.plays });
+        byDevice.set(r.deviceId, list);
       }
-      if (plays) sessions.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString(), plays });
 
-      return NextResponse.json({ gapMs, sessions, eventCount: events.length });
+      const devMap = await db.device.findMany({
+        where:  { id: { in: [...byDevice.keys()] } },
+        select: { id: true, name: true, groupName: true },
+      }).then((ds) => new Map(ds.map((d) => [d.id, d])));
+
+      const screens = [...byDevice.entries()].map(([id, sessions]) => ({
+        deviceId:   id,
+        screenName: devMap.get(id)?.name ?? id,
+        groupName:  devMap.get(id)?.groupName ?? null,
+        sessions,
+        totalMs: sessions.reduce((n, x) => n + (Date.parse(x.end) - Date.parse(x.start)), 0),
+        plays:   sessions.reduce((n, x) => n + x.plays, 0),
+      })).sort((a, b) => a.screenName.localeCompare(b.screenName));
+
+      // truncated can only fire on an implausible number of distinct on-air stretches,
+      // but a short timeline must never be drawn as fact — the client says so.
+      return NextResponse.json({
+        gapMs, screens, sessionCount: kept.length, truncated,
+      });
     }
 
     // ── JSON: paginated rows + full-set summary rollups ──
@@ -238,7 +305,7 @@ function emptyResponse(format: string) {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="alive-proof-of-play.csv"' },
     });
   }
-  if (format === 'sessions') return NextResponse.json({ gapMs: 600_000, sessions: [], eventCount: 0 });
+  if (format === 'sessions') return NextResponse.json({ gapMs: 600_000, screens: [], sessionCount: 0, truncated: false });
   return NextResponse.json({
     matchedCount: 0, rowsTruncated: false, rows: [], nextCursor: null,
     summary: { totalPlays: 0, totalMs: 0, screens: 0, contentCount: 0, byScreen: [], byContent: [], byGroup: [] },
