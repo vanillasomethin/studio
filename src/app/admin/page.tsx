@@ -643,27 +643,25 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
       // losing EXIF in the downscale costs nothing.
       const exifP = extractGpsFromFile(file);
       const blob = await prepareUpload(file);
-      let coords = await exifP;
-      let source: 'exif' | 'device' | null = null;
-
-      if (!coords) {
-        // No EXIF GPS — use device location as fallback
-        const fix = await currentFix();
-        if (fix) {
-          coords = fix;
-          source = 'device';
-        }
-      } else {
-        source = 'exif';
-      }
+      // A fix and its provenance are ONE value, not two bindings that happen to
+      // agree. As separate `let`s, "we have coords, so we know where they came
+      // from" was an invariant the compiler could not see — `source` stayed
+      // `string | null` inside `if (coords)`, so appending it to FormData did
+      // not typecheck. Pairing them makes the guarantee structural instead.
+      // Device geolocation still only runs on an EXIF miss: it prompts the
+      // operator, so it must never be consulted speculatively.
+      const exifCoords = await exifP;
+      const located = exifCoords
+        ? { ...exifCoords, source: 'exif' as const }
+        : await currentFix().then((fix) => (fix ? { ...fix, source: 'device' as const } : null));
 
       const fd = new FormData();
       fd.append('file', blob, `${kind}.jpg`);
       fd.append('kind', kind);
-      if (coords) {
-        fd.append('lat', String(coords.lat));
-        fd.append('lng', String(coords.lng));
-        fd.append('source', source);
+      if (located) {
+        fd.append('lat', String(located.lat));
+        fd.append('lng', String(located.lng));
+        fd.append('source', located.source);
       }
       const pw   = sessionStorage.getItem(SS_PW) ?? '';
       const res  = await fetch(`/api/admin/stores/${storeId}/photo`, { method: 'POST', headers: { 'admin-password': pw }, body: fd });
@@ -682,7 +680,7 @@ function AdminPhotoCard({ label, kind, storeId, url, lat, lng, source, at, store
           url:    body.url,
           lat:    body.lat ?? null,
           lng:    body.lng ?? null,
-          source: body.lat != null ? source : null,
+          source: body.lat != null ? located?.source ?? null : null,
           at:     body.at ?? null,
         }),
         ...(body.storeLat != null && body.storeLng != null ? { lat: body.storeLat, lng: body.storeLng } : {}),
