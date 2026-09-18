@@ -435,12 +435,15 @@ const clippedMs = (x: { start: string; end: string }, startMs: number, endMs: nu
 
 type FleetRow = { deviceId: string; name: string; groupName: string | null; sessions: { start: string; end: string; plays: number }[] };
 
-function FleetTimeline({ screens, devices, groupNames, range, loading }: {
+// `ad` reuses the same chart for one creative: a bar is a stretch where the ad
+// kept coming round in the loop on that screen, not the screen merely being on.
+function FleetTimeline({ screens, devices, groupNames, range, loading, kind = 'group' }: {
   screens: PlayScreenSessions[];
   devices: Device[];
   groupNames: string[];
   range: DateRange;
   loading: boolean;
+  kind?: 'group' | 'ad';
 }) {
   const { rows, startMs, endMs, dayCount } = useMemo(() => {
     const from = range.from ?? range.to ?? null;
@@ -488,7 +491,7 @@ function FleetTimeline({ screens, devices, groupNames, range, loading }: {
   if (!rows.length) {
     return (
       <div className="rounded-xl border border-border bg-card p-8 text-center text-xs text-muted-foreground">
-        No screens in the selected groups.
+        {kind === 'ad' ? 'No screen played this ad in this period.' : 'No screens in the selected groups.'}
       </div>
     );
   }
@@ -572,12 +575,16 @@ function FleetTimeline({ screens, devices, groupNames, range, loading }: {
 
       <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-4 rounded-[2px] bg-green-600/85" /> Playing
+          <span className="h-2.5 w-4 rounded-[2px] bg-green-600/85" /> {kind === 'ad' ? 'Ad in rotation' : 'Playing'}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-4 rounded-[2px] border border-border bg-muted/30" /> Off / not reporting
+          <span className="h-2.5 w-4 rounded-[2px] border border-border bg-muted/30" /> {kind === 'ad' ? 'Not playing' : 'Off / not reporting'}
         </span>
-        <span>Least time on air first. Gaps over 10 minutes are shown as off. Times in IST.</span>
+        <span>
+          {kind === 'ad'
+            ? 'Least time in rotation first. The ad counts as running while it comes round at least every 10 minutes. Times in IST.'
+            : 'Least time on air first. Gaps over 10 minutes are shown as off. Times in IST.'}
+        </span>
       </p>
     </div>
   );
@@ -671,7 +678,7 @@ export default function ProofOfPlayTab() {
       .catch((e: Error) => { if (seq === reqSeq.current) setError(e.message); })
       .finally(() => { if (seq === reqSeq.current) setLoading(false); });
 
-    if (mode === 'screen' || mode === 'group') {
+    if (mode === 'screen' || mode === 'group' || mode === 'ad') {
       setSessionsLoading(true); setSessionsError(null);
       getPlaySessions({ ...rangeParams(), ...activeFilterParams() })
         .then((r) => {
@@ -826,7 +833,20 @@ export default function ProofOfPlayTab() {
           )}
           {mode === 'ad' && (
             <>
-              <SectionLabel n={1} label="Screens that played this ad" />
+              <SectionLabel n={1} label="In rotation — when each screen was running this ad" />
+              <TimelineNotice error={sessionsError} truncated={sessionsTruncated} />
+              {!sessionsError && (
+                <FleetTimeline
+                  kind="ad"
+                  screens={screenSessions}
+                  devices={devices}
+                  groupNames={[]}
+                  range={range}
+                  loading={sessionsLoading}
+                />
+              )}
+
+              <SectionLabel n={2} label="Screens that played this ad" />
               <RollupTable
                 cols={['Screen', 'Group', 'Plays', 'Watch', 'Last played']}
                 rows={(Array.isArray(data.summary?.byScreen) ? data.summary.byScreen : []).map((s) => [s.screenName, s.groupName || '—', (s.plays ?? 0).toLocaleString('en-IN'), fmtDur(s.totalMs ?? 0), s.lastPlayedAt ? fmtIST(s.lastPlayedAt) : '—'])}
@@ -862,7 +882,7 @@ export default function ProofOfPlayTab() {
 
           {/* Row-level timeline — the exact-timing proof */}
           <div className="flex items-center justify-between mt-2">
-            <SectionLabel n={mode === 'ad' ? 2 : mode === 'screen' ? 3 : 4} label="Play log — exact timing" />
+            <SectionLabel n={mode === 'group' ? 4 : 3} label="Play log — exact timing" />
             <button onClick={exportCsv}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2 text-xs font-bold text-foreground hover:border-primary/40 transition-colors">
               <Download className="h-3.5 w-3.5 text-primary" /> Export CSV
