@@ -599,7 +599,8 @@ export default function ContentTab() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={c.url} alt={c.name} className="max-h-[65vh] w-auto max-w-full rounded-lg object-contain" />
                 ) : (
-                  <video src={c.url} controls autoPlay className="max-h-[65vh] w-auto max-w-full rounded-lg" />
+                  // Muted, or the browser blocks the autoplay and the modal opens on a frozen frame.
+                  <video src={c.url} controls autoPlay muted playsInline className="max-h-[65vh] w-auto max-w-full rounded-lg" />
                 )}
               </div>
             </div>
