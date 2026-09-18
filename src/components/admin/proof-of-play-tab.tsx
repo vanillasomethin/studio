@@ -7,7 +7,7 @@
 //   • By Groups → pick groups, see plays across all their screens
 // Backed by GET /api/reports/plays (see getPlays / downloadPlaysCsv).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import {
@@ -18,7 +18,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   getPlays, getPlaySessions, downloadPlaysCsv, getDevices, getContent, getDeviceGroups,
-  type PlaysResponse, type PlaySession, type Device, type Content, type DeviceGroup,
+  type PlaysResponse, type PlayScreenSessions, type Device, type Content, type DeviceGroup,
 } from '@/lib/backend-api';
 import PopArchivePanel from '@/components/admin/pop-archive-panel';
 
@@ -423,6 +423,180 @@ function UptimeTimeline({ sessions, range, loading }: {
   );
 }
 
+// ─── Fleet timeline (group lens) ────────────────────────────────────────────────
+// A group is many screens, so the question changes from "when was it on today?" to
+// "which of these screens is dark?". One row per screen, x-axis spanning the whole
+// picked range: a screen that stopped reporting on Wednesday shows a gap the eye
+// lands on without reading a single number.
+
+/** Milliseconds of a session that fall inside the drawn window. */
+const clippedMs = (x: { start: string; end: string }, startMs: number, endMs: number) =>
+  Math.max(0, Math.min(Date.parse(x.end), endMs) - Math.max(Date.parse(x.start), startMs));
+
+type FleetRow = { deviceId: string; name: string; groupName: string | null; sessions: { start: string; end: string; plays: number }[] };
+
+function FleetTimeline({ screens, devices, groupNames, range, loading }: {
+  screens: PlayScreenSessions[];
+  devices: Device[];
+  groupNames: string[];
+  range: DateRange;
+  loading: boolean;
+}) {
+  const { rows, startMs, endMs, dayCount } = useMemo(() => {
+    const from = range.from ?? range.to ?? null;
+    const to   = range.to   ?? range.from ?? null;
+    // The picker hands back {from: undefined, to: undefined} on an ordinary
+    // "start a new range here" click. Fall back to the days the data actually
+    // covers rather than drawing an epoch-dated empty track.
+    const stamps = screens.flatMap((s) => s.sessions.flatMap((x) => [Date.parse(x.start), Date.parse(x.end)]))
+      .filter((n) => Number.isFinite(n));
+    const firstDay = from ? istDayIndex(Date.parse(istDayStartUtc(from)))
+      : stamps.length ? istDayIndex(Math.min(...stamps)) : istDayIndex(new Date().getTime());
+    const lastDay  = to   ? istDayIndex(Date.parse(istDayEndUtc(to)))
+      : stamps.length ? istDayIndex(Math.max(...stamps)) : firstDay;
+    const startMs = firstDay * DAY_MS - IST_OFF;
+    // Exclusive end, so the track is exactly N whole IST days wide.
+    const endMs   = (Math.max(lastDay, firstDay) + 1) * DAY_MS - IST_OFF;
+    const dayCount = Math.max(1, Math.round((endMs - startMs) / DAY_MS));
+
+    const byDevice = new Map(screens.map((s) => [s.deviceId, s]));
+    // Every screen in the picked groups gets a row, including ones that reported
+    // nothing at all — a screen missing from the report is the finding, so it must
+    // not be missing from the chart.
+    const expected = devices.filter((d) => d.groupName && groupNames.includes(d.groupName));
+    const ids = new Set([...byDevice.keys(), ...expected.map((d) => d.id)]);
+    const devById = new Map(devices.map((d) => [d.id, d]));
+
+    const rows: FleetRow[] = [...ids].map((id) => {
+      const dev = devById.get(id);
+      const rec = byDevice.get(id);
+      return {
+        deviceId:  id,
+        name:      dev ? screenLabel(dev) : rec?.screenName ?? id,
+        groupName: dev?.groupName ?? rec?.groupName ?? null,
+        sessions:  rec?.sessions ?? [],
+      };
+    });
+
+    // Least time on air first: the screens that need someone to look are at the top.
+    const onAir = (r: FleetRow) => r.sessions.reduce((n, x) => n + clippedMs(x, startMs, endMs), 0);
+    rows.sort((a, b) => onAir(a) - onAir(b) || a.name.localeCompare(b.name));
+    return { rows, startMs, endMs, dayCount };
+  }, [screens, devices, groupNames, range]);
+
+  if (loading) return <Skeleton className="h-52 rounded-xl" />;
+  if (!rows.length) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-8 text-center text-xs text-muted-foreground">
+        No screens in the selected groups.
+      </div>
+    );
+  }
+
+  const span      = Math.max(1, endMs - startMs);
+  const labelStep = Math.ceil(dayCount / 14); // keep day labels from colliding on long ranges
+  const days      = Array.from({ length: dayCount }, (_, i) => i);
+  const multiGroup = new Set(rows.map((r) => r.groupName ?? '')).size > 1;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      {/* Day scale */}
+      <div className="mb-2 flex items-end gap-3">
+        <div className="w-40 shrink-0" />
+        <div className="relative h-4 flex-1">
+          {days.map((i) => i % labelStep === 0 && (
+            <span key={i}
+              className="absolute text-[9px] font-semibold tabular-nums text-muted-foreground/70"
+              style={{ left: `${(i / dayCount) * 100}%` }}>
+              {new Date(startMs + i * DAY_MS + DAY_MS / 2).toLocaleDateString('en-IN', {
+                timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short',
+              })}
+            </span>
+          ))}
+        </div>
+        <div className="w-24 shrink-0 text-right text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70">
+          On air
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {rows.map((r) => {
+          // Clip once: the bar and the hours beside it must describe the same window.
+          const spans = r.sessions
+            .map((x) => ({ a: Math.max(Date.parse(x.start), startMs), b: Math.min(Date.parse(x.end), endMs), plays: x.plays }))
+            .filter((x) => Number.isFinite(x.a) && Number.isFinite(x.b) && x.b >= x.a);
+          const onMs = spans.reduce((n, x) => n + (x.b - x.a), 0);
+          return (
+            <div key={r.deviceId} className="flex items-center gap-3">
+              <div className="w-40 shrink-0 min-w-0">
+                <p className="truncate text-[11px] font-semibold text-foreground">{r.name}</p>
+                {multiGroup && <p className="truncate text-[9px] text-muted-foreground">{r.groupName || 'No group'}</p>}
+              </div>
+              <div className="relative h-6 flex-1 overflow-hidden rounded-md border border-border bg-muted/30">
+                {/* One guide per IST midnight */}
+                {days.slice(1).map((i) => (
+                  <span key={i} className="absolute top-0 h-full w-px bg-border/70" style={{ left: `${(i / dayCount) * 100}%` }} />
+                ))}
+                {/* Width is the true proportion, floored in PIXELS not percent: a percentage
+                    floor means a different amount of time on every range — 0.3% of the
+                    90-day preset is 6.5 hours, which would draw a screen running 1 hr/day
+                    as wide as one running 10. One pixel is span-independent. */}
+                {spans.map((x, i) => (
+                  <span
+                    key={i}
+                    className="absolute top-0 h-full bg-green-600/85 hover:bg-green-600"
+                    style={{
+                      left:     `${((x.a - startMs) / span) * 100}%`,
+                      width:    `${((x.b - x.a) / span) * 100}%`,
+                      minWidth: '1px',
+                    }}
+                    title={`On ${fmtIST(new Date(x.a).toISOString())} → ${fmtIST(new Date(x.b).toISOString())} · ${fmtDur(x.b - x.a)} · ${x.plays.toLocaleString('en-IN')} plays`}
+                  />
+                ))}
+                {!spans.length && (
+                  <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                    Nothing played in this period
+                  </span>
+                )}
+              </div>
+              <div className="w-24 shrink-0 text-right">
+                <div className="text-[11px] font-bold tabular-nums text-foreground">{onMs ? fmtDur(onMs) : '—'}</div>
+                <div className="text-[9px] tabular-nums text-muted-foreground">
+                  {onMs ? `${fmtDur(onMs / dayCount)}/day` : 'dark'}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-4 rounded-[2px] bg-green-600/85" /> Playing
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-4 rounded-[2px] border border-border bg-muted/30" /> Off / not reporting
+        </span>
+        <span>Least time on air first. Gaps over 10 minutes are shown as off. Times in IST.</span>
+      </p>
+    </div>
+  );
+}
+
+function TimelineNotice({ error, truncated }: { error: string | null; truncated: boolean }) {
+  if (!error && !truncated) return null;
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2.5">
+      <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+      <p className="text-xs text-muted-foreground">
+        {error
+          ? <>Could not build the on-air timeline — <span className="text-foreground">{error}</span>. The totals and play log below are unaffected.</>
+          : <>This range has more separate on-air stretches than the timeline can draw, so it is cut short. Narrow the date range for a complete picture.</>}
+      </p>
+    </div>
+  );
+}
+
 // ─── Main tab ───────────────────────────────────────────────────────────────────
 
 export default function ProofOfPlayTab() {
@@ -449,9 +623,13 @@ export default function ProofOfPlayTab() {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  // On-air timeline (screen lens) — merged server-side over the full matching set.
-  const [sessions,        setSessions]        = useState<PlaySession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
+  // On-air timeline (screen + group lenses) — merged per screen server-side over the
+  // full matching set, so it never inherits the play log's row cap.
+  const [screenSessions,    setScreenSessions]    = useState<PlayScreenSessions[]>([]);
+  const [sessionsLoading,   setSessionsLoading]   = useState(false);
+  const [sessionsError,     setSessionsError]     = useState<string | null>(null);
+  const [sessionsTruncated, setSessionsTruncated] = useState(false);
+  const reqSeq = useRef(0);
 
   // Load reference lists once.
   useEffect(() => {
@@ -481,21 +659,32 @@ export default function ProofOfPlayTab() {
     (mode === 'group'  && selectedGroups.length > 0);
 
   const runReport = useCallback(() => {
-    if (!hasSelection) { setData(null); setSessions([]); return; }
+    if (!hasSelection) { setData(null); setScreenSessions([]); setSessionsError(null); return; }
+    // Every lens writes the same state, and the session fold is far slower than the
+    // rollups, so an abandoned request can land after the one that replaced it and
+    // repaint the chart with a screen or a group the operator has already left.
+    // Only the newest request is allowed to write.
+    const seq = ++reqSeq.current;
     setLoading(true); setError(null);
     getPlays({ ...rangeParams(), ...activeFilterParams() })
-      .then(setData)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+      .then((r) => { if (seq === reqSeq.current) setData(r); })
+      .catch((e: Error) => { if (seq === reqSeq.current) setError(e.message); })
+      .finally(() => { if (seq === reqSeq.current) setLoading(false); });
 
-    if (mode === 'screen') {
-      setSessionsLoading(true);
+    if (mode === 'screen' || mode === 'group') {
+      setSessionsLoading(true); setSessionsError(null);
       getPlaySessions({ ...rangeParams(), ...activeFilterParams() })
-        .then((r) => setSessions(Array.isArray(r?.sessions) ? r.sessions : []))
-        .catch(() => setSessions([]))
-        .finally(() => setSessionsLoading(false));
+        .then((r) => {
+          if (seq !== reqSeq.current) return;
+          setScreenSessions(Array.isArray(r?.screens) ? r.screens : []);
+          setSessionsTruncated(!!r?.truncated);
+        })
+        // A failed fold must not read as a fleet-wide blackout: every screen would
+        // render dark under KPI tiles reporting thousands of plays.
+        .catch((e: Error) => { if (seq === reqSeq.current) { setScreenSessions([]); setSessionsError(e.message); } })
+        .finally(() => { if (seq === reqSeq.current) setSessionsLoading(false); });
     } else {
-      setSessions([]);
+      setScreenSessions([]); setSessionsError(null);
     }
   }, [hasSelection, mode, rangeParams, activeFilterParams]);
 
@@ -625,7 +814,8 @@ export default function ProofOfPlayTab() {
           {mode === 'screen' && (
             <>
               <SectionLabel n={1} label="On air — when this screen was running" />
-              <UptimeTimeline sessions={sessions} range={range} loading={sessionsLoading} />
+              <TimelineNotice error={sessionsError} truncated={sessionsTruncated} />
+              {!sessionsError && <UptimeTimeline sessions={screenSessions[0]?.sessions ?? []} range={range} loading={sessionsLoading} />}
 
               <SectionLabel n={2} label="Videos on this screen" />
               <RollupTable
@@ -645,12 +835,24 @@ export default function ProofOfPlayTab() {
           )}
           {mode === 'group' && (
             <>
-              <SectionLabel n={1} label="By group" />
+              <SectionLabel n={1} label="On air — which screens were running" />
+              <TimelineNotice error={sessionsError} truncated={sessionsTruncated} />
+              {!sessionsError && (
+                <FleetTimeline
+                  screens={screenSessions}
+                  devices={devices}
+                  groupNames={selectedGroups}
+                  range={range}
+                  loading={sessionsLoading}
+                />
+              )}
+
+              <SectionLabel n={2} label="By group" />
               <RollupTable
                 cols={['Group', 'Screens', 'Plays', 'Watch']}
                 rows={(Array.isArray(data.summary?.byGroup) ? data.summary.byGroup : []).map((g) => [g.groupName, (g.screens ?? 0).toLocaleString('en-IN'), (g.plays ?? 0).toLocaleString('en-IN'), fmtDur(g.totalMs ?? 0)])}
               />
-              <SectionLabel n={2} label="By screen" />
+              <SectionLabel n={3} label="By screen" />
               <RollupTable
                 cols={['Screen', 'Group', 'Plays', 'Watch', 'Last played']}
                 rows={(Array.isArray(data.summary?.byScreen) ? data.summary.byScreen : []).map((s) => [s.screenName, s.groupName || '—', (s.plays ?? 0).toLocaleString('en-IN'), fmtDur(s.totalMs ?? 0), s.lastPlayedAt ? fmtIST(s.lastPlayedAt) : '—'])}
@@ -660,7 +862,7 @@ export default function ProofOfPlayTab() {
 
           {/* Row-level timeline — the exact-timing proof */}
           <div className="flex items-center justify-between mt-2">
-            <SectionLabel n={mode === 'ad' ? 2 : 3} label="Play log — exact timing" />
+            <SectionLabel n={mode === 'ad' ? 2 : mode === 'screen' ? 3 : 4} label="Play log — exact timing" />
             <button onClick={exportCsv}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2 text-xs font-bold text-foreground hover:border-primary/40 transition-colors">
               <Download className="h-3.5 w-3.5 text-primary" /> Export CSV

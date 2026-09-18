@@ -459,7 +459,20 @@ export const getPlays = (params?: Record<string, string>) => {
 // gap in the returned sessions is the screen being off. Computed over the full matching
 // set server-side (the row list is paginated; this must not be).
 export type PlaySession = { start: string; end: string; plays: number };
-export type PlaySessionsResponse = { gapMs: number; sessions: PlaySession[]; eventCount: number };
+export type PlayScreenSessions = {
+  deviceId:   string;
+  screenName: string;
+  groupName:  string | null;
+  sessions:   PlaySession[];
+  totalMs:    number;
+  plays:      number;
+};
+export type PlaySessionsResponse = {
+  gapMs:        number;
+  screens:      PlayScreenSessions[];
+  sessionCount: number;
+  truncated:    boolean;
+};
 
 export const getPlaySessions = (params?: Record<string, string>) => {
   const qs = '?' + new URLSearchParams({ ...(params ?? {}), format: 'sessions' }).toString();
