@@ -1450,7 +1450,7 @@ Constraints:
     description: 'One DeviceAlert row per outage, opened at the offline edge and resolved when the screen heartbeats again. Admin is told immediately; the partner only after sustained downtime, so a self-healing blip never reaches a shopkeeper.',
     notes: [
       'Offline edge is 20 min of silence, caught by the 5-minute health sweep',
-      'Partner notified ~60 min in (PARTNER_NOTIFY_AFTER_MS past the edge), with a live re-check first',
+      'Partner notified ~40 min in (PARTNER_NOTIFY_AFTER_MS past the edge), with a live re-check first',
       'Digests into one message when 3+ screens drop together (mains cut, ISP outage)',
       'Marked notified BEFORE sending — a duplicate is worse for a partner than a miss',
       'Fans out over WhatsApp, browser web push and Expo app push, all awaited so a Vercel freeze cannot drop them',

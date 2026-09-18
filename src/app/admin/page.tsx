@@ -81,7 +81,7 @@ type StoreReg = {
   // Installation & hardware (ops-recorded at the site visit)
   tvBrand?: string | null; tvModel?: string | null; tvSerial?: string | null;
   tvSizeInches?: number | null; tvTag?: string | null; tvInstalledAt?: string | null;
-  espSwitchName?: string | null; espPlugId?: string | null;
+  espPlugId?: string | null;
   wifiSsid?: string | null; wifiUsername?: string | null; wifiPassword?: string | null;
   wifiAuthType?: string | null; installNotes?: string | null;
 };
@@ -1048,7 +1048,6 @@ function StoresPanel() {
         tvSizeInches:  store.tvSizeInches ?? null,
         tvTag:         store.tvTag ?? null,
         tvInstalledAt: store.tvInstalledAt ?? null,
-        espSwitchName: store.espSwitchName ?? null,
         espPlugId:     store.espPlugId ?? null,
         wifiSsid:      store.wifiSsid ?? null,
         wifiAuthType:  store.wifiAuthType ?? null,
@@ -1328,6 +1327,13 @@ function StoresPanel() {
 
                 {isExpanded && (
                   <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => expandStore(null)}
+                      className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors mb-2"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" /> Back
+                    </button>
                     <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                       {s.address && <span><span className="font-semibold text-foreground/60">Address:</span> {s.address}, {s.pincode}</span>}
                       {s.gstin   && <span><span className="font-semibold text-foreground/60">GST:</span> {s.gstin}</span>}
@@ -1414,8 +1420,6 @@ function StoresPanel() {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                         <LabelledInput required label="Smart plug ID" value={s.espPlugId ?? ''} placeholder="Printed on the plug"
                           onChange={(v) => patchLocal(s.id, { espPlugId: v })} />
-                        <LabelledInput label="ESP switch name" value={s.espSwitchName ?? ''} placeholder="Sonoff label"
-                          onChange={(v) => patchLocal(s.id, { espSwitchName: v })} />
                         <LabelledInput label="Install notes" value={s.installNotes ?? ''} placeholder="Mount, socket…"
                           onChange={(v) => patchLocal(s.id, { installNotes: v })} />
                       </div>

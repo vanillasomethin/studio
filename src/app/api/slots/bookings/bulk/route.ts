@@ -4,12 +4,20 @@
 //     — book a campaign into the lowest free positions across stores × dates.
 //       slotsPerDay counts PLAYS per day: a multi-slot ad (30s = 3 slots) books
 //       that many consecutive positions per play, so 2 plays of a 30s ad take 6.
+//   { campaignId, storeIds[], from, to, daysOfWeek?, positions[] }
+//     — the same, but the caller names the loop positions (0-based) instead of
+//       letting the planner pick. Each position is the HEAD of one play, so a 30s
+//       ad asked for position 4 takes 4,5,6; a run that isn't wholly free is
+//       reported as a gap, never overwritten. slotsPerDay is implied by the count.
 //   { mode: 'copy-day', sourceStoreId, sourceDate, storeIds?, from, to, daysOfWeek? }
 //     — replicate one store-day's position→campaign map onto other days/stores.
 //       Multi-slot placements copy as whole windows or not at all.
 //
 // Policy (deliberate): book what fits and report the gaps — partial availability
-// must never block selling the rest of the network. Existing bookings by the same
+// must never block selling the rest of the network. The one exception is a request
+// that lands NOTHING at all and was not already satisfied: that comes back 409 so
+// the operator is told to review the booking rather than reading "booked: 0" as a
+// success. Existing bookings by the same
 // campaign count toward the target, so re-running a request is idempotent, and
 // nothing is ever overwritten (unlike the single-assign upsert).
 // All counters (requested/booked/missed/…) are in PLAYS; `rowsBooked` reports the
@@ -26,7 +34,11 @@ import { logAdminAction } from '@/lib/admin-audit';
 
 const DAY_MS        = 86_400_000;
 const MAX_STORES    = 100;
-const MAX_RANGE_DAYS = 60;   // matches the availability grid cap
+// Bookings run for months, not a fortnight: a quarter-long campaign must not have to
+// be booked in six separate requests. The availability GRID still stops at 60 dates
+// (it is a preview), so the wizard labels its estimate as covering the first 60 days
+// — the planner below is exact over the whole range either way.
+const MAX_RANGE_DAYS = 186;  // ~6 months
 const MAX_PLANNED   = 5000;  // hard stop for a fat-fingered request, not a silent trim
 
 type Body = {
@@ -36,7 +48,8 @@ type Body = {
   from?: string;
   to?: string;
   daysOfWeek?: number;      // Mon..Sun bitmask, default 127 (every day)
-  slotsPerDay?: number;     // plays per day
+  slotsPerDay?: number;     // plays per day (automatic allocation)
+  positions?: number[];     // manual allocation: head position of each play
   sourceStoreId?: string;
   sourceDate?: string;
 };
@@ -93,6 +106,8 @@ export async function POST(req: NextRequest) {
     let slotsPerDay = 0;      // assign mode: plays per day
     let assignSpan = 1;       // assign mode: positions per play
     let assignCampaignId = '';
+    // Manual allocation: the head position of each play, ascending. Empty = automatic.
+    let chosenPositions: number[] = [];
     // copy-day: the source day's placements as units (positions sorted ascending).
     let sourceUnits: { positions: number[]; campaignId: string; span: number }[] = [];
 
@@ -100,7 +115,21 @@ export async function POST(req: NextRequest) {
       if (!body.campaignId || !Array.isArray(body.storeIds) || body.storeIds.length === 0) {
         return NextResponse.json({ error: 'campaignId and storeIds[] required' }, { status: 400 });
       }
-      slotsPerDay = body.slotsPerDay ?? 0;
+      if (body.positions !== undefined) {
+        if (!Array.isArray(body.positions) || body.positions.length === 0) {
+          return NextResponse.json({ error: 'positions must be a non-empty array of loop positions' }, { status: 400 });
+        }
+        if (body.positions.some((p) => !Number.isInteger(p) || p < 0 || p >= 300)) {
+          return NextResponse.json({ error: 'positions must be integers in 0–299' }, { status: 400 });
+        }
+        // Ascending + de-duplicated: the planner walks them in order and a repeated
+        // position would book the same run twice and then report it as a conflict
+        // with itself.
+        chosenPositions = [...new Set(body.positions)].sort((a, b) => a - b);
+        slotsPerDay = chosenPositions.length;
+      } else {
+        slotsPerDay = body.slotsPerDay ?? 0;
+      }
       if (!Number.isInteger(slotsPerDay) || slotsPerDay < 1 || slotsPerDay > 60) {
         return NextResponse.json({ error: 'slotsPerDay must be 1–60' }, { status: 400 });
       }
@@ -130,6 +159,16 @@ export async function POST(req: NextRequest) {
       const spanned = uniformSlotSpan(metas);
       if ('error' in spanned) return NextResponse.json({ error: spanned.error }, { status: 400 });
       assignSpan = spanned.span;
+      // A multi-slot ad asked for positions 4 and 5 would have its two windows
+      // overlap (4,5,6 and 5,6,7). Refuse up front — silently dropping the second
+      // play would look like an availability problem that ops cannot find.
+      for (let i = 1; i < chosenPositions.length; i++) {
+        if (chosenPositions[i] - chosenPositions[i - 1] < assignSpan) {
+          return NextResponse.json({
+            error: `This campaign occupies ${assignSpan} consecutive slots per play, so chosen positions must be at least ${assignSpan} apart — ${chosenPositions[i - 1] + 1} and ${chosenPositions[i] + 1} overlap`,
+          }, { status: 400 });
+        }
+      }
       assignCampaignId = campaign.id;
       targetStoreIds = [...new Set(body.storeIds)];
       auditTarget = campaign.id;
@@ -255,6 +294,32 @@ export async function POST(req: NextRequest) {
               spanId: unit.span > 1 ? randomUUID() : null,
             });
             for (const p of unit.positions) taken.set(p, { campaignId: unit.campaignId, spanId: 'planned' });
+            bookedHere++;
+          }
+        } else if (chosenPositions.length > 0) {
+          // Manual allocation: each chosen position is the head of one play. No
+          // searching, no substituting a nearby free run — the operator picked
+          // these positions and a silent move is a booking they didn't make.
+          requested += chosenPositions.length;
+          for (const head of chosenPositions) {
+            if (head + assignSpan > loopSlotCount) { missedHere++; continue; }
+            const positions = Array.from({ length: assignSpan }, (_, i) => head + i);
+            const holders = positions.map((p) => taken.get(p));
+            if (holders.every((h) => h?.campaignId === assignCampaignId)) {
+              // Same campaign already here. For a multi-slot ad that only counts
+              // when the run is ONE placement — scattered single rows of the same
+              // campaign are not the window that was asked for.
+              const spanIds = new Set(holders.map((h) => h!.spanId));
+              if (assignSpan === 1 || (spanIds.size === 1 && !spanIds.has(null))) { alreadySatisfied++; continue; }
+              missedHere++; continue;
+            }
+            if (holders.some((h) => h !== undefined)) { missedHere++; continue; }
+            plays.push({
+              storeId: store.id, date: dateObj,
+              positions, campaignId: assignCampaignId,
+              spanId: assignSpan > 1 ? randomUUID() : null,
+            });
+            for (const p of positions) taken.set(p, { campaignId: assignCampaignId, spanId: 'planned' });
             bookedHere++;
           }
         } else {
@@ -388,7 +453,11 @@ export async function POST(req: NextRequest) {
       meta: {
         mode, from: body.from, to: body.to, daysOfWeek,
         ...(mode === 'assign'
-          ? { campaignId: assignCampaignId, slotsPerDay, slotSpan: assignSpan }
+          ? {
+              campaignId: assignCampaignId, slotsPerDay, slotSpan: assignSpan,
+              allocation: chosenPositions.length > 0 ? 'manual' : 'auto',
+              ...(chosenPositions.length > 0 ? { chosenPositions } : {}),
+            }
           : { sourceStoreId: body.sourceStoreId, sourceDate: body.sourceDate }),
         stores: slotStores.length, requested, alreadySatisfied,
         planned: plays.length, booked: bookedPlays, rowsBooked, raced: racedPlays, missed, closedSkipped,
@@ -397,6 +466,31 @@ export async function POST(req: NextRequest) {
 
     // Cap the gap detail, never the truth: the aggregate `missed` above is exact.
     const gapsTruncated = gaps.length > 500;
+
+    // Nothing landed and nothing was already covered: report it as a failure.
+    // "book what fits" is the right policy for a PARTIAL result, but a request that
+    // achieved nothing is not a success with booked: 0 — an operator reading a green
+    // toast walks away believing a campaign is on air when no screen will ever play
+    // it. Same 409 shape as the success payload, so the UI renders the same gap list.
+    if (bookedPlays <= 0 && alreadySatisfied === 0) {
+      const reason = requested === 0
+        ? (closedSkipped > 0
+            ? 'every selected store is closed on the chosen days'
+            : 'no store-days matched the selection')
+        : racedPlays > 0
+          ? 'the positions were taken by another booking while this one was being made'
+          : 'the selected stores are fully booked for those positions';
+      return NextResponse.json({
+        error: `No slots could be booked — ${reason}. Please review the slot booking.`,
+        booked: 0, planned: plays.length, requested, alreadySatisfied,
+        raced: racedPlays, missed,
+        ...(mode === 'assign' ? { slotSpan: assignSpan } : {}),
+        rowsBooked: 0,
+        gaps: gapsTruncated ? gaps.slice(0, 500) : gaps,
+        gapsTruncated, skippedStores, closedSkipped,
+      }, { status: 409 });
+    }
+
     return NextResponse.json({
       booked:  bookedPlays,
       planned: plays.length,

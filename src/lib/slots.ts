@@ -8,6 +8,12 @@
 //   campaigns as bonus plays (isFiller=true, attributed to the campaign). If neither
 //   sold creatives nor a filler exist the loop is empty, and /api/device/plan falls
 //   back to schedule mode rather than serving an empty (dark) plan.
+// - House filler is the LAST resort, not a default: a position left over after a
+//   standing plan's own daily quota, with nothing sold to bonus from either, replays
+//   the plan's own ad rather than jump to house content. Without this, a store with
+//   one plan and no sales played its ads once per loop and then sat on a single
+//   repeated house clip for the rest of it — correct by the letter of "never dark,"
+//   but reads as broken since it looks like the booking stopped taking effect.
 // - All dates are IST calendar dates; a store's open days are a Mon..Sun bitmask.
 
 export const SLOT_DURATION_MS = 10_000;
@@ -426,6 +432,16 @@ export function buildSlotLoop(
     return null;
   };
 
+  // Overflow for once a plan's own daily quota is spent AND nothing is sold here
+  // either — the position is genuinely uncontested. Replaying the plan's own ad
+  // beats defaulting to house filler: a store with one plan and no sales otherwise
+  // played 5 ads once per 5-minute loop and then sat on a single repeated house
+  // clip for the remaining 25 positions, which reads as broken even though nothing
+  // was. House filler stays the true last resort — used only when there is
+  // NEITHER a sale NOR any plan creative to fall back on.
+  const planPool = [...planRows.values()];
+  let planOverflowRr = 0;
+
   const out: SlotAssignment[] = [];
   let rr = 0;
   for (let pos = 0; pos < loopSlotCount; pos++) {
@@ -444,13 +460,17 @@ export function buildSlotLoop(
       // belongs to that placement; never redistribute it.
       continue;
     } else {
-      // Free position. Fill order: plan → bonus → house filler.
+      // Free position. Fill order: plan (own quota) → bonus (sold) → plan overflow
+      // (reuse any plan's ad rather than go to house filler) → house filler.
       const plan = takePlan();
       if (plan) {
         out.push({ slotPosition: pos, campaignId: plan.campaignId, contentId: nextCreative(plan.campaignId, plan.creativeIds), isFiller: true, source: 'plan', spanSlots: 1 });
       } else if (pool.length > 0) {
         const p = pool[rr++ % pool.length]; // bonus play for a sold campaign
         out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true, source: 'bonus', spanSlots: 1 });
+      } else if (planPool.length > 0) {
+        const p = planPool[planOverflowRr++ % planPool.length];
+        out.push({ slotPosition: pos, campaignId: p.campaignId, contentId: nextCreative(p.campaignId, p.creativeIds), isFiller: true, source: 'plan', spanSlots: 1 });
       } else if (playableFiller) {
         out.push({ slotPosition: pos, campaignId: playableFiller.campaignId, contentId: nextCreative(playableFiller.campaignId, playableFiller.creativeIds), isFiller: true, source: 'filler', spanSlots: 1 });
       }
