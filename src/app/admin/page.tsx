@@ -81,7 +81,7 @@ type StoreReg = {
   // Installation & hardware (ops-recorded at the site visit)
   tvBrand?: string | null; tvModel?: string | null; tvSerial?: string | null;
   tvSizeInches?: number | null; tvTag?: string | null; tvInstalledAt?: string | null;
-  espSwitchName?: string | null; espPlugId?: string | null;
+  espPlugId?: string | null;
   wifiSsid?: string | null; wifiUsername?: string | null; wifiPassword?: string | null;
   wifiAuthType?: string | null; installNotes?: string | null;
 };
@@ -1048,7 +1048,6 @@ function StoresPanel() {
         tvSizeInches:  store.tvSizeInches ?? null,
         tvTag:         store.tvTag ?? null,
         tvInstalledAt: store.tvInstalledAt ?? null,
-        espSwitchName: store.espSwitchName ?? null,
         espPlugId:     store.espPlugId ?? null,
         wifiSsid:      store.wifiSsid ?? null,
         wifiAuthType:  store.wifiAuthType ?? null,
@@ -1421,8 +1420,6 @@ function StoresPanel() {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                         <LabelledInput required label="Smart plug ID" value={s.espPlugId ?? ''} placeholder="Printed on the plug"
                           onChange={(v) => patchLocal(s.id, { espPlugId: v })} />
-                        <LabelledInput label="ESP switch name" value={s.espSwitchName ?? ''} placeholder="Sonoff label"
-                          onChange={(v) => patchLocal(s.id, { espSwitchName: v })} />
                         <LabelledInput label="Install notes" value={s.installNotes ?? ''} placeholder="Mount, socket…"
                           onChange={(v) => patchLocal(s.id, { installNotes: v })} />
                       </div>

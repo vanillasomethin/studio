@@ -40,7 +40,7 @@ type StoreRow = {
   onboardingStage?: string | null; deviceCount?: number;
   tvBrand?: string | null; tvModel?: string | null; tvSizeInches?: number | null;
   tvTag?: string | null; tvSerial?: string | null;
-  espPlugId?: string | null; espSwitchName?: string | null;
+  espPlugId?: string | null;
   wifiSsid?: string | null; wifiAuthType?: string | null;
   wifiPassword?: string | null; wifiUsername?: string | null;
   installNotes?: string | null;
@@ -76,7 +76,7 @@ type Draft = {
   linked: boolean;
   tvSerial: string; tvBrand: string; tvModel: string; tvSizeInches: string; tvTag: string;
   wifiSsid: string; wifiAuthType: string; wifiPassword: string; wifiUsername: string;
-  espPlugId: string; espSwitchName: string; installNotes: string;
+  espPlugId: string; installNotes: string;
   photos: Partial<Record<PhotoKind, Photo>>;
   /** 1–7 are the wizard steps; 8 is the done screen. */
   step: number;
@@ -130,7 +130,7 @@ const emptyDraft = (code: string): Draft => ({
   storeId: null, storeLabel: '', stage: null, position: '', orientation: 'PORTRAIT', linked: false,
   tvSerial: '', tvBrand: '', tvModel: '', tvSizeInches: '', tvTag: '',
   wifiSsid: '', wifiAuthType: '', wifiPassword: '', wifiUsername: '',
-  espPlugId: '', espSwitchName: '', installNotes: '',
+  espPlugId: '', installNotes: '',
   photos: {}, step: 1,
 });
 
@@ -281,7 +281,7 @@ function stepComplete(step: number, d: Draft, forceShop: boolean): boolean {
 function hasCaptured(d: Draft): boolean {
   return !!(d.tvSerial || d.tvBrand || d.tvModel || d.tvSizeInches || d.tvTag
     || d.wifiSsid || d.wifiAuthType || d.wifiPassword || d.wifiUsername
-    || d.espPlugId || d.espSwitchName || d.installNotes
+    || d.espPlugId || d.installNotes
     || Object.values(d.photos).some((p) => p?.url));
 }
 
@@ -743,7 +743,7 @@ function Wizard({ draft, update }: { draft: Draft; update: UpdateFn }) {
       tvSizeInches: s.tvSizeInches != null ? String(s.tvSizeInches) : '', tvTag: s.tvTag ?? '',
       wifiSsid: s.wifiSsid ?? '', wifiAuthType: s.wifiAuthType ?? '',
       wifiPassword: s.wifiPassword ?? '', wifiUsername: s.wifiUsername ?? '',
-      espPlugId: s.espPlugId ?? '', espSwitchName: s.espSwitchName ?? '', installNotes: s.installNotes ?? '',
+      espPlugId: s.espPlugId ?? '', installNotes: s.installNotes ?? '',
       photos: {
         install: seed(s.installPhotoUrl, s.installPhotoLat, s.installPhotoLng, s.installPhotoAt),
         serial:  seed(s.serialPhotoUrl,  s.serialPhotoLat,  s.serialPhotoLng,  s.serialPhotoAt),
@@ -936,7 +936,7 @@ function Wizard({ draft, update }: { draft: Draft; update: UpdateFn }) {
         body: JSON.stringify({
           tvSerial: d.tvSerial.trim(), tvBrand: d.tvBrand.trim(), tvModel: d.tvModel.trim(),
           tvSizeInches: Number(d.tvSizeInches), tvTag: d.tvTag.trim(),
-          espPlugId: d.espPlugId.trim(), espSwitchName: d.espSwitchName.trim() || null,
+          espPlugId: d.espPlugId.trim(),
           wifiSsid: d.wifiSsid.trim(), wifiAuthType: d.wifiAuthType,
           wifiPassword: d.wifiAuthType === 'open' ? null : d.wifiPassword,
           wifiUsername: needsUsername(d.wifiAuthType) ? d.wifiUsername.trim() : null,
@@ -1387,9 +1387,6 @@ function Wizard({ draft, update }: { draft: Draft; update: UpdateFn }) {
               <input value={d.espPlugId} onChange={(e) => update({ espPlugId: e.target.value })}
                 autoCapitalize="characters" autoCorrect="off" spellCheck={false}
                 placeholder="e.g. 10021f3c9a" className={`${inp} font-mono`} />
-            </Field>
-            <Field label="Switch name (optional)" hint="The label on the switch board, if there is one.">
-              <input value={d.espSwitchName} onChange={(e) => update({ espSwitchName: e.target.value })} placeholder="Counter socket" className={inp} />
             </Field>
             <Field label="Notes (optional)" hint="Anything the next technician needs: mount height, which socket, whose permission.">
               <textarea value={d.installNotes} onChange={(e) => update({ installNotes: e.target.value })} rows={3}
