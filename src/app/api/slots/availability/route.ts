@@ -33,6 +33,9 @@ export async function GET(req: NextRequest) {
     const stores = await db.store.findMany({
       select: {
         id: true, storeName: true, city: true,
+        // Locality/pincode feed the booking wizard's area filters — an ops person
+        // sells "Kadri" or "575002", not a city-wide list of 80 stores.
+        locality: true, pincode: true,
         loopSlotCount: true, openDays: true, hoursStart: true, hoursEnd: true,
         fillerCreativeId: true, slotPricingTier: true,
       },
