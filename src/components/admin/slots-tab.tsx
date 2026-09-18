@@ -8,11 +8,12 @@
 // sold; the expanded panel shows what will actually play (bonus + house fill included).
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Check, Settings2, Gift, CalendarPlus, Copy, ListVideo } from 'lucide-react';
+import { Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Check, Settings2, Gift, CalendarPlus, Copy, ListVideo, Search, Radio, Store as StoreIcon, Building2, Wand2, Hand } from 'lucide-react';
 import {
   getSlotAvailability, getSlotBookings, assignSlot, unassignSlot, updateSlotSettings,
-  bulkAssignSlots, copySlotDay, getPlaylists,
+  bulkAssignSlots, copySlotDay, getPlaylists, getCampaignSlotSummaries, getCampaignSlotStatus,
   type SlotStore, type SlotBookingRow, type SlotLoopEntry, type BulkAssignResult, type Playlist,
+  type CampaignSlotSummary, type CampaignPlayingStore,
 } from '@/lib/backend-api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -58,12 +59,15 @@ const spanLabel = (c: AdminCampaign) =>
 /** Radio-list campaign picker, shared by the per-slot assign popover and the
  *  bulk-booking wizard's step 1 — same status badges either way (colour and
  *  shape, not a name buried in <option> text). */
-function CampaignPickerList({ campaigns, value, onChange, clearLabel }: {
+function CampaignPickerList({ campaigns, value, onChange, clearLabel, status }: {
   campaigns: AdminCampaign[];
   value: string | null;
   onChange: (id: string | null) => void;
   /** Shown as a dismiss row above the list — omit where a pick is required (bulk wizard step 1). */
   clearLabel?: string;
+  /** Live slot status per campaign id — "on air in 4 stores" beside the name, so the
+   *  operator sees where a campaign already runs before booking it anywhere else. */
+  status?: Record<string, CampaignSlotSummary>;
 }) {
   if (campaigns.length === 0) return <p className="text-[11px] text-muted-foreground">No campaigns yet.</p>;
   return (
@@ -87,6 +91,19 @@ function CampaignPickerList({ campaigns, value, onChange, clearLabel }: {
               <span className="block truncate text-[11px] font-semibold text-foreground">{c.brandName}</span>
               <span className="block text-[9px] text-muted-foreground capitalize">{c.status}{c.preferredStores?.length ? ` · ${c.preferredStores.length} brand-picked store${c.preferredStores.length === 1 ? '' : 's'}` : ''}</span>
             </span>
+            {status?.[c.id] && (
+              status[c.id].onAir ? (
+                <span className="flex shrink-0 items-center gap-1 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[9px] font-bold text-green-800"
+                  title={`Playing today in ${status[c.id].storesToday} store(s), holding ${status[c.id].slotsToday} slot(s)`}>
+                  <Radio className="h-3 w-3" />on air · {status[c.id].storesToday}
+                </span>
+              ) : status[c.id].slotsUpcoming > 0 ? (
+                <span className="shrink-0 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground"
+                  title={`Booked ahead from ${status[c.id].firstDate} to ${status[c.id].lastDate}`}>
+                  booked from {status[c.id].firstDate?.slice(5)}
+                </span>
+              ) : null
+            )}
             {c.slotSpan == null && hasSlotCreative(c) ? (
               <span className="shrink-0 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-700" title={c.slotSpanError ?? undefined}>mixed lengths</span>
             ) : c.slotPlaylist && c.slotPlaylist.mediaItems > 0 ? (
@@ -107,6 +124,11 @@ function CampaignPickerList({ campaigns, value, onChange, clearLabel }: {
 
 const DAY_MS = 86_400_000;
 const WINDOW_DAYS = 14;
+/** Longest range the bulk endpoint accepts in one request (keep in step with
+ *  MAX_RANGE_DAYS in src/app/api/slots/bookings/bulk/route.ts). */
+const MAX_BOOK_DAYS = 186;
+/** Longest range /api/slots/availability returns a grid for. */
+const PREVIEW_DAYS  = 60;
 
 const istTodayStr = () => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
 const addDays = (d: string, n: number) =>
@@ -948,6 +970,14 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [campaignId,   setCampaignId]   = useState('');
+  // One store or many. It only changes how the store list behaves (radio vs
+  // checkbox) — the request shape is the same either way, so a single-store
+  // booking is not a second code path that can drift from the bulk one.
+  const [scope,        setScope]        = useState<'single' | 'multi'>('multi');
+  // Where the chosen campaign already plays — fetched once for the picker badges,
+  // then per campaign for the detail panel.
+  const [statuses,     setStatuses]     = useState<Record<string, CampaignSlotSummary>>({});
+  const [playingToday, setPlayingToday] = useState<CampaignPlayingStore[] | null>(null);
   const [playlists,    setPlaylists]    = useState<Playlist[]>([]);
   const [attachSel,    setAttachSel]    = useState('');
   const [attachBusy,   setAttachBusy]   = useState(false);
@@ -961,8 +991,21 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
   const [availLoading, setAvailLoading] = useState(false);
   const [sel,          setSel]          = useState<Set<string>>(new Set());
 
+  // Store filters. Tier is the primary one (Standard / Growth / Flagship is how
+  // inventory is sold); the text box covers name, locality, area, city and pincode
+  // in one field, because ops types whichever of those they happen to know.
+  const [query,    setQuery]    = useState('');
+  const [tierSel,  setTierSel]  = useState<Set<SlotTier>>(new Set());
+  const [hideFull, setHideFull] = useState(false);
+
+  // Automatic = the planner takes the lowest free run each day. Manual = these exact
+  // loop positions, every day, or a reported gap.
+  const [alloc,     setAlloc]     = useState<'auto' | 'manual'>('auto');
+  const [positions, setPositions] = useState<Set<number>>(new Set());
+
   const [busy,   setBusy]   = useState(false);
-  const [result, setResult] = useState<BulkAssignResult | null>(null);
+  // `error` present = the 409 shape: nothing was booked and the operator must review.
+  const [result, setResult] = useState<(BulkAssignResult & { error?: string }) | null>(null);
   // Brand-pick pre-selection is applied once per campaign choice, so a deliberate
   // clear-all is never silently undone by stepping Back and Next again.
   const [preselectedFor, setPreselectedFor] = useState<string | null>(null);
@@ -970,29 +1013,53 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
   const campaign = campaigns.find((c) => c.id === campaignId) ?? null;
   const sellable = campaigns.filter((c) => c.status !== 'cancelled');
 
-  // The bulk endpoint caps a request at 60 days; the availability grid silently
-  // stops at 60 dates. Surface the cap up front instead of a doomed Book click.
+  // The bulk endpoint books up to 186 days (~6 months) in one request, so a quarter
+  // or half-year campaign is one booking. The availability GRID still stops at 60
+  // dates, so beyond that the on-screen estimate is a preview of the first 60 days
+  // while the booking itself covers the whole range — said plainly on step 2 rather
+  // than left for someone to discover in the result.
   const rangeDays = from && to ? (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS + 1 : 0;
-  const rangeTooLong = rangeDays > 60;
+  const rangeTooLong = rangeDays > MAX_BOOK_DAYS;
+  const previewTo    = rangeDays > PREVIEW_DAYS ? addDays(from, PREVIEW_DAYS - 1) : to;
+  const previewOnly  = rangeDays > PREVIEW_DAYS;
 
   useEffect(() => { getPlaylists().then((r) => setPlaylists(Array.isArray(r) ? r : [])).catch(() => setPlaylists([])); }, []);
+
+  // Slot status for every campaign: badges in the picker without one fetch per row.
+  useEffect(() => {
+    getCampaignSlotSummaries().then((r) => setStatuses(r.summaries ?? {})).catch(() => setStatuses({}));
+  }, []);
+
+  // …and the store-level detail for the one being booked.
+  useEffect(() => {
+    if (!campaignId) { setPlayingToday(null); return; }
+    let stale = false;
+    setPlayingToday(null);
+    getCampaignSlotStatus(campaignId)
+      .then((r) => { if (!stale) setPlayingToday(r.playingToday ?? []); })
+      .catch(() => { if (!stale) setPlayingToday([]); });
+    return () => { stale = true; };
+  }, [campaignId]);
 
   // Availability drives the store list's free counts AND the review matrix. The
   // stale flag drops out-of-order responses — otherwise a slow fetch for an old
   // range could overwrite the numbers the admin is about to approve.
   useEffect(() => {
     if (!from || !to || from > to || rangeTooLong) return;
+    // previewTo, not `to`: past 60 days the grid silently truncates anyway.
     let stale = false;
     setAvailLoading(true);
-    getSlotAvailability(from, to)
+    getSlotAvailability(from, previewTo)
       .then((r) => { if (!stale) setAvail({ dates: r.dates, stores: r.stores }); })
       .catch((e: Error) => { if (!stale) toast({ variant: 'destructive', title: 'Could not load availability', description: e.message }); })
       .finally(() => { if (!stale) setAvailLoading(false); });
     return () => { stale = true; };
-  }, [from, to, rangeTooLong]);
+  }, [from, previewTo, rangeTooLong]);
 
   const slotStores = (avail?.stores ?? []).filter((s) => s.loopSlotCount != null);
   const dates      = (avail?.dates ?? []).filter((d) => (dow & (1 << weekdayOf(d))) !== 0);
+  // `chosen` is deliberately NOT filtered by the visible set: hiding a store must
+  // not silently drop it from a booking the operator already ticked.
   const chosen     = slotStores.filter((s) => sel.has(s.id));
 
   const mediaCount = (p: Playlist) => p.items.filter((i) => i.contentId).length;
@@ -1027,16 +1094,23 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
   };
 
   const toggleStore = (id: string) => setSel((s) => {
+    // Single-store scope is a radio: picking a store replaces the selection rather
+    // than adding to it, so the header count can never disagree with the scope.
+    if (scope === 'single') return s.has(id) ? new Set<string>() : new Set([id]);
     const next = new Set(s);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
 
-  const byCity = new Map<string, SlotStore[]>();
-  for (const s of slotStores) {
-    const key = s.city ?? '—';
-    byCity.set(key, [...(byCity.get(key) ?? []), s]);
-  }
+  /** Toggle a manual head position, refusing one that would overlap a pick already
+   *  made by a multi-slot ad (positions 4 and 5 of a 30s ad share slots 5 and 6). */
+  const togglePosition = (pos: number) => setPositions((prev) => {
+    const next = new Set(prev);
+    if (next.has(pos)) { next.delete(pos); return next; }
+    for (const p of next) if (Math.abs(p - pos) < bookSpan) return prev;
+    next.add(pos);
+    return next;
+  });
 
   const freeSummary = (s: SlotStore) => {
     let free = 0, cap = 0;
@@ -1049,20 +1123,45 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
     return { free, cap };
   };
 
+  // Visible set = tier ∩ text ∩ has-room. One field matches name/locality/city/
+  // pincode because an operator knows the area or the PIN, rarely both.
+  const q = query.trim().toLowerCase();
+  const visibleStores = slotStores.filter((s) => {
+    if (tierSel.size > 0 && !tierSel.has(s.slotPricingTier as SlotTier)) return false;
+    if (q && ![s.storeName, s.locality, s.city, s.pincode]
+      .some((f) => (f ?? '').toLowerCase().includes(q))) return false;
+    if (hideFull && freeSummary(s).free === 0) return false;
+    return true;
+  });
+
+  const byCity = new Map<string, SlotStore[]>();
+  for (const s of visibleStores) {
+    const key = s.city ?? '—';
+    byCity.set(key, [...(byCity.get(key) ?? []), s]);
+  }
+
+  // Loop length the manual position grid draws. Stores can differ; the longest wins
+  // and a position past a shorter store's loop is reported as a gap for that store —
+  // never truncated silently.
+  const maxLoop = chosen.length ? Math.max(...chosen.map((s) => s.loopSlotCount ?? 30)) : 30;
+
   // Client-side estimate for the review matrix. The server additionally counts this
   // campaign's existing bookings toward the target, so the real result can only be
   // equal or better; the response is the ground truth shown afterwards. For a
   // multi-slot ad this divides free positions by the span — it can't see
   // fragmentation (3 free scattered slots ≠ one 30s run), so it's an upper bound.
   const bookSpan = spanOf(campaigns.find((c) => c.id === campaignId));
+  // Plays per day per store: the stepper in automatic mode, the picked positions in
+  // manual mode. One number so the estimate, the matrix and the request agree.
+  const effectivePerDay = alloc === 'manual' ? positions.size : perDay;
   const estimate = (() => {
     let will = 0, miss = 0;
     for (const s of chosen) for (const d of dates) {
       const sold = s.sold?.[d];
       if (sold == null) continue;
       const playsFree = Math.floor(Math.max(0, s.loopSlotCount! - sold) / bookSpan);
-      const take = Math.min(perDay, playsFree);
-      will += take; miss += perDay - take;
+      const take = Math.min(effectivePerDay, playsFree);
+      will += take; miss += effectivePerDay - take;
     }
     return { will, miss };
   })();
@@ -1075,16 +1174,28 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
         storeIds: chosen.map((s) => s.id),
         from, to,
         ...(dow !== 127 ? { daysOfWeek: dow } : {}),
-        slotsPerDay: perDay,
+        ...(alloc === 'manual'
+          ? { positions: [...positions].sort((a, b) => a - b) }
+          : { slotsPerDay: perDay }),
       });
       setResult(r);
       onChanged();
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Booking failed', description: (e as Error).message });
+      // A request that booked nothing comes back 409 carrying the SAME payload as a
+      // success, gap list included. Render it on the result screen rather than a
+      // toast that vanishes — "why did nothing fit" is exactly the question the gap
+      // table answers.
+      const err = e as Error & { status?: number; body?: (BulkAssignResult & { error?: string }) | null };
+      if (err.status === 409 && err.body && Array.isArray(err.body.gaps)) {
+        setResult({ ...err.body, error: err.message });
+        onChanged();
+      } else {
+        toast({ variant: 'destructive', title: 'Booking failed', description: err.message });
+      }
     } finally { setBusy(false); }
   };
 
-  const stepTitle = result ? 'Booking result' : step === 1 ? 'Campaign & creative' : step === 2 ? 'Dates & stores' : 'Review & book';
+  const stepTitle = result?.error ? 'Nothing booked' : result ? 'Booking result' : step === 1 ? 'Campaign & creative' : step === 2 ? 'Dates & stores' : 'Review & book';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -1099,6 +1210,17 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
 
         {result ? (
           <div className="space-y-4 p-5">
+            {result.error && (
+              <div className="flex gap-2.5 rounded-xl border border-primary/30 bg-primary/5 p-3.5">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div>
+                  <p className="text-[12px] font-bold text-primary">{result.error}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Nothing was written. Widen the dates, pick other stores, or{alloc === 'manual' ? ' choose different loop positions' : ' lower the slots per day'} and try again.
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
                 { label: 'Booked',        value: result.booked,           strong: true },
@@ -1162,8 +1284,34 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
           {step === 1 && (
             <>
               <div>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Book for</label>
+                <div className="flex gap-2">
+                  {([
+                    { key: 'single' as const, label: 'One store',       icon: StoreIcon, hint: 'a single screen' },
+                    { key: 'multi'  as const, label: 'Multiple stores', icon: Building2, hint: 'a set of screens' },
+                  ]).map(({ key, label, icon: Icon, hint }) => {
+                    const on = scope === key;
+                    return (
+                      <button key={key}
+                        onClick={() => { setScope(key); if (key === 'single') setSel((prev) => new Set([...prev].slice(0, 1))); }}
+                        className={`flex flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+                          on ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/20'
+                        }`}>
+                        <Icon className={`h-4 w-4 shrink-0 ${on ? 'text-primary' : 'text-muted-foreground'}`} />
+                        <span className="min-w-0">
+                          <span className={`block text-[11px] font-bold ${on ? 'text-primary' : 'text-foreground'}`}>{label}</span>
+                          <span className="block text-[9px] text-muted-foreground">{hint}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Campaign</label>
                 <CampaignPickerList
+                  status={statuses}
                   campaigns={sellable}
                   value={campaignId}
                   onChange={(id) => {
@@ -1176,6 +1324,42 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                   }}
                 />
               </div>
+
+              {campaign && (
+                <div className="rounded-xl border border-border bg-background p-3.5 space-y-2">
+                  <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    <Radio className="h-3.5 w-3.5" />Where it is playing now
+                  </p>
+                  {playingToday == null ? (
+                    <Skeleton className="h-8 rounded-lg" />
+                  ) : playingToday.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Not on any screen today.
+                      {statuses[campaign.id]?.slotsUpcoming
+                        ? ` Booked ahead in ${statuses[campaign.id].storesUpcoming} store(s), ${statuses[campaign.id].firstDate} → ${statuses[campaign.id].lastDate}.`
+                        : ' No future bookings either.'}
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {playingToday.map((p) => (
+                          <span key={p.storeId}
+                            className="rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-semibold text-green-800"
+                            title={`Slots ${p.slots.join(', ')} of ${p.loopSlotCount ?? '?'}`}>
+                            {p.storeName}{p.locality ? <span className="font-normal text-green-700"> · {p.locality}</span> : null}
+                            <span className="ml-1 font-black">{p.slots.length}</span>
+                          </span>
+                        ))}
+                      </div>
+                      {statuses[campaign.id]?.slotsUpcoming ? (
+                        <p className="text-[10px] text-muted-foreground">
+                          Also booked ahead to {statuses[campaign.id].lastDate} ({statuses[campaign.id].slotsUpcoming} more slots).
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              )}
 
               {campaign && (
                 <div className="rounded-xl border border-border bg-muted/20 p-3.5 space-y-2.5">
@@ -1251,7 +1435,67 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
 
               {rangeTooLong && (
                 <p className="text-[11px] text-amber-600">
-                  That range is {rangeDays} days — bookings go out at most 60 days per request. Shorten the range to continue.
+                  That range is {rangeDays} days — bookings go out at most {MAX_BOOK_DAYS} days ({Math.floor(MAX_BOOK_DAYS / 31)} months) per request. Shorten the range to continue.
+                </p>
+              )}
+              {!rangeTooLong && previewOnly && (
+                <p className="text-[11px] text-muted-foreground">
+                  Booking covers all {rangeDays} days ({from} → {to}). The free counts and the review grid preview the first {PREVIEW_DAYS} days only.
+                </p>
+              )}
+
+              {/* Filters: tier first (how inventory is sold), then one text field for
+                  name / locality / area / city / pincode. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[190px] flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={query} onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Store, locality, area, city or pincode"
+                    className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2 text-xs text-foreground focus:border-primary focus:outline-none" />
+                </div>
+                <div className="flex gap-1">
+                  {SLOT_TIERS.map((t) => {
+                    const on = tierSel.has(t);
+                    return (
+                      <button key={t}
+                        onClick={() => setTierSel((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(t)) next.delete(t); else next.add(t);
+                          return next;
+                        })}
+                        className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
+                          on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}>{TIER_LABEL[t]}</button>
+                    );
+                  })}
+                </div>
+                <button onClick={() => setHideFull((v) => !v)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
+                    hideFull ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                  }`}>Has room</button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-muted-foreground">
+                  {visibleStores.length} of {slotStores.length} store{slotStores.length === 1 ? '' : 's'} shown · {sel.size} selected
+                </p>
+                {scope === 'multi' && (
+                  <div className="flex gap-3">
+                    <button onClick={() => setSel((prev) => new Set([...prev, ...visibleStores.map((s) => s.id)]))}
+                      disabled={visibleStores.length === 0}
+                      className="text-[10px] font-semibold text-primary hover:underline disabled:opacity-40">Select all shown</button>
+                    <button onClick={() => setSel(new Set())} disabled={sel.size === 0}
+                      className="text-[10px] font-semibold text-muted-foreground hover:underline disabled:opacity-40">Clear</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Ticked stores hidden by the current filter still count — say so
+                  rather than let a filter quietly shrink someone's booking. */}
+              {chosen.some((c) => !visibleStores.some((v) => v.id === c.id)) && (
+                <p className="text-[10px] text-amber-600">
+                  {chosen.filter((c) => !visibleStores.some((v) => v.id === c.id)).length} selected store(s) are hidden by the current filter and will still be booked.
                 </p>
               )}
 
@@ -1259,6 +1503,8 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                 <div className="space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
               ) : slotStores.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">No stores are in slot mode.</p>
+              ) : visibleStores.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No store matches these filters.</p>
               ) : (
                 <div className="rounded-xl border border-border max-h-72 overflow-y-auto divide-y divide-border">
                   {[...byCity.entries()].map(([city, cityStores]) => {
@@ -1267,28 +1513,40 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                       <div key={city}>
                         <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5">
                           <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{city}</p>
-                          <button
-                            onClick={() => setSel((s) => {
-                              const next = new Set(s);
-                              cityStores.forEach((st) => { if (allOn) next.delete(st.id); else next.add(st.id); });
-                              return next;
-                            })}
-                            className="text-[10px] font-semibold text-primary hover:underline">
-                            {allOn ? 'Clear' : 'Select all'}
-                          </button>
+                          {scope === 'multi' && (
+                            <button
+                              onClick={() => setSel((s) => {
+                                const next = new Set(s);
+                                cityStores.forEach((st) => { if (allOn) next.delete(st.id); else next.add(st.id); });
+                                return next;
+                              })}
+                              className="text-[10px] font-semibold text-primary hover:underline">
+                              {allOn ? 'Clear' : 'Select all'}
+                            </button>
+                          )}
                         </div>
                         {cityStores.map((s) => {
                           const { free, cap } = freeSummary(s);
                           const preferred = campaign?.preferredStores?.some((p) => p.id === s.id);
                           return (
                             <label key={s.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/20">
-                              <input type="checkbox" checked={sel.has(s.id)} onChange={() => toggleStore(s.id)} className="h-3.5 w-3.5 accent-primary" />
+                              <input
+                                type={scope === 'single' ? 'radio' : 'checkbox'}
+                                name={scope === 'single' ? 'bulk-store' : undefined}
+                                checked={sel.has(s.id)} onChange={() => toggleStore(s.id)}
+                                className="h-3.5 w-3.5 accent-primary" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-[11px] font-semibold text-foreground truncate">
                                   {s.storeName}
+                                  <span className="ml-1.5 rounded border border-border bg-muted/50 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    {TIER_LABEL[(s.slotPricingTier as SlotTier)] ?? s.slotPricingTier}
+                                  </span>
                                   {preferred && <span className="ml-1.5 rounded bg-primary/10 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-primary">brand pick</span>}
                                 </p>
-                                <p className="text-[9px] text-muted-foreground">{s.loopSlotCount} slots/loop · {s.hoursStart}–{s.hoursEnd}</p>
+                                <p className="text-[9px] text-muted-foreground truncate">
+                                  {[s.locality, s.pincode].filter(Boolean).join(' · ')}
+                                  {(s.locality || s.pincode) ? ' · ' : ''}{s.loopSlotCount} slots/loop · {s.hoursStart}–{s.hoursEnd}
+                                </p>
                               </div>
                               <span className={`text-[10px] font-semibold ${free === 0 ? 'text-primary' : 'text-green-700'}`}>{free}/{cap} free</span>
                             </label>
@@ -1304,7 +1562,66 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
 
           {step === 3 && (
             <>
+              {/* Automatic or hand-picked positions. Both end in the same request —
+                  manual just names the head position of each play. */}
+              <div className="flex gap-2">
+                {([
+                  { key: 'auto'   as const, label: 'Automatic', icon: Wand2, hint: 'lowest free slots each day' },
+                  { key: 'manual' as const, label: 'Choose slots', icon: Hand, hint: 'these loop positions, every day' },
+                ]).map(({ key, label, icon: Icon, hint }) => {
+                  const on = alloc === key;
+                  return (
+                    <button key={key} onClick={() => setAlloc(key)}
+                      className={`flex flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+                        on ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/20'
+                      }`}>
+                      <Icon className={`h-4 w-4 shrink-0 ${on ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-bold ${on ? 'text-primary' : 'text-foreground'}`}>{label}</span>
+                        <span className="block text-[9px] text-muted-foreground">{hint}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {alloc === 'manual' && (
+                <div className="rounded-xl border border-border bg-background p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      Loop positions · 1–{maxLoop}
+                    </p>
+                    <button onClick={() => setPositions(new Set())} disabled={positions.size === 0}
+                      className="text-[10px] font-semibold text-muted-foreground hover:underline disabled:opacity-40">Clear</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {Array.from({ length: maxLoop }, (_, i) => i).map((pos) => {
+                      const picked  = positions.has(pos);
+                      // Covered = a later slot of a picked multi-slot window.
+                      const covered = !picked && [...positions].some((p) => pos > p && pos < p + bookSpan);
+                      return (
+                        <button key={pos} onClick={() => togglePosition(pos)} disabled={covered}
+                          title={covered ? 'Part of the window above it' : undefined}
+                          className={`h-7 w-8 rounded-md border text-[10px] font-bold transition-colors ${
+                            picked  ? 'border-primary bg-primary text-white'
+                            : covered ? 'border-primary/30 bg-primary/10 text-primary/70 cursor-default'
+                            : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                          }`}>{pos + 1}</button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {positions.size === 0
+                      ? 'Pick at least one position.'
+                      : `${positions.size} position${positions.size === 1 ? '' : 's'} per day${bookSpan > 1 ? ` — each takes ${bookSpan} consecutive slots (${bookSpan * 10}s ad)` : ''}.`}
+                    {' '}A position already sold on a given day is reported as a gap, never overwritten.
+                    {chosen.some((c) => (c.loopSlotCount ?? 0) < maxLoop) && ' Stores with a shorter loop will miss the positions past their end.'}
+                  </p>
+                </div>
+              )}
+
               <div className="flex items-center gap-3 flex-wrap">
+                {alloc === 'auto' && (
                 <div>
                   {/* Slots, not plays: one slot is a position in a single loop pass,
                       and the pass repeats all day (see loopRepeatsPerDay). No play
@@ -1317,6 +1634,7 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                     <p className="mt-1 text-[10px] text-amber-700">{bookSpan * 10}s ad — each play takes {bookSpan} consecutive slots</p>
                   )}
                 </div>
+                )}
                 <div className="flex-1 text-[11px] text-muted-foreground pt-4">
                   <span className="font-semibold text-foreground">{campaign?.brandName}</span> · {chosen.length} store{chosen.length === 1 ? '' : 's'} · {dates.length} day{dates.length === 1 ? '' : 's'} ·
                   est. <span className="font-semibold text-green-700"> {bookSpan > 1 ? '≤' : ''}{estimate.will} booked</span>
@@ -1347,8 +1665,8 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
                         {dates.map((d) => {
                           const sold = s.sold?.[d];
                           if (sold == null) return <td key={d} className="px-1 py-1 text-center text-[9px] text-muted-foreground/40">—</td>;
-                          const take = Math.min(perDay, Math.floor(Math.max(0, s.loopSlotCount! - sold) / bookSpan));
-                          const cls = take === perDay ? 'bg-green-50 text-green-800 border-green-200'
+                          const take = Math.min(effectivePerDay, Math.floor(Math.max(0, s.loopSlotCount! - sold) / bookSpan));
+                          const cls = take === effectivePerDay ? 'bg-green-50 text-green-800 border-green-200'
                                     : take > 0        ? 'bg-amber-50 text-amber-800 border-amber-200'
                                     :                   'bg-primary/10 text-primary border-primary/30';
                           return (
@@ -1364,6 +1682,7 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
               </div>
               <p className="text-[10px] text-muted-foreground">
                 Each cell = slots this request will book that day (grey — = closed). Positions already held by this campaign count toward the target, so re-running never double-books.
+                {previewOnly && ` Showing the first ${PREVIEW_DAYS} days of a ${rangeDays}-day booking.`}
               </p>
             </>
           )}
@@ -1388,10 +1707,10 @@ function BulkBookingWizard({ campaigns, defaultFrom, onCampaignUpdate, onClose, 
               </button>
             )}
             {step === 3 && (
-              <button onClick={book} disabled={busy || chosen.length === 0}
+              <button onClick={book} disabled={busy || chosen.length === 0 || (alloc === 'manual' && positions.size === 0)}
                 className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-40">
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarPlus className="h-3.5 w-3.5" />}
-                Book what fits
+                {alloc === 'manual' ? 'Book these slots' : 'Book what fits'}
               </button>
             )}
           </div>

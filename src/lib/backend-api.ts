@@ -195,8 +195,22 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     window.location.reload();
   }
   if (!res.ok) {
-    const msg = await res.text().catch(() => `HTTP ${res.status}`);
-    throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status });
+    // Error bodies on this API are JSON ({ error, …context }). Surfacing the raw
+    // text put `{"error":"No slots could be booked — …"}` in front of an operator,
+    // braces and all; and the context a route sends alongside the message (the gap
+    // list a refused bulk booking returns) was unreachable because the thrown Error
+    // carried only a string. Parse once here: `message` is the sentence, `body` is
+    // whatever else the route said.
+    const raw = await res.text().catch(() => '');
+    let msg = raw, body: unknown = null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        body = parsed;
+        if (typeof (parsed as { error?: unknown }).error === 'string') msg = (parsed as { error: string }).error;
+      }
+    } catch { /* not JSON — the text is the message */ }
+    throw Object.assign(new Error(msg || `HTTP ${res.status}`), { status: res.status, body });
   }
   const body = await res.json();
   // A 200 whose body is null carries nothing a caller can use, and `null.field`
@@ -643,6 +657,7 @@ export const sendDeviceCommand = (id: string, type: 'reboot' | 'health_ping') =>
 
 export type SlotStore = {
   id: string; storeName: string; city: string | null;
+  locality: string | null; pincode: string | null;
   loopSlotCount: number | null; openDays: number;
   hoursStart: string; hoursEnd: string;
   fillerCreativeId: string | null;
@@ -731,7 +746,11 @@ export type BulkAssignResult = {
 
 export const bulkAssignSlots = (body: {
   campaignId: string; storeIds: string[]; from: string; to: string;
-  daysOfWeek?: number; slotsPerDay: number;
+  daysOfWeek?: number; slotsPerDay?: number;
+  /** Manual allocation: book exactly these loop positions (0-based) each day
+   *  instead of letting the planner pick the lowest free run. Occupied runs are
+   *  reported as gaps, never overwritten. Omit for automatic allocation. */
+  positions?: number[];
 }) => apiFetch<BulkAssignResult>('/api/slots/bookings/bulk', { method: 'POST', body: JSON.stringify(body) });
 
 /** Creates a bookable campaign without the customer onboarding funnel.
@@ -812,6 +831,34 @@ export const updateSlotPlan = (body: { id: string; slotsPerDay?: number; active?
 
 export const deleteSlotPlan = (id: string) =>
   apiFetch<{ ok: boolean }>(`/api/admin/slot-plans?id=${id}`, { method: 'DELETE' });
+
+// ─── Campaign slot status ("where is it playing?") ───────────────────────────
+
+export type CampaignSlotSummary = {
+  onAir: boolean;           // holding at least one slot on today's IST date
+  storesToday: number;
+  slotsToday: number;       // slot ROWS today (a 30s window counts 3)
+  storesUpcoming: number;   // stores booked on a later date
+  slotsUpcoming: number;
+  firstDate: string | null; // earliest booked date from today onward
+  lastDate:  string | null;
+};
+
+export type CampaignPlayingStore = {
+  storeId: string; storeName: string;
+  locality: string | null; city: string | null;
+  tier: string; loopSlotCount: number | null;
+  slots: number[];          // 1-based loop positions held today
+};
+
+/** Summaries for every campaign with bookings from today onward. */
+export const getCampaignSlotSummaries = () =>
+  apiFetch<{ today: string; summaries: Record<string, CampaignSlotSummary> }>('/api/slots/campaign-status');
+
+/** One campaign's summary plus the stores playing it today. */
+export const getCampaignSlotStatus = (campaignId: string) =>
+  apiFetch<{ today: string; summary: CampaignSlotSummary; playingToday: CampaignPlayingStore[] }>(
+    `/api/slots/campaign-status?campaignId=${encodeURIComponent(campaignId)}`);
 
 export const copySlotDay = (body: {
   sourceStoreId: string; sourceDate: string; storeIds?: string[];
