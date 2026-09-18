@@ -37,9 +37,22 @@ eq('plan outranks the bonus round-robin',
   sources(buildSlotLoop(3, [booking(0, 'A')], FILLER, 0, new Map(), [plan('P', 1)])),
   ['sold', 'plan', 'bonus']);
 
-eq('plan outranks house filler when nothing is sold',
+// Ruling (2026-09-16): a position left over once a plan's own daily quota is spent,
+// with nothing sold to bonus from either, replays the plan's own ad rather than
+// falling to house filler. A real store with one 5-play plan and no sales otherwise
+// played its 5 ads once per 5-minute loop and then sat on a single repeated house
+// clip for the remaining 25 positions — correct by "never dark," but read as if the
+// booking had silently stopped working. House filler is the true last resort now:
+// used only when there is neither a sale nor any plan creative left to fall back on.
+eq('plan reuse fills the leftover position instead of house filler',
   shape(buildSlotLoop(3, [], FILLER, 0, new Map(), [plan('P', 2)])),
-  ['0:P:plan', '1:P:plan', '2:house:filler']);
+  ['0:P:plan', '1:P:plan', '2:P:plan']);
+
+// Even with NO filler configured at all, plan reuse still stops the position going
+// dark — it used to be silently omitted (zero entries beyond the quota).
+eq('plan reuse fills the leftover position even with no filler configured',
+  shape(buildSlotLoop(3, [], null, 0, new Map(), [plan('P', 2)])),
+  ['0:P:plan', '1:P:plan', '2:P:plan']);
 
 // The load-bearing invariant.
 eq('a fully sold loop yields the plan nothing',
@@ -50,10 +63,13 @@ eq('plan quota is capped by its slotsPerDay, remainder goes to bonus',
   sources(buildSlotLoop(5, [booking(0, 'A')], FILLER, 0, new Map(), [plan('P', 1)])),
   ['sold', 'plan', 'bonus', 'bonus', 'bonus']);
 
-// Two plans take turns, so one greedy plan cannot eat the whole tail.
-eq('multiple plans interleave rather than draining in order',
+// Two plans take turns, so one greedy plan cannot eat the whole tail. The 5th
+// position is past both plans' quota (2+2=4) and nothing is sold or filler-backed
+// here either, so it now falls to plan-reuse overflow (P again) instead of being
+// silently omitted, per the same ruling as above.
+eq('multiple plans interleave, then overflow reuses one of them for the rest',
   shape(buildSlotLoop(5, [], null, 0, new Map(), [plan('P', 2), plan('Q', 2)])),
-  ['0:P:plan', '1:Q:plan', '2:P:plan', '3:Q:plan']);
+  ['0:P:plan', '1:Q:plan', '2:P:plan', '3:Q:plan', '4:P:plan']);
 
 eq('an exhausted plan yields to the one with quota left',
   shape(buildSlotLoop(4, [], null, 0, new Map(), [plan('P', 1), plan('Q', 3)])),
