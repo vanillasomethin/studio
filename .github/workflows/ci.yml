@@ -13,11 +13,13 @@
 # include is ["**/*.ts", "**/*.tsx"], so they sit outside the type-checked set
 # regardless of allowJs. Executing them is the only thing that proves they work.
 #
-# Runner: tsx, not `node --experimental-strip-types`. src/lib imports its
-# siblings without file extensions (`import { db } from './db'`) — fine for the
-# Next bundler, unresolvable by Node's own ESM loader, which fails
-# verify-pop-periods and verify-tier-links with ERR_MODULE_NOT_FOUND. tsx
-# resolves them and runs on Node 20 and 22 alike.
+# Runner: `node --experimental-strip-types`, the form every suite's own header
+# documents. It used to be tsx, but tsx 4.20.5 on Node 22.22 fails to load the
+# src/lib .ts modules at all ("does not provide an export named ..."), so every
+# suite died before its first check. Node's loader does no extensionless
+# resolution, so a src/lib module a suite reaches must import its siblings with
+# an explicit './foo.ts' (tsconfig sets allowImportingTsExtensions; the Next
+# bundler resolves it either way). Needs Node >= 22.6 — Node 20 rejects the flag.
 #
 # NOTE: this job deliberately has NO DATABASE_URL, and must not be given one.
 # verify-store-ids sweeps live Store rows when one is set and skips that section
@@ -48,7 +50,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - name: Install dependencies
@@ -92,7 +94,7 @@ jobs:
           failed=()
           for f in "${suites[@]}"; do
             echo "::group::$f"
-            if ./node_modules/.bin/tsx "$f"; then
+            if node --experimental-strip-types "$f"; then
               echo "--- ok"
             else
               echo "--- FAILED"

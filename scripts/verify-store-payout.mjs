@@ -15,11 +15,14 @@ import { join } from 'node:path';
 
 // The libs are TypeScript; compile the pure modules to a scratch dir. CommonJS,
 // not ESM — tsc emits the source's extension-less relative imports verbatim and
-// Node's ESM resolver rejects those, while require() resolves them fine.
+// Node's ESM resolver rejects those, while require() resolves them fine. Imports
+// that do carry a .ts extension (store-payout's, so the strip-types runner can
+// load it via pop-export) are rewritten to .js by --rewriteRelativeImportExtensions.
 const out = mkdtempSync(join(tmpdir(), 'payout-'));
 execSync(
   `npx tsc src/lib/store-payout.ts src/lib/slot-pricing.ts src/lib/power.ts ` +
-  `--outDir ${out} --module commonjs --target es2022 --moduleResolution node --skipLibCheck`,
+  `--outDir ${out} --module commonjs --target es2022 --moduleResolution node --skipLibCheck ` +
+  `--rewriteRelativeImportExtensions`,
   { stdio: 'inherit' },
 );
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');

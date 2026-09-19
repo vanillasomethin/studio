@@ -11,7 +11,7 @@
 // No key (or an unrecognised one) falls back to standard, so the plain /store
 // link keeps working exactly as before.
 
-import type { SlotTier } from './slot-pricing';
+import type { SlotTier } from './slot-pricing.ts';
 
 export const TIER_KEY_ENV: Record<SlotTier, string> = {
   standard: 'STORE_SIGNUP_KEY_STANDARD',
@@ -20,7 +20,7 @@ export const TIER_KEY_ENV: Record<SlotTier, string> = {
 };
 
 /** Re-exported from slot-pricing (the pure module) so there is one label map. */
-export { SLOT_TIER_LABEL as TIER_LABEL } from './slot-pricing';
+export { SLOT_TIER_LABEL as TIER_LABEL } from './slot-pricing.ts';
 
 /**
  * Resolves a signup key to its tier. Server-only — reads env.

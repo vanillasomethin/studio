@@ -29,10 +29,10 @@
 // Neither cadence nor R2 keys ever encode "now" — everything derives from the
 // period, so a re-run after a crash overwrites the same objects idempotently.
 
-import { db } from './db';
-import { monthWindow, istMonthKey } from './store-payout';
-import { putPrivateObject, headPrivateObject, isPrivateBucketConfigured } from './r2';
-import { notifyAdminWA } from './notify';
+import { db } from './db.ts';
+import { monthWindow, istMonthKey } from './store-payout.ts';
+import { putPrivateObject, headPrivateObject, isPrivateBucketConfigured } from './r2.ts';
+import { notifyAdminWA } from './notify.ts';
 
 export const PRUNE_LAG_DAYS = 45;
 // Well above the biggest period the current fleet can produce, far below what
