@@ -18,13 +18,13 @@
 // the paise. That identity is the contract with what partners have already been
 // shown; scripts/verify-store-payout.mjs pins it.
 
-import { estimateCostPaise } from './power';
+import { estimateCostPaise } from './power.ts';
 import {
   STORE_PAYOUT_BASE_PAISE,
   isSlotTier,
   storeSlotIncentivePaise,
   type SlotTier,
-} from './slot-pricing';
+} from './slot-pricing.ts';
 
 export type KwhSource = 'metered' | 'estimated';
 
