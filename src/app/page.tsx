@@ -28,25 +28,13 @@ const HERO_STATES: { state: HeroState; href: string; img: string; icon: string; 
   { state: 'consumer', href: '/deals',             img: '/india-street.jpg',         icon: '◈', audience: 'Audience 03', label: 'Get Deals as a Consumer' },
 ];
 
-const CITIES = [
-  { name: 'Delhi', live: false },
-  { name: 'Mumbai', live: true },
-  { name: 'Bengaluru', live: false },
-  { name: 'Chennai', live: false },
-  { name: 'Hyderabad', live: true },
-  { name: 'Pune', live: false },
-  { name: 'Kolkata', live: false },
-  { name: 'Ahmedabad', live: false },
-  { name: 'Mangalore', live: true },
-  { name: 'Jaipur', live: false },
-  { name: 'Lucknow', live: false },
-  { name: 'Indore', live: false },
-  { name: 'Coimbatore', live: true },
-  { name: 'Kochi', live: false },
-  { name: 'Mysore', live: false },
-  { name: 'Nagpur', live: false },
-  { name: 'Surat', live: false },
-  { name: 'Goa', live: true },
+// Real Mangaluru localities the network is actually in — pulled from the
+// curated store list in lib/advertise-network.ts. ALIVE is a single-city
+// pilot (see CLAUDE.md); this used to list Delhi/Mumbai/Hyderabad/Goa etc.
+// as "live", which was invented — there is no multi-city network yet.
+const LOCALITIES = [
+  'MG Road', 'Falnir', 'Bejai', 'Kadri', 'Kankanady', 'Urwa', 'Derebail',
+  'Hampankatta', 'Padavinangady', 'Bendoor', 'Marnamikatte', 'Katteyangadi', 'Mary Hill',
 ];
 
 function mediaUrl(slot: string, fallback: string, media: Record<string, string>) {
@@ -300,7 +288,7 @@ export default function Home() {
       {/* MARQUEE */}
       <div className="marquee-wrap">
         <div className="marquee">
-          <span>Parle <span className="star">●</span> Britannia <span className="star">●</span> <span className="out">Amul</span> <span className="star">●</span> Dabur <span className="star">●</span> ITC <span className="star">●</span> <span className="out">Tata Consumer</span> <span className="star">●</span> Marico <span className="star">●</span> Nestlé <span className="star">●</span> Parle <span className="star">●</span> Britannia <span className="star">●</span> <span className="out">Amul</span> <span className="star">●</span> Dabur <span className="star">●</span> ITC <span className="star">●</span> <span className="out">Tata Consumer</span> <span className="star">●</span> Marico <span className="star">●</span> Nestlé <span className="star">●</span></span>
+          <span>The Kissa <span className="star">●</span> Kere Pedals <span className="star">●</span> <span className="out">Fern</span> <span className="star">●</span> Zshan <span className="star">●</span> Fyture <span className="star">●</span> <span className="out">Tecfides</span> <span className="star">●</span> Hayat Tibb <span className="star">●</span> The Kissa <span className="star">●</span> Kere Pedals <span className="star">●</span> <span className="out">Fern</span> <span className="star">●</span> Zshan <span className="star">●</span> Fyture <span className="star">●</span> <span className="out">Tecfides</span> <span className="star">●</span> Hayat Tibb <span className="star">●</span></span>
         </div>
       </div>
 
@@ -528,10 +516,10 @@ export default function Home() {
 
         <div className="ticker">
           <div className="track">
-            {[...CITIES, ...CITIES].map((c, i) => (
+            {[...LOCALITIES, ...LOCALITIES].map((name, i) => (
               <span key={i}>
                 {i > 0 && <span className="tdot">●</span>}
-                <span className={c.live ? 'city-live' : ''}>{c.name}</span>
+                <span className="city-live">{name}</span>
               </span>
             ))}
           </div>
@@ -539,7 +527,7 @@ export default function Home() {
 
         <div className="bot">
           <div>© {ROMAN_YEAR} · VS Collective LLP</div>
-          <div className="mid">Live across India · 11 languages</div>
+          <div className="mid">Live in Mangaluru, Karnataka</div>
           <div className="end">
             <a href="/privacy-policy">Privacy</a><a href="#">Terms</a><a href="/delete-account">Delete my data</a><a href="#">Instagram</a><a href="#">LinkedIn</a>
           </div>

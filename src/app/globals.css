@@ -226,7 +226,7 @@ nav.nav .cta .cta-dot{width:6px;height:6px;border-radius:50%;background:#fff;}
 body.home-page section{position:relative;padding:0 32px;}
 /* Higher-specificity overrides for sections that need vertical padding */
 /* Padding is svh-capped here, not just on .hero below, because this selector wins. */
-body.home-page section.hero{position:sticky;top:0;padding-top:clamp(56px,7svh,108px);padding-bottom:clamp(28px,3.6svh,56px);}
+body.home-page section.hero{position:sticky;top:0;padding-top:clamp(40px,4.5svh,72px);padding-bottom:clamp(28px,3.6svh,56px);}
 body.home-page section.join{padding-top:140px;padding-bottom:100px;}
 @media(min-width:1101px){body.home-page section{padding-right:80px;}.proof,.join{padding-right:100px;}footer.f{padding-right:100px;}}
 
@@ -236,7 +236,7 @@ body.home-page section.join{padding-top:140px;padding-bottom:100px;}
    vertical measure below is therefore capped against svh: the block shrinks with
    the screen instead of pushing the three audience CTAs under the fold. Keep any
    new hero content inside that budget, or it is invisible on short viewports. */
-.hero{padding-bottom:clamp(28px,3.6svh,56px);padding-top:clamp(56px,7svh,108px);overflow:hidden;position:sticky;top:0;min-height:100svh;z-index:1;background:var(--bg);}
+.hero{padding-bottom:clamp(28px,3.6svh,56px);padding-top:clamp(40px,4.5svh,72px);overflow:hidden;position:sticky;top:0;min-height:100svh;z-index:1;background:var(--bg);}
 /* Under 1100px the hero grid stacks, so the phone mockup lands below the CTAs and the
    hero can never fit one screen. Release the sticky pin so the page just scrolls.
    Must match body.home-page section.hero above, or that rule's position:sticky wins. */
