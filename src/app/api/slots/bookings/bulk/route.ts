@@ -27,7 +27,8 @@
 import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
-import { istWeekday, isOpenOn, uniformSlotSpan, SlotCreativeMeta } from '@/lib/slots';
+import { istWeekday, uniformSlotSpan, SlotCreativeMeta } from '@/lib/slots';
+import { planBulkBookings, positionOverlapError, type PlannerMode } from '@/lib/slot-planner';
 import { pushPlanUpdated } from '@/lib/fcm';
 import { requireAdmin, adminUnauthorized } from '@/lib/admin-guard';
 import { logAdminAction } from '@/lib/admin-audit';
@@ -54,7 +55,6 @@ type Body = {
   sourceDate?: string;
 };
 
-type Gap          = { storeId: string; storeName: string; date: string; missed: number; reason: 'full' | 'partial' };
 type SkippedStore = { storeId: string; storeName: string; reason: 'not-found' | 'not-slot-mode' };
 
 const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -67,15 +67,6 @@ function expandDates(from: string, to: string, daysOfWeek: number): string[] {
   }
   return out;
 }
-
-// A planned play: the row set that must land together (1 row for a 10s ad).
-type PlannedPlay = {
-  storeId: string;
-  date: Date;
-  positions: number[];
-  campaignId: string;
-  spanId: string | null;   // null for single-slot plays (legacy row shape)
-};
 
 export async function POST(req: NextRequest) {
   const actor = await requireAdmin(req);
@@ -159,16 +150,8 @@ export async function POST(req: NextRequest) {
       const spanned = uniformSlotSpan(metas);
       if ('error' in spanned) return NextResponse.json({ error: spanned.error }, { status: 400 });
       assignSpan = spanned.span;
-      // A multi-slot ad asked for positions 4 and 5 would have its two windows
-      // overlap (4,5,6 and 5,6,7). Refuse up front — silently dropping the second
-      // play would look like an availability problem that ops cannot find.
-      for (let i = 1; i < chosenPositions.length; i++) {
-        if (chosenPositions[i] - chosenPositions[i - 1] < assignSpan) {
-          return NextResponse.json({
-            error: `This campaign occupies ${assignSpan} consecutive slots per play, so chosen positions must be at least ${assignSpan} apart — ${chosenPositions[i - 1] + 1} and ${chosenPositions[i] + 1} overlap`,
-          }, { status: 400 });
-        }
-      }
+      const overlap = positionOverlapError(chosenPositions, assignSpan);
+      if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
       assignCampaignId = campaign.id;
       targetStoreIds = [...new Set(body.storeIds)];
       auditTarget = campaign.id;
@@ -250,129 +233,31 @@ export async function POST(req: NextRequest) {
       },
       select: { storeId: true, date: true, slotPosition: true, campaignId: true, spanId: true },
     });
-    type TakenRow = { campaignId: string; spanId: string | null };
-    const takenByCell = new Map<string, Map<number, TakenRow>>(); // storeId|date → position → holder
-    for (const b of existing) {
-      const key = `${b.storeId}|${b.date.toISOString().slice(0, 10)}`;
-      const cell = takenByCell.get(key) ?? new Map<number, TakenRow>();
-      cell.set(b.slotPosition, { campaignId: b.campaignId, spanId: b.spanId });
-      takenByCell.set(key, cell);
-    }
+    const plannerMode: PlannerMode = mode === 'copy-day'
+      ? { kind: 'copy-day', units: sourceUnits, sourceStoreId: body.sourceStoreId!, sourceDate: body.sourceDate! }
+      : chosenPositions.length > 0
+        ? { kind: 'manual', campaignId: assignCampaignId, span: assignSpan, positions: chosenPositions }
+        : { kind: 'auto',   campaignId: assignCampaignId, span: assignSpan, slotsPerDay };
 
-    const plays: PlannedPlay[] = [];
-    const gaps: Gap[] = [];
-    let requested = 0, alreadySatisfied = 0, closedSkipped = 0;
-
-    for (const store of slotStores) {
-      const loopSlotCount = store.loopSlotCount!;
-      for (const date of dates) {
-        if (mode === 'copy-day' && store.id === body.sourceStoreId && date === body.sourceDate) continue;
-        if (!isOpenOn(store.openDays, date)) { closedSkipped++; continue; }
-
-        const taken = takenByCell.get(`${store.id}|${date}`) ?? new Map<number, TakenRow>();
-        const dateObj = new Date(`${date}T00:00:00Z`);
-        let bookedHere = 0, missedHere = 0;
-
-        if (mode === 'copy-day') {
-          requested += sourceUnits.length;
-          for (const unit of sourceUnits) {
-            if (unit.positions[unit.positions.length - 1] >= loopSlotCount) { missedHere++; continue; }
-            const holders = unit.positions.map((p) => taken.get(p));
-            // "Already satisfied" for a multi-slot unit means the target holds the
-            // same campaign as ONE placement across these positions — same-campaign
-            // scattered single rows are NOT the 30s window and must report as
-            // missed, not silently pass.
-            if (holders.every((h) => h?.campaignId === unit.campaignId)) {
-              const spanIds = new Set(holders.map((h) => h!.spanId));
-              if (unit.span === 1 || (spanIds.size === 1 && !spanIds.has(null))) { alreadySatisfied++; continue; }
-              missedHere++; continue;
-            }
-            if (holders.some((h) => h !== undefined)) { missedHere++; continue; }
-            plays.push({
-              storeId: store.id, date: dateObj,
-              positions: unit.positions, campaignId: unit.campaignId,
-              spanId: unit.span > 1 ? randomUUID() : null,
-            });
-            for (const p of unit.positions) taken.set(p, { campaignId: unit.campaignId, spanId: 'planned' });
-            bookedHere++;
-          }
-        } else if (chosenPositions.length > 0) {
-          // Manual allocation: each chosen position is the head of one play. No
-          // searching, no substituting a nearby free run — the operator picked
-          // these positions and a silent move is a booking they didn't make.
-          requested += chosenPositions.length;
-          for (const head of chosenPositions) {
-            if (head + assignSpan > loopSlotCount) { missedHere++; continue; }
-            const positions = Array.from({ length: assignSpan }, (_, i) => head + i);
-            const holders = positions.map((p) => taken.get(p));
-            if (holders.every((h) => h?.campaignId === assignCampaignId)) {
-              // Same campaign already here. For a multi-slot ad that only counts
-              // when the run is ONE placement — scattered single rows of the same
-              // campaign are not the window that was asked for.
-              const spanIds = new Set(holders.map((h) => h!.spanId));
-              if (assignSpan === 1 || (spanIds.size === 1 && !spanIds.has(null))) { alreadySatisfied++; continue; }
-              missedHere++; continue;
-            }
-            if (holders.some((h) => h !== undefined)) { missedHere++; continue; }
-            plays.push({
-              storeId: store.id, date: dateObj,
-              positions, campaignId: assignCampaignId,
-              spanId: assignSpan > 1 ? randomUUID() : null,
-            });
-            for (const p of positions) taken.set(p, { campaignId: assignCampaignId, spanId: 'planned' });
-            bookedHere++;
-          }
-        } else {
-          requested += slotsPerDay;
-          // Existing plays by this campaign count toward the daily target: one play
-          // per span group plus one per legacy single row.
-          const mySpanIds = new Set<string>();
-          let myPlays = 0;
-          for (const [pos, holder] of taken) {
-            if (holder.campaignId !== assignCampaignId || pos >= loopSlotCount) continue;
-            if (holder.spanId) {
-              if (!mySpanIds.has(holder.spanId)) { mySpanIds.add(holder.spanId); myPlays++; }
-            } else {
-              myPlays++;
-            }
-          }
-          const already = Math.min(myPlays, slotsPerDay);
-          alreadySatisfied += already;
-          let want = slotsPerDay - already;
-
-          // Lowest-first run allocation: place each play at the first run of
-          // `assignSpan` consecutive free positions.
-          for (let pos = 0; pos + assignSpan <= loopSlotCount && want > 0; pos++) {
-            let fits = true;
-            for (let i = 0; i < assignSpan; i++) {
-              if (taken.has(pos + i)) { fits = false; break; }
-            }
-            if (!fits) continue;
-            const positions = Array.from({ length: assignSpan }, (_, i) => pos + i);
-            plays.push({
-              storeId: store.id, date: dateObj,
-              positions, campaignId: assignCampaignId,
-              spanId: assignSpan > 1 ? randomUUID() : null,
-            });
-            for (const p of positions) taken.set(p, { campaignId: assignCampaignId, spanId: 'planned' });
-            bookedHere++;
-            want--;
-            pos += assignSpan - 1;
-          }
-          missedHere = want;
-        }
-
-        if (missedHere > 0) {
-          gaps.push({
-            storeId: store.id, storeName: store.storeName, date,
-            missed: missedHere, reason: bookedHere === 0 ? 'full' : 'partial',
-          });
-        }
-      }
-    }
+    const { plays, gaps, requested, alreadySatisfied, closedSkipped } = planBulkBookings({
+      stores: slotStores.map((s) => ({
+        id: s.id, storeName: s.storeName, loopSlotCount: s.loopSlotCount!, openDays: s.openDays,
+      })),
+      dates,
+      existing: existing.map((b) => ({
+        storeId:      b.storeId,
+        date:         b.date.toISOString().slice(0, 10),
+        slotPosition: b.slotPosition,
+        campaignId:   b.campaignId,
+        spanId:       b.spanId,
+      })),
+      mode:      plannerMode,
+      newSpanId: randomUUID,
+    });
 
     const rows = plays.flatMap((p) => p.positions.map((pos) => ({
-      storeId: p.storeId, date: p.date, slotPosition: pos, campaignId: p.campaignId, spanId: p.spanId,
+      storeId: p.storeId, date: new Date(`${p.date}T00:00:00Z`),
+      slotPosition: pos, campaignId: p.campaignId, spanId: p.spanId,
     })));
     if (rows.length > MAX_PLANNED) {
       return NextResponse.json({
